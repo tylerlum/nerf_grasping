@@ -1,0 +1,8 @@
+# Note: these are only requirements that are in addition to nerf_shared, for simplicity.
+
+#### Unversioned Requirements from PyPi ####
+scikit-image
+trimesh
+
+#### Packages from GitHub ####
+git+https://github.com/mmolero/pypoisson.git

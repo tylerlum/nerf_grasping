@@ -9,7 +9,7 @@ Neural Radiance Fields (NeRFs).
 #### Python Installation
 To install, first clone this repo, using
 ```
-    git clone --recurse-submodules https://github.com/pculbertson/nerf_grasping
+git clone --recurse-submodules https://github.com/pculbertson/nerf_grasping
 ```
 then follow the instructions [here](https://github.com/pculbertson/nerf_grasping)
 to install the `nerf_shared` python package and its dependencies.
@@ -39,3 +39,7 @@ Once you have access to the data, copy the following files:
 
 This should be all you need to run the example notebook!
 
+#### Other Setup
+
+An important note: you need to have Blender installed to run the mesh union/intersection
+operations required to compute the mesh IoU metric. You can do this per the instructions [here](https://docs.blender.org/manual/en/latest/getting_started/installing/linux.html).

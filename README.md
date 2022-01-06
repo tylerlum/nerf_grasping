@@ -11,7 +11,7 @@ To install, first clone this repo, using
 ```
 git clone --recurse-submodules https://github.com/pculbertson/nerf_grasping
 ```
-then follow the instructions [here](https://github.com/pculbertson/nerf_grasping)
+then follow the instructions [here](https://github.com/stanford-iprl-lab/nerf_shared/)
 to install the `nerf_shared` python package and its dependencies.
 
 Note: I made `nerf_shared` a submodule since it's still less-than-stable, and it

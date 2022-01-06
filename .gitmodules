@@ -1,0 +1,3 @@
+[submodule "nerf_shared"]
+	path = nerf_shared
+	url = https://github.com/stanford-iprl-lab/nerf_shared

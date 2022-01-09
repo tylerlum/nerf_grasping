@@ -74,7 +74,7 @@ cam_pos = gymapi.Vec3(2, 2, 2)
 cam_target = gymapi.Vec3(0, 0, 0)
 gym.viewer_camera_look_at(viewer, env, cam_pos, cam_target)
 
-
+gym.prepare_sim(sim)
 while not gym.query_viewer_has_closed(viewer):
     gym.simulate(sim)
     gym.fetch_results(sim, True)

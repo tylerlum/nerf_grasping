@@ -3,13 +3,13 @@ Module implementing some mesh utilities for NeRFs, including
 a wrapper for marching cubes and some IoU calculations.
 """
 import numpy as np
+import pypoisson
 import torch
 import trimesh
 
 from matplotlib import pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
-from pypoisson import poisson_reconstruction
 from skimage import measure
 
 def marching_cubes(nerf,
@@ -55,54 +55,98 @@ def marching_cubes(nerf,
 
     return verts, faces, normals, values
 
-def get_axis(lower=-0.25*np.ones(3), upper=0.25*np.ones(3), scale=1.1):
-    fig = plt.figure(figsize=(6,6))
-    ax = ax = Axes3D(fig)
-
-    # set plot view angle
-    ax.view_init(elev=30,azim=0)
-
-    ax.set_xlim(lower[0]*scale, upper[0]*scale)
-    ax.set_ylim(lower[1]*scale, upper[1]*scale)
-    ax.set_zlim(lower[2]*scale, upper[2]*scale)
-
-    return fig, ax
-
-def plot_mesh(ax, verts, faces):
+def poisson_mesh(mesh, depth=10, samples_per_node=5.):
     """
-    Plots a mesh on a desired 3D axis.
+    Performs Poisson reconstruction to generate a (hopefully) watertight
+    version of a mesh. Note that it can fail sometimes, so make sure to check output.
     """
-    ax.add_collection3d(Poly3DCollection(verts[faces]))
+    trimesh.repair.fix_inversion(mesh)
+    faces, verts = pypoisson.poisson_reconstruction(
+        np.array(mesh.triangles_center),
+        np.array(mesh.face_normals), depth=depth,
+        samples_per_node=samples_per_node)
+
+    return trimesh.Trimesh(verts, faces)
 
 def iou(x, y):
     """
     Computes the IoU
     """
-    intersection = trimesh.boolean.intersection([x,y], engine='blender')
-    union = trimesh.boolean.union([x,y], engine='blender')
-    int_normals = trimesh.geometry.weighted_vertex_normals(
-                len(intersection.vertices),
-                intersection.faces,
-                intersection.face_normals,
-                intersection.face_angles)
+    intersection = x.intersection(y, engine='scad')
+    union = x.union(y, engine='scad')
 
-    union_normals = trimesh.geometry.weighted_vertex_normals(
-                    len(union.vertices),
-                    union.faces,
-                    union.face_normals,
-                    union.face_angles)
+    trimesh.repair.fix_inversion(union)
+    trimesh.repair.fix_winding(union)
+    trimesh.repair.fix_inversion(intersection)
+    trimesh.repair.fix_winding(intersection)
 
-    union_faces, union_verts = poisson_reconstruction(union.vertices,
-                                                      union_normals, depth=5)
-    int_faces, int_verts = poisson_reconstruction(intersection.vertices,
-                                                  int_normals, depth=5)
-
-    union_poisson = trimesh.Trimesh(union_verts, union_faces)
-    int_poisson = trimesh.Trimesh(int_verts, int_faces)
+    union_poisson = poisson_mesh(union)
+    int_poisson = poisson_mesh(intersection)
 
     trimesh.repair.fix_inversion(union_poisson)
     trimesh.repair.fix_winding(union_poisson)
     trimesh.repair.fix_inversion(int_poisson)
     trimesh.repair.fix_winding(int_poisson)
 
-    return int_poisson.volume / union_poisson.volume
+    print(int_poisson.is_watertight, union_poisson.is_watertight)
+
+    success = int_poisson.is_watertight and union_poisson.is_watertight
+
+    return int_poisson.volume / union_poisson.volume, success
+
+def plot_density_contours(nerf,
+                          level=0.,
+                          plane='xy',
+                          urange=np.linspace(-0.25, 0.25, num=500),
+                          vrange=np.linspace(-0.25, 0.25, num=500),
+                          ax=None,
+                          log_scale=False,
+                          colorbar=True):
+    """
+    Generates a contour plot in an x-y plane of a NeRF's density channel
+    over a desired range.
+
+    Args:
+        nerf: a nerf_shared.NeRF object whose density will be plotted.
+        z_level: the z-coordinate of the plane to be plotted.
+        xrange: a numpy array defining the x coordinates to be queried.
+        yrange: a numpy array defining the y coordinates to be queried.
+        ax: (optional) argument allowing plotting on a predefined pyplot axis.
+    """
+    if not ax:
+        fig, ax = plt.subplots(figsize=(10,10))
+
+    if plane == 'xy':
+        X, Y = np.meshgrid(urange, vrange)
+        Z = level * np.ones_like(X)
+    elif plane == 'yz':
+        Y, Z = np.meshgrid(urange, vrange)
+        X = level * np.ones_like(Y)
+    elif plane == 'zx':
+        Z, X = np.meshgrid(urange, vrange)
+        Y = level * np.ones_like(Z)
+    else:
+        raise ValueError('plane must be \'xy\', \'yz\', or \'zx\'.')
+
+    device, dtype = next(nerf.parameters()).device, next(nerf.parameters()).dtype
+
+    query_points = torch.from_numpy(np.stack([X,Y,Z], axis=-1)).to(device, dtype)
+
+    densities = torch.nn.ReLU()(nerf.get_density(query_points))
+
+    if log_scale:
+        levels = np.logspace(-1, 2.7, num=25)
+    else:
+        levels = np.linspace(0.1, 500, num=25)
+
+    if plane == 'xy':
+        c = ax.contour(X, Y, densities.cpu().numpy(), levels=levels)
+    elif plane == 'yz':
+        c = ax.contour(Y, Z, densities.cpu().numpy(), levels=levels)
+    elif plane == 'zx':
+        c = ax.contour(Z, X, densities.cpu().numpy(), levels=levels)
+
+    if colorbar:
+        plt.colorbar(c)
+
+    return ax

@@ -130,3 +130,7 @@ dmypy.json
 
 # Teddy Bear model
 teddy_bear/
+
+# mac specific files
+.DS_Store
+

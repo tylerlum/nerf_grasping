@@ -70,7 +70,7 @@ def poisson_mesh(mesh, depth=10, samples_per_node=5.):
 
 def iou(x, y):
     """
-    Computes the IoU
+    Computes the IoU of two meshes.
     """
     intersection = x.intersection(y, engine='scad')
     union = x.union(y, engine='scad')
@@ -88,34 +88,21 @@ def iou(x, y):
     trimesh.repair.fix_inversion(int_poisson)
     trimesh.repair.fix_winding(int_poisson)
 
-    print(int_poisson.is_watertight, union_poisson.is_watertight)
-
     success = int_poisson.is_watertight and union_poisson.is_watertight
 
     return int_poisson.volume / union_poisson.volume, success
 
-def plot_density_contours(nerf,
-                          level=0.,
-                          plane='xy',
-                          urange=np.linspace(-0.25, 0.25, num=500),
-                          vrange=np.linspace(-0.25, 0.25, num=500),
-                          ax=None,
-                          log_scale=False,
-                          colorbar=True):
+def get_query_points(plane, urange, vrange, level):
     """
-    Generates a contour plot in an x-y plane of a NeRF's density channel
-    over a desired range.
+    Helper function that gets a set of query points in a plane.
 
     Args:
-        nerf: a nerf_shared.NeRF object whose density will be plotted.
-        z_level: the z-coordinate of the plane to be plotted.
-        xrange: a numpy array defining the x coordinates to be queried.
-        yrange: a numpy array defining the y coordinates to be queried.
-        ax: (optional) argument allowing plotting on a predefined pyplot axis.
+        plane: string specifying which plane to query, can be 'xy', 'yz', or 'zx'.
+        urange: numpy array with entries to query in first plane axis.
+        vrange: numpy array "" second plane axis.
+        level: the coordinate of the plane along its normal (e.g., for plane='xy', and
+            level=5., all coordinates will have z=5.
     """
-    if not ax:
-        fig, ax = plt.subplots(figsize=(10,10))
-
     if plane == 'xy':
         X, Y = np.meshgrid(urange, vrange)
         Z = level * np.ones_like(X)
@@ -128,9 +115,37 @@ def plot_density_contours(nerf,
     else:
         raise ValueError('plane must be \'xy\', \'yz\', or \'zx\'.')
 
-    device, dtype = next(nerf.parameters()).device, next(nerf.parameters()).dtype
+    return torch.from_numpy(np.stack([X,Y,Z], axis=-1)), (X, Y, Z)
 
-    query_points = torch.from_numpy(np.stack([X,Y,Z], axis=-1)).to(device, dtype)
+def plot_density_contours(nerf,
+                          level=0.,
+                          plane='xy',
+                          urange=np.linspace(-0.25, 0.25, num=500),
+                          vrange=np.linspace(-0.25, 0.25, num=500),
+                          ax=None,
+                          log_scale=False,
+                          colorbar=True):
+    """
+    Generates a contour plot in a desired plane of a NeRF's density channel
+    over a desired range.
+
+    Args:
+        nerf: a nerf_shared.NeRF object whose density will be plotted.
+        level: the z-coordinate of the plane to be plotted.
+        urange: a numpy array defining the coordinates to be queried in the first axis.
+        vrange: a numpy array "" the second axis.
+        ax: (optional) argument allowing plotting on a predefined pyplot axis.
+        log_scale: boolean flagging if the contours should be sampled in log scale.
+        colorbar: boolean flag to add colorbar to the plot.
+    """
+    if not ax:
+        fig, ax = plt.subplots(figsize=(10,10))
+
+    device, dtype = next(nerf.parameters()).device, next(nerf.parameters()).dtype
+    query_points, (X, Y, Z) = get_query_points(plane, urange,
+                                               vrange, level)
+
+    query_points = query_points.to(device, dtype)
 
     densities = torch.nn.ReLU()(nerf.get_density(query_points))
 
@@ -148,5 +163,123 @@ def plot_density_contours(nerf,
 
     if colorbar:
         plt.colorbar(c)
+
+    return ax
+
+def pixel_plot(nerf,
+               level=0.,
+               plane='xy',
+               urange=np.linspace(-0.25, 0.25, num=500),
+               vrange=np.linspace(-0.25, 0.25, num=500),
+               ax=None,
+               colorbar=True):
+    """
+    Generates a pixel plot in a desired plane of a NeRF's density channel
+    over a desired range.
+
+    Args:
+        nerf: a nerf_shared.NeRF object whose density will be plotted.
+        level: the z-coordinate of the plane to be plotted.
+        urange: a numpy array defining the coordinates to be queried in the first axis.
+        vrange: a numpy array "" the second axis.
+        ax: (optional) argument allowing plotting on a predefined pyplot axis.
+        colorbar: boolean flag to add colorbar to the plot.
+    """
+    if not ax:
+        fig, ax = plt.subplots(figsize=(10,10))
+
+    device, dtype = next(nerf.parameters()).device, next(nerf.parameters()).dtype
+    query_points, _ = get_query_points(
+        plane, urange, vrange, level)
+
+    query_points = query_points.to(device, dtype)
+
+    densities = torch.nn.ReLU()(nerf.get_density(query_points))
+
+    c = ax.imshow(densities.cpu().numpy(), origin='lower')
+    if colorbar:
+        plt.colorbar(c)
+
+    return ax
+
+def gradient_norm_plot(nerf,
+                       level=0.,
+                       plane='xy',
+                       urange=np.linspace(-0.25, 0.25, num=500),
+                       vrange=np.linspace(-0.25, 0.25, num=500),
+                       ax=None,
+                       colorbar=True):
+    """
+    Plots the gradient norm, sampled in a desired plane.
+
+    Args:
+        nerf: a nerf_shared.NeRF object whose density will be plotted.
+        level: the z-coordinate of the plane to be plotted.
+        urange: a numpy array defining the coordinates to be queried in the first axis.
+        vrange: a numpy array "" the second axis.
+        ax: (optional) argument allowing plotting on a predefined pyplot axis.
+        colorbar: boolean flag to add colorbar to the plot.
+    """
+    if not ax:
+        fig, ax = plt.subplots(figsize=(10,10))
+
+    device, dtype = next(nerf.parameters()).device, next(nerf.parameters()).dtype
+    query_points, (X, Y, Z) = get_query_points(
+        plane, urange, vrange, level)
+
+    query_points = query_points.to(device, dtype)
+
+    query_points.requires_grad = True
+
+    densities = torch.nn.ReLU()(nerf.get_density(query_points))
+
+    density_grads = torch.autograd.grad(torch.sum(densities), query_points)[0]
+    grad_norms = torch.log(torch.norm(density_grads, dim=-1))
+
+    c = ax.imshow(grad_norms.cpu().numpy(), origin='lower')
+    if colorbar:
+        plt.colorbar(c)
+
+    return ax
+
+def gradient_plot(nerf,
+                       level=0.,
+                       plane='xy',
+                       urange=np.linspace(-0.25, 0.25, num=500),
+                       vrange=np.linspace(-0.25, 0.25, num=500),
+                       ax=None,
+                       colorbar=True):
+    """
+    Generates a quiver plot of the NeRF density gradients, in a desired plane.
+
+    Args:
+        nerf: a nerf_shared.NeRF object whose density will be plotted.
+        level: the z-coordinate of the plane to be plotted.
+        urange: a numpy array defining the coordinates to be queried in the first axis.
+        vrange: a numpy array "" the second axis.
+        ax: (optional) argument allowing plotting on a predefined pyplot axis.
+        colorbar: boolean flag to add colorbar to the plot.
+    """
+    if not ax:
+        fig, ax = plt.subplots(figsize=(10,10))
+
+    device, dtype = next(nerf.parameters()).device, next(nerf.parameters()).dtype
+    query_points, (X, Y, Z) = get_query_points(
+        plane, urange, vrange, level)
+
+    query_points = query_points.to(device, dtype)
+
+    query_points.requires_grad = True
+
+    densities = torch.nn.ReLU()(nerf.get_density(query_points))
+
+    density_grads = torch.autograd.grad(torch.sum(densities), query_points)[0]
+    grad_norms = torch.norm(density_grads, dim=-1)
+    grad_norms = torch.where(grad_norms < 1e-2, 1e-2*torch.ones_like(grad_norms), grad_norms)
+    density_dirs = (density_grads / (grad_norms[..., None])).cpu()
+
+
+    if plane == 'xy':
+        c = ax.quiver(X, Y, density_dirs[..., 0], density_dirs[..., 1], grad_norms.cpu())
 
     return ax

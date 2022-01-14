@@ -75,6 +75,7 @@ class TriFingerEnv:
         self.env = env # used only when there is one env
         self.envs = [env]
 
+        #TODO asset setup and adding to enviroment should be seperated
         self.setup_robot(env)
         self.setup_stage(env)
         self.setup_object(env)
@@ -110,7 +111,58 @@ class TriFingerEnv:
         asset_options.thickness = 0.001
 
         robot_asset = self.gym.load_asset(self.sim, asset_dir, robot_urdf_file, asset_options)
-        self.gym.create_actor(env, robot_asset, gymapi.Transform(), "Trifinger", 0, 0)
+
+        trifinger_props = self.gym.get_asset_rigid_shape_properties(robot_asset)
+        for p in trifinger_props:
+            p.friction = 1.0
+            p.torsion_friction = 1.0
+            p.restitution = 0.8
+        self.gym.set_asset_rigid_shape_properties(robot_asset, trifinger_props)
+
+        fingertips_frames = ["finger_tip_link_0", "finger_tip_link_120", "finger_tip_link_240"]
+        self.fingertips_frames = {}
+
+        for frame_name in fingertips_frames:
+            frame_handle = self.gym.find_asset_rigid_body_index(robot_asset, frame_name)
+            assert frame_handle != gymapi.INVALID_HANDLE
+            self.fingertips_frames[frame_name] = frame_handle
+
+        robot_dof_names = []
+        for finger_pos in ['0', '120', '240']:
+            robot_dof_names += [f'finger_base_to_upper_joint_{finger_pos}',
+                                f'finger_upper_to_middle_joint_{finger_pos}',
+                                f'finger_middle_to_lower_joint_{finger_pos}']
+
+        self.dofs = {}
+        for dof_name in robot_dof_names:
+            dof_handle = self.gym.find_asset_dof_index(robot_asset, dof_name)
+            assert dof_handle != gymapi.INVALID_HANDLE
+            self.dofs[dof_name] = dof_handle
+
+        max_torque_Nm = 0.36
+        # maximum joint velocity (in rad/s) on each actuator
+        max_velocity_radps = 10
+
+        self.robot_actor = self.gym.create_actor(env, robot_asset, gymapi.Transform(), "Trifinger", 0, 0)
+
+        robot_dof_props = self.gym.get_asset_dof_properties(robot_asset)
+        for k, dof_index in enumerate(self.dofs.values()):
+            # note: since safety checks are employed, the simulator PD controller is not
+            #       used. Instead the torque is computed manually and applied, even if the
+            #       command mode is 'position'.
+            robot_dof_props['driveMode'][dof_index] = gymapi.DOF_MODE_EFFORT
+            robot_dof_props['stiffness'][dof_index] = 0.0
+            robot_dof_props['damping'][dof_index] = 0.0
+            # set dof limits
+            robot_dof_props['effort'][dof_index] = max_torque_Nm
+            robot_dof_props['velocity'][dof_index] = max_velocity_radps
+            # joint limits 
+            robot_dof_props['lower'][dof_index] = float(([-0.33, 0.0, -2.7] * 3)[k])
+            robot_dof_props['upper'][dof_index] = float(([ 1.0,  1.57, 0.0] * 3)[k])
+            #TODO make this read from strcuture
+
+        self.gym.set_actor_dof_properties(env, self.robot_actor, robot_dof_props)
+
 
     def setup_object(self, env):
         asset_dir = 'assets'

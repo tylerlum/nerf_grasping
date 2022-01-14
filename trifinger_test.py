@@ -8,7 +8,7 @@ from PIL import Image
 from pathlib import Path
 import shutil
 
-from isaacgym import gymapi, gymutil
+from isaacgym import gymapi, gymutil#, gymtorch
 
 import matplotlib.pyplot as plt
 
@@ -55,7 +55,8 @@ class TriFingerEnv:
         # sim_params.flex.relaxation = 0.8
         # sim_params.flex.warm_start = 0.5
 
-        sim_params.use_gpu_pipeline = True
+        # sim_params.use_gpu_pipeline = True
+        sim_params.use_gpu_pipeline = False
         self.sim = self.gym.create_sim(self.args.compute_device_id,
                                        self.args.graphics_device_id,
                                        self.args.physics_engine,
@@ -191,11 +192,9 @@ class TriFingerEnv:
         self.viewer = self.gym.create_viewer(self.sim, gymapi.CameraProperties())
         assert self.viewer != None
 
-        cam_pos = gymapi.Vec3(0.5, 0.5, 0.7)
-        # cam_pos = gymapi.Vec3(1, 1, 1.5)
+        cam_pos = gymapi.Vec3(0.8, 0.2, 0.9)
         cam_target = gymapi.Vec3(0, 0, 0.2)
-        # self.gym.viewer_camera_look_at(self.viewer, self.env, cam_pos, cam_target)
-        self.gym.viewer_camera_look_at(self.viewer, self.env, gymapi.Vec3(1,1,1.5), gymapi.Vec3(0,0,0))
+        self.gym.viewer_camera_look_at(self.viewer, self.env, cam_pos, cam_target)
 
     def setup_cameras(self, env):
         camera_props = gymapi.CameraProperties()
@@ -271,8 +270,18 @@ class TriFingerEnv:
         pass
 
     def do_robot_action(self, action):
-        pass
+        applied_torque = np.array([ action * 0.3, 0.3 , -0.3,
+                                    0.0, 0.0, 0.0,
+                                    0.0, 0.0, 0.0], dtype=np.float32)
 
+#         applied_torque = gymapi.Tensor([ 0.0, 0.9,-0.0,
+#                                     0.0, 0.0, 0.3,
+#                                     0.0, 0.0, 0.0])
+
+        # self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(applied_torque))
+        # self.gym.set_dof_actuation_force_tensor(self.sim, applied_torque)
+        # self.gym.set_dof_actuation_force_tensor(self.sim, applied_torque)
+        self.gym.apply_actor_dof_efforts(self.env, self.robot_actor, applied_torque)
 
     def step_gym(self):
         self.gym.simulate(self.sim)
@@ -289,11 +298,18 @@ class TriFingerEnv:
 if __name__ == "__main__":
     tf = TriFingerEnv()
 
+    direction = 1
+    count = 0
     while not tf.gym.query_viewer_has_closed(tf.viewer):
+        count += 1
+        if count == 100:
+            print("flip")
+            direction = - direction
+            count = 0
 
         # prototype of inerface
         # tf.get_robot_state()
-        # tf.do_robot_action(None)
+        tf.do_robot_action(direction)
 
         tf.step_gym()
 
@@ -302,7 +318,7 @@ if __name__ == "__main__":
     # for _ in range(10000):
     #     tf.step_gym()
 
-    tf.save_images("/home/mikadam/Desktop/test")
+    # tf.save_images("/home/mikadam/Desktop/test")
 
 
 

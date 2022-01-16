@@ -16,9 +16,10 @@ import matplotlib.pyplot as plt
 
 class TriFingerEnv:
 
-    def __init__(self, viewer = True):
+    def __init__(self, viewer = True, robot=True):
         self.args = gymutil.parse_arguments( description="Trifinger test",)
         self.gym = gymapi.acquire_gym()
+        self.robot = robot
 
         self.setup_sim()
         self.setup_envs()
@@ -63,6 +64,16 @@ class TriFingerEnv:
                                        sim_params)
         assert self.sim != None
 
+
+
+        intensity = gymapi.Vec3( 0.3, 0.3, 0.3)
+        ambient   = gymapi.Vec3( 0.5, 0.5, 0.5)
+
+        self.gym.set_light_parameters(self.sim, 0, intensity, ambient, gymapi.Vec3( 0.5, 1,  1))
+        self.gym.set_light_parameters(self.sim, 1, intensity, ambient, gymapi.Vec3( 1, 0,  1))
+        self.gym.set_light_parameters(self.sim, 2, intensity, ambient, gymapi.Vec3( 0.5, -1,  1))
+        self.gym.set_light_parameters(self.sim, 3, intensity, ambient, gymapi.Vec3( 0, 0,  1))
+
     def setup_envs(self):
         plane_params = gymapi.PlaneParams()
         plane_params.normal = gymapi.Vec3(0, 0, 1) # z-up!
@@ -77,7 +88,8 @@ class TriFingerEnv:
         self.envs = [env]
 
         #TODO asset setup and adding to enviroment should be seperated
-        self.setup_robot(env)
+        if self.robot:
+            self.setup_robot(env)
         self.setup_stage(env)
         self.setup_object(env)
         self.setup_cameras(env)
@@ -203,19 +215,25 @@ class TriFingerEnv:
         camera_props.height = 400
         
         # generates cameara positions along rings around object
-        heights   = [0.3, 0.9, 1.]
-        distances = [0.4, 0.5, 0.1]
-        counts    = [5,   6,    1]
+        heights   = [0.6, 0.3, 0.9, 1.]
+        distances = [0.25, 0.4, 0.5, 0.1]
+        counts    = [7,   13,   12,    1]
+        target_z  = [0.0, 0.1,0.2, 0.1]
+
+        # heights   = [0.3, 0.9, 1.]
+        # distances = [0.4, 0.5, 0.1]
+        # counts    = [6,   5,    1]
+        # target_z  = [0.1,0.1, 0.1]
 
         camera_positions = []
-        for h,d,c in zip(heights, distances, counts):
+        for h,d,c,z in zip(heights, distances, counts, target_z):
             for alpha in np.linspace(0, 2*np.pi, c, endpoint=False):
-                camera_positions.append( [d* np.sin(alpha), d*np.cos(alpha), h] )
+                camera_positions.append( ([d* np.sin(alpha), d*np.cos(alpha), h], z) )
 
         self.camera_handles = []
-        for pos in camera_positions:
+        for pos,z in camera_positions:
             camera_handle = self.gym.create_camera_sensor(env, camera_props)
-            self.gym.set_camera_location(camera_handle, env, gymapi.Vec3(*pos), gymapi.Vec3(0,0,0.1))
+            self.gym.set_camera_location(camera_handle, env, gymapi.Vec3(*pos), gymapi.Vec3(0,0,z))
 
             self.camera_handles.append(camera_handle)
 
@@ -267,7 +285,8 @@ class TriFingerEnv:
         pass
 
     def get_robot_state(self):
-        pass
+        dof_states = self.gym.get_actor_dof_states(self.env, self.robot_actor, gymapi.STATE_ALL)
+        print(dof_states)
 
     def do_robot_action(self, action):
         applied_torque = np.array([ action * 0.3, 0.3 , -0.3,
@@ -294,8 +313,16 @@ class TriFingerEnv:
             self.gym.sync_frame_time(self.sim)
 
 
+def get_nerf_training():
+    tf = TriFingerEnv(robot = False)
 
-if __name__ == "__main__":
+    # for _ in range(500):
+    while not tf.gym.query_viewer_has_closed(tf.viewer):
+        tf.step_gym()
+
+    # tf.save_images("/home/mikadam/Desktop/test")
+
+def run_robot_control():
     tf = TriFingerEnv()
 
     direction = 1
@@ -308,20 +335,17 @@ if __name__ == "__main__":
             count = 0
 
         # prototype of inerface
-        # tf.get_robot_state()
+        tf.get_robot_state()
         tf.do_robot_action(direction)
 
         tf.step_gym()
 
     print("closed!")
 
-    # for _ in range(10000):
-    #     tf.step_gym()
 
-    # tf.save_images("/home/mikadam/Desktop/test")
-
-
-
+if __name__ == "__main__":
+    get_nerf_training()
+    # run_robot_control()
 
 
 

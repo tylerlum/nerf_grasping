@@ -45,8 +45,8 @@ class TriFingerEnv:
         sim_params = gymapi.SimParams()
         sim_params.dt = dt = 1.0 / 60.0
 
-        # sim_params.up_axis = gymapi.UP_AXIS_Z
-        # sim_params.gravity = gymapi.Vec3(0.0, 0.0, -9.8)
+        sim_params.up_axis = gymapi.UP_AXIS_Z
+        sim_params.gravity = gymapi.Vec3(0.0, 0.0, -9.8)
 
         sim_params.physx.solver_type = 1
         sim_params.physx.num_position_iterations = 6
@@ -267,11 +267,8 @@ class TriFingerEnv:
 
             color_image = self.gym.get_camera_image(self.sim, self.env, camera_handle, gymapi.IMAGE_DEPTH)
             color_image = -color_image.reshape(400,400) # distance in units I think
-            print(color_image.max())
-            print(color_image.min())
             color_image = (np.clip(color_image, 0.0, 1.0) * 255).astype(np.uint8)
             Image.fromarray(color_image).convert("L").save(path / f"dep_{i}.png")
-            print(i)
 
             transform = self.gym.get_camera_transform(self.sim, self.env, camera_handle)
 
@@ -340,17 +337,17 @@ class TriFingerEnv:
 
 
 def get_nerf_training():
-    tf = TriFingerEnv(viewer=False, robot = False, obj=True)
+    # tf = TriFingerEnv(viewer=False, robot = False, obj=True)
 
     # for _ in range(500):
     # # while not tf.gym.query_viewer_has_closed(tf.viewer):
     #     tf.step_gym()
     #     tf.get_object_pose()
 
-    tf.save_images("/media/data/mikadam/outputs/test", overwrite=True)
+    # tf.save_images("/media/data/mikadam/outputs/test", overwrite=True)
 
-    # blank = TriFingerEnv(robot = False, obj=False)
-    # blank.save_images("/media/data/mikadam/outputs/blank", overwrite=True)
+    blank = TriFingerEnv(viewer=False, robot = False, obj=False)
+    blank.save_images("/media/data/mikadam/outputs/blank", overwrite=True)
 
 def run_robot_control():
     tf = TriFingerEnv(robot = True)

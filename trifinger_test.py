@@ -1,7 +1,10 @@
 
+from calendar import c
+from ipaddress import collapse_addresses
 import os
 import json
 import math
+from turtle import color
 import numpy as np
 # import mathutils
 from PIL import Image
@@ -11,18 +14,21 @@ import shutil
 from isaacgym import gymapi, gymutil#, gymtorch
 
 import matplotlib.pyplot as plt
+from pyparsing import col
 
 # https://github.com/NVIDIA-Omniverse/IsaacGymEnvs
 
+
+# def get_fixed_camera_transfrom(camera)
+
 class TriFingerEnv:
 
-    def __init__(self, viewer = True, robot=True):
+    def __init__(self, viewer = True, robot=True, obj = True):
         self.args = gymutil.parse_arguments( description="Trifinger test",)
         self.gym = gymapi.acquire_gym()
-        self.robot = robot
 
         self.setup_sim()
-        self.setup_envs()
+        self.setup_envs(robot = robot,  obj = obj)
 
         if viewer:
             self.setup_viewer()
@@ -39,14 +45,15 @@ class TriFingerEnv:
         sim_params = gymapi.SimParams()
         sim_params.dt = dt = 1.0 / 60.0
 
-        sim_params.up_axis = gymapi.UP_AXIS_Z
-        sim_params.gravity = gymapi.Vec3(0.0, 0.0, -9.8)
+        # sim_params.up_axis = gymapi.UP_AXIS_Z
+        # sim_params.gravity = gymapi.Vec3(0.0, 0.0, -9.8)
 
         sim_params.physx.solver_type = 1
         sim_params.physx.num_position_iterations = 6
         sim_params.physx.num_velocity_iterations = 0
         sim_params.physx.num_threads = self.args.num_threads
         sim_params.physx.use_gpu = self.args.use_gpu
+        # sim_params.physx.use_gpu = True
 
         # allows for non-convex objects but has other issues
         # self.args.physics_engine = gymapi.SIM_FLEX
@@ -66,15 +73,17 @@ class TriFingerEnv:
 
 
 
-        intensity = gymapi.Vec3( 0.3, 0.3, 0.3)
-        ambient   = gymapi.Vec3( 0.5, 0.5, 0.5)
+        intensity = 0.01
+        ambient = 21.0
+        intensity = gymapi.Vec3( intensity, intensity, intensity)
+        ambient   = gymapi.Vec3( ambient, ambient, ambient)
 
         self.gym.set_light_parameters(self.sim, 0, intensity, ambient, gymapi.Vec3( 0.5, 1,  1))
         self.gym.set_light_parameters(self.sim, 1, intensity, ambient, gymapi.Vec3( 1, 0,  1))
         self.gym.set_light_parameters(self.sim, 2, intensity, ambient, gymapi.Vec3( 0.5, -1,  1))
         self.gym.set_light_parameters(self.sim, 3, intensity, ambient, gymapi.Vec3( 0, 0,  1))
 
-    def setup_envs(self):
+    def setup_envs(self, robot, obj):
         plane_params = gymapi.PlaneParams()
         plane_params.normal = gymapi.Vec3(0, 0, 1) # z-up!
         self.gym.add_ground(self.sim, plane_params)
@@ -88,10 +97,12 @@ class TriFingerEnv:
         self.envs = [env]
 
         #TODO asset setup and adding to enviroment should be seperated
-        if self.robot:
+        if robot:
             self.setup_robot(env)
         self.setup_stage(env)
-        self.setup_object(env)
+        if obj:
+            self.setup_object(env)
+
         self.setup_cameras(env)
 
 
@@ -110,7 +121,7 @@ class TriFingerEnv:
         asset_options.thickness = 0.001
 
         stage_asset = self.gym.load_asset(self.sim, asset_dir, stage_urdf_file, asset_options)
-        self.gym.create_actor(env, stage_asset, gymapi.Transform(), "Stage", 0, 0)
+        self.gym.create_actor(env, stage_asset, gymapi.Transform(), "Stage", 0, 0, segmentationId=1)
 
     def setup_robot(self, env):
         asset_dir = 'assets'
@@ -156,7 +167,7 @@ class TriFingerEnv:
         # maximum joint velocity (in rad/s) on each actuator
         max_velocity_radps = 10
 
-        self.robot_actor = self.gym.create_actor(env, robot_asset, gymapi.Transform(), "Trifinger", 0, 0)
+        self.robot_actor = self.gym.create_actor(env, robot_asset, gymapi.Transform(), "Trifinger", 0, 0, segmentationId=5)
 
         robot_dof_props = self.gym.get_asset_dof_properties(robot_asset)
         for k, dof_index in enumerate(self.dofs.values()):
@@ -194,11 +205,9 @@ class TriFingerEnv:
         asset_options.vhacd_params.max_convex_hulls = 10
         asset_options.vhacd_params.max_num_vertices_per_ch = 16
 
-        sphere_asset = self.gym.create_sphere(self.sim, 0.1, asset_options)
         teady_bear_asset = self.gym.load_asset(self.sim, asset_dir, teady_bear_file, asset_options)
 
-        # gym.create_actor(env, sphere_asset, gymapi.Transform(p=gymapi.Vec3(0., 0., 1.)), "sphere", 0, 0)
-        self.gym.create_actor(env, teady_bear_asset, gymapi.Transform(p=gymapi.Vec3(0., 0., 0.1)), "teady bear", 0, 0)
+        self.teady = self.gym.create_actor(env, teady_bear_asset, gymapi.Transform(p=gymapi.Vec3(0., 0., 0.1)), "teady bear", 0, 0, segmentationId=2)
 
     def setup_viewer(self):
         self.viewer = self.gym.create_viewer(self.sim, gymapi.CameraProperties())
@@ -220,11 +229,6 @@ class TriFingerEnv:
         counts    = [7,   13,   12,    1]
         target_z  = [0.0, 0.1,0.2, 0.1]
 
-        # heights   = [0.3, 0.9, 1.]
-        # distances = [0.4, 0.5, 0.1]
-        # counts    = [6,   5,    1]
-        # target_z  = [0.1,0.1, 0.1]
-
         camera_positions = []
         for h,d,c,z in zip(heights, distances, counts, target_z):
             for alpha in np.linspace(0, 2*np.pi, c, endpoint=False):
@@ -237,23 +241,37 @@ class TriFingerEnv:
 
             self.camera_handles.append(camera_handle)
 
-    def save_images(self, folder):
+    def save_images(self, folder, overwrite = False):
         self.gym.render_all_camera_sensors(self.sim)
 
         path = Path(folder)
 
         if path.exists():
             print(path, "already exists!")
-            if input("Clear it before continuing? [y/N]:").lower() == "y":
+            if overwrite:
+                shutil.rmtree(path)
+            elif input("Clear it before continuing? [y/N]:").lower() == "y":
                 shutil.rmtree(path)
 
         path.mkdir()
 
         for i,camera_handle in enumerate(self.camera_handles):
             color_image = self.gym.get_camera_image(self.sim, self.env, camera_handle, gymapi.IMAGE_COLOR)
-            color_image = color_image.reshape(400,400,4)
+            color_image = color_image.reshape(400,400,-1)
+            Image.fromarray(color_image).save(path / f"col_{i}.png")
 
-            Image.fromarray(color_image).save(path / f"{i}.png")
+
+            color_image = self.gym.get_camera_image(self.sim, self.env, camera_handle, gymapi.IMAGE_SEGMENTATION)
+            color_image = color_image.reshape(400,400) * 30
+            Image.fromarray(color_image, "I").convert("L").save(path / f"seg_{i}.png")
+
+            color_image = self.gym.get_camera_image(self.sim, self.env, camera_handle, gymapi.IMAGE_DEPTH)
+            color_image = -color_image.reshape(400,400) # distance in units I think
+            print(color_image.max())
+            print(color_image.min())
+            color_image = (np.clip(color_image, 0.0, 1.0) * 255).astype(np.uint8)
+            Image.fromarray(color_image).convert("L").save(path / f"dep_{i}.png")
+            print(i)
 
             transform = self.gym.get_camera_transform(self.sim, self.env, camera_handle)
 
@@ -267,7 +285,7 @@ class TriFingerEnv:
             # output = transform.transform_points( identity )
             # matrix = mathutils.Matrix.LocRotScale(transform.p , mathutils.Quaternion(transform.q) , None)
 
-            with open(path / f"{i}.txt", "w+") as f:
+            with open(path / f"quat_{i}.txt", "w+") as f:
                 # f.write( str(matrix) )
                 # json.dump([ [v.x, v.y, v.z] for v in output ], f)
 
@@ -282,11 +300,19 @@ class TriFingerEnv:
 
 
     def get_object_pose(self):
-        pass
+        transform = self.gym.get_rigid_transform(self.env, self.teady)
+        data = [transform.p.x, transform.p.y, transform.p.z, transform.r.x, transform.r.y, transform.r.z, transform.r.w]
+        print(data)
 
     def get_robot_state(self):
         dof_states = self.gym.get_actor_dof_states(self.env, self.robot_actor, gymapi.STATE_ALL)
-        print(dof_states)
+
+        jac = self.gym.acquire_jacobian_tensor(self.sim, "Trifinger")
+
+        jacobian[env_index, link_index, :, dof_index + 6]
+
+        # print(dof_states)
+        print(jac.shape)
 
     def do_robot_action(self, action):
         applied_torque = np.array([ action * 0.3, 0.3 , -0.3,
@@ -314,16 +340,20 @@ class TriFingerEnv:
 
 
 def get_nerf_training():
-    tf = TriFingerEnv(robot = False)
+    tf = TriFingerEnv(viewer=False, robot = False, obj=True)
 
     # for _ in range(500):
-    while not tf.gym.query_viewer_has_closed(tf.viewer):
-        tf.step_gym()
+    # # while not tf.gym.query_viewer_has_closed(tf.viewer):
+    #     tf.step_gym()
+    #     tf.get_object_pose()
 
-    # tf.save_images("/home/mikadam/Desktop/test")
+    tf.save_images("/media/data/mikadam/outputs/test", overwrite=True)
+
+    # blank = TriFingerEnv(robot = False, obj=False)
+    # blank.save_images("/media/data/mikadam/outputs/blank", overwrite=True)
 
 def run_robot_control():
-    tf = TriFingerEnv()
+    tf = TriFingerEnv(robot = True)
 
     direction = 1
     count = 0

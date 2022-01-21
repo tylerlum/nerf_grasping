@@ -212,7 +212,8 @@ class TriFingerEnv:
         # self.teady = self.gym.create_actor(env, teady_bear_asset, gymapi.Transform(p=gymapi.Vec3(0., 0., 0.1)), "teady bear", 0, 0, segmentationId=2)
 
         sphere_asset     = self.gym.create_sphere(self.sim, 0.1, asset_options)
-        self.teady = self.gym.create_actor(env, sphere_asset, gymapi.Transform(p=gymapi.Vec3(0., 0., 0.1)), "teady bear", 0, 0, segmentationId=2)
+        self.teady = self.gym.create_actor(env, sphere_asset, gymapi.Transform(p=gymapi.Vec3(0., 0., 0.105)), "teady bear", 0, 0, segmentationId=2)
+        self.gym.set_rigid_body_color(self.env, self.teady, 0 , gymapi.MESH_VISUAL, gymapi.Vec3(0.8, 0.2, 0.3))
 
     def setup_viewer(self):
         self.viewer = self.gym.create_viewer(self.sim, gymapi.CameraProperties())
@@ -361,14 +362,16 @@ class TriFingerEnv:
             count = count % 1000
 
             # mode = "pos"
-            if count < 600:
+            if count < 400:
                 mode = "pos"
-            else:
+            elif count < 900:
                 mode = "vel"
+            else:
+                mode = "up"
 
             print(count, mode)
 
-            pos_target = rot_matrix_finger @ torch.Tensor([0.0 , 0.15, 0.1])
+            pos_target = rot_matrix_finger @ torch.Tensor([0.0 , 0.15, 0.09])
             if mode == "pos":
                 # PD controller in xyz space
                 pos_error = tip_pos - pos_target
@@ -385,7 +388,7 @@ class TriFingerEnv:
                 start_point = pos_target
                 normal      = rot_matrix_finger @ torch.Tensor([0.0 , -0.05, 0])
                 target_vel  = 0.05
-                max_force   = 0.3
+                max_force   = 0.5
 
                 normal /= normal.norm()
 
@@ -400,6 +403,11 @@ class TriFingerEnv:
                 parallel_xyz_force = torch.clamp(parallel_xyz_force_mag, -max_force, max_force)
 
                 xyz_force = parallel_xyz_force * normal + perp_xyz_force
+
+            elif mode == "up":
+                # example. will probably need to be more sofisticated
+                xyz_force = rot_matrix_finger @ torch.Tensor([0.0 , -0.4, 1.0])
+
             else:
                 assert False, "Unknown mode"
 
@@ -451,7 +459,7 @@ def get_nerf_training(viewer):
     blank.save_images("/media/data/mikadam/outputs/blank", overwrite=True)
 
 def run_robot_control(viewer):
-    tf = TriFingerEnv(viewer= viewer, robot = True, obj= False)
+    tf = TriFingerEnv(viewer= viewer, robot = True, obj= True)
 
     count = 0
     # for _ in range(500):

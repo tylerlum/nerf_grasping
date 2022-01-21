@@ -11,7 +11,7 @@ from PIL import Image
 from pathlib import Path
 import shutil
 
-from isaacgym import gymapi, gymutil#, gymtorch
+from isaacgym import gymapi, gymutil, gymtorch
 
 import matplotlib.pyplot as plt
 from pyparsing import col
@@ -133,6 +133,7 @@ class TriFingerEnv:
         asset_options.flip_visual_attachments = False
         asset_options.use_mesh_materials = True
         asset_options.thickness = 0.001
+        asset_options.disable_gravity = True # to make things easier
 
         robot_asset = self.gym.load_asset(self.sim, asset_dir, robot_urdf_file, asset_options)
 
@@ -302,14 +303,65 @@ class TriFingerEnv:
         print(data)
 
     def get_robot_state(self):
-        dof_states = self.gym.get_actor_dof_states(self.env, self.robot_actor, gymapi.STATE_ALL)
 
-        jac = self.gym.acquire_jacobian_tensor(self.sim, "Trifinger")
 
-        jacobian[env_index, link_index, :, dof_index + 6]
+
+        _mass_matrix = self.gym.acquire_mass_matrix_tensor(self.sim, "Trifinger")
+        mass_matrix = gymtorch.wrap_tensor(_mass_matrix)
+
+        # for fixed base
+        # jacobian[env_index, link_index - 1, :, dof_index]
+        _jac = self.gym.acquire_jacobian_tensor(self.sim, "Trifinger")
+        jacobian = gymtorch.wrap_tensor(_jac)
+
+        _dof_states = self.gym.acquire_dof_state_tensor(self.sim)
+        dof_states = gymtorch.wrap_tensor(_dof_states)
+
+        _rb_states = self.gym.acquire_rigid_body_state_tensor(self.sim)
+        rb_states = gymtorch.wrap_tensor(_rb_states)
+
+        self.gym.refresh_mass_matrix_tensors(self.sim)
+        self.gym.refresh_jacobian_tensors(self.sim)
+        self.gym.refresh_dof_state_tensor(self.sim)
+        self.gym.refresh_rigid_body_state_tensor(self.sim)
+
+
+        finger_pos = 0
+        robot_dof_names = [f'finger_base_to_upper_joint_{finger_pos}',
+                            f'finger_upper_to_middle_joint_{finger_pos}',
+                            f'finger_middle_to_lower_joint_{finger_pos}']
+
+        dof_idx = [self.gym.find_actor_dof_index(self.env, self.robot_actor, dof_name, gymapi.DOMAIN_SIM) for dof_name in robot_dof_names]
+        tip_index =  self.gym.find_actor_rigid_body_index(self.env, self.robot_actor, f"finger_tip_link_{finger_pos}", gymapi.DOMAIN_SIM)
+
+        local_jacobian = jacobian[0, tip_index - 1, :, dof_idx]
+        
+        print("jacobian", local_jacobian)
+        print("dof_states", dof_states[dof_idx, :])
+        print("rb_states", rb_states[tip_index, :] #
+
+        # robot_dof_names = []
+        # for finger_pos in ['0', '120', '240']:
+        #     robot_dof_names += [f'finger_base_to_upper_joint_{finger_pos}',
+        #                         f'finger_upper_to_middle_joint_{finger_pos}',
+        #                         f'finger_middle_to_lower_joint_{finger_pos}']
+
+        # self.dofs = {}
+        # for dof_name in robot_dof_names:
+        #     dof_handle = self.gym.find_asset_dof_index(robot_asset, dof_name)
+        #     assert dof_handle != gymapi.INVALID_HANDLE
+        #     self.dofs[dof_name] = dof_handle
+        # print(self.dofs)
+
+
+
+        # print(jac.shape)
+
+        # finger_jac = jacobian[0, self.fingertips_frames["finger_tip_link_0"] - 1, :, :3]
+        # print(finger_jac)
+
 
         # print(dof_states)
-        print(jac.shape)
 
     def do_robot_action(self, action):
         applied_torque = np.array([ action * 0.3, 0.3 , -0.3,
@@ -336,8 +388,8 @@ class TriFingerEnv:
             self.gym.sync_frame_time(self.sim)
 
 
-def get_nerf_training():
-    # tf = TriFingerEnv(viewer=False, robot = False, obj=True)
+def get_nerf_training(viewer):
+    # tf = TriFingerEnv(viewer=viewer, robot = False, obj=True)
 
     # for _ in range(500):
     # # while not tf.gym.query_viewer_has_closed(tf.viewer):
@@ -346,15 +398,16 @@ def get_nerf_training():
 
     # tf.save_images("/media/data/mikadam/outputs/test", overwrite=True)
 
-    blank = TriFingerEnv(viewer=False, robot = False, obj=False)
+    blank = TriFingerEnv(viewer=viewer, robot = False, obj=False)
     blank.save_images("/media/data/mikadam/outputs/blank", overwrite=True)
 
-def run_robot_control():
-    tf = TriFingerEnv(robot = True)
+def run_robot_control(viewer):
+    tf = TriFingerEnv(viewer= viewer, robot = True)
 
     direction = 1
     count = 0
-    while not tf.gym.query_viewer_has_closed(tf.viewer):
+    for _ in range(500):
+    # while not tf.gym.query_viewer_has_closed(tf.viewer):
         count += 1
         if count == 100:
             print("flip")
@@ -371,8 +424,8 @@ def run_robot_control():
 
 
 if __name__ == "__main__":
-    get_nerf_training()
-    # run_robot_control()
+    # get_nerf_training(viewer = False)
+    run_robot_control(viewer = False)
 
 
 

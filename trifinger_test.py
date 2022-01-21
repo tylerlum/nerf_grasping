@@ -14,7 +14,8 @@ import shutil
 from isaacgym import gymapi, gymutil, gymtorch
 
 import matplotlib.pyplot as plt
-from pyparsing import col
+
+import torch
 
 # https://github.com/NVIDIA-Omniverse/IsaacGymEnvs
 
@@ -73,8 +74,9 @@ class TriFingerEnv:
 
 
 
-        intensity = 0.01
-        ambient = 21.0
+        # intensity = 0.01 # for nerf generation
+        intensity = 0.4
+        ambient = 0.21 / intensity
         intensity = gymapi.Vec3( intensity, intensity, intensity)
         ambient   = gymapi.Vec3( ambient, ambient, ambient)
 
@@ -132,8 +134,7 @@ class TriFingerEnv:
         asset_options.fix_base_link = True
         asset_options.flip_visual_attachments = False
         asset_options.use_mesh_materials = True
-        asset_options.thickness = 0.001
-        asset_options.disable_gravity = True # to make things easier
+        # asset_options.disable_gravity = True # to make things easier
 
         robot_asset = self.gym.load_asset(self.sim, asset_dir, robot_urdf_file, asset_options)
 
@@ -302,10 +303,7 @@ class TriFingerEnv:
         data = [transform.p.x, transform.p.y, transform.p.z, transform.r.x, transform.r.y, transform.r.z, transform.r.w]
         print(data)
 
-    def get_robot_state(self):
-
-
-
+    def robot_control(self, count):
         _mass_matrix = self.gym.acquire_mass_matrix_tensor(self.sim, "Trifinger")
         mass_matrix = gymtorch.wrap_tensor(_mass_matrix)
 
@@ -325,7 +323,6 @@ class TriFingerEnv:
         self.gym.refresh_dof_state_tensor(self.sim)
         self.gym.refresh_rigid_body_state_tensor(self.sim)
 
-
         finger_pos = 0
         robot_dof_names = [f'finger_base_to_upper_joint_{finger_pos}',
                             f'finger_upper_to_middle_joint_{finger_pos}',
@@ -334,34 +331,64 @@ class TriFingerEnv:
         dof_idx = [self.gym.find_actor_dof_index(self.env, self.robot_actor, dof_name, gymapi.DOMAIN_SIM) for dof_name in robot_dof_names]
         tip_index =  self.gym.find_actor_rigid_body_index(self.env, self.robot_actor, f"finger_tip_link_{finger_pos}", gymapi.DOMAIN_SIM)
 
-        local_jacobian = jacobian[0, tip_index - 1, :, dof_idx]
+        # only care about tip position
+        local_jacobian = jacobian[0, tip_index - 1, :3, dof_idx]
         
+        # print("dof_states", dof_states[dof_idx, :])
+
+        tip_state = rb_states[tip_index, :]
+        # print("rb_states", tip_state[:3], tip_state[6:9]) #position, orientation, linear velocity, and angular velocity
+
+
+        direction = (count//100)%6
+        print(direction)
+
+        case = [ [ 0.0, 0.0, 2.0],
+                 [ 0.0, 0.0,-2.0],
+                 [ 0.0, 2.0, 0.0],
+                 [ 0.0,-2.0, 0.0],
+                 [ 2.0, 0.0, 0.0 ],
+                 [-2.0, 0.0, 0.0 ]]
+        # xyz_force = torch.Tensor( case[direction] )
+
+        # Kp = torch.Tensor([10.0, 10.0, 10.0])
+        # Kd =  torch.Tensor([0.1, 0.3, 0.001]) 
+
+        # print("Kp", local_jacobian @ Kp)
+        # print("Kd", local_jacobian @ Kd)
+
+        # pos_target = torch.Tensor([0.1*np.cos(2*np.pi*count/200) , 0.05, 0.1])
+        pos_target = torch.Tensor([0.0 , 0.05, 0.1])
+        pos_error = tip_state[:3] - pos_target
+
+        print("finger pos", tip_state[:3])
+        print("pos_target", pos_target)
+        print("pos erro", pos_error)
+
+        vel = tip_state[7:10]
+
+        xyz_force = - 5.0 * pos_error - 1.0 * vel
+
+        joint_torques = torch.t( local_jacobian ) @ xyz_force
+
+        applied_torque = torch.zeros((9))
+        applied_torque[dof_idx] = joint_torques
+
+        print("xyz_force", xyz_force)
+
         print("jacobian", local_jacobian)
-        print("dof_states", dof_states[dof_idx, :])
-        print("rb_states", rb_states[tip_index, :] #
 
-        # robot_dof_names = []
-        # for finger_pos in ['0', '120', '240']:
-        #     robot_dof_names += [f'finger_base_to_upper_joint_{finger_pos}',
-        #                         f'finger_upper_to_middle_joint_{finger_pos}',
-        #                         f'finger_middle_to_lower_joint_{finger_pos}']
-
-        # self.dofs = {}
-        # for dof_name in robot_dof_names:
-        #     dof_handle = self.gym.find_asset_dof_index(robot_asset, dof_name)
-        #     assert dof_handle != gymapi.INVALID_HANDLE
-        #     self.dofs[dof_name] = dof_handle
-        # print(self.dofs)
+        # print("applied_torque", applied_torque)
+        print("joint_torques", joint_torques)
+        print()
 
 
+        # applied_torque = torch.Tensor([ action * 0.3, 0.3 , -0.3,
+        #                             0.0, 0.0, 0.0,
+        #                             0.0, 0.0, 0.0])
 
-        # print(jac.shape)
-
-        # finger_jac = jacobian[0, self.fingertips_frames["finger_tip_link_0"] - 1, :, :3]
-        # print(finger_jac)
-
-
-        # print(dof_states)
+        self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(applied_torque))
+        # self.gym.apply_actor_dof_efforts(self.env, self.robot_actor, applied_torque)
 
     def do_robot_action(self, action):
         applied_torque = np.array([ action * 0.3, 0.3 , -0.3,
@@ -373,8 +400,6 @@ class TriFingerEnv:
 #                                     0.0, 0.0, 0.0])
 
         # self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(applied_torque))
-        # self.gym.set_dof_actuation_force_tensor(self.sim, applied_torque)
-        # self.gym.set_dof_actuation_force_tensor(self.sim, applied_torque)
         self.gym.apply_actor_dof_efforts(self.env, self.robot_actor, applied_torque)
 
     def step_gym(self):
@@ -402,21 +427,16 @@ def get_nerf_training(viewer):
     blank.save_images("/media/data/mikadam/outputs/blank", overwrite=True)
 
 def run_robot_control(viewer):
-    tf = TriFingerEnv(viewer= viewer, robot = True)
+    tf = TriFingerEnv(viewer= viewer, robot = True, obj= False)
 
-    direction = 1
     count = 0
-    for _ in range(500):
-    # while not tf.gym.query_viewer_has_closed(tf.viewer):
+    # for _ in range(500):
+    while not tf.gym.query_viewer_has_closed(tf.viewer):
         count += 1
-        if count == 100:
-            print("flip")
-            direction = - direction
-            count = 0
 
         # prototype of inerface
-        tf.get_robot_state()
-        tf.do_robot_action(direction)
+        tf.robot_control(count)
+        # tf.do_robot_action(direction)
 
         tf.step_gym()
 
@@ -425,7 +445,7 @@ def run_robot_control(viewer):
 
 if __name__ == "__main__":
     # get_nerf_training(viewer = False)
-    run_robot_control(viewer = False)
+    run_robot_control(viewer = True)
 
 
 

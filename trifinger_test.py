@@ -208,9 +208,11 @@ class TriFingerEnv:
         asset_options.vhacd_params.max_convex_hulls = 10
         asset_options.vhacd_params.max_num_vertices_per_ch = 16
 
-        teady_bear_asset = self.gym.load_asset(self.sim, asset_dir, teady_bear_file, asset_options)
+        # teady_bear_asset = self.gym.load_asset(self.sim, asset_dir, teady_bear_file, asset_options)
+        # self.teady = self.gym.create_actor(env, teady_bear_asset, gymapi.Transform(p=gymapi.Vec3(0., 0., 0.1)), "teady bear", 0, 0, segmentationId=2)
 
-        self.teady = self.gym.create_actor(env, teady_bear_asset, gymapi.Transform(p=gymapi.Vec3(0., 0., 0.1)), "teady bear", 0, 0, segmentationId=2)
+        sphere_asset     = self.gym.create_sphere(self.sim, 0.1, asset_options)
+        self.teady = self.gym.create_actor(env, sphere_asset, gymapi.Transform(p=gymapi.Vec3(0., 0., 0.1)), "teady bear", 0, 0, segmentationId=2)
 
     def setup_viewer(self):
         self.viewer = self.gym.create_viewer(self.sim, gymapi.CameraProperties())
@@ -325,80 +327,89 @@ class TriFingerEnv:
         self.gym.refresh_rigid_body_state_tensor(self.sim)
 
         applied_torque = torch.zeros((9))
-        finger_pos = 0
-        robot_dof_names = [f'finger_base_to_upper_joint_{finger_pos}',
-                            f'finger_upper_to_middle_joint_{finger_pos}',
-                            f'finger_middle_to_lower_joint_{finger_pos}']
+        # finger_pos = 0
 
-        dof_idx = [self.gym.find_actor_dof_index(self.env, self.robot_actor, dof_name, gymapi.DOMAIN_SIM) for dof_name in robot_dof_names]
-        tip_index =  self.gym.find_actor_rigid_body_index(self.env, self.robot_actor, f"finger_tip_link_{finger_pos}", gymapi.DOMAIN_SIM)
+        for finger_pos in [0, 120, 240]:
+            robot_dof_names = [f'finger_base_to_upper_joint_{finger_pos}',
+                                f'finger_upper_to_middle_joint_{finger_pos}',
+                                f'finger_middle_to_lower_joint_{finger_pos}']
 
-        # only care about tip position
-        local_jacobian = jacobian[0, tip_index - 1, :3, dof_idx]
-        
-        # print("dof_states", dof_states[dof_idx, :])
+            dof_idx = [self.gym.find_actor_dof_index(self.env, self.robot_actor, dof_name, gymapi.DOMAIN_SIM) for dof_name in robot_dof_names]
+            tip_index =  self.gym.find_actor_rigid_body_index(self.env, self.robot_actor, f"finger_tip_link_{finger_pos}", gymapi.DOMAIN_SIM)
 
-        tip_state = rb_states[tip_index, :]
-        # print("rb_states", tip_state[:3], tip_state[6:9]) #position, orientation, linear velocity, and angular velocity
+            # only care about tip position
+            local_jacobian = jacobian[0, tip_index - 1, :3, dof_idx]
+            
+            # print("dof_states", dof_states[dof_idx, :])
 
-        # pos_target = torch.Tensor([0.1*np.cos(2*np.pi*count/200) , 0.05, 0.1])
+            tip_state = rb_states[tip_index, :]
+            # print("rb_states", tip_state[:3], tip_state[6:9]) #position, orientation, linear velocity, and angular velocity
 
-        tip_pos = tip_state[:3]
-        tip_vel = tip_state[7:10]
+            # pos_target = torch.Tensor([0.1*np.cos(2*np.pi*count/200) , 0.05, 0.1])
 
-        print("finger pos", tip_pos)
+            tip_pos = tip_state[:3]
+            tip_vel = tip_state[7:10]
 
-        count = count % 1000
+            c = np.cos(2*np.pi * finger_pos / 360)
+            s = np.sin(2*np.pi * finger_pos / 360)
+            rot_matrix_finger = torch.Tensor([[ c, s, 0],
+                                              [-s, c, 0],
+                                              [ 0, 0, 1]])
 
-        # mode = "pos"
-        if count < 600:
-            mode = "pos"
-        else:
-            mode = "vel"
+            print("finger pos", tip_pos)
 
-        print(count, mode)
-        if mode == "pos":
-            # PD controller in xyz space
-            pos_target = torch.Tensor([0.0 , 0.05, 0.1])
-            pos_error = tip_pos - pos_target
+            count = count % 1000
 
-            print("pos_target", pos_target)
-            print("pos erro", pos_error)
+            # mode = "pos"
+            if count < 600:
+                mode = "pos"
+            else:
+                mode = "vel"
 
-            xyz_force = - 5.0 * pos_error - 1.0 * tip_vel
+            print(count, mode)
 
-        elif mode == "vel":
-            # define vector along which endeffector should close
-            # will be position controlled perpendicular to motion
-            # and velocity controlled along. Force along with clamped to prevent crushing
-            start_point = torch.Tensor([0.0 , 0.05, 0.1])
-            normal      = torch.Tensor([0.0 , -0.05, -0.05])
-            target_vel  = 0.05
-            max_force   = 0.3
+            pos_target = rot_matrix_finger @ torch.Tensor([0.0 , 0.15, 0.1])
+            if mode == "pos":
+                # PD controller in xyz space
+                pos_error = tip_pos - pos_target
 
-            normal /= normal.norm()
+                print("pos_target", pos_target)
+                print("pos erro", pos_error)
 
-            pos_relative = tip_pos - start_point
+                xyz_force = - 5.0 * pos_error - 1.0 * tip_vel
 
-            perp_xyz_force = - 5.0 * pos_relative - 1.0 * tip_vel
-            perp_xyz_force = perp_xyz_force - normal * normal.dot(perp_xyz_force)
+            elif mode == "vel":
+                # define vector along which endeffector should close
+                # will be position controlled perpendicular to motion
+                # and velocity controlled along. Force along with clamped to prevent crushing
+                start_point = pos_target
+                normal      = rot_matrix_finger @ torch.Tensor([0.0 , -0.05, 0])
+                target_vel  = 0.05
+                max_force   = 0.3
 
-            vel_error = normal.dot(tip_vel) - target_vel
+                normal /= normal.norm()
 
-            parallel_xyz_force_mag = -1.0 * vel_error
-            parallel_xyz_force = torch.clamp(parallel_xyz_force_mag, -max_force, max_force)
+                pos_relative = tip_pos - start_point
 
-            xyz_force = parallel_xyz_force * normal + perp_xyz_force
-        else:
-            assert False, "Unknown mode"
+                perp_xyz_force = - 5.0 * pos_relative - 1.0 * tip_vel
+                perp_xyz_force = perp_xyz_force - normal * normal.dot(perp_xyz_force)
 
-        joint_torques = torch.t( local_jacobian ) @ xyz_force
-        applied_torque[dof_idx] = joint_torques
+                vel_error = normal.dot(tip_vel) - target_vel
 
-        print("xyz_force", xyz_force)
-        print("jacobian", local_jacobian)
-        print("joint_torques", joint_torques)
-        print()
+                parallel_xyz_force_mag = -1.0 * vel_error
+                parallel_xyz_force = torch.clamp(parallel_xyz_force_mag, -max_force, max_force)
+
+                xyz_force = parallel_xyz_force * normal + perp_xyz_force
+            else:
+                assert False, "Unknown mode"
+
+            joint_torques = torch.t( local_jacobian ) @ xyz_force
+            applied_torque[dof_idx] = joint_torques
+
+            print("xyz_force", xyz_force)
+            print("jacobian", local_jacobian)
+            print("joint_torques", joint_torques)
+            print()
 
 
         self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(applied_torque))
@@ -440,7 +451,7 @@ def get_nerf_training(viewer):
     blank.save_images("/media/data/mikadam/outputs/blank", overwrite=True)
 
 def run_robot_control(viewer):
-    tf = TriFingerEnv(viewer= viewer, robot = True, obj= True)
+    tf = TriFingerEnv(viewer= viewer, robot = True, obj= False)
 
     count = 0
     # for _ in range(500):

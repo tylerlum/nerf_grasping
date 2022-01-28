@@ -19,8 +19,34 @@ import torch
 
 # https://github.com/NVIDIA-Omniverse/IsaacGymEnvs
 
+# grasp poitns
+# tensor([[ 0.0128, -0.0739, -0.0815],
+#     [-0.0380, -0.0607,  0.0463],
+#     [ 0.0466, -0.0137, -0.0653]], requires_grad=True)
+
 
 # def get_fixed_camera_transfrom(camera)
+
+class Robot:
+
+    dof_min = None
+    dof_max = None
+    dof_default = None
+
+    def __init__(self):
+        pass
+
+    def control(self):
+        pass
+
+    def position_control(self):
+        pass
+
+    def vel_control_force_limit(self):
+        pass
+
+    def object_control(self):
+        pass
 
 class TriFingerEnv:
 
@@ -160,7 +186,7 @@ class TriFingerEnv:
                                 f'finger_upper_to_middle_joint_{finger_pos}',
                                 f'finger_middle_to_lower_joint_{finger_pos}']
 
-        self.dofs = {}
+        self.dofs = {} #TODO fix asset vs actor index differnce
         for dof_name in robot_dof_names:
             dof_handle = self.gym.find_asset_dof_index(robot_asset, dof_name)
             assert dof_handle != gymapi.INVALID_HANDLE
@@ -171,6 +197,10 @@ class TriFingerEnv:
         max_velocity_radps = 10
 
         self.robot_actor = self.gym.create_actor(env, robot_asset, gymapi.Transform(), "Trifinger", 0, 0, segmentationId=5)
+
+
+        _dof_states = self.gym.acquire_dof_state_tensor(self.sim)
+        dof_states = gymtorch.wrap_tensor(_dof_states)
 
         robot_dof_props = self.gym.get_asset_dof_properties(robot_asset)
         for k, dof_index in enumerate(self.dofs.values()):
@@ -188,7 +218,10 @@ class TriFingerEnv:
             robot_dof_props['upper'][dof_index] = float(([ 1.0,  1.57, 0.0] * 3)[k])
             #TODO make this read from strcuture
 
-        self.gym.set_actor_dof_properties(env, self.robot_actor, robot_dof_props)
+            dof_states[dof_index, 0] = float(([-0.8, 1.2, -2.7] * 3)[k])
+            dof_states[dof_index, 1] = float(([0.0, 0.0, 0.0] * 3)[k])
+
+        self.gym.set_dof_state_tensor(self.sim, _dof_states)
 
 
     def setup_object(self, env):
@@ -208,12 +241,12 @@ class TriFingerEnv:
         asset_options.vhacd_params.max_convex_hulls = 10
         asset_options.vhacd_params.max_num_vertices_per_ch = 16
 
-        # teady_bear_asset = self.gym.load_asset(self.sim, asset_dir, teady_bear_file, asset_options)
-        # self.teady = self.gym.create_actor(env, teady_bear_asset, gymapi.Transform(p=gymapi.Vec3(0., 0., 0.1)), "teady bear", 0, 0, segmentationId=2)
+        teady_bear_asset = self.gym.load_asset(self.sim, asset_dir, teady_bear_file, asset_options)
+        self.teady = self.gym.create_actor(env, teady_bear_asset, gymapi.Transform(p=gymapi.Vec3(0., 0., 0.1)), "teady bear", 0, 0, segmentationId=2)
 
-        sphere_asset     = self.gym.create_sphere(self.sim, 0.1, asset_options)
-        self.teady = self.gym.create_actor(env, sphere_asset, gymapi.Transform(p=gymapi.Vec3(0., 0., 0.105)), "teady bear", 0, 0, segmentationId=2)
-        self.gym.set_rigid_body_color(self.env, self.teady, 0 , gymapi.MESH_VISUAL, gymapi.Vec3(0.8, 0.2, 0.3))
+        # sphere_asset     = self.gym.create_sphere(self.sim, 0.1, asset_options)
+        # self.teady = self.gym.create_actor(env, sphere_asset, gymapi.Transform(p=gymapi.Vec3(0., 0., 0.105)), "teady bear", 0, 0, segmentationId=2)
+        # self.gym.set_rigid_body_color(self.env, self.teady, 0 , gymapi.MESH_VISUAL, gymapi.Vec3(0.8, 0.2, 0.3))
 
     def setup_viewer(self):
         self.viewer = self.gym.create_viewer(self.sim, gymapi.CameraProperties())
@@ -357,6 +390,7 @@ class TriFingerEnv:
                                               [-s, c, 0],
                                               [ 0, 0, 1]])
 
+            print("dof state", dof_states[:, 0] )
             print("finger pos", tip_pos)
 
             count = count % 1000

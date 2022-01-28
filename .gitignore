@@ -134,3 +134,6 @@ teddy_bear/
 # mac specific files
 .DS_Store
 ._.DS_Store
+
+# vscode magic
+.vscode/

@@ -218,9 +218,13 @@ class TriFingerEnv:
             robot_dof_props['upper'][dof_index] = float(([ 1.0,  1.57, 0.0] * 3)[k])
             #TODO make this read from strcuture
 
+            #defaults
             dof_states[dof_index, 0] = float(([-0.8, 1.2, -2.7] * 3)[k])
             dof_states[dof_index, 1] = float(([0.0, 0.0, 0.0] * 3)[k])
 
+        self.gym.set_actor_dof_properties(env, self.robot_actor, robot_dof_props)
+
+        print("setting dof state")
         self.gym.set_dof_state_tensor(self.sim, _dof_states)
 
 
@@ -363,7 +367,13 @@ class TriFingerEnv:
         applied_torque = torch.zeros((9))
         # finger_pos = 0
 
-        for finger_pos in [0, 120, 240]:
+        grasp_points = np.array( [[ 0.035, 0.058, 0.101,],
+                                  [0.0, -0.048, 0.083,],
+                                  [-0.039, 0.058, 0.101,]], dtype=np.float32)
+
+        print(grasp_points.dtype)
+
+        for finger_index, finger_pos in enumerate([0, 120, 240]):
             robot_dof_names = [f'finger_base_to_upper_joint_{finger_pos}',
                                 f'finger_upper_to_middle_joint_{finger_pos}',
                                 f'finger_middle_to_lower_joint_{finger_pos}']
@@ -395,17 +405,18 @@ class TriFingerEnv:
 
             count = count % 1000
 
-            # mode = "pos"
-            if count < 400:
-                mode = "pos"
-            elif count < 900:
-                mode = "vel"
-            else:
-                mode = "up"
+            mode = "pos"
+            # if count < 400:
+            #     mode = "pos"
+            # elif count < 900:
+            #     mode = "vel"
+            # else:
+            #     mode = "up"
 
             print(count, mode)
 
-            pos_target = rot_matrix_finger @ torch.Tensor([0.0 , 0.15, 0.09])
+            # pos_target = rot_matrix_finger @ torch.Tensor([0.0 , 0.15, 0.09])
+            pos_target = grasp_points[ finger_index, :]
             if mode == "pos":
                 # PD controller in xyz space
                 pos_error = tip_pos - pos_target

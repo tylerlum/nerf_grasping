@@ -2,7 +2,9 @@ import math
 import os
 import json
 from pathlib import Path
+from re import S
 import shutil
+from this import d
 
 # import mathutils
 from PIL import Image
@@ -107,27 +109,35 @@ class Robot:
     def __init__(self, gym, env):
         pass
 
+        self.setup_tensors()
+
     def control(self):
+        pass
+        self.refresh_tensors()
+
+    def setup_tensors(self):
         _mass_matrix = self.gym.acquire_mass_matrix_tensor(self.sim, "Trifinger")
-        mass_matrix = gymtorch.wrap_tensor(_mass_matrix)
+        self.mass_matrix = gymtorch.wrap_tensor(_mass_matrix)
 
         # for fixed base
         # jacobian[env_index, link_index - 1, :, dof_index]
         _jac = self.gym.acquire_jacobian_tensor(self.sim, "Trifinger")
-        jacobian = gymtorch.wrap_tensor(_jac)
+        self.jacobian = gymtorch.wrap_tensor(_jac)
 
         _dof_states = self.gym.acquire_dof_state_tensor(self.sim)
-        dof_states = gymtorch.wrap_tensor(_dof_states)
+        self.dof_states = gymtorch.wrap_tensor(_dof_states)
 
         _rb_states = self.gym.acquire_rigid_body_state_tensor(self.sim)
-        rb_states = gymtorch.wrap_tensor(_rb_states)
+        self.rb_states = gymtorch.wrap_tensor(_rb_states)
 
+    def refresh_tensors(self):
         self.gym.refresh_mass_matrix_tensors(self.sim)
         self.gym.refresh_jacobian_tensors(self.sim)
         self.gym.refresh_dof_state_tensor(self.sim)
         self.gym.refresh_rigid_body_state_tensor(self.sim)
 
     def position_control(self, grasp_points):
+        
         applied_torque = torch.zeros((9))
         for finger_index, finger_pos in enumerate([0, 120, 240]):
             robot_dof_names = [f'finger_base_to_upper_joint_{finger_pos}',

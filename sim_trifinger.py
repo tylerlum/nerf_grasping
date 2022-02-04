@@ -1,9 +1,7 @@
-from __future__ import generator_stop
 import math
 import os
 import json
 from pathlib import Path
-from re import S
 import shutil
 
 # import mathutils
@@ -95,9 +93,9 @@ def calculate_grip_forces(positions, normals, target_force):
     friction_cone = cp.norm(F[:,:2], axis=1) <= mu * F[:,2]
     constraints.append( friction_cone )
 
-
     force_magnitudes = cp.norm(F, axis=1)
-    prob = cp.Problem(cp.Minimize(cp.max(force_magnitudes)), constraints)
+    friction_magnitudes = cp.norm(F[:,2], axis=1)
+    prob = cp.Problem(cp.Minimize(cp.max(friction_magnitudes) + 0.01*cp.max(force_magnitudes)), constraints)
     prob.solve()
 
     global_forces = np.zeros_like(F.value)
@@ -111,11 +109,12 @@ def calculate_grip_forces(positions, normals, target_force):
 
 
 class TeadyBear:
-    def __init__(self, gym, env):
-        self.asset = self.create_asset()
-
+    def __init__(self, gym, sim, env):
         self.gym = gym
+        self.sim = sim
         self.env = env
+
+        self.asset = self.create_asset()
         self.actor = self.configure_actor(gym, env)
 
     def create_asset(self):
@@ -144,7 +143,7 @@ class TeadyBear:
         # self.teady = self.gym.create_actor(env, sphere_asset, gymapi.Transform(p=gymapi.Vec3(0., 0., 0.105)), "teady bear", 0, 0, segmentationId=2)
         # self.gym.set_rigid_body_color(self.env, self.teady, 0 , gymapi.MESH_VISUAL, gymapi.Vec3(0.8, 0.2, 0.3))
 
-        rigid_body_props = self.gym.get_actor_rigid_body_properties(self.env, self.teady)
+        rigid_body_props = self.gym.get_actor_rigid_body_properties(self.env, actor)
         self.mass = sum(x.mass for x in rigid_body_props)
         self.CG = rigid_body_props[0].com
 
@@ -162,14 +161,16 @@ class Robot:
     dof_max = None
     dof_default = None
 
-    def __init__(self, gym, env):
-        self.asset = self.create_asset()
-
+    def __init__(self, gym, sim, env):
         self.gym = gym
+        self.sim = sim
         self.env = env
+
+        self.asset = self.create_asset()
         self.actor = self.configure_actor(gym, env)
 
         self.setup_tensors()
+        self.refresh_tensors()
 
     def create_asset(self):
         asset_dir = 'assets'
@@ -409,48 +410,6 @@ class Robot:
 
         self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(applied_torque))
 
-    def calculate_grip_forces(self,positions, normals, target_force):
-        """ positions are relative to object CG if we want unbalanced torques"""
-        mu = 0.3
-
-        n, _ = positions.shape
-        assert normals.shape == (n, 3)
-        assert target_force.shape == (3,)
-
-        F = cp.Variable( (n, 3) )
-        constraints = []
-
-        normals = normals /  np.linalg.norm( normals, axis=-1, keepdims=True)
-
-        total_force = np.zeros((3))
-        total_torque = np.zeros((3))
-
-        Q = []
-        for pos,norm,f in zip(positions, normals, F):
-            q = example_rotation_transform(norm)
-            Q.append(q)
-
-            total_force += q @ f
-            total_torque += skew_matrix(pos) @ q @ f
-
-        constraints.append( total_force == target_force )
-        constraints.append( total_torque == 0 )
-
-        friction_cone = cp.norm(F[:,:2], axis=1) <= mu * F[:,2]
-        constraints.append( friction_cone )
-
-        force_magnitudes = cp.norm(F, axis=1)
-        friction_magnitudes = cp.norm(F[:,2], axis=1)
-        prob = cp.Problem(cp.Minimize(cp.max(friction_magnitudes) + 0.01*cp.max(force_magnitudes)), constraints)
-        prob.solve()
-
-        global_forces = np.zeros_like(F.value)
-        for i in range(n):
-            global_forces[i, :] = Q[i] @ F.value[i,:]
-
-        return global_forces
-
-
 class TriFingerEnv:
 
     def __init__(self, viewer = True, robot=True, obj = True):
@@ -521,12 +480,12 @@ class TriFingerEnv:
         self.setup_stage(env)
 
         if robot:
-            self.robot = Robot(gym, env)
+            self.robot = Robot(self.gym, self.sim, self.env)
 
         if obj:
-            self.object = TeadyBear(gym, env)
+            self.object = TeadyBear(self.gym, self.sim, self.env)
 
-        self.setup_cameras(env)
+        self.setup_cameras(self.env)
 
     def setup_stage(self, env):
         asset_dir = 'assets'
@@ -632,167 +591,6 @@ class TriFingerEnv:
         transform = self.object.get_transform()
         data = [transform.p.x, transform.p.y, transform.p.z, transform.r.x, transform.r.y, transform.r.z, transform.r.w]
         print(data)
-
-    def robot_control(self, count):
-        _mass_matrix = self.gym.acquire_mass_matrix_tensor(self.sim, "Trifinger")
-        mass_matrix = gymtorch.wrap_tensor(_mass_matrix)
-
-        # for fixed base
-        # jacobian[env_index, link_index - 1, :, dof_index]
-        _jac = self.gym.acquire_jacobian_tensor(self.sim, "Trifinger")
-        jacobian = gymtorch.wrap_tensor(_jac)
-
-        _dof_states = self.gym.acquire_dof_state_tensor(self.sim)
-        dof_states = gymtorch.wrap_tensor(_dof_states)
-
-        _rb_states = self.gym.acquire_rigid_body_state_tensor(self.sim)
-        rb_states = gymtorch.wrap_tensor(_rb_states)
-
-        self.gym.refresh_mass_matrix_tensors(self.sim)
-        self.gym.refresh_jacobian_tensors(self.sim)
-        self.gym.refresh_dof_state_tensor(self.sim)
-        self.gym.refresh_rigid_body_state_tensor(self.sim)
-
-        applied_torque = torch.zeros((9))
-        # finger_pos = 0
-
-        grasp_points = torch.Tensor( [[ 0.035, 0.058, 0.101,],
-                                  [0.0, -0.048, 0.083,],
-                                  [-0.039, 0.058, 0.101,]])
-
-
-        for finger_index, finger_pos in enumerate([0, 120, 240]):
-            robot_dof_names = [f'finger_base_to_upper_joint_{finger_pos}',
-                                f'finger_upper_to_middle_joint_{finger_pos}',
-                                f'finger_middle_to_lower_joint_{finger_pos}']
-
-            dof_idx = [self.gym.find_actor_dof_index(self.env, self.robot_actor, dof_name, gymapi.DOMAIN_SIM) for dof_name in robot_dof_names]
-            tip_index =  self.gym.find_actor_rigid_body_index(self.env, self.robot_actor, f"finger_tip_link_{finger_pos}", gymapi.DOMAIN_SIM)
-
-            # only care about tip position
-            local_jacobian = jacobian[0, tip_index - 1, :3, dof_idx]
-            
-            # print("dof_states", dof_states[dof_idx, :])
-
-            tip_state = rb_states[tip_index, :]
-            # print("rb_states", tip_state[:3], tip_state[6:9]) #position, orientation, linear velocity, and angular velocity
-
-            # pos_target = torch.Tensor([0.1*np.cos(2*np.pi*count/200) , 0.05, 0.1])
-
-            tip_pos = tip_state[:3]
-            tip_vel = tip_state[7:10]
-
-            c = np.cos(2*np.pi * finger_pos / 360)
-            s = np.sin(2*np.pi * finger_pos / 360)
-            rot_matrix_finger = torch.Tensor([[ c, s, 0],
-                                              [-s, c, 0],
-                                              [ 0, 0, 1]])
-
-            print("dof state", dof_states[:, 0] )
-            print("finger pos", tip_pos)
-
-            count = count % 1000
-
-            mode = "pos"
-            if count < 30:
-                mode = "off"
-            elif count < 120:
-                mode = "pos"
-            elif count < 350:
-                mode = "vel"
-            else:
-                mode = "up"
-
-            print(count, mode)
-
-            # pos_target = rot_matrix_finger @ torch.Tensor([0.0 , 0.15, 0.09])
-            pos_target = grasp_points[ finger_index, :]
-            if mode == "off":
-                xyz_force = torch.zeros((3))
-
-            elif mode == "pos":
-                # PD controller in xyz space
-                pos_error = tip_pos - pos_target
-
-                print("pos_target", pos_target)
-                print("pos erro", pos_error)
-
-                xyz_force = - 5.0 * pos_error - 1.0 * tip_vel
-
-            elif mode == "vel":
-                # define vector along which endeffector should close
-                # will be position controlled perpendicular to motion
-                # and velocity controlled along. Force along with clamped to prevent crushing
-                start_point = pos_target
-                # normal      = rot_matrix_finger @ torch.Tensor([0.0 , -0.05, 0])
-                normal = torch.Tensor([ 0., 0., pos_target[-1]]) - pos_target
-                target_vel  = 0.05
-                max_force   = 1.5
-
-                normal /= normal.norm()
-
-                pos_relative = tip_pos - start_point
-
-                perp_xyz_force = - 5.0 * pos_relative - 1.0 * tip_vel
-                perp_xyz_force = perp_xyz_force - normal * normal.dot(perp_xyz_force)
-
-                vel_error = normal.dot(tip_vel) - target_vel
-
-                parallel_xyz_force_mag = -5.0 * vel_error
-                parallel_xyz_force = torch.clamp(parallel_xyz_force_mag, -max_force, max_force)
-
-                xyz_force = parallel_xyz_force * normal + perp_xyz_force
-            elif mode == "up":
-                bear_transform = self.gym.get_rigid_transform(self.env, self.teady)
-                global_CG = bear_transform.transform_point(self.teady_CG)
-
-                # ugly implekentations since we redo the calculations for each finger
-                target_force = 5 * torch.Tensor([0,0,1])
-
-                mean_grasp = torch.mean(grasp_points, axis=0, keepdim=True)
-
-                grasp_points = grasp_points - mean_grasp
-                in_normal = - grasp_points
-                in_normal[:, -1] = 0
-
-                global_forces = calculate_grip_forces(grasp_points, in_normal, target_force)
-                xyz_force = global_forces[finger_index, :]
-
-            elif mode == "up2":
-                # xyz_force = rot_matrix_finger @ torch.Tensor([0.0 , -0.4, 1.0])
-
-                #squeeze inwards
-                in_force = 1.5
-                in_normal = torch.Tensor([ 0., 0., tip_pos[-1]]) - tip_pos
-                in_normal /= in_normal.norm()
-
-                target_vel  = 0.05
-                max_force   = 2.0
-                up_normal = torch.Tensor([0., 0., 1.])
-                vel_error = up_normal.dot(tip_vel) - target_vel
-
-                print("tip_vel", tip_vel) 
-                print("vel_error", vel_error) 
-
-                weight = self.teady_mass * 10 # m*g
-                up_force = -1.0 * vel_error + weight / 3 
-                up_force = torch.clamp(up_force, -max_force, max_force)
-
-                xyz_force = in_force * in_normal# + up_force
-
-            else:
-                assert False, "Unknown mode"
-
-            joint_torques = torch.t( local_jacobian ) @ xyz_force
-            applied_torque[dof_idx] = joint_torques
-
-            print("xyz_force", xyz_force)
-            print("jacobian", local_jacobian)
-            print("joint_torques", joint_torques)
-            print()
-
-
-        self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(applied_torque))
 
     def step_gym(self):
         self.gym.simulate(self.sim)

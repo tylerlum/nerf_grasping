@@ -249,10 +249,6 @@ class Robot:
         self.gym.set_dof_state_tensor(self.sim, _dof_states)
         return robot_actor
 
-    def control(self):
-        pass
-        self.refresh_tensors()
-
     def setup_tensors(self):
         _mass_matrix = self.gym.acquire_mass_matrix_tensor(self.sim, "Trifinger")
         self.mass_matrix = gymtorch.wrap_tensor(_mass_matrix)
@@ -273,6 +269,34 @@ class Robot:
         self.gym.refresh_jacobian_tensors(self.sim)
         self.gym.refresh_dof_state_tensor(self.sim)
         self.gym.refresh_rigid_body_state_tensor(self.sim)
+
+    def control(self, interation):
+        self.refresh_tensors()
+        grasp_points = torch.Tensor( [[ 0.035, 0.058, 0.101,],
+                                      [0.0, -0.048, 0.083,],
+                                      [-0.039, 0.058, 0.101,]])
+
+        interation = interation % 1000
+
+        mode = "pos"
+        if   interation < 30:  mode = "off"
+        elif interation < 120: mode = "pos"
+        elif interation < 350: mode = "vel"
+        else:                  mode = "up"
+
+        print(interation, mode)
+
+        if mode == "off":
+            pass
+        if mode == "pos":
+            self.position_control(grasp_points)
+        if mode == "vel":
+            # move radialy in along xy plane
+            normal = - (grasp_points - torch.mean(grasp_points, axis=0))
+            normal[:, -1] = 0
+            self.vel_control_force_limit(grasp_points, normal)
+        if mode == "up":
+            self.object_control(grasp_points, None)
 
     def position_control(self, grasp_points):
         applied_torque = torch.zeros((9))
@@ -329,8 +353,9 @@ class Robot:
             start_point = pos_target
 
             # normal      = rot_matrix_finger @ torch.Tensor([0.0 , -0.05, 0])
-            normal = torch.Tensor([ 0., 0., pos_target[-1]]) - pos_target #TODO HACK
-            normal /= normal.norm()
+            # normal = torch.Tensor([ 0., 0., pos_target[-1]]) - pos_target #TODO HACK
+            # normal /= normal.norm()
+            normal = grasp_normals / grasp_normals.norm(axis=-1, keepdim=True)
 
             pos_relative = tip_pos - start_point
 
@@ -349,12 +374,44 @@ class Robot:
 
         self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(applied_torque))
 
-    def object_control(self):
-        pass
+    def object_control(self, grasp_points, object):
+        # bear_transform = self.gym.get_rigid_transform(self.env, self.teady)
+        # global_CG = bear_transform.transform_point(self.teady_CG)
+        # transform = object.get_transform()
+
+        #TODO calculate grasp points wrt object CG
+
+        target_force = 5 * torch.Tensor([0,0,1])
+
+        mean_grasp = torch.mean(grasp_points, axis=0, keepdim=True)
+        grasp_points = grasp_points - mean_grasp
+        in_normal = - grasp_points
+        in_normal[:, -1] = 0
+
+        global_forces = calculate_grip_forces(grasp_points, in_normal, target_force)
+
+        # tip_state = self.rb_states[tip_index, :]
+
+        applied_torque = torch.zeros((9))
+        for finger_index, finger_pos in enumerate([0, 120, 240]):
+            robot_dof_names = [f'finger_base_to_upper_joint_{finger_pos}',
+                                f'finger_upper_to_middle_joint_{finger_pos}',
+                                f'finger_middle_to_lower_joint_{finger_pos}']
+
+            dof_idx = [self.gym.find_actor_dof_index(self.env, self.robot_actor, dof_name, gymapi.DOMAIN_SIM) for dof_name in robot_dof_names]
+            tip_index =  self.gym.find_actor_rigid_body_index(self.env, self.robot_actor, f"finger_tip_link_{finger_pos}", gymapi.DOMAIN_SIM)
+
+            local_jacobian = self.jacobian[0, tip_index - 1, :3, dof_idx]
+
+            xyz_force = global_forces[finger_index, :]
+            joint_torques = torch.t( local_jacobian ) @ xyz_force
+            applied_torque[dof_idx] = joint_torques
+
+        self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(applied_torque))
 
     def calculate_grip_forces(self,positions, normals, target_force):
         """ positions are relative to object CG if we want unbalanced torques"""
-        mu = 0.5
+        mu = 0.3
 
         n, _ = positions.shape
         assert normals.shape == (n, 3)
@@ -383,7 +440,8 @@ class Robot:
         constraints.append( friction_cone )
 
         force_magnitudes = cp.norm(F, axis=1)
-        prob = cp.Problem(cp.Minimize(cp.max(force_magnitudes)), constraints)
+        friction_magnitudes = cp.norm(F[:,2], axis=1)
+        prob = cp.Problem(cp.Minimize(cp.max(friction_magnitudes) + 0.01*cp.max(force_magnitudes)), constraints)
         prob.solve()
 
         global_forces = np.zeros_like(F.value)
@@ -769,9 +827,10 @@ def run_robot_control(viewer):
         count += 1
 
         # prototype of inerface
-        tf.robot_control(count)
+        # tf.robot_control(count)
         # tf.do_robot_action(direction)
 
+        tf.robot.control(count)
         tf.step_gym()
 
     print("closed!")

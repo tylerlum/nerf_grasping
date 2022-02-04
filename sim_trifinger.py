@@ -53,7 +53,6 @@ def example_rotation_transform(normals):
     rotations = np.stack([ local_x, local_y, normals[..., None] ], axis=-1)[...,0,:]
     return rotations
 
-
 def calculate_grip_forces(positions, normals, target_force):
     """ positions are relative to object CG if we want unbalanced torques"""
     mu = 0.5
@@ -94,8 +93,8 @@ def calculate_grip_forces(positions, normals, target_force):
     constraints.append( friction_cone )
 
     force_magnitudes = cp.norm(F, axis=1)
-    friction_magnitudes = cp.norm(F[:,2], axis=1)
-    prob = cp.Problem(cp.Minimize(cp.max(friction_magnitudes) + 0.01*cp.max(force_magnitudes)), constraints)
+    # friction_magnitudes = cp.norm(F[:,2], axis=1)
+    prob = cp.Problem(cp.Minimize(cp.max(force_magnitudes)), constraints)
     prob.solve()
 
     global_forces = np.zeros_like(F.value)
@@ -169,8 +168,9 @@ class Robot:
         self.asset = self.create_asset()
         self.actor = self.configure_actor(gym, env)
 
-        self.setup_tensors()
-        self.refresh_tensors()
+        # why doesn't this work??
+        # self.tensors_setup_todo = True
+        # self.setup_tensors()
 
     def create_asset(self):
         asset_dir = 'assets'
@@ -251,6 +251,8 @@ class Robot:
         return robot_actor
 
     def setup_tensors(self):
+        # I didn't know we have to get the tensors every time?
+        # segfaults if we only do it once
         _mass_matrix = self.gym.acquire_mass_matrix_tensor(self.sim, "Trifinger")
         self.mass_matrix = gymtorch.wrap_tensor(_mass_matrix)
 
@@ -266,6 +268,23 @@ class Robot:
         self.rb_states = gymtorch.wrap_tensor(_rb_states)
 
     def refresh_tensors(self):
+        # if self.tensors_setup_todo:
+        #     self.setup_tensors
+        #     self.tensors_setup_todo = False
+        _mass_matrix = self.gym.acquire_mass_matrix_tensor(self.sim, "Trifinger")
+        self.mass_matrix = gymtorch.wrap_tensor(_mass_matrix)
+
+        # for fixed base
+        # jacobian[env_index, link_index - 1, :, dof_index]
+        _jac = self.gym.acquire_jacobian_tensor(self.sim, "Trifinger")
+        self.jacobian = gymtorch.wrap_tensor(_jac)
+
+        _dof_states = self.gym.acquire_dof_state_tensor(self.sim)
+        self.dof_states = gymtorch.wrap_tensor(_dof_states)
+
+        _rb_states = self.gym.acquire_rigid_body_state_tensor(self.sim)
+        self.rb_states = gymtorch.wrap_tensor(_rb_states)
+
         self.gym.refresh_mass_matrix_tensors(self.sim)
         self.gym.refresh_jacobian_tensors(self.sim)
         self.gym.refresh_dof_state_tensor(self.sim)
@@ -273,6 +292,26 @@ class Robot:
 
     def control(self, interation):
         self.refresh_tensors()
+
+        # _mass_matrix = self.gym.acquire_mass_matrix_tensor(self.sim, "Trifinger")
+        # mass_matrix = gymtorch.wrap_tensor(_mass_matrix)
+
+        # # for fixed base
+        # # jacobian[env_index, link_index - 1, :, dof_index]
+        # _jac = self.gym.acquire_jacobian_tensor(self.sim, "Trifinger")
+        # jacobian = gymtorch.wrap_tensor(_jac)
+
+        # _dof_states = self.gym.acquire_dof_state_tensor(self.sim)
+        # dof_states = gymtorch.wrap_tensor(_dof_states)
+
+        # _rb_states = self.gym.acquire_rigid_body_state_tensor(self.sim)
+        # rb_states = gymtorch.wrap_tensor(_rb_states)
+
+        # self.gym.refresh_mass_matrix_tensors(self.sim)
+        # self.gym.refresh_jacobian_tensors(self.sim)
+        # self.gym.refresh_dof_state_tensor(self.sim)
+        # self.gym.refresh_rigid_body_state_tensor(self.sim)
+
         grasp_points = torch.Tensor( [[ 0.035, 0.058, 0.101,],
                                       [0.0, -0.048, 0.083,],
                                       [-0.039, 0.058, 0.101,]])
@@ -306,10 +345,12 @@ class Robot:
                                 f'finger_upper_to_middle_joint_{finger_pos}',
                                 f'finger_middle_to_lower_joint_{finger_pos}']
 
-            dof_idx = [self.gym.find_actor_dof_index(self.env, self.robot_actor, dof_name, gymapi.DOMAIN_SIM) for dof_name in robot_dof_names]
-            tip_index =  self.gym.find_actor_rigid_body_index(self.env, self.robot_actor, f"finger_tip_link_{finger_pos}", gymapi.DOMAIN_SIM)
+            dof_idx = [self.gym.find_actor_dof_index(self.env, self.actor, dof_name, gymapi.DOMAIN_SIM) for dof_name in robot_dof_names]
+            tip_index =  self.gym.find_actor_rigid_body_index(self.env, self.actor, f"finger_tip_link_{finger_pos}", gymapi.DOMAIN_SIM)
 
             # only care about tip position
+            print(f"self.jacobian.shape={self.jacobian.shape}")
+            print(f"tip_index={tip_index}")
             local_jacobian = self.jacobian[0, tip_index - 1, :3, dof_idx]
             tip_state = self.rb_states[tip_index, :]
 
@@ -335,8 +376,8 @@ class Robot:
                                 f'finger_upper_to_middle_joint_{finger_pos}',
                                 f'finger_middle_to_lower_joint_{finger_pos}']
 
-            dof_idx = [self.gym.find_actor_dof_index(self.env, self.robot_actor, dof_name, gymapi.DOMAIN_SIM) for dof_name in robot_dof_names]
-            tip_index =  self.gym.find_actor_rigid_body_index(self.env, self.robot_actor, f"finger_tip_link_{finger_pos}", gymapi.DOMAIN_SIM)
+            dof_idx = [self.gym.find_actor_dof_index(self.env, self.actor, dof_name, gymapi.DOMAIN_SIM) for dof_name in robot_dof_names]
+            tip_index =  self.gym.find_actor_rigid_body_index(self.env, self.actor, f"finger_tip_link_{finger_pos}", gymapi.DOMAIN_SIM)
 
             # only care about tip position
             local_jacobian = self.jacobian[0, tip_index - 1, :3, dof_idx]
@@ -355,8 +396,9 @@ class Robot:
 
             # normal      = rot_matrix_finger @ torch.Tensor([0.0 , -0.05, 0])
             # normal = torch.Tensor([ 0., 0., pos_target[-1]]) - pos_target #TODO HACK
-            # normal /= normal.norm()
-            normal = grasp_normals / grasp_normals.norm(axis=-1, keepdim=True)
+            normal = grasp_normals[finger_index, :]
+            normal /= normal.norm()
+            # normal = grasp_normals / torch.norm(grasp_normals, axis=-1, keepdim=True)
 
             pos_relative = tip_pos - start_point
 
@@ -399,8 +441,8 @@ class Robot:
                                 f'finger_upper_to_middle_joint_{finger_pos}',
                                 f'finger_middle_to_lower_joint_{finger_pos}']
 
-            dof_idx = [self.gym.find_actor_dof_index(self.env, self.robot_actor, dof_name, gymapi.DOMAIN_SIM) for dof_name in robot_dof_names]
-            tip_index =  self.gym.find_actor_rigid_body_index(self.env, self.robot_actor, f"finger_tip_link_{finger_pos}", gymapi.DOMAIN_SIM)
+            dof_idx = [self.gym.find_actor_dof_index(self.env, self.actor, dof_name, gymapi.DOMAIN_SIM) for dof_name in robot_dof_names]
+            tip_index =  self.gym.find_actor_rigid_body_index(self.env, self.actor, f"finger_tip_link_{finger_pos}", gymapi.DOMAIN_SIM)
 
             local_jacobian = self.jacobian[0, tip_index - 1, :3, dof_idx]
 
@@ -477,10 +519,12 @@ class TriFingerEnv:
         self.env = env # used only when there is one env
         self.envs = [env]
 
-        self.setup_stage(env)
 
         if robot:
             self.robot = Robot(self.gym, self.sim, self.env)
+
+        #TODO the order matters here from rb index - needs to fix
+        self.setup_stage(env)
 
         if obj:
             self.object = TeadyBear(self.gym, self.sim, self.env)

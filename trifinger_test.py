@@ -1,7 +1,4 @@
 
-from calendar import c
-from email.errors import NoBoundaryInMultipartDefect
-from ipaddress import collapse_addresses
 import os
 import json
 import math
@@ -56,7 +53,7 @@ def example_rotation_transform(normals):
 
 def calculate_grip_forces(positions, normals, target_force):
     """ positions are relative to object CG if we want unbalanced torques"""
-    mu = 0.5
+    mu = 0.9
 
     torch_input = type(positions) == torch.Tensor
     if torch_input:
@@ -94,8 +91,8 @@ def calculate_grip_forces(positions, normals, target_force):
     constraints.append( friction_cone )
 
     force_magnitudes = cp.norm(F, axis=1)
-    friction_magnitudes = cp.norm(F[:,2], axis=1)
-    prob = cp.Problem(cp.Minimize(cp.max(friction_magnitudes) + 0.01*cp.max(force_magnitudes)), constraints)
+    # friction_magnitudes = cp.norm(F[:,2], axis=1)
+    prob = cp.Problem(cp.Minimize(cp.max(force_magnitudes)), constraints)
     prob.solve()
 
     global_forces = np.zeros_like(F.value)
@@ -320,6 +317,7 @@ class TriFingerEnv:
         asset_options.mesh_normal_mode = gymapi.COMPUTE_PER_VERTEX
         asset_options.override_inertia = True
         asset_options.override_com = True
+        asset_options.density = 100
 
         asset_options.vhacd_params.mode = 0
         asset_options.vhacd_params.resolution = 300000
@@ -330,6 +328,13 @@ class TriFingerEnv:
         # self.teady = self.gym.create_actor(env, teady_bear_asset, gymapi.Transform(p=gymapi.Vec3(0., 0., 0.1)), "teady bear", 0, 0, segmentationId=2)
 
         box_asset     = self.gym.create_box(self.sim, 0.1, 0.1, 0.1, asset_options)
+        rs_props = self.gym.get_asset_rigid_shape_properties(box_asset)
+        for p in rs_props:
+            p.friction = 1.0
+            p.torsion_friction = 1.0
+            p.restitution = 0.8
+        self.gym.set_asset_rigid_shape_properties(box_asset, rs_props)
+
         self.teady = self.gym.create_actor(env, box_asset, gymapi.Transform(p=gymapi.Vec3(0., 0., 0.101)), "teady bear", 0, 0, segmentationId=2)
         self.gym.set_rigid_body_color(self.env, self.teady, 0 , gymapi.MESH_VISUAL, gymapi.Vec3(0.8, 0.2, 0.3))
 
@@ -341,7 +346,7 @@ class TriFingerEnv:
         self.viewer = self.gym.create_viewer(self.sim, gymapi.CameraProperties())
         assert self.viewer != None
 
-        cam_pos = gymapi.Vec3(0.8, 0.2, 0.9)
+        cam_pos = gymapi.Vec3(0.8, 0.2, 0.7)
         cam_target = gymapi.Vec3(0, 0, 0.2)
         self.gym.viewer_camera_look_at(self.viewer, self.env, cam_pos, cam_target)
 
@@ -561,7 +566,7 @@ class TriFingerEnv:
 
             elif mode == "up":
                 # ugly runs the calculation 3 times unnecesarily
-                target_force = 5 * torch.Tensor([0,0,1])
+                target_force = 1.1 * torch.Tensor([0,0,1])
 
                 global_forces = calculate_grip_forces(grasp_points, graps_normals, target_force)
                 xyz_force = global_forces[finger_index, :]
@@ -572,10 +577,10 @@ class TriFingerEnv:
             joint_torques = torch.t( local_jacobian ) @ xyz_force
             applied_torque[dof_idx] = joint_torques
 
-            print("xyz_force", xyz_force)
-            print("jacobian", local_jacobian)
-            print("joint_torques", joint_torques)
-            print()
+            print(finger_index, "xyz_force", xyz_force)
+            # print("jacobian", local_jacobian)
+            # print("joint_torques", joint_torques)
+            # print()
 
 
         self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(applied_torque))

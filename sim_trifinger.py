@@ -107,6 +107,54 @@ def calculate_grip_forces(positions, normals, target_force):
     return global_forces
 
 
+class Box:
+    def __init__(self, gym, sim, env):
+        self.gym = gym
+        self.sim = sim
+        self.env = env
+
+        self.asset = self.create_asset()
+        self.actor = self.configure_actor(gym, env)
+
+    def create_asset(self):
+        asset_options = gymapi.AssetOptions()
+
+        asset_options.vhacd_enabled = True
+        asset_options.mesh_normal_mode = gymapi.COMPUTE_PER_VERTEX
+        asset_options.override_inertia = True
+        asset_options.override_com = True
+        asset_options.density = 100
+
+        asset_options.vhacd_params.mode = 0
+        asset_options.vhacd_params.resolution = 300000
+        asset_options.vhacd_params.max_convex_hulls = 10
+        asset_options.vhacd_params.max_num_vertices_per_ch = 16
+
+        asset = self.gym.create_box(self.sim, 0.1, 0.1, 0.1, asset_options)
+
+        rs_props = self.gym.get_asset_rigid_shape_properties(asset)
+        for p in rs_props:
+            p.friction = 1.0
+            p.torsion_friction = 1.0
+            p.restitution = 0.8
+        self.gym.set_asset_rigid_shape_properties(asset, rs_props)
+
+        return asset
+    
+    def configure_actor(self, gym, env):
+        actor = self.gym.create_actor(env, self.asset, gymapi.Transform(p=gymapi.Vec3(0., 0., 0.101)), "box", 0, 0, segmentationId=2)
+        self.gym.set_rigid_body_color(self.env, actor, 0 , gymapi.MESH_VISUAL, gymapi.Vec3(0.8, 0.2, 0.3))
+
+        rigid_body_props = self.gym.get_actor_rigid_body_properties(self.env, actor)
+        self.mass = sum(x.mass for x in rigid_body_props)
+        self.CG = rigid_body_props[0].com
+
+        return actor
+
+    def get_transform(self):
+        transform = self.gym.get_rigid_transform(self.env, self.actor)
+        return transform
+
 class TeadyBear:
     def __init__(self, gym, sim, env):
         self.gym = gym
@@ -150,7 +198,7 @@ class TeadyBear:
         return actor
 
     def get_transform(self):
-        transform = self.gym.get_rigid_transform(self.env, self.teady)
+        transform = self.gym.get_rigid_transform(self.env, self.actor)
         return transform
 
 class Robot:
@@ -290,31 +338,26 @@ class Robot:
         self.gym.refresh_dof_state_tensor(self.sim)
         self.gym.refresh_rigid_body_state_tensor(self.sim)
 
-    def control(self, interation):
+    def control(self, interation, obj):
         self.refresh_tensors()
 
-        # _mass_matrix = self.gym.acquire_mass_matrix_tensor(self.sim, "Trifinger")
-        # mass_matrix = gymtorch.wrap_tensor(_mass_matrix)
+        safe_pos = torch.Tensor( [[ 0.0,  0.10, 0.05,],
+                                 [ 0.05,-0.10, 0.05,],
+                                 [-0.05,-0.10, 0.05,]]) 
 
-        # # for fixed base
-        # # jacobian[env_index, link_index - 1, :, dof_index]
-        # _jac = self.gym.acquire_jacobian_tensor(self.sim, "Trifinger")
-        # jacobian = gymtorch.wrap_tensor(_jac)
+        # teady points
+        # grasp_points = torch.Tensor( [[ 0.035, 0.058, 0.101,],
+        #                               [0.0, -0.048, 0.083,],
+        #                               [-0.039, 0.058, 0.101,]])
 
-        # _dof_states = self.gym.acquire_dof_state_tensor(self.sim)
-        # dof_states = gymtorch.wrap_tensor(_dof_states)
+        # box points
+        grasp_points = torch.Tensor( [[ 0.0,  0.05, 0.05,],
+                                  [ 0.03,-0.05, 0.05,],
+                                  [-0.03,-0.05, 0.05,]])
 
-        # _rb_states = self.gym.acquire_rigid_body_state_tensor(self.sim)
-        # rb_states = gymtorch.wrap_tensor(_rb_states)
-
-        # self.gym.refresh_mass_matrix_tensors(self.sim)
-        # self.gym.refresh_jacobian_tensors(self.sim)
-        # self.gym.refresh_dof_state_tensor(self.sim)
-        # self.gym.refresh_rigid_body_state_tensor(self.sim)
-
-        grasp_points = torch.Tensor( [[ 0.035, 0.058, 0.101,],
-                                      [0.0, -0.048, 0.083,],
-                                      [-0.039, 0.058, 0.101,]])
+        graps_normals = torch.Tensor( [[ 0.0,-1.0, 0.0,],
+                                  [ 0.0, 1.0, 0.0,],
+                                  [ 0.0, 1.0, 0.0,]])
 
         interation = interation % 1000
 
@@ -327,16 +370,16 @@ class Robot:
         print(interation, mode)
 
         if mode == "off":
-            pass
+            self.position_control(safe_pos)
         if mode == "pos":
             self.position_control(grasp_points)
         if mode == "vel":
             # move radialy in along xy plane
-            normal = - (grasp_points - torch.mean(grasp_points, axis=0))
-            normal[:, -1] = 0
-            self.vel_control_force_limit(grasp_points, normal)
+            # normal = - (grasp_points - torch.mean(grasp_points, axis=0))
+            # normal[:, -1] = 0
+            self.vel_control_force_limit(grasp_points, graps_normals)
         if mode == "up":
-            self.object_control(grasp_points, None)
+            self.object_control(grasp_points, graps_normals, obj, None, None)
 
     def position_control(self, grasp_points):
         applied_torque = torch.zeros((9))
@@ -417,7 +460,7 @@ class Robot:
 
         self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(applied_torque))
 
-    def object_control(self, grasp_points, object):
+    def object_control(self, grasp_points, in_normal, object, target_force, target_torque):
         # bear_transform = self.gym.get_rigid_transform(self.env, self.teady)
         # global_CG = bear_transform.transform_point(self.teady_CG)
         # transform = object.get_transform()
@@ -426,10 +469,10 @@ class Robot:
 
         target_force = 5 * torch.Tensor([0,0,1])
 
-        mean_grasp = torch.mean(grasp_points, axis=0, keepdim=True)
-        grasp_points = grasp_points - mean_grasp
-        in_normal = - grasp_points
-        in_normal[:, -1] = 0
+        # mean_grasp = torch.mean(grasp_points, axis=0, keepdim=True)
+        # grasp_points = grasp_points - mean_grasp
+        # in_normal = - grasp_points
+        # in_normal[:, -1] = 0
 
         global_forces = calculate_grip_forces(grasp_points, in_normal, target_force)
 
@@ -527,7 +570,8 @@ class TriFingerEnv:
         self.setup_stage(env)
 
         if obj:
-            self.object = TeadyBear(self.gym, self.sim, self.env)
+            # self.object = TeadyBear(self.gym, self.sim, self.env)
+            self.object = Box(self.gym, self.sim, self.env)
 
         self.setup_cameras(self.env)
 
@@ -672,7 +716,7 @@ def run_robot_control(viewer):
         # tf.robot_control(count)
         # tf.do_robot_action(direction)
 
-        tf.robot.control(count)
+        tf.robot.control(count, tf.object)
         tf.step_gym()
 
     print("closed!")

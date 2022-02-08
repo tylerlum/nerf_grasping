@@ -3,6 +3,7 @@ import os
 import json
 from pathlib import Path
 import shutil
+from turtle import pos
 
 # import mathutils
 from PIL import Image
@@ -155,6 +156,10 @@ class Box:
         transform = self.gym.get_rigid_transform(self.env, self.actor)
         return transform
 
+    def get_CG(self):
+        return self.get_transform().transform_point(self.CG)
+
+#TODO inheret from object class
 class TeadyBear:
     def __init__(self, gym, sim, env):
         self.gym = gym
@@ -194,7 +199,6 @@ class TeadyBear:
         self.mass = sum(x.mass for x in rigid_body_props)
         self.CG = rigid_body_props[0].com
 
-        print(self.mass)
         return actor
 
     def get_transform(self):
@@ -364,7 +368,7 @@ class Robot:
         mode = "pos"
         if   interation < 30:  mode = "off"
         elif interation < 120: mode = "pos"
-        elif interation < 350: mode = "vel"
+        elif interation < 200: mode = "vel"
         else:                  mode = "up"
 
         print(interation, mode)
@@ -379,7 +383,23 @@ class Robot:
             # normal[:, -1] = 0
             self.vel_control_force_limit(grasp_points, graps_normals)
         if mode == "up":
-            self.object_control(grasp_points, graps_normals, obj, None, None)
+            pos_target = torch.Tensor([0,0,0.2])
+            t = obj.get_transform()
+            pos        =torch.Tensor([t.p.x, t.p.y, t.p.z])
+
+            quat         =torch.Tensor([t.r.x, t.r.y, t.r.z, t.r.w])
+            target_quat = torch.Tensor([0.0, 0.0, 0.0, 1.0])
+            print(quat)
+
+            # pos_error = 0.2 - obj.get_transform().p.z
+            pos_error = pos_target - pos
+            print("pos_error", pos_error)
+
+            # target_force = obj.mass * 9.8 + 0.001 * pos_error
+            # target_force = target_force * torch.Tensor([0,0,1])
+            target_force = obj.mass * 9.8 *torch.Tensor([0,0,1]) + 0.01 *pos_error
+
+            self.object_control(grasp_points, graps_normals, obj, target_force, None)
 
     def position_control(self, grasp_points):
         applied_torque = torch.zeros((9))
@@ -467,7 +487,7 @@ class Robot:
 
         #TODO calculate grasp points wrt object CG
 
-        target_force = 5 * torch.Tensor([0,0,1])
+        # target_force = 5 * torch.Tensor([0,0,1])
 
         # mean_grasp = torch.mean(grasp_points, axis=0, keepdim=True)
         # grasp_points = grasp_points - mean_grasp

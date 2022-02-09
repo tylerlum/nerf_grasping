@@ -120,9 +120,6 @@ class Box:
         self.asset = self.create_asset()
         self.actor = self.configure_actor(gym, env)
 
-        self.rb_index =  self.gym.find_actor_rigid_body_index(self.env, self.actor, f"box", gymapi.DOMAIN_SIM)
-        print(self.rb_index)
-
     def create_asset(self):
         asset_options = gymapi.AssetOptions()
 
@@ -158,14 +155,14 @@ class Box:
 
         return actor
 
-    # def setup_tensors(self):
+    def setup_tensors(self):
+        _rb_states = self.gym.acquire_rigid_body_state_tensor(self.sim)
+        # (num_rigid_bodies, 13)
+        rb_count = self.gym.get_actor_rigid_body_count(self.env, self.actor)
+        rb_start_index = self.gym.get_actor_rigid_body_index(self.env, self.actor, 0, gymapi.DOMAIN_SIM)
 
-    #     _rb_states = self.gym.acquire_rigid_body_state_tensor(self.sim)
-    #     # (num_rigid_bodies, 13)
-    #     rb_count = self.gym.get_actor_rigid_body_count(self.env, self.actor)
-    #     rb_start_index = self.gym.get_actor_rigid_body_index(self.env, self.actor, i, gymapi.DOMAIN_SIM)
-
-    #     self.rb_states = gymtorch.wrap_tensor(_rb_states)#[rb_global_index, :]
+        #NOTE: simple indexing will return a view of the data but advanced indexing will return a copy breaking the updateing
+        self.rb_states = gymtorch.wrap_tensor(_rb_states)[rb_start_index: rb_start_index + rb_count, :]
 
     def get_transform(self):
         transform = self.gym.get_rigid_transform(self.env, self.actor)
@@ -234,10 +231,6 @@ class Robot:
 
         self.asset = self.create_asset()
         self.actor = self.configure_actor(gym, env)
-
-        # why doesn't this work??
-        # self.tensors_setup_todo = True
-        # self.setup_tensors()
 
     def create_asset(self):
         asset_dir = 'assets'
@@ -344,31 +337,7 @@ class Robot:
         #NOTE: simple indexing will return a view of the data but advanced indexing will return a copy breaking the updateing
         self.rb_states = gymtorch.wrap_tensor(_rb_states)[rb_start_index: rb_start_index + rb_count, :]
 
-    def refresh_tensors(self):
-        # if self.tensors_setup_todo:
-        #     self.setup_tensors
-        #     self.tensors_setup_todo = False
-        # _mass_matrix = self.gym.acquire_mass_matrix_tensor(self.sim, "Trifinger")
-        # self.mass_matrix = gymtorch.wrap_tensor(_mass_matrix)
-
-        # # for fixed base
-        # # jacobian[env_index, link_index - 1, :, dof_index]
-        # _jac = self.gym.acquire_jacobian_tensor(self.sim, "Trifinger")
-        # self.jacobian = gymtorch.wrap_tensor(_jac)
-
-        # _dof_states = self.gym.acquire_dof_state_tensor(self.sim)
-        # self.dof_states = gymtorch.wrap_tensor(_dof_states)
-
-        # _rb_states = self.gym.acquire_rigid_body_state_tensor(self.sim)
-        # self.rb_states = gymtorch.wrap_tensor(_rb_states)
-
-        self.gym.refresh_mass_matrix_tensors(self.sim)
-        self.gym.refresh_jacobian_tensors(self.sim)
-        self.gym.refresh_dof_state_tensor(self.sim)
-        self.gym.refresh_rigid_body_state_tensor(self.sim)
-
     def control(self, interation, obj):
-        self.refresh_tensors()
 
         safe_pos = torch.Tensor( [[ 0.0,  0.10, 0.05,],
                                  [ 0.05,-0.10, 0.05,],
@@ -634,6 +603,7 @@ class TriFingerEnv:
 
         # self.object.setup_tensors()
         self.robot.setup_tensors()
+        self.object.setup_tensors()
 
     def setup_stage(self, env):
         asset_dir = 'assets'
@@ -739,15 +709,24 @@ class TriFingerEnv:
         data = [transform.p.x, transform.p.y, transform.p.z, transform.r.x, transform.r.y, transform.r.z, transform.r.w]
         print(data)
 
+    def refresh_tensors(self):
+        self.gym.refresh_mass_matrix_tensors(self.sim)
+        self.gym.refresh_jacobian_tensors(self.sim)
+        self.gym.refresh_dof_state_tensor(self.sim)
+        self.gym.refresh_rigid_body_state_tensor(self.sim)
+
     def step_gym(self):
         self.gym.simulate(self.sim)
         self.gym.fetch_results(self.sim, True)
+
 
         self.gym.step_graphics(self.sim)
 
         if self.viewer != None:
             self.gym.draw_viewer(self.viewer, self.sim, True)
             self.gym.sync_frame_time(self.sim)
+
+        self.refresh_tensors()
 
 
 def get_nerf_training(viewer):
@@ -771,12 +750,8 @@ def run_robot_control(viewer):
     while not tf.gym.query_viewer_has_closed(tf.viewer):
         count += 1
 
-        # prototype of inerface
-        # tf.robot_control(count)
-        # tf.do_robot_action(direction)
-
-        tf.robot.control(count, tf.object)
         tf.step_gym()
+        tf.robot.control(count, tf.object)
 
     print("closed!")
 

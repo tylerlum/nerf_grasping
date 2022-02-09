@@ -25,7 +25,10 @@ import matplotlib.pyplot as plt
 
 #TODO unfuck the camear tranform bug caused by Z axis up
 #currently implemetned in blender
-# def get_fixed_camera_transfrom(camera):
+# def get_fixed_camera_transfrom(gym, sim, env, camera):
+    # transform = gym.get_camera_transform(sim, env, camera_handle)
+    # make needs to align with global z+axis
+    # currently x+ is pointing down camera view axis
 
 #TODO move those two to a seperate file?
 
@@ -117,6 +120,9 @@ class Box:
         self.asset = self.create_asset()
         self.actor = self.configure_actor(gym, env)
 
+        self.rb_index =  self.gym.find_actor_rigid_body_index(self.env, self.actor, f"box", gymapi.DOMAIN_SIM)
+        print(self.rb_index)
+
     def create_asset(self):
         asset_options = gymapi.AssetOptions()
 
@@ -151,6 +157,15 @@ class Box:
         self.CG = rigid_body_props[0].com
 
         return actor
+
+    # def setup_tensors(self):
+
+    #     _rb_states = self.gym.acquire_rigid_body_state_tensor(self.sim)
+    #     # (num_rigid_bodies, 13)
+    #     rb_count = self.gym.get_actor_rigid_body_count(self.env, self.actor)
+    #     rb_start_index = self.gym.get_actor_rigid_body_index(self.env, self.actor, i, gymapi.DOMAIN_SIM)
+
+    #     self.rb_states = gymtorch.wrap_tensor(_rb_states)#[rb_global_index, :]
 
     def get_transform(self):
         transform = self.gym.get_rigid_transform(self.env, self.actor)
@@ -252,14 +267,14 @@ class Robot:
             assert frame_handle != gymapi.INVALID_HANDLE
             self.fingertips_frames[frame_name] = frame_handle
 
-        robot_dof_names = []
+        dof_names = []
         for finger_pos in ['0', '120', '240']:
-            robot_dof_names += [f'finger_base_to_upper_joint_{finger_pos}',
+            dof_names += [f'finger_base_to_upper_joint_{finger_pos}',
                                 f'finger_upper_to_middle_joint_{finger_pos}',
                                 f'finger_middle_to_lower_joint_{finger_pos}']
 
         self.dofs = {} #TODO fix asset vs actor index differnce
-        for dof_name in robot_dof_names:
+        for dof_name in dof_names:
             dof_handle = self.gym.find_asset_dof_index(robot_asset, dof_name)
             assert dof_handle != gymapi.INVALID_HANDLE
             self.dofs[dof_name] = dof_handle
@@ -313,29 +328,39 @@ class Robot:
         _jac = self.gym.acquire_jacobian_tensor(self.sim, "Trifinger")
         self.jacobian = gymtorch.wrap_tensor(_jac)
 
+        #TODO MAKE this local
         _dof_states = self.gym.acquire_dof_state_tensor(self.sim)
-        self.dof_states = gymtorch.wrap_tensor(_dof_states)
+        # (num_dof, 2)
+        dof_count = self.gym.get_actor_dof_count(self.env, self.actor)
+        dof_start_index = self.gym.get_actor_dof_index(self.env, self.actor, 0, gymapi.DOMAIN_SIM)
+
+        self.dof_states = gymtorch.wrap_tensor(_dof_states)[dof_start_index:dof_start_index + dof_count, :]
 
         _rb_states = self.gym.acquire_rigid_body_state_tensor(self.sim)
-        self.rb_states = gymtorch.wrap_tensor(_rb_states)
+        # (num_rigid_bodies, 13)
+        rb_count = self.gym.get_actor_rigid_body_count(self.env, self.actor)
+        rb_start_index = self.gym.get_actor_rigid_body_index(self.env, self.actor, 0, gymapi.DOMAIN_SIM)
+
+        #NOTE: simple indexing will return a view of the data but advanced indexing will return a copy breaking the updateing
+        self.rb_states = gymtorch.wrap_tensor(_rb_states)[rb_start_index: rb_start_index + rb_count, :]
 
     def refresh_tensors(self):
         # if self.tensors_setup_todo:
         #     self.setup_tensors
         #     self.tensors_setup_todo = False
-        _mass_matrix = self.gym.acquire_mass_matrix_tensor(self.sim, "Trifinger")
-        self.mass_matrix = gymtorch.wrap_tensor(_mass_matrix)
+        # _mass_matrix = self.gym.acquire_mass_matrix_tensor(self.sim, "Trifinger")
+        # self.mass_matrix = gymtorch.wrap_tensor(_mass_matrix)
 
-        # for fixed base
-        # jacobian[env_index, link_index - 1, :, dof_index]
-        _jac = self.gym.acquire_jacobian_tensor(self.sim, "Trifinger")
-        self.jacobian = gymtorch.wrap_tensor(_jac)
+        # # for fixed base
+        # # jacobian[env_index, link_index - 1, :, dof_index]
+        # _jac = self.gym.acquire_jacobian_tensor(self.sim, "Trifinger")
+        # self.jacobian = gymtorch.wrap_tensor(_jac)
 
-        _dof_states = self.gym.acquire_dof_state_tensor(self.sim)
-        self.dof_states = gymtorch.wrap_tensor(_dof_states)
+        # _dof_states = self.gym.acquire_dof_state_tensor(self.sim)
+        # self.dof_states = gymtorch.wrap_tensor(_dof_states)
 
-        _rb_states = self.gym.acquire_rigid_body_state_tensor(self.sim)
-        self.rb_states = gymtorch.wrap_tensor(_rb_states)
+        # _rb_states = self.gym.acquire_rigid_body_state_tensor(self.sim)
+        # self.rb_states = gymtorch.wrap_tensor(_rb_states)
 
         self.gym.refresh_mass_matrix_tensors(self.sim)
         self.gym.refresh_jacobian_tensors(self.sim)
@@ -408,12 +433,16 @@ class Robot:
                                 f'finger_upper_to_middle_joint_{finger_pos}',
                                 f'finger_middle_to_lower_joint_{finger_pos}']
 
-            dof_idx = [self.gym.find_actor_dof_index(self.env, self.actor, dof_name, gymapi.DOMAIN_SIM) for dof_name in robot_dof_names]
-            tip_index =  self.gym.find_actor_rigid_body_index(self.env, self.actor, f"finger_tip_link_{finger_pos}", gymapi.DOMAIN_SIM)
+            dof_idx   = [self.dofs[dof_name] for dof_name in robot_dof_names]
+            tip_index =  self.fingertips_frames[f"finger_tip_link_{finger_pos}"]
+
+            # dof_idx = [self.gym.find_actor_dof_index(self.env, self.actor, dof_name, gymapi.DOMAIN_ACTOR) for dof_name in robot_dof_names]
+            # tip_index =  self.gym.find_actor_rigid_body_index(self.env, self.actor, f"finger_tip_link_{finger_pos}", gymapi.DOMAIN_ACTOR)
 
             # only care about tip position
             print(f"self.jacobian.shape={self.jacobian.shape}")
             print(f"tip_index={tip_index}")
+            print(f"dof_idx={dof_idx}")
             local_jacobian = self.jacobian[0, tip_index - 1, :3, dof_idx]
             tip_state = self.rb_states[tip_index, :]
 
@@ -582,11 +611,19 @@ class TriFingerEnv:
         self.env = env # used only when there is one env
         self.envs = [env]
 
+#  self.jacobian.shape=torch.Size([1, 16, 6, 9])
+# tip_index=7
+# dof_idx=[0, 1, 2]
+# self.jacobian.shape=torch.Size([1, 16, 6, 9])
+# tip_index=12
+# dof_idx=[3, 4, 5]
+# self.jacobian.shape=torch.Size([1, 16, 6, 9])
+# tip_index=17
+# dof_idx=[6, 7, 8]       # 
 
         if robot:
             self.robot = Robot(self.gym, self.sim, self.env)
 
-        #TODO the order matters here from rb index - needs to fix
         self.setup_stage(env)
 
         if obj:
@@ -594,6 +631,9 @@ class TriFingerEnv:
             self.object = Box(self.gym, self.sim, self.env)
 
         self.setup_cameras(self.env)
+
+        # self.object.setup_tensors()
+        self.robot.setup_tensors()
 
     def setup_stage(self, env):
         asset_dir = 'assets'
@@ -662,7 +702,6 @@ class TriFingerEnv:
             color_image = self.gym.get_camera_image(self.sim, self.env, camera_handle, gymapi.IMAGE_COLOR)
             color_image = color_image.reshape(400,400,-1)
             Image.fromarray(color_image).save(path / f"col_{i}.png")
-
 
             color_image = self.gym.get_camera_image(self.sim, self.env, camera_handle, gymapi.IMAGE_SEGMENTATION)
             color_image = color_image.reshape(400,400) * 30

@@ -55,6 +55,7 @@ def example_rotation_transform(normals):
     rotations = np.stack([ local_x, local_y, normals[..., None] ], axis=-1)[...,0,:]
     return rotations
 
+#TODO investiate why solves sometimes fail
 def calculate_grip_forces(positions, normals, target_force, target_torque):
     """ positions are relative to object CG if we want unbalanced torques"""
     mu = 0.5
@@ -196,7 +197,7 @@ class TeadyBear:
 
     grasp_normals = torch.Tensor( [[-0.035,-0.058, 0.0,],
                                     [ 0.0,   1.0,   0.0,],
-                                    [ 0.039, 0.058, 0.0,]])
+                                    [ 0.039,-0.058, 0.0,]])
     def __init__(self, gym, sim, env):
         self.gym = gym
         self.sim = sim
@@ -388,7 +389,8 @@ class Robot:
         interation = interation % 1000
 
         mode = "pos"
-        if   interation < 30:  mode = "off"
+        # if   interation < 30:  mode = "off" # Box needs this to get ot graps position - bear can't have it
+        if   interation < 30:  mode = "pos"
         elif interation < 120: mode = "pos"
         elif interation < 200: mode = "vel"
         else:                  mode = "up"
@@ -518,18 +520,25 @@ class Robot:
         quat = Quaternion.fromWLast(quat)
         target_quat = Quaternion.Identity()
 
+        pos = obj.get_CG() # thoughts it eliminates the pengulum effect? possibly?
+        target_pos = torch.Tensor([0,0,0.12])#TEMP
+
         print( f"pos={pos}")
         print( f"quat={quat}")
         print( f"target_pos={target_pos}")
         print( f"target_quat={target_quat}")
+
         pos_error = pos - target_pos
 
-        # Bear tunning - tunned without moving CG and compensated normals
+        # Box tunning - tunned without moving CG and compensated normals
         # target_force = obj.mass * 9.8 * torch.Tensor([0,0,1]) - 0.2 * pos_error - 0.1*vel
         # target_torque = - 0.4 * (quat @ target_quat.T).to_tanget_space() - 0.01*angular_vel
 
-        target_force = obj.mass * 9.8 * torch.Tensor([0,0,1]) - 0.2 * pos_error - 0.0*vel
-        target_torque = - 0.01  * (quat @ target_quat.T).to_tanget_space() - 0.00*angular_vel
+        # Bear tunning
+        target_force = obj.mass * 9.8 * torch.Tensor([0,0,1]) - 0.1 * pos_error - 0.00*vel
+        target_torque = - 0.8  * (quat @ target_quat.T).to_tanget_space() - 0.01*angular_vel
+        # target_torque = torch.zeros((3))
+        # target_force = 0.4 * obj.mass * 9.8 * torch.Tensor([0,0,1])
 
         print(target_torque)
 
@@ -547,6 +556,8 @@ class Robot:
         print("in_normal", in_normal)
 
         global_forces = calculate_grip_forces(grasp_points, in_normal, target_force, target_torque)
+
+        print("global_forces", global_forces)
         self.apply_fingertip_forces(global_forces)
 
 

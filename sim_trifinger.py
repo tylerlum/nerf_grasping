@@ -101,6 +101,15 @@ def calculate_grip_forces(positions, normals, target_force, target_torque):
     prob = cp.Problem(cp.Minimize(cp.max(force_magnitudes)), constraints)
     prob.solve()
 
+    if F.value is None:
+        print("Failed to solve!")
+        print("F.value", F.value)
+        print("positions", positions)
+        print("normals", normals)
+        print("target_force", target_force)
+        print("target_torque", target_torque)
+        assert False
+
     global_forces = np.zeros_like(F.value)
     for i in range(n):
         global_forces[i, :] = Q[i] @ F.value[i,:]
@@ -430,9 +439,6 @@ class Robot:
             # tip_index =  self.gym.find_actor_rigid_body_index(self.env, self.actor, f"finger_tip_link_{finger_pos}", gymapi.DOMAIN_ACTOR)
 
             # only care about tip position
-            print(f"self.jacobian.shape={self.jacobian.shape}")
-            print(f"tip_index={tip_index}")
-            print(f"dof_idx={dof_idx}")
             local_jacobian = self.jacobian[0, tip_index - 1, :3, dof_idx]
             tip_state = self.rb_states[tip_index, :]
 
@@ -611,23 +617,13 @@ class TriFingerEnv:
         self.env = env # used only when there is one env
         self.envs = [env]
 
-#  self.jacobian.shape=torch.Size([1, 16, 6, 9])
-# tip_index=7
-# dof_idx=[0, 1, 2]
-# self.jacobian.shape=torch.Size([1, 16, 6, 9])
-# tip_index=12
-# dof_idx=[3, 4, 5]
-# self.jacobian.shape=torch.Size([1, 16, 6, 9])
-# tip_index=17
-# dof_idx=[6, 7, 8]       # 
-
         if robot:
             self.robot = Robot(self.gym, self.sim, self.env)
 
         self.setup_stage(env)
 
         if obj:
-            self.object = Box(self.gym, self.sim, self.env)
+            self.object = TeadyBear(self.gym, self.sim, self.env)
 
         self.setup_cameras(self.env)
 

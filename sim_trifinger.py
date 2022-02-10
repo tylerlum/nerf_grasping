@@ -1,9 +1,6 @@
-import math
-import os
 import json
 from pathlib import Path
 import shutil
-from turtle import pos
 
 # import mathutils
 from PIL import Image
@@ -13,7 +10,8 @@ from isaacgym import gymapi, gymutil, gymtorch
 import torch
 import cvxpy as cp
 import numpy as np
-import matplotlib.pyplot as plt
+
+from quaternions import Quaternion
 
 # https://github.com/NVIDIA-Omniverse/IsaacGymEnvs
 
@@ -57,7 +55,7 @@ def example_rotation_transform(normals):
     rotations = np.stack([ local_x, local_y, normals[..., None] ], axis=-1)[...,0,:]
     return rotations
 
-def calculate_grip_forces(positions, normals, target_force):
+def calculate_grip_forces(positions, normals, target_force, target_torque):
     """ positions are relative to object CG if we want unbalanced torques"""
     mu = 0.5
 
@@ -65,9 +63,11 @@ def calculate_grip_forces(positions, normals, target_force):
     if torch_input:
         assert type(normals) == torch.Tensor, "numpy vs torch needs to be consistant"
         assert type(target_force) == torch.Tensor, "numpy vs torch needs to be consistant"
+        assert type(target_torque) == torch.Tensor, "numpy vs torch needs to be consistant"
         positions = positions.numpy()
         normals = normals.numpy()
         target_force = target_force.numpy()
+        target_torque = target_torque.numpy()
 
     n, _ = positions.shape
     assert normals.shape == (n, 3)
@@ -91,7 +91,7 @@ def calculate_grip_forces(positions, normals, target_force):
         total_torque += skew_matrix(pos) @ q @ f
 
     constraints.append( total_force == target_force )
-    constraints.append( total_torque == 0 )
+    constraints.append( total_torque == target_torque )
 
     friction_cone = cp.norm(F[:,:2], axis=1) <= mu * F[:,2]
     constraints.append( friction_cone )
@@ -378,22 +378,30 @@ class Robot:
             self.vel_control_force_limit(grasp_points, graps_normals)
         if mode == "up":
             pos_target = torch.Tensor([0,0,0.2])
-            t = obj.get_transform()
-            pos        =torch.Tensor([t.p.x, t.p.y, t.p.z])
+            pos = obj.rb_states[0, 0 :3]
+            quat = obj.rb_states[0, 3 : 7]
 
-            quat         =torch.Tensor([t.r.x, t.r.y, t.r.z, t.r.w])
-            target_quat = torch.Tensor([0.0, 0.0, 0.0, 1.0])
-            print(quat)
+            print( f"pos={pos}")
+            print( f"quat={quat}")
 
-            # pos_error = 0.2 - obj.get_transform().p.z
+            quat = Quaternion.fromWLast(quat)
+            # target_quat = Quaternion.fromAxisAngle(torch.Tensor([0,0,1]), np.pi)
+            target_quat = Quaternion.Identity()
+
+            print( f"target_quat={target_quat}")
+
+
             pos_error = pos_target - pos
-            print("pos_error", pos_error)
+            # print("pos_error", pos_error)
 
             # target_force = obj.mass * 9.8 + 0.001 * pos_error
             # target_force = target_force * torch.Tensor([0,0,1])
-            target_force = obj.mass * 9.8 *torch.Tensor([0,0,1]) + 0.01 *pos_error
+            target_force = obj.mass * 9.8 *torch.Tensor([0,0,1]) + 0.1 *pos_error
+            target_torque = -0.1 * (quat @ target_quat.T).to_tanget_space()
 
-            self.object_control(grasp_points, graps_normals, obj, target_force, None)
+            print(target_torque)
+
+            self.object_control(grasp_points, graps_normals, obj, target_force, target_torque)
 
     def position_control(self, grasp_points):
         applied_torque = torch.zeros((9))
@@ -478,21 +486,25 @@ class Robot:
 
         self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(applied_torque))
 
-    def object_control(self, grasp_points, in_normal, object, target_force, target_torque):
+    def object_control(self, grasp_points, in_normal, object, target_force=None, target_torque=None):
         # bear_transform = self.gym.get_rigid_transform(self.env, self.teady)
         # global_CG = bear_transform.transform_point(self.teady_CG)
         # transform = object.get_transform()
 
         #TODO calculate grasp points wrt object CG
 
-        # target_force = 5 * torch.Tensor([0,0,1])
+        if target_force is None:
+            target_force = 5 * torch.Tensor([0,0,1])
+
+        if target_torque is None:
+            target_torque = torch.Tensor([0.0, 0.0, 0.0])
 
         # mean_grasp = torch.mean(grasp_points, axis=0, keepdim=True)
         # grasp_points = grasp_points - mean_grasp
         # in_normal = - grasp_points
         # in_normal[:, -1] = 0
 
-        global_forces = calculate_grip_forces(grasp_points, in_normal, target_force)
+        global_forces = calculate_grip_forces(grasp_points, in_normal, target_force, target_torque)
 
         # tip_state = self.rb_states[tip_index, :]
 

@@ -9,8 +9,8 @@ class Quaternion:
         return Quaternion( [1, 0, 0, 0] )
 
     @classmethod
-    def fromGyro(cls, w, dt):
-        angle = torch.norm(w) * dt
+    def fromTangetSpace(cls, w):
+        angle = torch.norm(w)
         return Quaternion.fromAxisAngle( w, angle )
 
     @classmethod
@@ -22,10 +22,17 @@ class Quaternion:
     def fromAxisAngle(cls, axis, angle):
         if(angle == 0):
             return Quaternion.Identity()
+        if type(angle) != torch.Tensor:
+            angle = torch.Tensor([angle])
         axis = axis/torch.norm(axis)
         c = torch.cos(angle/2)
         s = torch.sin(angle/2)
         return Quaternion( [c, s * axis[0], s * axis[1], s * axis[2]] )
+
+    @classmethod
+    def fromWLast(cls, array):
+        x, y, z, w = array
+        return Quaternion([w, x, y, z])
 
     def __init__(self, array):
         self.q = torch.Tensor(array)
@@ -42,6 +49,11 @@ class Quaternion:
     def T(self):
         w, x, y, z = self.q
         return Quaternion([w, -x, -y, -z])
+
+    def to_tanget_space(self):
+        axis = self.q[1:]/torch.norm(self.q[1:])
+        angle = 2 * torch.acos(self.q[0])
+        return angle * axis
 
     def get_matrix(self):
         w = self.q[0]

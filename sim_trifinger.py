@@ -112,6 +112,15 @@ def calculate_grip_forces(positions, normals, target_force, target_torque):
 
 
 class Box:
+
+    grasp_points = torch.Tensor( [[ 0.0,  0.05, 0.05,],
+                                [ 0.03,-0.05, 0.05,],
+                                [-0.03,-0.05, 0.05,]])
+
+    grasp_normals = torch.Tensor( [[ 0.0,-1.0, 0.0,],
+                                [ 0.0, 1.0, 0.0,],
+                                [ 0.0, 1.0, 0.0,]])
+
     def __init__(self, gym, sim, env):
         self.gym = gym
         self.sim = sim
@@ -151,7 +160,8 @@ class Box:
 
         rigid_body_props = self.gym.get_actor_rigid_body_properties(self.env, actor)
         self.mass = sum(x.mass for x in rigid_body_props)
-        self.CG = rigid_body_props[0].com
+        com = rigid_body_props[0].com
+        self.CG = torch.Tensor([com.x, com.y, com.z])
 
         return actor
 
@@ -164,15 +174,20 @@ class Box:
         #NOTE: simple indexing will return a view of the data but advanced indexing will return a copy breaking the updateing
         self.rb_states = gymtorch.wrap_tensor(_rb_states)[rb_start_index: rb_start_index + rb_count, :]
 
-    def get_transform(self):
-        transform = self.gym.get_rigid_transform(self.env, self.actor)
-        return transform
-
     def get_CG(self):
-        return self.get_transform().transform_point(self.CG)
+        pos = self.rb_states[0,:3]
+        quat = Quaternion.fromWLast(self.rb_states[0,3:7])
+        return  quat.rotate(self.CG) + pos
 
 #TODO inheret from object class
 class TeadyBear:
+    grasp_points = torch.Tensor( [[ 0.035, 0.058, 0.101,],
+                                    [0.0, -0.048, 0.083,],
+                                    [-0.039, 0.058, 0.101,]])
+
+    grasp_normals = torch.Tensor( [[-0.035,-0.058, 0.0,],
+                                    [ 0.0,   1.0,   0.0,],
+                                    [ 0.039, 0.058, 0.0,]])
     def __init__(self, gym, sim, env):
         self.gym = gym
         self.sim = sim
@@ -198,24 +213,39 @@ class TeadyBear:
         asset_options.vhacd_params.max_num_vertices_per_ch = 16
 
         asset = self.gym.load_asset(self.sim, asset_dir, teady_bear_file, asset_options)
+
+        rs_props = self.gym.get_asset_rigid_shape_properties(asset)
+        for p in rs_props:
+            p.friction = 1.0
+            p.torsion_friction = 1.0
+            p.restitution = 0.1
+        self.gym.set_asset_rigid_shape_properties(asset, rs_props)
+
         return asset
     
     def configure_actor(self, gym, env):
         actor = self.gym.create_actor(env, self.asset, gymapi.Transform(p=gymapi.Vec3(0., 0., 0.1)), "teady bear", 0, 0, segmentationId=2)
 
-        # sphere_asset     = self.gym.create_sphere(self.sim, 0.1, asset_options)
-        # self.teady = self.gym.create_actor(env, sphere_asset, gymapi.Transform(p=gymapi.Vec3(0., 0., 0.105)), "teady bear", 0, 0, segmentationId=2)
-        # self.gym.set_rigid_body_color(self.env, self.teady, 0 , gymapi.MESH_VISUAL, gymapi.Vec3(0.8, 0.2, 0.3))
-
         rigid_body_props = self.gym.get_actor_rigid_body_properties(self.env, actor)
         self.mass = sum(x.mass for x in rigid_body_props)
-        self.CG = rigid_body_props[0].com
+        com = rigid_body_props[0].com
+        self.CG = torch.Tensor([com.x, com.y, com.z])
 
         return actor
+        
+    def setup_tensors(self):
+        _rb_states = self.gym.acquire_rigid_body_state_tensor(self.sim)
+        # (num_rigid_bodies, 13)
+        rb_count = self.gym.get_actor_rigid_body_count(self.env, self.actor)
+        rb_start_index = self.gym.get_actor_rigid_body_index(self.env, self.actor, 0, gymapi.DOMAIN_SIM)
 
-    def get_transform(self):
-        transform = self.gym.get_rigid_transform(self.env, self.actor)
-        return transform
+        #NOTE: simple indexing will return a view of the data but advanced indexing will return a copy breaking the updateing
+        self.rb_states = gymtorch.wrap_tensor(_rb_states)[rb_start_index: rb_start_index + rb_count, :]
+
+    def get_CG(self):
+        pos = self.rb_states[0,:3]
+        quat = Quaternion.fromWLast(self.rb_states[0,3:7])
+        return  quat.rotate(self.CG) + pos
 
 class Robot:
     # TODO this is where to robot contoler will live (need to just move it)
@@ -343,19 +373,8 @@ class Robot:
                                  [ 0.05,-0.10, 0.05,],
                                  [-0.05,-0.10, 0.05,]]) 
 
-        # teady points
-        # grasp_points = torch.Tensor( [[ 0.035, 0.058, 0.101,],
-        #                               [0.0, -0.048, 0.083,],
-        #                               [-0.039, 0.058, 0.101,]])
-
-        # box points
-        grasp_points = torch.Tensor( [[ 0.0,  0.05, 0.05,],
-                                  [ 0.03,-0.05, 0.05,],
-                                  [-0.03,-0.05, 0.05,]])
-
-        graps_normals = torch.Tensor( [[ 0.0,-1.0, 0.0,],
-                                  [ 0.0, 1.0, 0.0,],
-                                  [ 0.0, 1.0, 0.0,]])
+        grasp_points = obj.grasp_points
+        grasp_normals = obj.grasp_normals
 
         interation = interation % 1000
 
@@ -375,10 +394,10 @@ class Robot:
             # move radialy in along xy plane
             # normal = - (grasp_points - torch.mean(grasp_points, axis=0))
             # normal[:, -1] = 0
-            self.vel_control_force_limit(grasp_points, graps_normals)
+            self.vel_control_force_limit(grasp_points, grasp_normals)
         if mode == "up":
             pos_target = torch.Tensor([0,0,0.1])
-            self.object_pos_control(grasp_points, graps_normals, obj, pos_target)
+            self.object_pos_control(grasp_points, grasp_normals, obj, pos_target)
 
     def apply_fingertip_forces(self, global_fingertip_forces):
         applied_torque = torch.zeros((9))
@@ -483,7 +502,7 @@ class Robot:
         #TODO use global_fingertip_forces
         self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(applied_torque))
 
-    def object_pos_control(self, grasp_points, in_normal, obj, pos_target):
+    def object_pos_control(self, grasp_points, in_normal, obj, target_pos):
         # TODO grasp points should in object frame (rotate with erros in object rotation)
         pos         = obj.rb_states[0, 0: 3]
         quat        = obj.rb_states[0, 3: 7]
@@ -495,14 +514,31 @@ class Robot:
 
         print( f"pos={pos}")
         print( f"quat={quat}")
+        print( f"target_pos={target_pos}")
         print( f"target_quat={target_quat}")
+        pos_error = pos - target_pos
 
-        pos_error = pos - pos_target
+        # Bear tunning - tunned without moving CG and compensated normals
+        # target_force = obj.mass * 9.8 * torch.Tensor([0,0,1]) - 0.2 * pos_error - 0.1*vel
+        # target_torque = - 0.4 * (quat @ target_quat.T).to_tanget_space() - 0.01*angular_vel
 
-        target_force = obj.mass * 9.8 * torch.Tensor([0,0,1]) - 0.2 * pos_error - 0.1*vel
-        target_torque = - 0.4 * (quat @ target_quat.T).to_tanget_space() - 0.01*angular_vel
+        target_force = obj.mass * 9.8 * torch.Tensor([0,0,1]) - 0.2 * pos_error - 0.0*vel
+        target_torque = - 0.01  * (quat @ target_quat.T).to_tanget_space() - 0.00*angular_vel
 
         print(target_torque)
+
+        global_cg = obj.get_CG()
+        # print("global_cg.shape", global_cg.shape)
+        tip_indecies =  [self.fingertips_frames[f"finger_tip_link_{finger_pos}"] for finger_pos in [0,120,240]]
+        tip_positions = self.rb_states[tip_indecies, :3]
+
+        # not necessary for box - changes tunning parameters
+        # makes the grasp points and normals follow the tip positions and object rotation
+        grasp_points = tip_positions - global_cg
+        in_normal = torch.stack([quat.rotate(x) for x in in_normal], axis = 0)
+
+        print("grasp_points", grasp_points)
+        print("in_normal", in_normal)
 
         global_forces = calculate_grip_forces(grasp_points, in_normal, target_force, target_torque)
         self.apply_fingertip_forces(global_forces)
@@ -591,7 +627,6 @@ class TriFingerEnv:
         self.setup_stage(env)
 
         if obj:
-            # self.object = TeadyBear(self.gym, self.sim, self.env)
             self.object = Box(self.gym, self.sim, self.env)
 
         self.setup_cameras(self.env)
@@ -700,8 +735,8 @@ class TriFingerEnv:
                 json.dump(data, f)
 
     def get_object_pose(self):
-        transform = self.object.get_transform()
-        data = [transform.p.x, transform.p.y, transform.p.z, transform.r.x, transform.r.y, transform.r.z, transform.r.w]
+        #untested
+        data = list( self.objectj.rb_states[:7] )
         print(data)
 
     def refresh_tensors(self):

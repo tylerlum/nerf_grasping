@@ -50,6 +50,10 @@ class Quaternion:
         w, x, y, z = self.q
         return Quaternion([w, -x, -y, -z])
 
+    def __repr__(self):
+        w, x, y, z = self.q
+        return f"Quaternion(x={x:.5},y={y:.5},z={z:.5},w={w:.5})"
+
     def to_tanget_space(self):
         axis = self.q[1:]/torch.norm(self.q[1:])
         angle = 2 * torch.acos(self.q[0])

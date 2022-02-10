@@ -377,7 +377,8 @@ class Robot:
             # normal[:, -1] = 0
             self.vel_control_force_limit(grasp_points, graps_normals)
         if mode == "up":
-            pos_target = torch.Tensor([0,0,0.2])
+            pos_target = torch.Tensor([0,0,0.1])
+
             pos = obj.rb_states[0, 0 :3]
             quat = obj.rb_states[0, 3 : 7]
 
@@ -397,11 +398,32 @@ class Robot:
             # target_force = obj.mass * 9.8 + 0.001 * pos_error
             # target_force = target_force * torch.Tensor([0,0,1])
             target_force = obj.mass * 9.8 *torch.Tensor([0,0,1]) + 0.1 *pos_error
-            target_torque = -0.1 * (quat @ target_quat.T).to_tanget_space()
+            target_torque = -0.5 * (quat @ target_quat.T).to_tanget_space()
+
+            # target_force = 0 * torch.Tensor([0,1,0])
+            # target_torque = None #-0.5 * (quat @ target_quat.T).to_tanget_space()
+            # target_torque = -0.3 * torch.Tensor([0,0,1]) #-0.5 * (quat @ target_quat.T).to_tanget_space()
 
             print(target_torque)
 
             self.object_control(grasp_points, graps_normals, obj, target_force, target_torque)
+
+    def apply_fingertip_forces(self, global_fingertip_forces):
+        applied_torque = torch.zeros((9))
+        for finger_index, finger_pos in enumerate([0, 120, 240]):
+            robot_dof_names = [f'finger_base_to_upper_joint_{finger_pos}',
+                                f'finger_upper_to_middle_joint_{finger_pos}',
+                                f'finger_middle_to_lower_joint_{finger_pos}']
+
+            dof_idx   = [self.dofs[dof_name] for dof_name in robot_dof_names]
+            tip_index =  self.fingertips_frames[f"finger_tip_link_{finger_pos}"]
+
+            local_jacobian = self.jacobian[0, tip_index - 1, :3, dof_idx]
+
+            joint_torques = torch.t( local_jacobian ) @ global_fingertip_forces[finger_index, :]
+            applied_torque[dof_idx] = joint_torques
+
+        self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(applied_torque))
 
     def position_control(self, grasp_points):
         applied_torque = torch.zeros((9))
@@ -505,6 +527,9 @@ class Robot:
         # in_normal[:, -1] = 0
 
         global_forces = calculate_grip_forces(grasp_points, in_normal, target_force, target_torque)
+
+        # self.apply_fingertip_forces(global_forces)
+
 
         # tip_state = self.rb_states[tip_index, :]
 

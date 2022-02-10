@@ -378,28 +378,7 @@ class Robot:
             self.vel_control_force_limit(grasp_points, graps_normals)
         if mode == "up":
             pos_target = torch.Tensor([0,0,0.1])
-
-            pos         = obj.rb_states[0, 0: 3]
-            quat        = obj.rb_states[0, 3: 7]
-            vel         = obj.rb_states[0, 7:10]
-            angular_vel = obj.rb_states[0,10:13]
-
-
-            quat = Quaternion.fromWLast(quat)
-            target_quat = Quaternion.Identity()
-
-            print( f"pos={pos}")
-            print( f"quat={quat}")
-            print( f"target_quat={target_quat}")
-
-            pos_error = pos - pos_target
-
-            target_force = obj.mass * 9.8 * torch.Tensor([0,0,1]) - 0.2 * pos_error - 0.1*vel
-            target_torque = - 0.4 * (quat @ target_quat.T).to_tanget_space() - 0.01*angular_vel
-
-            print(target_torque)
-
-            self.object_control(grasp_points, graps_normals, obj, target_force, target_torque)
+            self.object_pos_control(grasp_points, graps_normals, obj, pos_target)
 
     def apply_fingertip_forces(self, global_fingertip_forces):
         applied_torque = torch.zeros((9))
@@ -452,6 +431,7 @@ class Robot:
             applied_torque[dof_idx] = joint_torques
 
 
+        #TODO use global_fingertip_forces
         self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(applied_torque))
 
     def vel_control_force_limit(self, grasp_points, grasp_normals, target_vel = 0.05, max_force = 1.5):
@@ -500,24 +480,31 @@ class Robot:
             joint_torques = torch.t( local_jacobian ) @ xyz_force
             applied_torque[dof_idx] = joint_torques
 
+        #TODO use global_fingertip_forces
         self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(applied_torque))
 
-    def object_control(self, grasp_points, in_normal, object, target_force=None, target_torque=None):
-        # bear_transform = self.gym.get_rigid_transform(self.env, self.teady)
-        # global_CG = bear_transform.transform_point(self.teady_CG)
-        # transform = object.get_transform()
+    def object_pos_control(self, grasp_points, in_normal, obj, pos_target):
+        # TODO grasp points should in object frame (rotate with erros in object rotation)
+        pos         = obj.rb_states[0, 0: 3]
+        quat        = obj.rb_states[0, 3: 7]
+        vel         = obj.rb_states[0, 7:10]
+        angular_vel = obj.rb_states[0,10:13]
 
-        #TODO calculate grasp points wrt object CG
+        quat = Quaternion.fromWLast(quat)
+        target_quat = Quaternion.Identity()
 
-        if target_force is None:
-            target_force = 5 * torch.Tensor([0,0,1])
+        print( f"pos={pos}")
+        print( f"quat={quat}")
+        print( f"target_quat={target_quat}")
 
-        if target_torque is None:
-            target_torque = torch.Tensor([0.0, 0.0, 0.0])
+        pos_error = pos - pos_target
 
+        target_force = obj.mass * 9.8 * torch.Tensor([0,0,1]) - 0.2 * pos_error - 0.1*vel
+        target_torque = - 0.4 * (quat @ target_quat.T).to_tanget_space() - 0.01*angular_vel
+
+        print(target_torque)
 
         global_forces = calculate_grip_forces(grasp_points, in_normal, target_force, target_torque)
-        print("global_forces\n", global_forces)
         self.apply_fingertip_forces(global_forces)
 
 

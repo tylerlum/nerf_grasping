@@ -140,7 +140,7 @@ class Box:
         for p in rs_props:
             p.friction = 1.0
             p.torsion_friction = 1.0
-            p.restitution = 0.8
+            p.restitution = 0.1
         self.gym.set_asset_rigid_shape_properties(asset, rs_props)
 
         return asset
@@ -249,7 +249,7 @@ class Robot:
         for p in trifinger_props:
             p.friction = 1.0
             p.torsion_friction = 1.0
-            p.restitution = 0.8
+            p.restitution = 0.1
         self.gym.set_asset_rigid_shape_properties(robot_asset, trifinger_props)
 
         fingertips_frames = ["finger_tip_link_0", "finger_tip_link_120", "finger_tip_link_240"]
@@ -379,30 +379,23 @@ class Robot:
         if mode == "up":
             pos_target = torch.Tensor([0,0,0.1])
 
-            pos = obj.rb_states[0, 0 :3]
-            quat = obj.rb_states[0, 3 : 7]
+            pos         = obj.rb_states[0, 0: 3]
+            quat        = obj.rb_states[0, 3: 7]
+            vel         = obj.rb_states[0, 7:10]
+            angular_vel = obj.rb_states[0,10:13]
+
+
+            quat = Quaternion.fromWLast(quat)
+            target_quat = Quaternion.Identity()
 
             print( f"pos={pos}")
             print( f"quat={quat}")
-
-            quat = Quaternion.fromWLast(quat)
-            # target_quat = Quaternion.fromAxisAngle(torch.Tensor([0,0,1]), np.pi)
-            target_quat = Quaternion.Identity()
-
             print( f"target_quat={target_quat}")
 
+            pos_error = pos - pos_target
 
-            pos_error = pos_target - pos
-            # print("pos_error", pos_error)
-
-            # target_force = obj.mass * 9.8 + 0.001 * pos_error
-            # target_force = target_force * torch.Tensor([0,0,1])
-            target_force = obj.mass * 9.8 *torch.Tensor([0,0,1]) + 0.1 *pos_error
-            target_torque = -0.5 * (quat @ target_quat.T).to_tanget_space()
-
-            # target_force = 0 * torch.Tensor([0,1,0])
-            # target_torque = None #-0.5 * (quat @ target_quat.T).to_tanget_space()
-            # target_torque = -0.3 * torch.Tensor([0,0,1]) #-0.5 * (quat @ target_quat.T).to_tanget_space()
+            target_force = obj.mass * 9.8 * torch.Tensor([0,0,1]) - 0.2 * pos_error - 0.1*vel
+            target_torque = - 0.4 * (quat @ target_quat.T).to_tanget_space() - 0.01*angular_vel
 
             print(target_torque)
 
@@ -457,6 +450,7 @@ class Robot:
 
             joint_torques = torch.t( local_jacobian ) @ xyz_force
             applied_torque[dof_idx] = joint_torques
+
 
         self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(applied_torque))
 
@@ -521,34 +515,11 @@ class Robot:
         if target_torque is None:
             target_torque = torch.Tensor([0.0, 0.0, 0.0])
 
-        # mean_grasp = torch.mean(grasp_points, axis=0, keepdim=True)
-        # grasp_points = grasp_points - mean_grasp
-        # in_normal = - grasp_points
-        # in_normal[:, -1] = 0
 
         global_forces = calculate_grip_forces(grasp_points, in_normal, target_force, target_torque)
+        print("global_forces\n", global_forces)
+        self.apply_fingertip_forces(global_forces)
 
-        # self.apply_fingertip_forces(global_forces)
-
-
-        # tip_state = self.rb_states[tip_index, :]
-
-        applied_torque = torch.zeros((9))
-        for finger_index, finger_pos in enumerate([0, 120, 240]):
-            robot_dof_names = [f'finger_base_to_upper_joint_{finger_pos}',
-                                f'finger_upper_to_middle_joint_{finger_pos}',
-                                f'finger_middle_to_lower_joint_{finger_pos}']
-
-            dof_idx = [self.gym.find_actor_dof_index(self.env, self.actor, dof_name, gymapi.DOMAIN_SIM) for dof_name in robot_dof_names]
-            tip_index =  self.gym.find_actor_rigid_body_index(self.env, self.actor, f"finger_tip_link_{finger_pos}", gymapi.DOMAIN_SIM)
-
-            local_jacobian = self.jacobian[0, tip_index - 1, :3, dof_idx]
-
-            xyz_force = global_forces[finger_index, :]
-            joint_torques = torch.t( local_jacobian ) @ xyz_force
-            applied_torque[dof_idx] = joint_torques
-
-        self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(applied_torque))
 
 class TriFingerEnv:
 

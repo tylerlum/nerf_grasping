@@ -4,14 +4,14 @@
     <visual>
       <origin xyz="0 0 0"/>
       <geometry>
-        <mesh filename="meshes/teady_bear.obj" scale=".01 .01 .01"/>
+	      <mesh filename="meshes/teady_bear/teady_bear.obj" scale=".01 .01 .01"/>
       </geometry>
     </visual>
     <collision>
       <origin xyz="0 0 0"/>
       <geometry>
         <!-- <box size="0.05 0.05 0.05"/> -->
-        <mesh filename="meshes/teady_bear.obj" scale=".01 .01 .01"/>
+	<mesh filename="meshes/teady_bear/teady_bear.obj" scale=".01 .01 .01"/>
       </geometry>
     </collision>
     <inertial>

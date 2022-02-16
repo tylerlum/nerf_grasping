@@ -208,7 +208,8 @@ class TeadyBear:
 
     def create_asset(self):
         asset_dir = 'assets'
-        teady_bear_file = "objects/urdf/teady_bear.urdf"
+        # teady_bear_file = "objects/urdf/teady_bear.urdf"
+        teady_bear_file = "objects/urdf/power_drill.urdf"
 
         asset_options = gymapi.AssetOptions()
 
@@ -388,12 +389,12 @@ class Robot:
 
         interation = interation % 1000
 
-        mode = "pos"
+        mode = "off"
         # if   interation < 30:  mode = "off" # Box needs this to get ot graps position - bear can't have it
-        if   interation < 30:  mode = "pos"
-        elif interation < 120: mode = "pos"
-        elif interation < 200: mode = "vel"
-        else:                  mode = "up"
+        # if   interation < 30:  mode = "pos"
+        # elif interation < 120: mode = "pos"
+        # elif interation < 200: mode = "vel"
+        # else:                  mode = "up"
 
         print(interation, mode)
 

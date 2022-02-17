@@ -121,8 +121,31 @@ def calculate_grip_forces(positions, normals, target_force, target_torque):
     return global_forces
 
 
-class Box:
+class RigidObject:
+    def __init__(self, gym, sim, env):
+        self.gym = gym
+        self.sim = sim
+        self.env = env
 
+        self.asset = self.create_asset()
+        self.actor = self.configure_actor(gym, env)
+
+    def get_CG(self):
+        pos = self.rb_states[0,:3]
+        quat = Quaternion.fromWLast(self.rb_states[0,3:7])
+        return  quat.rotate(self.CG) + pos
+
+    def setup_tensors(self):
+        _rb_states = self.gym.acquire_rigid_body_state_tensor(self.sim)
+        # (num_rigid_bodies, 13)
+        rb_count = self.gym.get_actor_rigid_body_count(self.env, self.actor)
+        rb_start_index = self.gym.get_actor_rigid_body_index(self.env, self.actor, 0, gymapi.DOMAIN_SIM)
+
+        #NOTE: simple indexing will return a view of the data but advanced indexing will return a copy breaking the updateing
+        self.rb_states = gymtorch.wrap_tensor(_rb_states)[rb_start_index: rb_start_index + rb_count, :]
+
+class Box(RigidObject):
+    name = "box"
     grasp_points = torch.Tensor( [[ 0.0,  0.05, 0.05,],
                                 [ 0.03,-0.05, 0.05,],
                                 [-0.03,-0.05, 0.05,]])
@@ -131,13 +154,6 @@ class Box:
                                 [ 0.0, 1.0, 0.0,],
                                 [ 0.0, 1.0, 0.0,]])
 
-    def __init__(self, gym, sim, env):
-        self.gym = gym
-        self.sim = sim
-        self.env = env
-
-        self.asset = self.create_asset()
-        self.actor = self.configure_actor(gym, env)
 
     def create_asset(self):
         asset_options = gymapi.AssetOptions()
@@ -175,22 +191,11 @@ class Box:
 
         return actor
 
-    def setup_tensors(self):
-        _rb_states = self.gym.acquire_rigid_body_state_tensor(self.sim)
-        # (num_rigid_bodies, 13)
-        rb_count = self.gym.get_actor_rigid_body_count(self.env, self.actor)
-        rb_start_index = self.gym.get_actor_rigid_body_index(self.env, self.actor, 0, gymapi.DOMAIN_SIM)
+class TeadyBear(RigidObject):
+    asset_dir = 'assets'
+    asset_file = "objects/urdf/teady_bear.urdf"
+    name = "teady_bear"
 
-        #NOTE: simple indexing will return a view of the data but advanced indexing will return a copy breaking the updateing
-        self.rb_states = gymtorch.wrap_tensor(_rb_states)[rb_start_index: rb_start_index + rb_count, :]
-
-    def get_CG(self):
-        pos = self.rb_states[0,:3]
-        quat = Quaternion.fromWLast(self.rb_states[0,3:7])
-        return  quat.rotate(self.CG) + pos
-
-#TODO inheret from object class
-class TeadyBear:
     grasp_points = torch.Tensor( [[ 0.035, 0.058, 0.101,],
                                     [0.0, -0.048, 0.083,],
                                     [-0.039, 0.058, 0.101,]])
@@ -198,23 +203,8 @@ class TeadyBear:
     grasp_normals = torch.Tensor( [[-0.035,-0.058, 0.0,],
                                     [ 0.0,   1.0,   0.0,],
                                     [ 0.039,-0.058, 0.0,]])
-    def __init__(self, gym, sim, env):
-        self.gym = gym
-        self.sim = sim
-        self.env = env
-
-        self.asset = self.create_asset()
-        self.actor = self.configure_actor(gym, env)
 
     def create_asset(self):
-        asset_dir = 'assets'
-        teady_bear_file = "objects/urdf/teady_bear.urdf"
-        # teady_bear_file = "objects/urdf/power_drill.urdf"
-        # teady_bear_file = "objects/urdf/banana.urdf"
-        # teady_bear_file = "objects/urdf/spatula.urdf"
-        # teady_bear_file = "objects/urdf/mug.urdf"
-        # teady_bear_file = "objects/urdf/bleach_cleanser.urdf"
-
         asset_options = gymapi.AssetOptions()
 
         asset_options.vhacd_enabled = True
@@ -228,7 +218,7 @@ class TeadyBear:
         asset_options.vhacd_params.max_convex_hulls = 10
         asset_options.vhacd_params.max_num_vertices_per_ch = 16
 
-        asset = self.gym.load_asset(self.sim, asset_dir, teady_bear_file, asset_options)
+        asset = self.gym.load_asset(self.sim, self.asset_dir, self.asset_file, asset_options)
 
         rs_props = self.gym.get_asset_rigid_shape_properties(asset)
         for p in rs_props:
@@ -240,7 +230,7 @@ class TeadyBear:
         return asset
     
     def configure_actor(self, gym, env):
-        actor = self.gym.create_actor(env, self.asset, gymapi.Transform(p=gymapi.Vec3(0., 0., 0.1)), "teady bear", 0, 0, segmentationId=2)
+        actor = self.gym.create_actor(env, self.asset, gymapi.Transform(p=gymapi.Vec3(0., 0., 0.1)), self.name, 0, 0, segmentationId=2)
 
         rigid_body_props = self.gym.get_actor_rigid_body_properties(self.env, actor)
         self.mass = sum(x.mass for x in rigid_body_props)
@@ -249,19 +239,26 @@ class TeadyBear:
 
         return actor
         
-    def setup_tensors(self):
-        _rb_states = self.gym.acquire_rigid_body_state_tensor(self.sim)
-        # (num_rigid_bodies, 13)
-        rb_count = self.gym.get_actor_rigid_body_count(self.env, self.actor)
-        rb_start_index = self.gym.get_actor_rigid_body_index(self.env, self.actor, 0, gymapi.DOMAIN_SIM)
+class PowerDrill(TeadyBear):
+    asset_file = "objects/urdf/power_drill.urdf"
+    name = "power_drill"
 
-        #NOTE: simple indexing will return a view of the data but advanced indexing will return a copy breaking the updateing
-        self.rb_states = gymtorch.wrap_tensor(_rb_states)[rb_start_index: rb_start_index + rb_count, :]
+class Banana(TeadyBear):
+    asset_file = "objects/urdf/banana.urdf"
+    name = "banana"
 
-    def get_CG(self):
-        pos = self.rb_states[0,:3]
-        quat = Quaternion.fromWLast(self.rb_states[0,3:7])
-        return  quat.rotate(self.CG) + pos
+class Spatula(TeadyBear):
+    asset_file = "objects/urdf/spatula.urdf"
+    name = "spatula"
+
+class Mug(TeadyBear):
+    asset_file = "objects/urdf/mug.urdf"
+    name = "mug"
+
+class BleachCleanser(TeadyBear):
+    asset_file = "objects/urdf/bleach_cleanser.urdf"
+    name = "bleach_cleanser"
+
 
 class Robot:
     # TODO this is where to robot contoler will live (need to just move it)
@@ -572,12 +569,12 @@ class Robot:
 
 class TriFingerEnv:
 
-    def __init__(self, viewer = True, robot=True, obj = True):
+    def __init__(self, viewer = True, robot=True, Obj = None):
         self.args = gymutil.parse_arguments( description="Trifinger test",)
         self.gym = gymapi.acquire_gym()
 
         self.setup_sim()
-        self.setup_envs(robot = robot,  obj = obj)
+        self.setup_envs(robot = robot,  Obj = Obj)
 
         if viewer:
             self.setup_viewer()
@@ -624,7 +621,7 @@ class TriFingerEnv:
         self.gym.set_light_parameters(self.sim, 2, intensity, ambient, gymapi.Vec3( 0.5, -1,  1))
         self.gym.set_light_parameters(self.sim, 3, intensity, ambient, gymapi.Vec3( 0, 0,  1))
 
-    def setup_envs(self, robot, obj):
+    def setup_envs(self, robot, Obj):
         plane_params = gymapi.PlaneParams()
         plane_params.normal = gymapi.Vec3(0, 0, 1) # z-up!
         self.gym.add_ground(self.sim, plane_params)
@@ -642,8 +639,8 @@ class TriFingerEnv:
 
         self.setup_stage(env)
 
-        if obj:
-            self.object = TeadyBear(self.gym, self.sim, self.env)
+        if Obj != None:
+            self.object = Obj(self.gym, self.sim, self.env)
 
         self.setup_cameras(self.env)
 
@@ -776,20 +773,29 @@ class TriFingerEnv:
 
 
 def get_nerf_training(viewer):
-    # tf = TriFingerEnv(viewer=viewer, robot = False, obj=True)
+    Obj = Box
+
+    # tf = TriFingerEnv(viewer=viewer, robot = False, obj=Obj)
 
     # for _ in range(500):
     # # while not tf.gym.query_viewer_has_closed(tf.viewer):
     #     tf.step_gym()
     #     tf.get_object_pose()
 
-    # tf.save_images("/media/data/mikadam/outputs/test", overwrite=True)
+    # tf.save_images("/media/data/mikadam/outputs/" + Obj.name, overwrite=True)
 
-    blank = TriFingerEnv(viewer=viewer, robot = False, obj=False)
+    blank = TriFingerEnv(viewer=viewer, robot = False, Obj=Obj)
     blank.save_images("/media/data/mikadam/outputs/blank", overwrite=True)
 
 def run_robot_control(viewer):
-    tf = TriFingerEnv(viewer= viewer, robot = True, obj= True)
+    # Obj = Box
+    # Obj = TeadyBear
+    Obj = PowerDrill
+    # Obj = Banana
+    # Obj = BleachCleanser
+    # Obj = Mug
+
+    tf = TriFingerEnv(viewer= viewer, robot = True, Obj= Obj)
 
     count = 0
     # for _ in range(500):

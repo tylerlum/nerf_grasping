@@ -17,8 +17,6 @@ from quaternions import Quaternion
 # https://github.com/NVIDIA-Omniverse/IsaacGymEnvs
 
 
-#TODO unfuck the camear tranform bug caused by Z axis up
-#currently implemetned in blender
 def get_fixed_camera_transfrom(gym, sim, env, camera):
     # currently x+ is pointing down camera view axis - other degree of freedom is messed up
     # output will have x+ be optical axis, y+ pointing left (looking down camera) and z+ pointing up
@@ -30,11 +28,18 @@ def get_fixed_camera_transfrom(gym, sim, env, camera):
     y_axis = torch.Tensor([0, 1.0, 0])
     z_axis = torch.Tensor([0, 0, 1.0])
 
-    optical_axis = quat.rotate(x_axis)
+    optical_axis   = quat.rotate(x_axis)
     side_left_axis = z_axis.cross( optical_axis )
-    up_axis = optical_axis.cross(side_left_axis)
+    up_axis        = optical_axis.cross(side_left_axis)
 
-    rot_matrix = torch.stack([optical_axis, side_left_axis, up_axis], dim = 0)
+    optical_axis   /= torch.norm(optical_axis)
+    side_left_axis /= torch.norm(side_left_axis)
+    up_axis        /= torch.norm(up_axis)
+
+    rot_matrix = torch.stack([optical_axis, side_left_axis, up_axis], dim = -1)
+    fixed_quat = Quaternion.fromMatrix(rot_matrix)
+
+    return pos, fixed_quat
 
 
 #TODO move those two to a seperate file?
@@ -725,6 +730,8 @@ class TriFingerEnv:
         path.mkdir()
 
         for i,camera_handle in enumerate(self.camera_handles):
+            print(f"saving camera {i}")
+
             color_image = self.gym.get_camera_image(self.sim, self.env, camera_handle, gymapi.IMAGE_COLOR)
             color_image = color_image.reshape(400,400,-1)
             Image.fromarray(color_image).save(path / f"col_{i}.png")
@@ -738,28 +745,10 @@ class TriFingerEnv:
             color_image = (np.clip(color_image, 0.0, 1.0) * 255).astype(np.uint8)
             Image.fromarray(color_image).convert("L").save(path / f"dep_{i}.png")
 
-            transform = self.gym.get_camera_transform(self.sim, self.env, camera_handle)
+            pos, quat = get_fixed_camera_transfrom(self.gym, self.sim, self.env, camera_handle)
 
-            # identity = np.array([gymapi.Vec3(1,0,0),
-            #                          gymapi.Vec3(0,1,0),
-            #                          gymapi.Vec3(0,0,1),
-            #                          gymapi.Vec3(0,0,0),])[None,:]
-
-            # print(type(identity))
-
-            # output = transform.transform_points( identity )
-            # matrix = mathutils.Matrix.LocRotScale(transform.p , mathutils.Quaternion(transform.q) , None)
-
-            get_fixed_camera_transfrom(self.gym, self.sim, self.env, camera_handle)
-
-            with open(path / f"quat_{i}.txt", "w+") as f:
-                # f.write( str(matrix) )
-                # json.dump([ [v.x, v.y, v.z] for v in output ], f)
-
-                # plt.imshow(color_image.reshape(400,400,4))
-                # plt.show()
-
-                data = [transform.p.x, transform.p.y, transform.p.z, transform.r.x, transform.r.y, transform.r.z, transform.r.w]
+            with open(path / f"pos_xyz_quat_xyzw_{i}.txt", "w+") as f:
+                data = [ *pos.tolist(), *quat.q[1:].tolist(), quat.q[0].tolist() ]
                 json.dump(data, f)
 
     def refresh_tensors(self):
@@ -781,12 +770,20 @@ class TriFingerEnv:
 
 
 def get_nerf_training(viewer):
-    Obj = Box
+    # Obj = None
+    # Obj = Box
+    # Obj = TeadyBear
+    # Obj = PowerDrill # put verticaly?
+    # Obj = Banana
+    # Obj = BleachCleanser # too big - put on side?
+    # Obj = Spatula
+    Obj = Mug
 
-    tf = TriFingerEnv(viewer=viewer, robot = False, obj=Obj)
+    tf = TriFingerEnv(viewer=viewer, robot = False, Obj=Obj)
     for _ in range(500):
         tf.step_gym()
-        print(tf.object.rb_states[0,:7])
+        if Obj != None:
+            print(tf.object.rb_states[0,:7])
 
     name = "blank" if Obj == None else Obj.name
     tf.save_images("/media/data/mikadam/outputs/" + name, overwrite=True)
@@ -813,8 +810,8 @@ def run_robot_control(viewer):
 
 
 if __name__ == "__main__":
-    # get_nerf_training(viewer = False)
-    run_robot_control(viewer = True)
+    get_nerf_training(viewer = False)
+    # run_robot_control(viewer = True)
 
 
 

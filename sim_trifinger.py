@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 import shutil
+from unittest.mock import Mock
 
 # import mathutils
 from PIL import Image
@@ -636,11 +637,15 @@ class TriFingerEnv:
 
         if robot:
             self.robot = Robot(self.gym, self.sim, self.env)
+        else:
+            self.robot = Mock()
 
         self.setup_stage(env)
 
         if Obj != None:
             self.object = Obj(self.gym, self.sim, self.env)
+        else:
+            self.object = Mock()
 
         self.setup_cameras(self.env)
 
@@ -775,30 +780,26 @@ class TriFingerEnv:
 def get_nerf_training(viewer):
     Obj = Box
 
-    # tf = TriFingerEnv(viewer=viewer, robot = False, obj=Obj)
+    tf = TriFingerEnv(viewer=viewer, robot = False, obj=Obj)
+    for _ in range(500):
+        tf.step_gym()
+        tf.get_object_pose()
 
-    # for _ in range(500):
-    # # while not tf.gym.query_viewer_has_closed(tf.viewer):
-    #     tf.step_gym()
-    #     tf.get_object_pose()
-
-    # tf.save_images("/media/data/mikadam/outputs/" + Obj.name, overwrite=True)
-
-    blank = TriFingerEnv(viewer=viewer, robot = False, Obj=Obj)
-    blank.save_images("/media/data/mikadam/outputs/blank", overwrite=True)
+    name = "blank" if Obj == None else Obj.name
+    tf.save_images("/media/data/mikadam/outputs/" + name, overwrite=True)
 
 def run_robot_control(viewer):
     # Obj = Box
     # Obj = TeadyBear
-    Obj = PowerDrill
+    # Obj = PowerDrill # put verticaly?
     # Obj = Banana
-    # Obj = BleachCleanser
-    # Obj = Mug
+    # Obj = BleachCleanser # too big - put on side?
+    # Obj = Spatula
+    Obj = Mug
 
     tf = TriFingerEnv(viewer= viewer, robot = True, Obj= Obj)
 
     count = 0
-    # for _ in range(500):
     while not tf.gym.query_viewer_has_closed(tf.viewer):
         count += 1
 

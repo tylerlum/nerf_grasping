@@ -208,13 +208,18 @@ class TeadyBear:
 
     def create_asset(self):
         asset_dir = 'assets'
-        # teady_bear_file = "objects/urdf/teady_bear.urdf"
-        teady_bear_file = "objects/urdf/power_drill.urdf"
+        teady_bear_file = "objects/urdf/teady_bear.urdf"
+        # teady_bear_file = "objects/urdf/power_drill.urdf"
+        # teady_bear_file = "objects/urdf/banana.urdf"
+        # teady_bear_file = "objects/urdf/spatula.urdf"
+        # teady_bear_file = "objects/urdf/mug.urdf"
+        # teady_bear_file = "objects/urdf/bleach_cleanser.urdf"
 
         asset_options = gymapi.AssetOptions()
 
         asset_options.vhacd_enabled = True
         asset_options.mesh_normal_mode = gymapi.COMPUTE_PER_VERTEX
+        asset_options.density = 100
         asset_options.override_inertia = True
         asset_options.override_com = True
 
@@ -390,15 +395,17 @@ class Robot:
         interation = interation % 1000
 
         mode = "off"
-        # if   interation < 30:  mode = "off" # Box needs this to get ot graps position - bear can't have it
-        # if   interation < 30:  mode = "pos"
-        # elif interation < 120: mode = "pos"
-        # elif interation < 200: mode = "vel"
-        # else:                  mode = "up"
+        if   interation < 30:  mode = "off" # Box needs this to get ot graps position - bear can't have it
+        # elif interation < 60:  mode = "safe"
+        elif interation < 140: mode = "pos"
+        elif interation < 200: mode = "vel"
+        else:                  mode = "up"
 
         print(interation, mode)
 
         if mode == "off":
+            pass
+        if mode == "safe":
             self.position_control(safe_pos)
         if mode == "pos":
             self.position_control(grasp_points)
@@ -536,12 +543,13 @@ class Robot:
         # target_torque = - 0.4 * (quat @ target_quat.T).to_tanget_space() - 0.01*angular_vel
 
         # Bear tunning
-        target_force = obj.mass * 9.8 * torch.Tensor([0,0,1]) - 0.1 * pos_error - 0.00*vel
-        target_torque = - 0.8  * (quat @ target_quat.T).to_tanget_space() - 0.01*angular_vel
+        target_force = obj.mass * 9.8 * torch.Tensor([0,0,1]) - 0.2 * pos_error - 0.10*vel
+        target_torque = - 0.4  * (quat @ target_quat.T).to_tanget_space() - 0.01*angular_vel
         # target_torque = torch.zeros((3))
         # target_force = 0.4 * obj.mass * 9.8 * torch.Tensor([0,0,1])
 
-        print(target_torque)
+        print(f"target_force={target_force}")
+        print(f"target_torque={target_torque}")
 
         global_cg = obj.get_CG()
         # print("global_cg.shape", global_cg.shape)

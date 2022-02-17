@@ -16,18 +16,26 @@ from quaternions import Quaternion
 
 # https://github.com/NVIDIA-Omniverse/IsaacGymEnvs
 
-# grasp poitns
-# tensor([[ 0.0128, -0.0739, -0.0815],
-#     [-0.0380, -0.0607,  0.0463],
-#     [ 0.0466, -0.0137, -0.0653]], requires_grad=True)
-
 
 #TODO unfuck the camear tranform bug caused by Z axis up
 #currently implemetned in blender
-# def get_fixed_camera_transfrom(gym, sim, env, camera):
-    # transform = gym.get_camera_transform(sim, env, camera_handle)
-    # make needs to align with global z+axis
-    # currently x+ is pointing down camera view axis
+def get_fixed_camera_transfrom(gym, sim, env, camera):
+    # currently x+ is pointing down camera view axis - other degree of freedom is messed up
+    # output will have x+ be optical axis, y+ pointing left (looking down camera) and z+ pointing up
+    t = gym.get_camera_transform(sim, env, camera)
+    pos = torch.Tensor([t.p.x, t.p.y, t.p.z])
+    quat = Quaternion.fromWLast([t.r.x, t.r.y, t.r.z, t.r.w ])
+
+    x_axis = torch.Tensor([1.0, 0, 0])
+    y_axis = torch.Tensor([0, 1.0, 0])
+    z_axis = torch.Tensor([0, 0, 1.0])
+
+    optical_axis = quat.rotate(x_axis)
+    side_left_axis = z_axis.cross( optical_axis )
+    up_axis = optical_axis.cross(side_left_axis)
+
+    rot_matrix = torch.stack([optical_axis, side_left_axis, up_axis], dim = 0)
+
 
 #TODO move those two to a seperate file?
 
@@ -742,6 +750,8 @@ class TriFingerEnv:
             # output = transform.transform_points( identity )
             # matrix = mathutils.Matrix.LocRotScale(transform.p , mathutils.Quaternion(transform.q) , None)
 
+            get_fixed_camera_transfrom(self.gym, self.sim, self.env, camera_handle)
+
             with open(path / f"quat_{i}.txt", "w+") as f:
                 # f.write( str(matrix) )
                 # json.dump([ [v.x, v.y, v.z] for v in output ], f)
@@ -751,11 +761,6 @@ class TriFingerEnv:
 
                 data = [transform.p.x, transform.p.y, transform.p.z, transform.r.x, transform.r.y, transform.r.z, transform.r.w]
                 json.dump(data, f)
-
-    def get_object_pose(self):
-        #untested
-        data = list( self.objectj.rb_states[:7] )
-        print(data)
 
     def refresh_tensors(self):
         self.gym.refresh_mass_matrix_tensors(self.sim)
@@ -767,9 +772,7 @@ class TriFingerEnv:
         self.gym.simulate(self.sim)
         self.gym.fetch_results(self.sim, True)
 
-
         self.gym.step_graphics(self.sim)
-
         if self.viewer != None:
             self.gym.draw_viewer(self.viewer, self.sim, True)
             self.gym.sync_frame_time(self.sim)
@@ -783,7 +786,7 @@ def get_nerf_training(viewer):
     tf = TriFingerEnv(viewer=viewer, robot = False, obj=Obj)
     for _ in range(500):
         tf.step_gym()
-        tf.get_object_pose()
+        print(tf.object.rb_states[0,:7])
 
     name = "blank" if Obj == None else Obj.name
     tf.save_images("/media/data/mikadam/outputs/" + name, overwrite=True)

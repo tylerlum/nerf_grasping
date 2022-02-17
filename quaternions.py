@@ -34,6 +34,28 @@ class Quaternion:
         x, y, z, w = array
         return Quaternion([w, x, y, z])
 
+    @classmethod
+    def fromMatrix(cls, matrix):
+        # https://d3cw3dd2w32x2b.cloudfront.net/wp-content/uploads/2015/01/matrix-to-quat.pdf
+        m = matrix
+        if m[2,2] < 0:
+            if m[0,0] > m[1,1]:
+                t = 1 + m[0,0] - m[1,1] - m[2,2]
+                quat = Quaternion.fromWLast([ t, m[0,1]+m[1,0], m[2,0]+m[0,2], m[1,2]-m[2,1] ])
+            else:
+                t = 1 - m[0,0] + m[1,1] - m[2,2]
+                quat = Quaternion.fromWLast([ m[0,1]+m[1,0], t, m[1,2]+m[2,1], m[2,0]-m[0,2] ])
+        else:
+            if m[0,0] < -m[1,1]:
+                t = 1 - m[0,0] - m[1,1] + m[2,2]
+                quat = Quaternion.fromWLast([ m[2,0]+m[0,2], m[1,2]+m[2,1], t, m[0,1]-m[1,0] ])
+            else:
+                t = 1 + m[0,0] + m[1,1] + m[2,2]
+                quat = Quaternion.fromWLast([ m[1,2]-m[2,1], m[2,0]-m[0,2], m[0,1]-m[1,0], t ])
+
+        quat.q *= 0.5 / torch.sqrt(t)
+        return quat
+
     def __init__(self, array):
         self.q = torch.Tensor(array)
 
@@ -73,7 +95,7 @@ class Quaternion:
         x, y, z = v
         return torch.Tensor([[ 0,-z, y],
                              [ z, 0,-x],
-                             [-y, z, 0]])
+                             [-y, x, 0]])
 
     def normalize(self):
         return Quaternion( self.q / torch.norm(self.q) )

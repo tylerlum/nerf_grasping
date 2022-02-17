@@ -258,6 +258,13 @@ class PowerDrill(TeadyBear):
     name = "power_drill"
 
 class Banana(TeadyBear):
+    grasp_points = torch.Tensor( [[ -0.00693, 0.085422, 0.013867],
+                                    [0.018317, -0.001611,   0.013867],
+                                    [-0.058538 , -0.051027 , 0.013867]])
+
+    grasp_normals = torch.Tensor( [[1,  -1.5 , 0.0,],
+                                    [ -2 ,   1.0,   0.0,],
+                                    [ 1, 0.0 , 0.0,]])
     asset_file = "objects/urdf/banana.urdf"
     name = "banana"
 
@@ -396,18 +403,21 @@ class Robot:
 
     def control(self, interation, obj):
 
-        safe_pos = torch.Tensor( [[ 0.0,  0.10, 0.05,],
-                                 [ 0.05,-0.10, 0.05,],
-                                 [-0.05,-0.10, 0.05,]]) 
+        # safe_pos = torch.Tensor( [[ 0.0,  0.10, 0.05,],
+        #                          [ 0.05,-0.10, 0.05,],
+        #                          [-0.05,-0.10, 0.05,]]) 
 
         grasp_points = obj.grasp_points
         grasp_normals = obj.grasp_normals
+        grasp_normals /= grasp_normals.norm(dim=-1, keepdim=True)
+
+        safe_pos = grasp_points - grasp_normals * 0.1
 
         interation = interation % 1000
 
         mode = "off"
         if   interation < 30:  mode = "off" # Box needs this to get ot graps position - bear can't have it
-        # elif interation < 60:  mode = "safe"
+        elif interation < 60:  mode = "safe"
         elif interation < 140: mode = "pos"
         elif interation < 200: mode = "vel"
         else:                  mode = "up"
@@ -539,37 +549,38 @@ class Robot:
         quat = Quaternion.fromWLast(quat)
         target_quat = Quaternion.Identity()
 
-        pos = obj.get_CG() # thoughts it eliminates the pengulum effect? possibly?
+        # cg_pos = pos
+        cg_pos = obj.get_CG() # thoughts it eliminates the pengulum effect? possibly?
         target_pos = torch.Tensor([0,0,0.12])#TEMP
 
-        print( f"pos={pos}")
+        print( f"cg_pos={cg_pos}")
         print( f"quat={quat}")
         print( f"target_pos={target_pos}")
         print( f"target_quat={target_quat}")
 
-        pos_error = pos - target_pos
+        pos_error = cg_pos - target_pos
 
         # Box tunning - tunned without moving CG and compensated normals
         # target_force = obj.mass * 9.8 * torch.Tensor([0,0,1]) - 0.2 * pos_error - 0.1*vel
         # target_torque = - 0.4 * (quat @ target_quat.T).to_tanget_space() - 0.01*angular_vel
 
         # Bear tunning
-        target_force = obj.mass * 9.8 * torch.Tensor([0,0,1]) - 0.2 * pos_error - 0.10*vel
-        target_torque = - 0.4  * (quat @ target_quat.T).to_tanget_space() - 0.01*angular_vel
-        # target_torque = torch.zeros((3))
-        # target_force = 0.4 * obj.mass * 9.8 * torch.Tensor([0,0,1])
+        # target_force = obj.mass * 9.8 * torch.Tensor([0,0,1]) - 0.2 * pos_error - 0.10*vel
+        # target_torque = - 0.4  * (quat @ target_quat.T).to_tanget_space() - 0.01*angular_vel
+
+        target_torque = torch.zeros((3))
+        target_force = 1.0 * obj.mass * 9.8 * torch.Tensor([0,0,1])
 
         print(f"target_force={target_force}")
         print(f"target_torque={target_torque}")
 
-        global_cg = obj.get_CG()
         # print("global_cg.shape", global_cg.shape)
         tip_indecies =  [self.fingertips_frames[f"finger_tip_link_{finger_pos}"] for finger_pos in [0,120,240]]
         tip_positions = self.rb_states[tip_indecies, :3]
 
         # not necessary for box - changes tunning parameters
         # makes the grasp points and normals follow the tip positions and object rotation
-        grasp_points = tip_positions - global_cg
+        grasp_points = tip_positions - cg_pos
         in_normal = torch.stack([quat.rotate(x) for x in in_normal], axis = 0)
 
         print("grasp_points", grasp_points)
@@ -792,10 +803,10 @@ def run_robot_control(viewer):
     # Obj = Box
     # Obj = TeadyBear
     # Obj = PowerDrill # put verticaly?
-    # Obj = Banana
+    Obj = Banana
     # Obj = BleachCleanser # too big - put on side?
     # Obj = Spatula
-    Obj = Mug
+    # Obj = Mug
 
     tf = TriFingerEnv(viewer= viewer, robot = True, Obj= Obj)
 
@@ -810,8 +821,8 @@ def run_robot_control(viewer):
 
 
 if __name__ == "__main__":
-    get_nerf_training(viewer = False)
-    # run_robot_control(viewer = True)
+    # get_nerf_training(viewer = False)
+    run_robot_control(viewer = True)
 
 
 

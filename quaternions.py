@@ -37,7 +37,7 @@ class Quaternion:
     @classmethod
     def fromMatrix(cls, matrix):
         # https://d3cw3dd2w32x2b.cloudfront.net/wp-content/uploads/2015/01/matrix-to-quat.pdf
-        m = matrix
+        m = matrix.T
         if m[2,2] < 0:
             if m[0,0] > m[1,1]:
                 t = 1 + m[0,0] - m[1,1] - m[2,2]

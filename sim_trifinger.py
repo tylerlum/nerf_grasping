@@ -260,6 +260,14 @@ class TeadyBear(RigidObject):
         return actor
         
 class PowerDrill(TeadyBear):
+    grasp_points = torch.Tensor( [[-0.038539, 0.115021, 0.023878],
+                                    [0.030017, -0.002467,   0.027816],
+                                    [-0.029284 , -0.099212 , 0.027294]])
+
+    grasp_normals = torch.Tensor( [[0,  -1.0 , 0.0,],
+                                    [ -1 ,   0.0,   0.0,],
+                                    [ 1.0, 1.0 , 0.0,]])
+
     asset_file = "objects/urdf/power_drill.urdf"
     name = "power_drill"
 
@@ -577,8 +585,8 @@ class Robot:
         # target_torque = - 0.4  * (quat @ target_quat.T).to_tanget_space() - 0.01*angular_vel
 
         #banana tunigng
-        target_force = obj.mass * 9.8 * torch.Tensor([0,0,1]) - 0.4 * pos_error - 0.10*vel
-        target_torque = - 0.05  * (quat @ target_quat.T).to_tanget_space() - 0.00*angular_vel
+        target_force = obj.mass * 9.8 * torch.Tensor([0,0,1]) - 0.9 * pos_error - 0.40*vel
+        target_torque = - 0.04  * (quat @ target_quat.T).to_tanget_space() - 0.0001*angular_vel
 
         # target_torque = torch.zeros((3))
         # target_force = 1.1 * obj.mass * 9.8 * torch.Tensor([0,0,1])
@@ -836,8 +844,8 @@ def get_nerf_training(viewer):
 def run_robot_control(viewer):
     # Obj = Box
     # Obj = TeadyBear
-    # Obj = PowerDrill # put verticaly?
-    Obj = Banana
+    Obj = PowerDrill
+    # Obj = Banana
     # Obj = BleachCleanser # too big - put on side?
     # Obj = Spatula
     # Obj = Mug

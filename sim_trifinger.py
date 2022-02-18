@@ -66,6 +66,9 @@ def example_rotation_transform(normals):
     #  n,3,1         n,3,3              n,3,1
     local_y = skew_matrix(normals) @ local_x
 
+    local_x   /= np.linalg.norm(local_x, keepdims=True, axis=-2)
+    local_y   /= np.linalg.norm(local_y, keepdims=True, axis=-2)
+
     rotations = np.stack([ local_x, local_y, normals[..., None] ], axis=-1)[...,0,:]
     return rotations
 
@@ -154,6 +157,9 @@ class RigidObject:
         # (num_rigid_bodies, 13)
         rb_count = self.gym.get_actor_rigid_body_count(self.env, self.actor)
         rb_start_index = self.gym.get_actor_rigid_body_index(self.env, self.actor, 0, gymapi.DOMAIN_SIM)
+
+        #TODO TEMP
+        self.index = rb_start_index
 
         #NOTE: simple indexing will return a view of the data but advanced indexing will return a copy breaking the updateing
         self.rb_states = gymtorch.wrap_tensor(_rb_states)[rb_start_index: rb_start_index + rb_count, :]
@@ -551,8 +557,10 @@ class Robot:
 
         # cg_pos = pos
         cg_pos = obj.get_CG() # thoughts it eliminates the pengulum effect? possibly?
-        target_pos = torch.Tensor([0,0,0.12])#TEMP
+        target_pos = torch.Tensor([0,0,0.10])#TEMP
 
+        print( f"pos={pos}")
+        print( f"CG={obj.CG}")
         print( f"cg_pos={cg_pos}")
         print( f"quat={quat}")
         print( f"target_pos={target_pos}")
@@ -568,8 +576,15 @@ class Robot:
         # target_force = obj.mass * 9.8 * torch.Tensor([0,0,1]) - 0.2 * pos_error - 0.10*vel
         # target_torque = - 0.4  * (quat @ target_quat.T).to_tanget_space() - 0.01*angular_vel
 
-        target_torque = torch.zeros((3))
-        target_force = 1.0 * obj.mass * 9.8 * torch.Tensor([0,0,1])
+        #banana tunigng
+        target_force = obj.mass * 9.8 * torch.Tensor([0,0,1]) - 0.4 * pos_error - 0.10*vel
+        target_torque = - 0.05  * (quat @ target_quat.T).to_tanget_space() - 0.00*angular_vel
+
+        # target_torque = torch.zeros((3))
+        # target_force = 1.1 * obj.mass * 9.8 * torch.Tensor([0,0,1])
+
+        # target_torque = torch.Tensor([0, 0, -0.01])
+        # target_force = torch.zeros((3))
 
         print(f"target_force={target_force}")
         print(f"target_torque={target_torque}")
@@ -588,8 +603,27 @@ class Robot:
 
         global_forces = calculate_grip_forces(grasp_points, in_normal, target_force, target_torque)
 
+        print("per finger force", global_forces)
+        print("applied force", torch.sum(global_forces, dim=0))
+
+        _net_cf = self.gym.acquire_net_contact_force_tensor(self.sim)
+        net_cf = gymtorch.wrap_tensor(_net_cf)
+        self.gym.refresh_net_contact_force_tensor(self.sim)
+
+        # print(f"net_cf={net_cf[obj.index,:]}")
+        print(f"net_cf={net_cf}")
+
+        # try:
+        #     global_forces = calculate_grip_forces(grasp_points, in_normal, target_force, target_torque)
+        # except AssertionError:
+        #     print("solve failed, mainiting previous forces")
+        #     global_forces = self.previous_global_forces # will fail if we failed solve on first iteration
+        # else:
+        #     self.previous_global_forces = global_forces
+
         print("global_forces", global_forces)
         self.apply_fingertip_forces(global_forces)
+
 
 
 class TriFingerEnv:
@@ -814,8 +848,14 @@ def run_robot_control(viewer):
     while not tf.gym.query_viewer_has_closed(tf.viewer):
         count += 1
 
+        # force = torch.Tensor([0,0,1]) * 9.8 *  tf.object.mass * 1.0
+        # force = torch.stack( [force, force], dim = 0)
+        # force = gymtorch.unwrap_tensor(force)
+        # tf.gym.apply_rigid_body_force_tensors(tf.sim, force , None, gymapi.ENV_SPACE)
+
         tf.step_gym()
         tf.robot.control(count, tf.object)
+
 
     print("closed!")
 

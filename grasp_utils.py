@@ -5,6 +5,55 @@ including normal estimation and surface detection.
 import math
 import torch
 
+def generate_rays(grasp_vars):
+    """
+    Generates rays in the format needed for a nerf_shared.Renderer.
+
+    Args:
+        grasp_vars: tensor, shape [B, n_f, 5], of grasp positions ([..., :3]) and
+            approach directions ([..., 3:]), in spherical coordinates,
+            to be used for rendering.
+
+    Returns (rays_o, rays_d) expected for rendering.
+    """
+    raise NotImplementedError
+
+def get_grasp_distribution(grasp_vars, nerf, renderer):
+    """
+    Generates a "grasp distribution," a set of n_f categorical distributions
+    for where each finger will contact the object surface, along with the associated
+    contact points.
+
+    Args:
+        grasp_vars: tensor, shape [B, n_f, 5], of grasp positions ([..., :3]) and
+            approach directions ([..., 3:]), in spherical coordinates,
+            to be used for rendering.
+        nerf: nerf_shared.NeRF object defining the object density.
+        renderer: nerf_shared.Renderer object which will be used to generate the
+            termination probabilities and points.
+
+    Returns a tuple (points, probs) defining the grasp distribution.
+    """
+    raise NotImplementedError
+
+def sample_grasps(grasp_vars, nerf, renderer):
+    """
+    Generates and samples from a distribution of grasps, returning a batch of
+    grasp points and their associated normals.
+
+    Args:
+        grasp_vars: tensor, shape [B, n_f, 5], of grasp positions ([..., :3]) and
+            approach directions ([..., 3:]), in spherical coordinates,
+            to be used for rendering.
+        nerf: nerf_shared.NeRF object defining the object density.
+        renderer: nerf_shared.Renderer object which will be used to generate the
+            termination probabilities and points.
+
+    Returns a batch of sampled grasp points and normals, which can be
+    used to compute grasp metrics.
+    """
+    raise NotImplementedError
+
 def est_grads_vals(nerf, grasp_points, method='gaussian', sigma=1e-3, num_samples=2500):
     """
     Uses sampling to estimate gradients and density values for

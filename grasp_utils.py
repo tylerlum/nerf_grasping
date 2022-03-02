@@ -3,9 +3,10 @@ Module implementing utils for grasping,
 including normal estimation and surface detection.
 """
 import math
+import render_utils
 import torch
 
-def generate_rays(grasp_vars):
+def generate_grasp_rays(grasp_vars):
     """
     Generates rays in the format needed for a nerf_shared.Renderer.
 
@@ -16,9 +17,22 @@ def generate_rays(grasp_vars):
 
     Returns (rays_o, rays_d) expected for rendering.
     """
-    raise NotImplementedError
+    # Construct ray origins (first three elements of decision vars).
+    rays_o = grasp_vars[:, :, :3]
 
-def get_grasp_distribution(grasp_vars, nerf, renderer):
+    # Construct ray directions (using spherical coords).
+    phi, theta = grasp_vars[..., 3], grasp_vars[..., 4]
+    rays_d = torch.cat([torch.cos(phi) * torch.sin(theta),
+                        torch.sin(phi) * torch.sin(theta),
+                        torch.cos(theta)], dim=-1)
+
+    return rays_o, rays_d
+
+def get_grasp_distribution(grasp_vars,
+                           coarse_model,
+                           fine_model,
+                           renderer,
+                           chunk=1024*32):
     """
     Generates a "grasp distribution," a set of n_f categorical distributions
     for where each finger will contact the object surface, along with the associated
@@ -31,10 +45,33 @@ def get_grasp_distribution(grasp_vars, nerf, renderer):
         nerf: nerf_shared.NeRF object defining the object density.
         renderer: nerf_shared.Renderer object which will be used to generate the
             termination probabilities and points.
+        chunk: Max number of rays to render at once on the GPU.
 
     Returns a tuple (points, probs) defining the grasp distribution.
     """
-    raise NotImplementedError
+    B, n_f, _ = grasp_vars.shape
+
+    # Create ray batch
+    rays_o, rays_d = generate_grasp_rays(grasp_vars)
+    rays_o = torch.reshape(rays_o, [-1,3]).float()
+    rays_d = torch.reshape(rays_d, [-1,3]).float()
+
+    near = renderer.near * torch.ones_like(rays_d[...,:1])
+    far = renderer.far * torch.ones_like(rays_d[...,:1])
+    rays = torch.cat([rays_o, rays_d, near, far], -1)
+
+    if renderer.use_viewdirs:
+        viewdirs = rays_d / torch.norm(rays_d, dim=-1, keepdim=True)
+        viewdirs = torch.reshape(viewdirs, [-1,3]).float()
+        rays = torch.cat([rays, viewdirs], -1)
+
+    render_results = renderer.render_batch(coarse_model, fine_model, rays,
+                                           chunk, retweights=True)
+
+    weights = render_results['weights'].reshape(B, n_f, -1)
+    z_vals = render_results['z_vals'].reshape(B, n_f, -1)
+
+    return rays, weights, z_vals
 
 def sample_grasps(grasp_vars, nerf, renderer):
     """

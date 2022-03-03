@@ -3,30 +3,7 @@ Module implementing utils for grasping,
 including normal estimation and surface detection.
 """
 import math
-import render_utils
 import torch
-
-def generate_grasp_rays(grasp_vars):
-    """
-    Generates rays in the format needed for a nerf_shared.Renderer.
-
-    Args:
-        grasp_vars: tensor, shape [B, n_f, 5], of grasp positions ([..., :3]) and
-            approach directions ([..., 3:]), in spherical coordinates,
-            to be used for rendering.
-
-    Returns (rays_o, rays_d) expected for rendering.
-    """
-    # Construct ray origins (first three elements of decision vars).
-    rays_o = grasp_vars[:, :, :3]
-
-    # Construct ray directions (using spherical coords).
-    phi, theta = grasp_vars[..., 3], grasp_vars[..., 4]
-    rays_d = torch.cat([torch.cos(phi) * torch.sin(theta),
-                        torch.sin(phi) * torch.sin(theta),
-                        torch.cos(theta)], dim=-1)
-
-    return rays_o, rays_d
 
 def get_grasp_distribution(grasp_vars,
                            coarse_model,
@@ -39,9 +16,9 @@ def get_grasp_distribution(grasp_vars,
     contact points.
 
     Args:
-        grasp_vars: tensor, shape [B, n_f, 5], of grasp positions ([..., :3]) and
-            approach directions ([..., 3:]), in spherical coordinates,
-            to be used for rendering.
+        grasp_vars: tensor, shape [B, n_f, 6], of grasp positions ([..., :3]) and
+            approach directions ([..., 3:]) to be used for rendering. Approach
+            directions need not be normalized.
         nerf: nerf_shared.NeRF object defining the object density.
         renderer: nerf_shared.Renderer object which will be used to generate the
             termination probabilities and points.
@@ -49,31 +26,40 @@ def get_grasp_distribution(grasp_vars,
 
     Returns a tuple (points, probs) defining the grasp distribution.
     """
+    # TODO(pculbert): Support grasp_vars without a leading batch dim.
     B, n_f, _ = grasp_vars.shape
+    assert grasp_vars.shape[-1] == 6
 
     # Create ray batch
-    rays_o, rays_d = generate_grasp_rays(grasp_vars)
+    rays_o, rays_d = grasp_vars[..., :3], grasp_vars[..., 3:]
     rays_o = torch.reshape(rays_o, [-1,3]).float()
     rays_d = torch.reshape(rays_d, [-1,3]).float()
+    rays_d = rays_d / torch.norm(rays_d, dim=-1, keepdim=True)
 
+    # Create near/far bounds and append to ray batch.
     near = renderer.near * torch.ones_like(rays_d[...,:1])
     far = renderer.far * torch.ones_like(rays_d[...,:1])
     rays = torch.cat([rays_o, rays_d, near, far], -1)
 
     if renderer.use_viewdirs:
-        viewdirs = rays_d / torch.norm(rays_d, dim=-1, keepdim=True)
-        viewdirs = torch.reshape(viewdirs, [-1,3]).float()
-        rays = torch.cat([rays, viewdirs], -1)
+        rays = torch.cat([rays, rays_d], dim=-1)
 
+    # Use render_batch to get termination weights for all points.
     render_results = renderer.render_batch(coarse_model, fine_model, rays,
                                            chunk, retweights=True)
 
     weights = render_results['weights'].reshape(B, n_f, -1)
     z_vals = render_results['z_vals'].reshape(B, n_f, -1)
+    rays = rays.reshape(B, n_f, -1)
 
     return rays, weights, z_vals
 
-def sample_grasps(grasp_vars, nerf, renderer):
+def sample_grasps(grasp_vars,
+                  num_grasps,
+                  coarse_model,
+                  fine_model,
+                  renderer,
+                  chunk=1024*32):
     """
     Generates and samples from a distribution of grasps, returning a batch of
     grasp points and their associated normals.
@@ -89,9 +75,54 @@ def sample_grasps(grasp_vars, nerf, renderer):
     Returns a batch of sampled grasp points and normals, which can be
     used to compute grasp metrics.
     """
-    raise NotImplementedError
+    rays, weights, z_vals = get_grasp_distribution(grasp_vars,
+                                                   coarse_model,
+                                                   fine_model,
+                                                   renderer,
+                                                   chunk=chunk)
 
-def est_grads_vals(nerf, grasp_points, method='gaussian', sigma=1e-3, num_samples=2500):
+    B, n_f, _ = rays.shape
+
+    # Unpack ray origins and dirs from ray batch.
+    rays_o, rays_d = rays[..., :3], rays[..., 3:6]
+
+    # Normalize to ensure rays_d are unit length.
+    rays_d = rays_d / torch.norm(rays_d, dim=-1, keepdim=True)
+
+    # Compute where sample points lie in 3D space.
+    # [B, n_f, num_points, 3]
+    sample_points = rays_o.unsqueeze(-2) + z_vals.unsqueeze(-1) * rays_d.unsqueeze(-2)
+
+    # Generate distribution from which we'll sample grasp points.
+    grasp_dist = torch.distributions.Categorical(probs=weights+1e-15)
+
+    # Create mask for which rays are empty.
+    grasp_mask = torch.sum(weights, -1) > 1e-8
+
+    # Sample num_grasps grasp from this distribution.
+    grasp_inds = grasp_dist.sample(sample_shape=[num_grasps]) # [num_grasps, B, n_f]
+    grasp_inds = grasp_inds.permute(2, 0, 1) # [B, n_f, num_grasps]
+    grasp_inds = grasp_inds.reshape(B, n_f, num_grasps, 1).expand(B, n_f, num_grasps, 3)
+
+    # Collect grasp points.
+    grasp_points = torch.gather(sample_points, -2, grasp_inds) # [B, n_f, num_grasps, 3]
+
+    # Estimate gradients.
+    _, grad_ests = est_grads_vals(fine_model, grasp_points.reshape(B, -1, 3))
+    grad_ests = grad_ests.reshape(B, n_f, num_grasps, 3)
+
+    # Estimate densities at fingertips.
+    density_ests, _ = est_grads_vals(fine_model, rays_o.reshape(B, -1, 3))
+    density_ests = density_ests.reshape(B, n_f)
+
+    grasp_mask = torch.logical_and(grasp_mask, density_ests < 150)
+
+    # Permute dims to put batch dimensions together.
+    grad_ests = grad_ests.permute(0, 2, 1, 3)
+
+    return grasp_points, grad_ests, grasp_mask
+
+def est_grads_vals(nerf, grasp_points, method='central_difference', sigma=1e-3, num_samples=1000):
     """
     Uses sampling to estimate gradients and density values for
     a given batch of grasp points.
@@ -144,6 +175,31 @@ def est_grads_vals(nerf, grasp_points, method='gaussian', sigma=1e-3, num_sample
         density_ests = origin_densities.reshape(B, n_f)
 
     return density_ests, grad_ests
+
+def nerf_densities(nerf, grasp_points):
+    """
+    Evaluates density of a batch of grasp points, shape [B, n_f, 3].
+    """
+    B, n_f, _ = grasp_points.shape
+    query_points = grasp_points.reshape(1, -1, 3)
+
+    return nerf.get_density(query_points).reshape(B, n_f)
+
+def nerf_grads(nerf, grasp_points, ret_densities=False):
+    """
+    Evaluates NeRF densities at a batch of grasp points.
+    Args:
+        nerf: nerf_shared.NeRF object with density channel to diff.
+        grasp_points: set of grasp points at which to take gradients.
+    """
+    densities = nerf_densities(nerf, grasp_points)
+    density_grads = torch.autograd.grad(torch.sum(densities), grasp_points,
+                                        create_graph=False)[0]
+
+    if ret_densities:
+        return density_grads, densities
+    else:
+        return density_grads
 
 def cos_similarity(a, b):
     """

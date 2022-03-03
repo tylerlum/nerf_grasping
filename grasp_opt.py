@@ -1,6 +1,7 @@
 """
 Module implementing methods for grasp optimization with NeRFs.
 """
+import grasp_utils
 import torch
 
 def grasp_matrix(grasp_points, normals):
@@ -22,31 +23,6 @@ def grasp_matrix(grasp_points, normals):
 
     grasp_mats = torch.cat([R, p_cross @ R], dim=-2)
     return torch.cat([grasp_mats[:, ii, :, :] for ii in range(n_f)], dim=-1)
-
-def nerf_densities(nerf, grasp_points):
-    """
-    Evaluates density of a batch of grasp points, shape [B, n_f, 3].
-    """
-    B, n_f, _ = grasp_points.shape
-    query_points = grasp_points.reshape(1, -1, 3)
-
-    return nerf.get_density(query_points).reshape(B, n_f)
-
-def nerf_grads(nerf, grasp_points, ret_densities=False):
-    """
-    Evaluates NeRF densities at a batch of grasp points.
-    Args:
-        nerf: nerf_shared.NeRF object with density channel to diff.
-        grasp_points: set of grasp points at which to take gradients.
-    """
-    densities = nerf_densities(nerf, grasp_points)
-    density_grads = torch.autograd.grad(torch.sum(densities), grasp_points,
-                                        create_graph=False)[0]
-
-    if ret_densities:
-        return density_grads, densities
-    else:
-        return density_grads
 
 def rot_from_vec(n_z):
     """
@@ -123,6 +99,7 @@ def optimize_cem(cost, mu_0, Sigma_0, num_iters=25, num_samples=250, elite_frac=
 
         # Evaluate costs of each point.
         cost_vals = cost(x)
+        print(torch.min(cost_vals), torch.mean(cost_vals))
 
         # Get elite indices.
         _, inds = torch.sort(cost_vals)
@@ -133,7 +110,9 @@ def optimize_cem(cost, mu_0, Sigma_0, num_iters=25, num_samples=250, elite_frac=
         residuals = x[elite_inds,:] - mu.reshape(1,n)
         Sigma = (1/(num_elite-1)) * torch.sum(torch.stack(
             [residuals[ii,:][:,None] @ residuals[ii,:][None,:]
-             for ii in range(num_elite)], dim=0), dim=0)
+             for ii in range(num_elite)], dim=0), dim=0) + 1e-8*torch.eye(n)
+
+        print(torch.linalg.svdvals(Sigma), mu)
 
     return mu, Sigma
 
@@ -146,21 +125,28 @@ def clip_loss(densities, lb=100, ub=200):
         torch.zeros_like(densities),
         torch.maximum(lb-densities, densities-ub)), dim=-1)
 
-def grasp_cost(x, nerf, n_f, msv_weight=1e2, grad_weight=1e-2, density_weight=1e1):
+def grasp_cost(grasp_vars, n_f, coarse_model, fine_model, renderer,
+               num_grasps=10, chunk=1024*32):
 
-    gps = x.reshape(-1, n_f, 3)
-    gps.requires_grad=True
+    gps = grasp_vars.reshape(-1, n_f, 6)
+    B = gps.shape[0]
 
-    densities, grads = est_grads_vals(nerf, gps)
+    grasp_points, grad_ests, grasp_mask = grasp_utils.sample_grasps(gps, \
+                                                                    num_grasps, \
+                                                                    coarse_model, \
+                                                                    fine_model, \
+                                                                    renderer)
+    # Reshape grasp points and grads for msv evaluation.
+    grasp_points = grasp_points.reshape(-1, n_f, 3)
+    grad_ests = grad_ests.reshape(-1, n_f, 3)
 
-    msv_loss = msv(gps, grads)
-    grad_norms = torch.norm(grads, dim=-1)
+    msv_cost = torch.mean(msv(grasp_points, grad_ests).reshape(B, num_grasps), dim=-1)
 
-    density_loss = clip_loss(densities, lb=500, ub=1000)
-    grad_loss = torch.mean(
-        torch.maximum(1e5-grad_norms, torch.zeros_like(grad_norms)))
+    msv_cost = torch.where(torch.all(grasp_mask, dim=-1),
+                           msv_cost,
+                           -torch.inf * torch.ones_like(msv_cost))
 
-    return density_weight * density_loss - msv_weight * msv_loss + grad_weight * grad_loss
+    return -msv_cost
 
 def get_points_cem(nerf,
                    n_f,

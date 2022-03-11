@@ -584,16 +584,16 @@ class Robot:
         # object_weight_comp = - self.zpos_error_integral * torch.Tensor([0,0,1])
 
         # Box tunning - tunned without moving CG and compensated normals
-        target_force = object_weight_comp - 0.2 * pos_error - 0.1*vel
-        target_torque = - 0.4 * (quat @ target_quat.T).to_tanget_space() - 0.01*angular_vel
+        # target_force = object_weight_comp - 0.2 * pos_error - 0.1*vel
+        # target_torque = - 0.4 * (quat @ target_quat.T).to_tanget_space() - 0.01*angular_vel
 
         # Bear tunning
         # target_force = object_weight_comp  - 0.2 * pos_error - 0.10*vel
         # target_torque = - 0.4  * (quat @ target_quat.T).to_tanget_space() - 0.01*angular_vel
 
         #banana tunigng
-        # target_force = object_weight_comp - 0.9 * pos_error - 0.40*vel 
-        # target_torque = - 0.04  * (quat @ target_quat.T).to_tanget_space() - 0.0001*angular_vel
+        target_force = object_weight_comp - 0.9 * pos_error - 0.40*vel 
+        target_torque = - 0.04  * (quat @ target_quat.T).to_tanget_space() - 0.0001*angular_vel
 
         # target_torque = torch.zeros((3))
         # target_force = 1.1 * obj.mass * 9.8 * torch.Tensor([0,0,1])
@@ -849,10 +849,10 @@ def get_nerf_training(viewer):
     tf.save_images("/media/data/mikadam/outputs/" + name, overwrite=True)
 
 def run_robot_control(viewer):
-    Obj = Box
+    # Obj = Box
     # Obj = TeadyBear
     # Obj = PowerDrill
-    # Obj = Banana
+    Obj = Banana
     # Obj = BleachCleanser # too big - put on side?
     # Obj = Spatula
     # Obj = Mug

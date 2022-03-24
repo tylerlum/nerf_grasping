@@ -1,23 +1,25 @@
-
 import os
 import json
 import math
 import numpy as np
+
 # import mathutils
 from PIL import Image
 from pathlib import Path
 import shutil
 
-from isaacgym import gymapi, gymutil#, gymtorch
+from isaacgym import gymapi, gymutil  # , gymtorch
 
 import matplotlib.pyplot as plt
 
 # https://github.com/NVIDIA-Omniverse/IsaacGymEnvs
 
-class TestEnv:
 
-    def __init__(self, viewer = True):
-        self.args = gymutil.parse_arguments( description="Trifinger test",)
+class TestEnv:
+    def __init__(self, viewer=True):
+        self.args = gymutil.parse_arguments(
+            description="Trifinger test",
+        )
         self.gym = gymapi.acquire_gym()
 
         self.setup_sim()
@@ -31,7 +33,7 @@ class TestEnv:
         self.gym.prepare_sim(self.sim)
 
     def setup_sim(self):
-        #only tested with this one
+        # only tested with this one
         assert self.args.physics_engine == gymapi.SIM_PHYSX
 
         # configure sim
@@ -50,24 +52,33 @@ class TestEnv:
 
         # sim_params.use_gpu_pipeline = True
         sim_params.use_gpu_pipeline = False
-        self.sim = self.gym.create_sim(self.args.compute_device_id,
-                                       self.args.graphics_device_id,
-                                       self.args.physics_engine,
-                                       sim_params)
+        self.sim = self.gym.create_sim(
+            self.args.compute_device_id,
+            self.args.graphics_device_id,
+            self.args.physics_engine,
+            sim_params,
+        )
         assert self.sim != None
 
+        intensity = gymapi.Vec3(0.3, 0.3, 0.3)
+        ambient = gymapi.Vec3(0.2, 0.2, 0.2)
 
-        intensity = gymapi.Vec3( 0.3, 0.3, 0.3)
-        ambient   = gymapi.Vec3( 0.2, 0.2, 0.2)
-
-        self.gym.set_light_parameters(self.sim, 0, intensity, ambient, gymapi.Vec3( 0.5, 1,  1))
-        self.gym.set_light_parameters(self.sim, 1, intensity, ambient, gymapi.Vec3( 1, 0,  1))
-        self.gym.set_light_parameters(self.sim, 2, intensity, ambient, gymapi.Vec3( 0.5, -1,  1))
-        self.gym.set_light_parameters(self.sim, 3, intensity, ambient, gymapi.Vec3( 0, 0,  1))
+        self.gym.set_light_parameters(
+            self.sim, 0, intensity, ambient, gymapi.Vec3(0.5, 1, 1)
+        )
+        self.gym.set_light_parameters(
+            self.sim, 1, intensity, ambient, gymapi.Vec3(1, 0, 1)
+        )
+        self.gym.set_light_parameters(
+            self.sim, 2, intensity, ambient, gymapi.Vec3(0.5, -1, 1)
+        )
+        self.gym.set_light_parameters(
+            self.sim, 3, intensity, ambient, gymapi.Vec3(0, 0, 1)
+        )
 
     def setup_envs(self):
         plane_params = gymapi.PlaneParams()
-        plane_params.normal = gymapi.Vec3(0, 0, 1) # z-up!
+        plane_params.normal = gymapi.Vec3(0, 0, 1)  # z-up!
         self.gym.add_ground(self.sim, plane_params)
 
         spacing = 1.0
@@ -75,7 +86,7 @@ class TestEnv:
         env_upper = gymapi.Vec3(spacing, spacing, spacing)
         env = self.gym.create_env(self.sim, env_lower, env_upper, 0)
 
-        self.env = env # used only when there is one env
+        self.env = env  # used only when there is one env
         self.envs = [env]
 
         self.setup_object(env)
@@ -89,9 +100,16 @@ class TestEnv:
 
         # sphere_asset = self.gym.create_sphere(self.sim, 0.25 , asset_options)
 
-        sphere_asset = self.gym.create_box(self.sim, 0.01, 1, 1 , asset_options)
+        sphere_asset = self.gym.create_box(self.sim, 0.01, 1, 1, asset_options)
         quat = gymapi.Quat.from_axis_angle(gymapi.Vec3(1, 0, 0), 0.25 * np.pi)
-        self.gym.create_actor(env, sphere_asset, gymapi.Transform(p=gymapi.Vec3(0, 0., 1), r=quat ), "sphere", 0, 0)
+        self.gym.create_actor(
+            env,
+            sphere_asset,
+            gymapi.Transform(p=gymapi.Vec3(0, 0.0, 1), r=quat),
+            "sphere",
+            0,
+            0,
+        )
 
         # sphere_asset = self.gym.create_capsule(self.sim, 0.05, 1 , asset_options)
         # sphere_asset = self.gym.create_sphere(self.sim, 1 * np.tan(np.radians( 35/2)) , asset_options)
@@ -118,9 +136,11 @@ class TestEnv:
             camera_handle = self.gym.create_camera_sensor(env, camera_props)
 
             fudge_fov = 1 * fov
-            distance = np.sqrt(2)/2  / np.tan( np.radians(fudge_fov/2) )
+            distance = np.sqrt(2) / 2 / np.tan(np.radians(fudge_fov / 2))
 
-            self.gym.set_camera_location(camera_handle, env, gymapi.Vec3(distance, 0, 1), gymapi.Vec3(0, 0, 1))
+            self.gym.set_camera_location(
+                camera_handle, env, gymapi.Vec3(distance, 0, 1), gymapi.Vec3(0, 0, 1)
+            )
 
             self.camera_handles.append(camera_handle)
 
@@ -136,9 +156,11 @@ class TestEnv:
 
         path.mkdir()
 
-        for i,camera_handle in enumerate(self.camera_handles):
-            color_image = self.gym.get_camera_image(self.sim, self.env, camera_handle, gymapi.IMAGE_COLOR)
-            color_image = color_image.reshape(400,400,4)
+        for i, camera_handle in enumerate(self.camera_handles):
+            color_image = self.gym.get_camera_image(
+                self.sim, self.env, camera_handle, gymapi.IMAGE_COLOR
+            )
+            color_image = color_image.reshape(400, 400, 4)
 
             Image.fromarray(color_image).save(path / f"{i}.png")
 
@@ -158,7 +180,15 @@ class TestEnv:
                 # f.write( str(matrix) )
                 # json.dump([ [v.x, v.y, v.z] for v in output ], f)
 
-                data = [transform.p.x, transform.p.y, transform.p.z, transform.r.x, transform.r.y, transform.r.z, transform.r.w]
+                data = [
+                    transform.p.x,
+                    transform.p.y,
+                    transform.p.z,
+                    transform.r.x,
+                    transform.r.y,
+                    transform.r.z,
+                    transform.r.w,
+                ]
                 json.dump(data, f)
 
             # plt.imshow(color_image.reshape(400,400,4))
@@ -169,7 +199,6 @@ class TestEnv:
 
     def get_object_pose(self):
         pass
-
 
     def step_gym(self):
         self.gym.simulate(self.sim)
@@ -193,7 +222,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-
-

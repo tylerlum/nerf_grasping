@@ -130,3 +130,6 @@ dmypy.json
 
 # Teddy Bear model
 teddy_bear/
+
+# Deprecated code
+deprecated/*

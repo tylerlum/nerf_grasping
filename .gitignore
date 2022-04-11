@@ -131,5 +131,12 @@ dmypy.json
 # Teddy Bear model
 teddy_bear/
 
+# mac specific files
+.DS_Store
+._.DS_Store
+
+# vscode magic
+.vscode/
+
 # Deprecated code
 deprecated/*

@@ -43,3 +43,7 @@ This should be all you need to run the example notebook!
 
 An important note: you need to have Blender installed to run the mesh union/intersection
 operations required to compute the mesh IoU metric. You can do this per the instructions [here](https://docs.blender.org/manual/en/latest/getting_started/installing/linux.html).
+
+### References
+
+The trifinger robot URDF, and some enviroment setup code is from [https://github.com/pairlab/leibnizgym](https://github.com/pairlab/leibnizgym)

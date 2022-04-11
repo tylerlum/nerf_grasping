@@ -137,3 +137,6 @@ teddy_bear/
 
 # vscode magic
 .vscode/
+
+# Deprecated code
+deprecated/*

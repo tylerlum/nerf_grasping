@@ -132,10 +132,7 @@ def sample_grasps(
 
     return grasp_points, grad_ests, grasp_mask
 
-
-def est_grads_vals(
-    nerf, grasp_points, method="central_difference", sigma=1e-3, num_samples=1000
-):
+def est_grads_vals(nerf, grasp_points, method='central_difference', sigma=1e-3, num_samples=1000):
     """
     Uses sampling to estimate gradients and density values for
     a given batch of grasp points.
@@ -165,19 +162,15 @@ def est_grads_vals(
             .expand(B, 6, n_f, 3)
         )
         gps = grasp_points.reshape(B, 1, n_f, 3) + sigma * U
-
         densities = nerf_densities(nerf, gps.reshape(-1, n_f, 3)).reshape(B, 6, n_f)
 
         grad_ests = torch.stack(
-            [
-                (densities[:, ii, :] - densities[:, ii + 3, :]) / (2 * sigma)
-                for ii in range(3)
-            ],
-            dim=-1,
-        )
+            [(densities[:, ii, :] - densities[:, ii+3, :])
+             / (2 * sigma) for ii in range(3)],
+            dim=-1)
 
         density_ests = torch.mean(densities, dim=1)
-    elif method == "gaussian":
+    elif method == 'gaussian':
         dgs = sigma * torch.randn(B, num_samples, n_f, 3)
         gps = grasp_points.reshape(B, 1, n_f, 3) + dgs
         # grads, densities = nerf_grads(nerf, gps.reshape(-1, n_f, 3), ret_densities=True)
@@ -188,19 +181,13 @@ def est_grads_vals(
 
         origin_densities = nerf_densities(nerf, grasp_points.reshape(B, n_f, 3))
         origin_densities = origin_densities.reshape(B, 1, n_f)
-
-        grad_ests = (
-            torch.mean(
-                (densities - origin_densities).reshape(B, num_samples, n_f, 1) * dgs,
-                dim=1,
-            )
-            / sigma
-        )
-
+        grad_ests = torch.mean(
+            (densities - origin_densities).reshape(B, num_samples, n_f, 1) * dgs,
+            dim = 1) / sigma
         density_ests = origin_densities.reshape(B, n_f)
 
     return density_ests, grad_ests
-
+  
 
 def nerf_densities(nerf, grasp_points):
     """
@@ -220,10 +207,8 @@ def nerf_grads(nerf, grasp_points, ret_densities=False):
         grasp_points: set of grasp points at which to take gradients.
     """
     densities = nerf_densities(nerf, grasp_points)
-    density_grads = torch.autograd.grad(
-        torch.sum(densities), grasp_points, create_graph=False
-    )[0]
-
+    density_grads = torch.autograd.grad(torch.sum(densities), grasp_points,
+                                        create_graph=False)[0]
     if ret_densities:
         return density_grads, densities
     else:
@@ -236,7 +221,7 @@ def cos_similarity(a, b):
     """
     return torch.sum(a * b, dim=-1) / (torch.norm(a, dim=-1) * torch.norm(b, dim=-1))
 
-
+  
 def check_gradients(nerf, face_centers, face_normals, grad_params, chunk=500):
     """
     Checks gradients of NeRF against the true normals at the face centers.
@@ -288,11 +273,9 @@ def rejection_sample(mu, Sigma, constraint, num_points):
     ii = 0
 
     while num_accepted < num_points:
-        new_samples = (
-            mu.reshape(1, n, 1)
-            + torch.linalg.cholesky(Sigma).reshape(1, n, n)
-            @ torch.randn(num_points, n, 1)
-        ).reshape(num_points, n)
+        new_samples = (mu.reshape(1, n, 1)
+             + torch.linalg.cholesky(Sigma).reshape(1, n, n)
+             @ torch.randn(num_points, n, 1)).reshape(num_points, n)
 
         accept = constraint(new_samples)
         num_curr = torch.sum(accept.int())

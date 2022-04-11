@@ -11,9 +11,6 @@ import logging
 from pyhull import convex_hull as cvh
 from functools import partial
 
-# from cvxpylayers.torch import CvxpyLayer
-
-
 def grasp_matrix(grasp_points, normals):
     """
     Constructs a grasp matrix for the object represented by the NeRF density,
@@ -34,7 +31,7 @@ def grasp_matrix(grasp_points, normals):
     grasp_mats = torch.cat([R, p_cross @ R], dim=-2)
     return torch.cat([grasp_mats[:, ii, :, :] for ii in range(n_f)], dim=-1)
 
-
+  
 def rot_from_vec(n_z):
     """
     Creates rotation matrix which maps the basis vector e_3 to a vector n_z.
@@ -56,7 +53,7 @@ def rot_from_vec(n_z):
 
     return ans
 
-
+  
 def skew(v):
     """
     Returns the skew-symmetric form of a batch of 3D vectors v (shape [B, 3]).
@@ -85,7 +82,6 @@ def psv(grasp_points, normals):
     """
     G = grasp_matrix(grasp_points, normals)
     return torch.prod(torch.linalg.svdvals(G), dim=-1)
-    # return torch.min(torch.linalg.svdvals(G), dim=-1)[0]
 
 
 def msv(grasp_points, normals):
@@ -260,12 +256,10 @@ def clip_loss(densities, lb=100, ub=200):
     Helper function, provides "double hinge" loss to encourage fingers
     to lie in a desired density band [lb, ub].
     """
-    return torch.mean(
-        torch.maximum(
-            torch.zeros_like(densities), torch.maximum(lb - densities, densities - ub)
-        ),
-        dim=-1,
-    )
+    return torch.mean(torch.maximum(
+        torch.zeros_like(densities),
+        torch.maximum(lb-densities, densities-ub)), dim=-1)
+
 
 
 def grasp_cost(

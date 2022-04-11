@@ -520,7 +520,7 @@ class Robot:
         robot_dof_props = self.gym.get_asset_dof_properties(self.asset)
         for k, dof_index in enumerate(self.dofs.values()):
             # note: since safety checks are employed, the simulator PD controller is not
-            #       used. Instead the torque is computed manually and applied, even if the
+            #       used. Instedd the torque is computed manually and applied, even if the
             #       command mode is 'position'.
             robot_dof_props["driveMode"][dof_index] = gymapi.DOF_MODE_EFFORT
             robot_dof_props["stiffness"][dof_index] = 0.0
@@ -780,8 +780,10 @@ class Robot:
         # target_torque = - 0.4 * (quat @ target_quat.T).to_tanget_space() - 0.01*angular_vel
 
         # Bear tunning
-        # target_force = object_weight_comp  - 0.2 * pos_error - 0.10*vel
-        # target_torque = - 0.4  * (quat @ target_quat.T).to_tanget_space() - 0.01*angular_vel
+        target_force = object_weight_comp - 0.2 * pos_error - 0.10 * vel
+        target_torque = (
+            -0.4 * (quat @ target_quat.T).to_tanget_space() - 0.01 * angular_vel
+        )
 
         # banana tunigng
         target_force = object_weight_comp - 0.9 * pos_error - 0.40 * vel
@@ -965,15 +967,17 @@ class TriFingerEnv:
         self.gym.viewer_camera_look_at(self.viewer, self.env, cam_pos, cam_target)
 
     def setup_cameras(self, env):
+        self.fov = 35.0
+
         camera_props = gymapi.CameraProperties()
-        camera_props.horizontal_fov = 35.0
+        camera_props.horizontal_fov = self.fov
         camera_props.width = 400
         camera_props.height = 400
 
         # generates cameara positions along rings around object
         heights = [0.6, 0.3, 0.9, 1.0]
         distances = [0.25, 0.4, 0.5, 0.1]
-        counts = [7, 13, 12, 1]
+        counts = [14, 26, 24, 1]
         target_z = [0.0, 0.1, 0.2, 0.1]
 
         camera_positions = []
@@ -1034,6 +1038,61 @@ class TriFingerEnv:
                 data = [*pos.tolist(), *quat.q[1:].tolist(), quat.q[0].tolist()]
                 json.dump(data, f)
 
+    def save_images_nerf_ready(self, folder, overwrite=False):
+        self.gym.render_all_camera_sensors(self.sim)
+
+        path = Path(folder)
+
+        if path.exists():
+            print(path, "already exists!")
+            if overwrite:
+                shutil.rmtree(path)
+            elif input("Clear it before continuing? [y/N]:").lower() == "y":
+                shutil.rmtree(path)
+
+        path.mkdir()
+        (path / "train").mkdir()
+        (path / "test").mkdir()
+        (path / "val").mkdir()
+
+        json_meta = {"camera_angle_x": np.radians(self.fov), "frames": []}
+
+        for i, camera_handle in enumerate(self.camera_handles):
+            print(f"saving camera {i}")
+
+            color_image = self.gym.get_camera_image(
+                self.sim, self.env, camera_handle, gymapi.IMAGE_COLOR
+            )
+            color_image = color_image.reshape(400, 400, -1)
+            Image.fromarray(color_image).save(path / "train" / f"col_{i}.png")
+
+            pos, quat = get_fixed_camera_transfrom(
+                self.gym, self.sim, self.env, camera_handle
+            )
+
+            rot_matrix = quat.get_matrix()
+            transform_matrix = torch.vstack(
+                [torch.hstack([rot_matrix, pos[:, None]]), torch.tensor([0, 0, 0, 1])]
+            )
+
+            image_data = {
+                "file_path": f"./train/col_{i}",  # note the lack of ".png" it gets added in the load script
+                "transform_matrix": transform_matrix.tolist(),
+            }
+
+            json_meta["frames"].append(image_data)
+
+        with open(path / "transforms_train.json", "w+") as f:
+            json.dump(json_meta, f, indent=4)
+
+        empty_meta = {"camera_angle_x": np.radians(self.fov), "frames": []}
+
+        with open(path / "transforms_test.json", "w+") as f:
+            json.dump(empty_meta, f)
+
+        with open(path / "transforms_val.json", "w+") as f:
+            json.dump(empty_meta, f)
+
     def refresh_tensors(self):
         self.gym.refresh_mass_matrix_tensors(self.sim)
         self.gym.refresh_jacobian_tensors(self.sim)
@@ -1055,8 +1114,8 @@ class TriFingerEnv:
 def get_nerf_training(viewer):
     # Obj = None
     # Obj = Box
-    Obj = TeddyBear
-    # Obj = PowerDrill # put verticaly?
+    # Obj = TeddyBear
+    Obj = PowerDrill  # put verticaly?
     # Obj = Banana
     # Obj = BleachCleanser # too big - put on side?
     # Obj = Spatula
@@ -1069,14 +1128,15 @@ def get_nerf_training(viewer):
             print(tf.object.rb_states[0, :7])
 
     name = "blank" if Obj == None else Obj.name
-    tf.save_images("./nerf_shared/data/isaac_" + name, overwrite=True)
+    # tf.save_images("/media/data/mikadam/outputs/" + name, overwrite=True)
+    tf.save_images_nerf_ready("./nerf_shared/data/nerf_" + name, overwrite=False)
 
 
 def run_robot_control(viewer):
     # Obj = Box
-    # Obj = TeddyBear
+    Obj = TeddyBear
     # Obj = PowerDrill
-    Obj = Banana
+    # Obj = Banana
     # Obj = BleachCleanser # too big - put on side?
     # Obj = Spatula
     # Obj = Mug
@@ -1099,5 +1159,5 @@ def run_robot_control(viewer):
 
 
 if __name__ == "__main__":
-    get_nerf_training(viewer=False)
-    # run_robot_control(viewer=True)
+    # get_nerf_training(viewer=False)
+    run_robot_control(viewer=True)

@@ -27,25 +27,25 @@ def fibonacci_sphere(samples=1, R_shift=np.eye(3)):
 
         x = math.cos(theta) * radius
         z = math.sin(theta) * radius
-        xyz_rotated = R_shift @ np.reshape([x, y, z], (3,))
+        xyz_rotated = R_shift @ np.reshape([x, y, z], (3, ))
 
         points.append((xyz_rotated[0], xyz_rotated[1], xyz_rotated[2]))
 
     return points
 
 
-def get_camera_orientation(camera_location, target_view_point=np.array([0, 0, 0])):
+def get_camera_orientation(camera_location,
+                           target_view_point=np.array([0, 0, 0])):
     """
     calculate camera orientation that points camera
     at target_view_point from camera_location
     """
     view_dir = (target_view_point - camera_location) / la.norm(
-        target_view_point - camera_location, 2
-    )
-    z_bar = np.reshape(-view_dir, (3,))
-    x_bar = np.reshape([view_dir[1], -view_dir[0], 0], (3,))
+        target_view_point - camera_location, 2)
+    z_bar = np.reshape(-view_dir, (3, ))
+    x_bar = np.reshape([view_dir[1], -view_dir[0], 0], (3, ))
 
-    if la.norm(x_bar, 2) < 10 ** (-8):
+    if la.norm(x_bar, 2) < 10**(-8):
         x_bar = np.array([1.0, 0.0, 0.0])
     else:
         x_bar /= la.norm(x_bar, 2)
@@ -64,7 +64,7 @@ def get_camera_orientation(camera_location, target_view_point=np.array([0, 0, 0]
 def rotm_and_t_to_tf(R, t):
     tf = np.eye(4)
     tf[0:3, 0:3] = R
-    tf[0:3, 3] = np.reshape(t, (3,))
+    tf[0:3, 3] = np.reshape(t, (3, ))
     return tf
 
 
@@ -83,9 +83,8 @@ def generate_random_R():
     )
     H = np.eye(3) - 2 * (v @ v.T)
     ang = 2 * math.pi * x[0]
-    Rz = np.array(
-        [[np.cos(ang), -np.sin(ang), 0], [np.sin(ang), np.cos(ang), 0], [0, 0, 1]]
-    )
+    Rz = np.array([[np.cos(ang), -np.sin(ang), 0],
+                   [np.sin(ang), np.cos(ang), 0], [0, 0, 1]])
     return -H @ Rz
 
 
@@ -111,7 +110,8 @@ def get_depth_image(b_invert=False, save_fn=None):
     """
     raw = np.asarray(bpy.data.images["Viewer Node"].pixels)
     scene = bpy.data.scenes["Scene"]
-    raw = np.reshape(raw, (scene.render.resolution_x, scene.render.resolution_y, 4))
+    raw = np.reshape(raw,
+                     (scene.render.resolution_x, scene.render.resolution_y, 4))
     raw = raw[:, :, 0]
     raw = np.flipud(raw)
     raw1 = 1  # bpy.data["Map Range Node"].from_min
@@ -139,40 +139,41 @@ def get_depth_image(b_invert=False, save_fn=None):
 def nerf_object_training_data_generator(object_name, save_dir, prms):
     # Parameter
     obj = bpy.data.objects[object_name]
-    print("\n--------------------   STARTING BLENDER SCRIPT   --------------------\n")
+    print(
+        "\n--------------------   STARTING BLENDER SCRIPT   --------------------\n"
+    )
     camera = bpy.data.objects["Camera"]
     for mode, num_imgs in zip(
-        ["train", "test", "val"], [prms["num_train"], prms["num_test"], prms["num_val"]]
-    ):
+        ["train", "test", "val"],
+        [prms["num_train"], prms["num_test"], prms["num_val"]]):
 
-        print("\n-------------------- Starting {} --------------------".format(mode))
+        print("\n-------------------- Starting {} --------------------".format(
+            mode))
         # Create struct for data to be written to json
         json_data = {}
 
         if camera.data.clip_end > 10:
             for i in range(10):
-                print(
-                    "WARNING... set camera clip start & end to desired"
-                    + "near/far bounds or else edit in json file after!!!"
-                )
+                print("WARNING... set camera clip start & end to desired" +
+                      "near/far bounds or else edit in json file after!!!")
 
         json_data["far"] = camera.data.clip_end
         json_data["near"] = np.max([camera.data.clip_start, 0])
-        json_data["obj_max_dim"] = la.norm(
-            np.array(obj.dimensions)
-        )  # longest dist through object
+        json_data["obj_max_dim"] = la.norm(np.array(
+            obj.dimensions))  # longest dist through object
         json_data["camera_angle_x"] = camera.data.angle_x  # in radians
         json_data["frames"] = []
 
         # concatenate paths, ensure directories exist, and remove existing files
-        output_dir_images = os.path.abspath(save_dir + "/nerf_training_data/" + mode)
+        output_dir_images = os.path.abspath(save_dir + "/nerf_training_data/" +
+                                            mode)
         os.makedirs(output_dir_images, exist_ok=True)
         existing_files = glob.glob(output_dir_images + "/*.png")
         for f in existing_files:
             os.remove(f)
-        output_dir_json = os.path.abspath(
-            save_dir + "/nerf_training_data/transforms_" + mode + ".json"
-        )
+        output_dir_json = os.path.abspath(save_dir +
+                                          "/nerf_training_data/transforms_" +
+                                          mode + ".json")
         output_file_pattern_string = "render{:03d}.png"
 
         # First choose x/y/z location of camera origins
@@ -184,8 +185,7 @@ def nerf_object_training_data_generator(object_name, save_dir, prms):
                         xyz_corner = np.array(obj.dimensions) / 2.0 * [i, j, k]
                         xyz_dir = xyz_corner / la.norm(xyz_corner)
                         camera_locations.append(
-                            (xyz_dir * prms["cam_offset_far"], "origin", 0)
-                        )
+                            (xyz_dir * prms["cam_offset_far"], "origin", 0))
 
             x_span, y_span, z_span = np.array(obj.dimensions)
             dim_arr = [(y_span, z_span), (x_span, z_span), (x_span, y_span)]
@@ -194,35 +194,30 @@ def nerf_object_training_data_generator(object_name, save_dir, prms):
             for i, (dim0, dim1) in enumerate(dim_arr):
                 planar_coords = np.array([dim0, dim1]) / 2.0
                 dim2 = obj.dimensions[i] / 2.0 + prms["cam_offset_far"]
-                camera_locations.extend(
-                    [
-                        (xyz, "origin", 0)
-                        for xyz in np.insert(
-                            np.zeros((2, 2)), i, dim2 * np.array([1, -1]), axis=0
-                        ).T
-                    ]
-                )
+                camera_locations.extend([
+                    (xyz, "origin", 0) for xyz in np.insert(
+                        np.zeros((2,
+                                  2)), i, dim2 * np.array([1, -1]), axis=0).T
+                ])
 
             camera_locations.extend(
                 gen_data_on_sphere(
                     num_pnts=(num_imgs - len(camera_locations)),
                     cam_dist=prms["cam_offset_far"],
-                )
-            )
+                ))
 
         else:  #  (or non-training run for rect)
             # calculate even spread of locations around unit sphere
             camera_locations = gen_data_on_sphere(
-                num_pnts=num_imgs, cam_dist=prms["cam_offset_far"]
-            )
+                num_pnts=num_imgs, cam_dist=prms["cam_offset_far"])
 
         # Next, actually render the images at each location
         org = np.array([0, 0, 0])
-        for step, (camera_loc, orient_mode, axis_to_zero) in enumerate(
-            camera_locations
-        ):
+        for step, (camera_loc, orient_mode,
+                   axis_to_zero) in enumerate(camera_locations):
             frame = {}
-            print("\n-----{} image {} / {} -----".format(mode, step, num_imgs - 1))
+            print("\n-----{} image {} / {} -----".format(
+                mode, step, num_imgs - 1))
 
             # Calc camera direction
             if orient_mode == "origin":
@@ -237,8 +232,7 @@ def nerf_object_training_data_generator(object_name, save_dir, prms):
 
             frame["transform_matrix"] = T_w_c.tolist()
             frame["file_path"] = os.path.join(
-                "./", mode, output_file_pattern_string[:-4].format(step)
-            )
+                "./", mode, output_file_pattern_string[:-4].format(step))
 
             # update camera location
             print("cam. T_w_c. = \n{}".format(T_w_c))
@@ -246,8 +240,7 @@ def nerf_object_training_data_generator(object_name, save_dir, prms):
 
             # save image from camera
             bpy.context.scene.render.filepath = os.path.join(
-                output_dir_images, output_file_pattern_string.format(step)
-            )
+                output_dir_images, output_file_pattern_string.format(step))
             bpy.ops.render.render(write_still=True)
             json_data["frames"].append(frame)
 
@@ -255,11 +248,8 @@ def nerf_object_training_data_generator(object_name, save_dir, prms):
             if b_save_depth:
                 depth_path = os.path.join(output_dir_images, "depth")
                 os.makedirs(depth_path, exist_ok=True)
-                get_depth_image(
-                    save_fn=os.path.join(
-                        depth_path, "depth_render{:03d}.npy".format(step)
-                    )
-                )
+                get_depth_image(save_fn=os.path.join(
+                    depth_path, "depth_render{:03d}.npy".format(step)))
                 # get_depth_image(save_fn=os.path.join(
                 #    depth_path, "depth_render{:d}.png".format(step)))
 
@@ -271,13 +261,10 @@ def nerf_object_training_data_generator(object_name, save_dir, prms):
 
 if __name__ == "__main__":
     np.set_printoptions(
-        linewidth=160, suppress=True
-    )  # format numpy so printing matrices is more clear
-    print(
-        "Starting nerf_object_training_data_generator [running python {}]".format(
-            sys.version_info[0]
-        )
-    )
+        linewidth=160,
+        suppress=True)  # format numpy so printing matrices is more clear
+    print("Starting nerf_object_training_data_generator [running python {}]".
+          format(sys.version_info[0]))
     # bpy.context.scene.render.image_settings.file_format = "PNG" # set to 'PNG' or 'JPG' to control file output format
 
     # TO DO: Automate choice of camera locations. There should be a close offset and a sphere offset. The close offset
@@ -333,8 +320,7 @@ if __name__ == "__main__":
             break
 
     if object_name is None or np.any(
-        np.abs(bpy.data.objects[object_name].dimensions) < 10 ** -7
-    ):
+            np.abs(bpy.data.objects[object_name].dimensions) < 10**-7):
         print(
             "No recognizable objects in the scene, make sure info is added to the dictionary!\n"
         )

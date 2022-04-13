@@ -11,6 +11,7 @@ import logging
 from pyhull import convex_hull as cvh
 from functools import partial
 
+
 def grasp_matrix(grasp_points, normals):
     """
     Constructs a grasp matrix for the object represented by the NeRF density,
@@ -31,7 +32,7 @@ def grasp_matrix(grasp_points, normals):
     grasp_mats = torch.cat([R, p_cross @ R], dim=-2)
     return torch.cat([grasp_mats[:, ii, :, :] for ii in range(n_f)], dim=-1)
 
-  
+
 def rot_from_vec(n_z):
     """
     Creates rotation matrix which maps the basis vector e_3 to a vector n_z.
@@ -53,7 +54,7 @@ def rot_from_vec(n_z):
 
     return ans
 
-  
+
 def skew(v):
     """
     Returns the skew-symmetric form of a batch of 3D vectors v (shape [B, 3]).
@@ -127,9 +128,8 @@ def fc(G):
     min_dist = sys.float_info.max
     closest_facet = None
     for v in hull.vertices:
-        if (
-            np.max(np.array(v)) < G.shape[1]
-        ):  # because of some occasional odd behavior from pyhull
+        if (np.max(np.array(v)) < G.shape[1]
+            ):  # because of some occasional odd behavior from pyhull
             facet = G[:, v]
             dist, _ = min_norm_vector_in_facet(facet)
             if dist < min_dist:
@@ -191,14 +191,14 @@ def l1_metric(grasp_points_t, normals_t, centroid=None, mu=1.0, num_edges=10):
 
 
 def optimize_cem(
-    cost,
-    mu_0,
-    Sigma_0,
-    num_iters=25,
-    num_samples=250,
-    elite_frac=0.1,
-    constraint=None,
-    centroid=np.zeros((3, 1)),
+        cost,
+        mu_0,
+        Sigma_0,
+        num_iters=25,
+        num_samples=250,
+        elite_frac=0.1,
+        constraint=None,
+        centroid=np.zeros((3, 1)),
 ):
     """
     Implements the cross-entropy method to optimize a given cost function.
@@ -216,13 +216,12 @@ def optimize_cem(
     for ii in range(num_iters):
         # Sample points from current distribution.
         if constraint:
-            x = grasp_utils.rejection_sample(mu, Sigma, constraint, num_samples)
+            x = grasp_utils.rejection_sample(mu, Sigma, constraint,
+                                             num_samples)
         else:
-            x = (
-                mu.reshape(1, n, 1)
-                + torch.linalg.cholesky(Sigma).reshape(1, n, n)
-                @ torch.randn(num_samples, n, 1)
-            ).reshape(num_samples, n)
+            x = (mu.reshape(1, n, 1) + torch.linalg.cholesky(Sigma).reshape(
+                1, n, n) @ torch.randn(num_samples, n, 1)).reshape(
+                    num_samples, n)
 
         # Evaluate costs of each point.
         cost_vals = cost(x)
@@ -258,28 +257,27 @@ def clip_loss(densities, lb=100, ub=200):
     """
     return torch.mean(torch.maximum(
         torch.zeros_like(densities),
-        torch.maximum(lb-densities, densities-ub)), dim=-1)
-
+        torch.maximum(lb - densities, densities - ub)),
+                      dim=-1)
 
 
 def grasp_cost(
-    grasp_vars,
-    n_f,
-    coarse_model,
-    fine_model,
-    renderer,
-    num_grasps=10,
-    chunk=1024 * 32,
-    cost_fn="psv",
-    l1_kwargs=dict(centroid=np.zeros((3, 1))),
+        grasp_vars,
+        n_f,
+        coarse_model,
+        fine_model,
+        renderer,
+        num_grasps=10,
+        chunk=1024 * 32,
+        cost_fn="psv",
+        l1_kwargs=dict(centroid=np.zeros((3, 1))),
 ):
 
     gps = grasp_vars.reshape(-1, n_f, 6)
     B = gps.shape[0]
 
     grasp_points, grad_ests, grasp_mask = grasp_utils.sample_grasps(
-        gps, num_grasps, coarse_model, fine_model, renderer
-    )
+        gps, num_grasps, coarse_model, fine_model, renderer)
     # Reshtorch grasp points and grads for msv evaluation.
     grasp_points = grasp_points.reshape(-1, n_f, 3)
     grad_ests = grad_ests.reshape(-1, n_f, 3)
@@ -292,11 +290,12 @@ def grasp_cost(
         cost_fn = ferrari_canny
     elif cost_fn == "l1":
         cost_fn = partial(l1_metric, **l1_kwargs)
-    g_cost = torch.mean(cost_fn(grasp_points, grad_ests).reshape(B, num_grasps), dim=-1)
+    g_cost = torch.mean(cost_fn(grasp_points,
+                                grad_ests).reshape(B, num_grasps),
+                        dim=-1)
 
-    g_cost = torch.where(
-        torch.all(grasp_mask, dim=-1), g_cost, -torch.inf * torch.ones_like(g_cost)
-    )
+    g_cost = torch.where(torch.all(grasp_mask, dim=-1), g_cost,
+                         -torch.inf * torch.ones_like(g_cost))
 
     return -g_cost
 
@@ -324,11 +323,13 @@ def get_points_cem(
         Sigma_0 = sigma_scale * torch.eye(6 * n_f)
 
     cost = lambda x: grasp_cost(
-        x, n_f, coarse_model, fine_model, renderer, cost_fn=cost_fn
-    )
+        x, n_f, coarse_model, fine_model, renderer, cost_fn=cost_fn)
 
-    mu_f, Sigma_f = optimize_cem(
-        cost, mu_0, Sigma_0, num_iters=10, num_samples=500, constraint=constraint
-    )
+    mu_f, Sigma_f = optimize_cem(cost,
+                                 mu_0,
+                                 Sigma_0,
+                                 num_iters=10,
+                                 num_samples=500,
+                                 constraint=constraint)
 
     return mu_f.reshape(n_f, 6)

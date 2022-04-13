@@ -16,10 +16,9 @@ import matplotlib.pyplot as plt
 
 
 class TestEnv:
+
     def __init__(self, viewer=True):
-        self.args = gymutil.parse_arguments(
-            description="Trifinger test",
-        )
+        self.args = gymutil.parse_arguments(description="Trifinger test", )
         self.gym = gymapi.acquire_gym()
 
         self.setup_sim()
@@ -63,18 +62,14 @@ class TestEnv:
         intensity = gymapi.Vec3(0.3, 0.3, 0.3)
         ambient = gymapi.Vec3(0.2, 0.2, 0.2)
 
-        self.gym.set_light_parameters(
-            self.sim, 0, intensity, ambient, gymapi.Vec3(0.5, 1, 1)
-        )
-        self.gym.set_light_parameters(
-            self.sim, 1, intensity, ambient, gymapi.Vec3(1, 0, 1)
-        )
-        self.gym.set_light_parameters(
-            self.sim, 2, intensity, ambient, gymapi.Vec3(0.5, -1, 1)
-        )
-        self.gym.set_light_parameters(
-            self.sim, 3, intensity, ambient, gymapi.Vec3(0, 0, 1)
-        )
+        self.gym.set_light_parameters(self.sim, 0, intensity, ambient,
+                                      gymapi.Vec3(0.5, 1, 1))
+        self.gym.set_light_parameters(self.sim, 1, intensity, ambient,
+                                      gymapi.Vec3(1, 0, 1))
+        self.gym.set_light_parameters(self.sim, 2, intensity, ambient,
+                                      gymapi.Vec3(0.5, -1, 1))
+        self.gym.set_light_parameters(self.sim, 3, intensity, ambient,
+                                      gymapi.Vec3(0, 0, 1))
 
     def setup_envs(self):
         plane_params = gymapi.PlaneParams()
@@ -117,12 +112,14 @@ class TestEnv:
         # self.gym.create_actor(env, sphere_asset, gymapi.Transform(p=gymapi.Vec3(0, 0., 1)), "sphere", 0, 0)
 
     def setup_viewer(self):
-        self.viewer = self.gym.create_viewer(self.sim, gymapi.CameraProperties())
+        self.viewer = self.gym.create_viewer(self.sim,
+                                             gymapi.CameraProperties())
         assert self.viewer != None
 
         cam_pos = gymapi.Vec3(0.8, 0.2, 0.9)
         cam_target = gymapi.Vec3(0, 0, 0.2)
-        self.gym.viewer_camera_look_at(self.viewer, self.env, cam_pos, cam_target)
+        self.gym.viewer_camera_look_at(self.viewer, self.env, cam_pos,
+                                       cam_target)
 
     def setup_cameras(self, env):
 
@@ -138,9 +135,9 @@ class TestEnv:
             fudge_fov = 1 * fov
             distance = np.sqrt(2) / 2 / np.tan(np.radians(fudge_fov / 2))
 
-            self.gym.set_camera_location(
-                camera_handle, env, gymapi.Vec3(distance, 0, 1), gymapi.Vec3(0, 0, 1)
-            )
+            self.gym.set_camera_location(camera_handle, env,
+                                         gymapi.Vec3(distance, 0, 1),
+                                         gymapi.Vec3(0, 0, 1))
 
             self.camera_handles.append(camera_handle)
 
@@ -157,14 +154,15 @@ class TestEnv:
         path.mkdir()
 
         for i, camera_handle in enumerate(self.camera_handles):
-            color_image = self.gym.get_camera_image(
-                self.sim, self.env, camera_handle, gymapi.IMAGE_COLOR
-            )
+            color_image = self.gym.get_camera_image(self.sim, self.env,
+                                                    camera_handle,
+                                                    gymapi.IMAGE_COLOR)
             color_image = color_image.reshape(400, 400, 4)
 
             Image.fromarray(color_image).save(path / f"{i}.png")
 
-            transform = self.gym.get_camera_transform(self.sim, self.env, camera_handle)
+            transform = self.gym.get_camera_transform(self.sim, self.env,
+                                                      camera_handle)
 
             # identity = np.array([gymapi.Vec3(1,0,0),
             #                          gymapi.Vec3(0,1,0),

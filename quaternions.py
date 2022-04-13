@@ -2,6 +2,7 @@ import torch
 
 
 class Quaternion:
+
     @classmethod
     def Identity(cls):
         return Quaternion([1, 0, 0, 0])
@@ -13,7 +14,7 @@ class Quaternion:
 
     @classmethod
     def fromNudge(cls, nudge):
-        w = torch.sqrt(1 - torch.norm(nudge) ** 2)
+        w = torch.sqrt(1 - torch.norm(nudge)**2)
         return Quaternion([w, nudge[0], nudge[1], nudge[2]])
 
     @classmethod
@@ -39,25 +40,25 @@ class Quaternion:
         if m[2, 2] < 0:
             if m[0, 0] > m[1, 1]:
                 t = 1 + m[0, 0] - m[1, 1] - m[2, 2]
-                quat = Quaternion.fromWLast(
-                    [t, m[0, 1] + m[1, 0], m[2, 0] + m[0, 2], m[1, 2] - m[2, 1]]
-                )
+                quat = Quaternion.fromWLast([
+                    t, m[0, 1] + m[1, 0], m[2, 0] + m[0, 2], m[1, 2] - m[2, 1]
+                ])
             else:
                 t = 1 - m[0, 0] + m[1, 1] - m[2, 2]
-                quat = Quaternion.fromWLast(
-                    [m[0, 1] + m[1, 0], t, m[1, 2] + m[2, 1], m[2, 0] - m[0, 2]]
-                )
+                quat = Quaternion.fromWLast([
+                    m[0, 1] + m[1, 0], t, m[1, 2] + m[2, 1], m[2, 0] - m[0, 2]
+                ])
         else:
             if m[0, 0] < -m[1, 1]:
                 t = 1 - m[0, 0] - m[1, 1] + m[2, 2]
-                quat = Quaternion.fromWLast(
-                    [m[2, 0] + m[0, 2], m[1, 2] + m[2, 1], t, m[0, 1] - m[1, 0]]
-                )
+                quat = Quaternion.fromWLast([
+                    m[2, 0] + m[0, 2], m[1, 2] + m[2, 1], t, m[0, 1] - m[1, 0]
+                ])
             else:
                 t = 1 + m[0, 0] + m[1, 1] + m[2, 2]
-                quat = Quaternion.fromWLast(
-                    [m[1, 2] - m[2, 1], m[2, 0] - m[0, 2], m[0, 1] - m[1, 0], t]
-                )
+                quat = Quaternion.fromWLast([
+                    m[1, 2] - m[2, 1], m[2, 0] - m[0, 2], m[0, 1] - m[1, 0], t
+                ])
 
         quat.q *= 0.5 / torch.sqrt(t)
         return quat
@@ -68,14 +69,12 @@ class Quaternion:
     def __matmul__(self, other):
         w0, x0, y0, z0 = other.q
         w1, x1, y1, z1 = self.q
-        return Quaternion(
-            [
-                -x1 * x0 - y1 * y0 - z1 * z0 + w1 * w0,
-                x1 * w0 + y1 * z0 - z1 * y0 + w1 * x0,
-                -x1 * z0 + y1 * w0 + z1 * x0 + w1 * y0,
-                x1 * y0 - y1 * x0 + z1 * w0 + w1 * z0,
-            ]
-        )
+        return Quaternion([
+            -x1 * x0 - y1 * y0 - z1 * z0 + w1 * w0,
+            x1 * w0 + y1 * z0 - z1 * y0 + w1 * x0,
+            -x1 * z0 + y1 * w0 + z1 * x0 + w1 * y0,
+            x1 * y0 - y1 * x0 + z1 * w0 + w1 * z0,
+        ])
 
     @property
     def T(self):
@@ -95,11 +94,8 @@ class Quaternion:
         w = self.q[0]
         v = self.q[1:]
 
-        return (
-            (w ** 2 - torch.norm(v) ** 2) * torch.eye(3)
-            + 2 * torch.outer(v, v)
-            + 2 * w * self.skew_matrix(v)
-        )
+        return ((w**2 - torch.norm(v)**2) * torch.eye(3) +
+                2 * torch.outer(v, v) + 2 * w * self.skew_matrix(v))
 
     @staticmethod
     def skew_matrix(v):

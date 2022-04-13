@@ -9,9 +9,11 @@ args = parser.parse_args()
 os.chdir(args.folder)
 
 for stl_fileName in glob.glob("*.stl"):
-    conversion_command = "meshlab.meshlabserver -i " + stl_fileName + " -o " + stl_fileName[:-3] + "obj"
+    conversion_command = "meshlab.meshlabserver -i " + stl_fileName + " -o " + stl_fileName[:
+                                                                                            -3] + "obj"
     os.system(conversion_command)
 
 for stl_fileName in glob.glob("*.STL"):
-    conversion_command = "meshlab.meshlabserver -i " + stl_fileName + " -o " + stl_fileName[:-3] + "obj"
+    conversion_command = "meshlab.meshlabserver -i " + stl_fileName + " -o " + stl_fileName[:
+                                                                                            -3] + "obj"
     os.system(conversion_command)

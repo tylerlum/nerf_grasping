@@ -1,6 +1,5 @@
 #!/usr/bin/python3
 # -*- coding: utf-8 -*-
-
 """Split an OBJ file into separate files per named object
 
 Ignores vertex texture coordinates, polygon groups, parameter space vertices.
@@ -65,9 +64,11 @@ def main(file_in, dir_out):
                 v_normals.append(vn.group())
             elif o:
                 if o_id:
-                    objects[o_id] = {'faces': faces,
-                                     'usemtl': usemtl,
-                                     's': shade}
+                    objects[o_id] = {
+                        'faces': faces,
+                        'usemtl': usemtl,
+                        's': shade
+                    }
                     o_id = o.group()
                     faces = []
                 else:
@@ -86,9 +87,7 @@ def main(file_in, dir_out):
                 pass
 
         if o_id:
-            objects[o_id] = {'faces': faces,
-                             'usemtl': usemtl,
-                             's': shade}
+            objects[o_id] = {'faces': faces, 'usemtl': usemtl, 's': shade}
         else:
             sys.exit("Cannot split an OBJ without named objects in it!")
 
@@ -104,8 +103,8 @@ def main(file_in, dir_out):
         v_map = {str(v): str(e) for e, v in enumerate(f_vertices, start=1)}
         vn_map = {str(vn): str(e) for e, vn in enumerate(f_vnormals, start=1)}
         faces_mapped = re.sub(fv_pat, lambda x: v_map[x.group()], faces)
-        faces_mapped = re.sub(
-            fn_pat, lambda x: vn_map[x.group()], faces_mapped)
+        faces_mapped = re.sub(fn_pat, lambda x: vn_map[x.group()],
+                              faces_mapped)
 
         objects[o_id]['vertices'] = f_vertices
         objects[o_id]['vnormals'] = f_vnormals

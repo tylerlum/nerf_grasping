@@ -155,10 +155,11 @@ def get_grasp_distribution(
 
             # sample new z_vals
             z_vals_mid = z_vals[..., :-1] + 0.5 * deltas[..., :-1]  # [N, T-1]
-            new_z_vals = sample_pdf(z_vals_mid,
-                                    weights[:, 1:-1],
-                                    upsample_steps,
-                                    det=not model.training).detach()  # [N, t]
+            new_z_vals = renderer.sample_pdf(
+                z_vals_mid,
+                weights[:, 1:-1],
+                upsample_steps,
+                det=not model.training).detach()  # [N, t]
 
             new_pts = rays_o.unsqueeze(
                 -2) + rays_d.unsqueeze(-2) * new_z_vals.unsqueeze(
@@ -184,7 +185,7 @@ def get_grasp_distribution(
                             dim=-2,
                             index=z_index.unsqueeze(-1).expand_as(rgbs))
 
-    ### render core
+    # render core
     deltas = z_vals[..., 1:] - z_vals[..., :-1]  # [N, T-1]
     deltas = torch.cat(
         [deltas, sample_dist * torch.ones_like(deltas[..., :1])], dim=-1)

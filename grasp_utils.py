@@ -6,7 +6,7 @@ import math
 import torch
 import logging
 
-from torch_ngp.nerf import utils
+from nerf import renderer, utils
 
 def load_nerf(opt):
     """
@@ -14,7 +14,7 @@ def load_nerf(opt):
 
     Args:
         opt: A Dict of configuration params (must contain the params from the
-            argparser in torch-ngp.nerf.utils.get_config_parser()).
+            argparser in nerf.utils.get_config_parser()).
 
     Returns a torch-ngp.nerf.NeRFNetwork which can be used to render grasp points.
     """
@@ -36,7 +36,7 @@ def load_nerf(opt):
     )
 
     # Create trainer with NeRF; use its constructor to load network weights from file.
-    trainer = torch_ngp.nerf.utils.Trainer(
+    trainer = utils.Trainer(
         'ngp',
         vars(opt),
         model,
@@ -84,8 +84,21 @@ def get_grasp_distribution(grasp_vars,
     rays_d = rays_d / torch.norm(rays_d, dim=-1, keepdim=True)
 
     # Get near/far bounds for each ray.
-    # First generate near/far bounds for cube.
+    # First, generate near/far bounds for cube.
+    near_cube, far_cube = renderer.near_far_from_bound(
+        rays_o, rays_d, self.bound, type='cube')
+
+    # Then setup near/far bounds for fingertip renderer.
+    near_finger = near_finger * torch.ones_like(near_cube)
+    far_finger = far_finger * torch.ones_like(far_cube)
+
+    # Keep mask of rays which miss the cube altogether.
+    mask = near_cube > 1e8
+
     # Then take near = max(near_finger, near_cube), far = min(far_finger, far_cube).
+    near = torch.maximum(near_finger, near_cube)
+    far = torch.minimum(far_finger, far_cube)
+    far[mask] = 1e9
 
     z_vals = torch.linspace(0.0, 1.0, num_steps, device=device).unsqueeze(0) # [1, T]
     z_vals = z_vals.expand((N, num_steps)) # [N, T]

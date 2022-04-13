@@ -312,42 +312,14 @@ class TeddyBear(RigidObject):
     centroid = np.array([-0.0001444, 0.00412231, 0.08663063])
 
     grasp_points = torch.Tensor(
-        [
-            [
-                0.035,
-                0.058,
-                0.101,
-            ],
-            [
-                0.0,
-                -0.048,
-                0.083,
-            ],
-            [
-                -0.039,
-                0.058,
-                0.101,
-            ],
-        ]
+        [[0.0350, 0.0580, 0.1010], [0.0000, -0.0480, 0.0830], [-0.0390, 0.0580, 0.1010]]
     )
 
     grasp_normals = torch.Tensor(
         [
-            [
-                -0.05,
-                -0.058,
-                0.0,
-            ],
-            [
-                0.0,
-                1.0,
-                0.0,
-            ],
-            [
-                0.01,
-                0.07,
-                0.0,
-            ],
+            [-0.0350, -0.0580, 0.0000],
+            [0.0000, 1.0000, 0.0000],
+            [0.0390, -0.0580, 0.0000],
         ]
     )
 
@@ -1182,4 +1154,4 @@ def run_robot_control(viewer, **robot_kwargs):
 
 if __name__ == "__main__":
     # get_nerf_training(viewer=False)
-    run_robot_control(viewer=True, use_nerf_grasping=True)
+    run_robot_control(viewer=True, use_nerf_grasping=False)

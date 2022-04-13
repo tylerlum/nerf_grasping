@@ -9,27 +9,29 @@ import torch
 import trimesh
 
 from matplotlib import pyplot as plt
-from nerf_shared import config_parser, utils
+from torch_ngp.nerf import utils
 
 # nerf_shared requires us to default to cuda tensors.
 torch.set_default_tensor_type(torch.cuda.FloatTensor)
 
 if __name__ == '__main__':
 
+    parser = torch_ngp.nerf.utils.get_config_parser()
+    opt = parser.parse_args()
+    print(opt)
+
+    torch_ngp.nerf.utils.seed_everything(opt.seed)
+
     # Setup config (since we're not running from command line).
     parser = config_parser.config_parser()
 
     # Fix some pathing since config, etc. is typically relative to the submodule.
-    args = parser.parse_args()
-    basedir = os.path.join(*args.config.split(os.sep)[:-2])
-    args.basedir = os.path.join(basedir, args.basedir)
-    args.datadir = os.path.join(basedir, args.datadir)
+    # args = parser.parse_args()
+    # basedir = os.path.join(*args.config.split(os.sep)[:-2])
+    # args.basedir = os.path.join(basedir, args.basedir)
+    # args.datadir = os.path.join(basedir, args.datadir)
 
-    # Load nerf models, params from checkpoint.
-    coarse_model, fine_model = utils.create_nerf_models(args)
-    optimizer = utils.get_optimizer(coarse_model, fine_model, args)
-    utils.load_checkpoint(coarse_model, fine_model, optimizer,
-                          args, checkpoint_index=-1)
+    model = grasp_utils.load_nerf(opt)
 
     images, poses, render_poses, hwf, i_split, K, bds_dict = utils.load_datasets(args)
     bds_dict = {'near': 0.05, 'far': 0.15} # Override rendering bounds for fingers.

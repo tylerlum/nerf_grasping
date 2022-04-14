@@ -31,36 +31,29 @@ def load_nerf(opt):
         from nerf.network import NeRFNetwork
 
     # Create uninitialized network.
-    model = NeRFNetwork(
-        bound=opt.bound,
-        cuda_ray=opt.cuda_ray,
-    )
+    model = NeRFNetwork(bound=opt.bound, cuda_ray=opt.cuda_ray)
 
     # Create trainer with NeRF; use its constructor to load network weights from file.
-    trainer = utils.Trainer(
-        "ngp",
-        vars(opt),
-        model,
-        workspace=opt.workspace,
-        criterion=None,
-        fp16=opt.fp16,
-        metrics=[None],
-        use_checkpoint="latest",
-    )
+    trainer = utils.Trainer("ngp",
+                            vars(opt),
+                            model,
+                            workspace=opt.workspace,
+                            criterion=None,
+                            fp16=opt.fp16,
+                            metrics=[None],
+                            use_checkpoint="latest")
 
     return trainer.model
 
 
-def get_grasp_distribution(
-    grasp_vars,
-    model,
-    num_steps=128,
-    upsample_steps=128,
-    near_finger=0.05,
-    far_finger=0.15,
-    perturb=False,
-    residual_dirs=False,
-):
+def get_grasp_distribution(grasp_vars,
+                           model,
+                           num_steps=128,
+                           upsample_steps=128,
+                           near_finger=0.05,
+                           far_finger=0.15,
+                           perturb=False,
+                           residual_dirs=False):
     """
     Generates a "grasp distribution," a set of n_f categorical distributions
     for where each finger will contact the object surface, along with the associated
@@ -119,8 +112,8 @@ def get_grasp_distribution(
     # perturb z_vals
     sample_dist = (far - near) / num_steps
     if perturb:
-        z_vals = z_vals + (torch.rand(z_vals.shape, device=device) -
-                           0.5) * sample_dist
+        z_vals = z_vals + \
+            (torch.rand(z_vals.shape, device=device) - 0.5) * sample_dist
 
     # generate pts
     pts = rays_o.unsqueeze(-2) + rays_d.unsqueeze(-2) * z_vals.unsqueeze(
@@ -197,12 +190,7 @@ def get_grasp_distribution(
     weights = alphas * torch.cumprod(alphas_shifted,
                                      dim=-1)[..., :-1]  # [N, T]
 
-    return (
-        rays_o,
-        rays_d,
-        weights,
-        z_vals,
-    )
+    return rays_o, rays_d, weights, z_vals
 
 
 def sample_grasps(grasp_vars,

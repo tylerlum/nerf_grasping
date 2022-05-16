@@ -715,8 +715,8 @@ class Robot:
         net_dists = [sum([pdist[i][j] for i, j in enumerate(p)]) for p in perms]
         tip_idx = perms[torch.argmin(torch.tensor(net_dists)).numpy().item()]
         rays_o, rays_d = rays_o[tip_idx], rays_d[tip_idx]
-        colors = [[0, 1, 0]] * 3
-        viz_utils.visualize_markers(self.gym, self.env, self.sim, gp, colors)
+        # colors = [[0, 1, 0]] * 3
+        # viz_utils.visualize_markers(self.gym, self.env, self.sim, gp, colors)
 
         if self.added_lines:
             self.gym.clear_lines(self.viewer)

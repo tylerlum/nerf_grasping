@@ -7,7 +7,7 @@ class Quaternion:
         return Quaternion([1, 0, 0, 0])
 
     @classmethod
-    def fromTangetSpace(cls, w):
+    def fromTangentSpace(cls, w):
         angle = torch.norm(w)
         return Quaternion.fromAxisAngle(w, angle)
 
@@ -86,7 +86,7 @@ class Quaternion:
         w, x, y, z = self.q
         return f"Quaternion(x={x:.5},y={y:.5},z={z:.5},w={w:.5})"
 
-    def to_tanget_space(self):
+    def to_tangent_space(self):
         axis = self.q[1:] / torch.norm(self.q[1:])
         angle = 2 * torch.acos(self.q[0])
         return angle * axis
@@ -96,7 +96,7 @@ class Quaternion:
         v = self.q[1:]
 
         return (
-            (w ** 2 - torch.norm(v) ** 2) * torch.eye(3)
+            (w**2 - torch.norm(v) ** 2) * torch.eye(3)
             + 2 * torch.outer(v, v)
             + 2 * w * self.skew_matrix(v)
         )

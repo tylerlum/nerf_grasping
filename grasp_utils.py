@@ -2,17 +2,66 @@
 Module implementing utils for grasping,
 including normal estimation and surface detection.
 """
-import math
-import torch
 import logging
+import math
+
+import lietorch
+import numpy as np
+import scipy
+import torch
+from nerf import renderer, utils
+
+
+def load_nerf(opt):
+    """
+    Utility function that loads a torch-ngp style NeRF using a config Dict.
+
+    Args:
+        opt: A Dict of configuration params (must contain the params from the
+            argparser in nerf.utils.get_config_parser()).
+
+    Returns a torch-ngp.nerf.NeRFNetwork which can be used to render grasp points.
+    """
+
+    # Use options to determine proper network structure.
+    if opt.ff:
+        assert opt.fp16, "fully-fused mode must be used with fp16 mode"
+        from nerf.network_ff import NeRFNetwork
+    elif opt.tcnn:
+        assert opt.fp16, "tcnn mode must be used with fp16 mode"
+        from nerf.network_tcnn import NeRFNetwork
+    else:
+        from nerf.network import NeRFNetwork
+
+    # Create uninitialized network.
+    model = NeRFNetwork(
+        bound=opt.bound,
+        cuda_ray=opt.cuda_ray,
+    )
+
+    # Create trainer with NeRF; use its constructor to load network weights from file.
+    trainer = utils.Trainer(
+        "ngp",
+        vars(opt),
+        model,
+        workspace=opt.workspace,
+        criterion=None,
+        fp16=opt.fp16,
+        metrics=[None],
+        use_checkpoint="latest",
+    )
+
+    return trainer.model
 
 
 def get_grasp_distribution(
     grasp_vars,
-    coarse_model,
-    fine_model,
-    renderer,
-    chunk=1024 * 32,
+    model,
+    num_steps=128,
+    upsample_steps=128,
+    near_finger=0.05,
+    far_finger=0.5,
+    perturb=False,
     residual_dirs=False,
 ):
     """
@@ -24,12 +73,7 @@ def get_grasp_distribution(
         grasp_vars: tensor, shape [B, n_f, 6], of grasp positions ([..., :3]) and
             approach directions ([..., 3:]) to be used for rendering. Approach
             directions need not be normalized.
-        nerf: nerf_shared.NeRF object defining the object density.
-        renderer: nerf_shared.Renderer object which will be used to generate the
-            termination probabilities and points.
-        chunk: Max number of rays to render at once on the GPU.
-        residual_dirs: Whether or not dirs decision variable is an actual direction
-            or residual direction from point to origin
+        model: torch_ngp NeRFNetwork that represents the scene.
 
     Returns a tuple (points, probs) defining the grasp distribution.
     """
@@ -40,42 +84,135 @@ def get_grasp_distribution(
     # Create ray batch
     rays_o, rays_d = grasp_vars[..., :3], grasp_vars[..., 3:]
     rays_o = torch.reshape(rays_o, [-1, 3]).float()
+
+    N = rays_o.shape[0]
+    device = rays_o.device
+
     if residual_dirs:
-        rays_d = torch.reshape(rays_d, [-1, 1]).float()
-        rays_d = torch.exp(rays_d) @ -rays_o
+        rays_d = torch.reshape(rays_d, [-1, 3]).float()
+        rays_d = lietorch.SO3.exp(rays_d).matrix()[:, :3, :3] @ -rays_o.unsqueeze(-1)
+        rays_d = rays_d.reshape(-1, 3)
     else:
         rays_d = torch.reshape(rays_d, [-1, 3]).float()
     rays_d = rays_d / torch.norm(rays_d, dim=-1, keepdim=True)
 
-    # Create near/far bounds and append to ray batch.
-    near = renderer.near * torch.ones_like(rays_d[..., :1])
-    far = renderer.far * torch.ones_like(rays_d[..., :1])
-    rays = torch.cat([rays_o, rays_d, near, far], -1)
-
-    if renderer.use_viewdirs:
-        rays = torch.cat([rays, rays_d], dim=-1)
-
-    # Use render_batch to get termination weights for all points.
-    render_results = renderer.render_batch(
-        coarse_model, fine_model, rays, chunk, retweights=True
+    # Get near/far bounds for each ray.
+    # First, generate near/far bounds for cube.
+    near_cube, far_cube = renderer.near_far_from_bound(
+        rays_o, rays_d, model.bound, type="cube"
     )
 
-    weights = render_results["weights"].reshape(B, n_f, -1)
-    z_vals = render_results["z_vals"].reshape(B, n_f, -1)
-    rays = rays.reshape(B, n_f, -1)
+    # Then setup near/far bounds for fingertip renderer.
+    near_finger = near_finger * torch.ones_like(near_cube)
+    far_finger = far_finger * torch.ones_like(far_cube)
 
-    return rays, weights, z_vals
+    # Keep mask of rays which miss the cube altogether.
+    mask = near_cube > 1e8
+
+    # Then take near = max(near_finger, near_cube), far = min(far_finger, far_cube).
+    near = torch.maximum(near_finger, near_cube)
+    far = torch.minimum(far_finger, far_cube)
+    far[mask] = 1e9
+
+    z_vals = torch.linspace(0.0, 1.0, num_steps, device=device).unsqueeze(0)  # [1, T]
+    z_vals = z_vals.expand((N, num_steps))  # [N, T]
+    z_vals = near + (far - near) * z_vals  # [N, T], in [near, far]
+
+    # perturb z_vals
+    sample_dist = (far - near) / num_steps
+    if perturb:
+        z_vals = z_vals + (torch.rand(z_vals.shape, device=device) - 0.5) * sample_dist
+
+    # generate pts
+    pts = rays_o.unsqueeze(-2) + rays_d.unsqueeze(-2) * z_vals.unsqueeze(
+        -1
+    )  # [N, 1, 3] * [N, T, 3] -> [N, T, 3]
+    pts = pts.clamp(
+        -model.bound, model.bound
+    )  # must be strictly inside the bounds, else lead to nan in hashgrid encoder!
+
+    # query SDF and RGB
+    dirs = rays_d.unsqueeze(-2).expand_as(pts)
+
+    sigmas, rgbs = model(pts.reshape(-1, 3), dirs.reshape(-1, 3))
+
+    rgbs = rgbs.reshape(N, num_steps, 3)  # [N, T, 3]
+    sigmas = sigmas.reshape(N, num_steps)  # [N, T]
+
+    # upsample z_vals (nerf-like)
+    if upsample_steps > 0:
+        with torch.no_grad():
+
+            deltas = z_vals[..., 1:] - z_vals[..., :-1]  # [N, T-1]
+            deltas = torch.cat(
+                [deltas, sample_dist * torch.ones_like(deltas[..., :1])], dim=-1
+            )
+
+            alphas = 1 - torch.exp(-deltas * sigmas)  # [N, T]
+            alphas_shifted = torch.cat(
+                [torch.ones_like(alphas[..., :1]), 1 - alphas + 1e-15], dim=-1
+            )  # [N, T+1]
+            weights = alphas * torch.cumprod(alphas_shifted, dim=-1)[..., :-1]  # [N, T]
+
+            # sample new z_vals
+            z_vals_mid = z_vals[..., :-1] + 0.5 * deltas[..., :-1]  # [N, T-1]
+            new_z_vals = renderer.sample_pdf(
+                z_vals_mid, weights[:, 1:-1], upsample_steps, det=not model.training
+            ).detach()  # [N, t]
+
+            new_pts = rays_o.unsqueeze(-2) + rays_d.unsqueeze(
+                -2
+            ) * new_z_vals.unsqueeze(
+                -1
+            )  # [N, 1, 3] * [N, t, 3] -> [N, t, 3]
+            new_pts = new_pts.clamp(-model.bound, model.bound)
+
+        # only forward new points to save computation
+        new_dirs = rays_d.unsqueeze(-2).expand_as(new_pts)
+        new_sigmas, new_rgbs = model(new_pts.reshape(-1, 3), new_dirs.reshape(-1, 3))
+        new_rgbs = new_rgbs.reshape(N, upsample_steps, 3)  # [N, t, 3]
+        new_sigmas = new_sigmas.reshape(N, upsample_steps)  # [N, t]
+
+        # re-order
+        z_vals = torch.cat([z_vals, new_z_vals], dim=-1)  # [N, T+t]
+        z_vals, z_index = torch.sort(z_vals, dim=-1)
+
+        sigmas = torch.cat([sigmas, new_sigmas], dim=-1)  # [N, T+t]
+        sigmas = torch.gather(sigmas, dim=-1, index=z_index)
+
+        rgbs = torch.cat([rgbs, new_rgbs], dim=-2)  # [N, T+t, 3]
+        rgbs = torch.gather(rgbs, dim=-2, index=z_index.unsqueeze(-1).expand_as(rgbs))
+
+    # render core
+    deltas = z_vals[..., 1:] - z_vals[..., :-1]  # [N, T-1]
+    deltas = torch.cat([deltas, sample_dist * torch.ones_like(deltas[..., :1])], dim=-1)
+
+    alphas = 1 - torch.exp(-deltas * sigmas)  # [N, T]
+    alphas_shifted = torch.cat(
+        [torch.ones_like(alphas[..., :1]), 1 - alphas + 1e-15], dim=-1
+    )  # [N, T+1]
+    weights = alphas * torch.cumprod(alphas_shifted, dim=-1)[..., :-1]  # [N, T]
+
+    rays_o = rays_o.reshape(-1, n_f, 3)
+    rays_d = rays_d.reshape(-1, n_f, 3)
+    z_vals = z_vals.reshape(B, n_f, -1)
+    weights = weights.reshape(B, n_f, -1)
+
+    return (
+        rays_o,
+        rays_d,
+        weights,
+        z_vals,
+    )
 
 
-def sample_grasps(
-    grasp_vars, num_grasps, coarse_model, fine_model, renderer, chunk=1024 * 32
-):
+def sample_grasps(grasp_vars, num_grasps, model, residual_dirs=False):
     """
     Generates and samples from a distribution of grasps, returning a batch of
     grasp points and their associated normals.
 
     Args:
-        grasp_vars: tensor, shape [B, n_f, 5], of grasp positions ([..., :3]) and
+        grasp_vars: tensor, shape [B, n_f, 6], of grasp positions ([..., :3]) and
             approach directions ([..., 3:]), in spherical coordinates,
             to be used for rendering.
         nerf: nerf_shared.NeRF object defining the object density.
@@ -85,14 +222,11 @@ def sample_grasps(
     Returns a batch of sampled grasp points and normals, which can be
     used to compute grasp metrics.
     """
-    rays, weights, z_vals = get_grasp_distribution(
-        grasp_vars, coarse_model, fine_model, renderer, chunk=chunk
+    rays_o, rays_d, weights, z_vals = get_grasp_distribution(
+        grasp_vars, model, residual_dirs=residual_dirs
     )
 
-    B, n_f, _ = rays.shape
-
-    # Unpack ray origins and dirs from ray batch.
-    rays_o, rays_d = rays[..., :3], rays[..., 3:6]
+    B, n_f, _ = rays_o.shape
 
     # Normalize to ensure rays_d are unit length.
     rays_d = rays_d / torch.norm(rays_d, dim=-1, keepdim=True)
@@ -102,6 +236,7 @@ def sample_grasps(
     sample_points = rays_o.unsqueeze(-2) + z_vals.unsqueeze(-1) * rays_d.unsqueeze(-2)
 
     # Generate distribution from which we'll sample grasp points.
+    weights = torch.clip(weights, 0.0, 1.0)
     grasp_dist = torch.distributions.Categorical(probs=weights + 1e-15)
 
     # Create mask for which rays are empty.
@@ -118,11 +253,11 @@ def sample_grasps(
     )  # [B, n_f, num_grasps, 3]
 
     # Estimate gradients.
-    _, grad_ests = est_grads_vals(fine_model, grasp_points.reshape(B, -1, 3))
+    _, grad_ests = est_grads_vals(model, grasp_points.reshape(B, -1, 3))
     grad_ests = grad_ests.reshape(B, n_f, num_grasps, 3)
 
     # Estimate densities at fingertips.
-    density_ests, _ = est_grads_vals(fine_model, rays_o.reshape(B, -1, 3))
+    density_ests, _ = est_grads_vals(model, rays_o.reshape(B, -1, 3))
     density_ests = density_ests.reshape(B, n_f)
 
     grasp_mask = torch.logical_and(grasp_mask, density_ests < 150)
@@ -132,7 +267,10 @@ def sample_grasps(
 
     return grasp_points, grad_ests, grasp_mask
 
-def est_grads_vals(nerf, grasp_points, method='central_difference', sigma=1e-3, num_samples=1000):
+
+def est_grads_vals(
+    nerf, grasp_points, method="central_difference", sigma=1e-3, num_samples=1000
+):
     """
     Uses sampling to estimate gradients and density values for
     a given batch of grasp points.
@@ -143,10 +281,11 @@ def est_grads_vals(nerf, grasp_points, method='central_difference', sigma=1e-3, 
         num_samples: number of samples to draw for estimation.
     """
     B, n_f, _ = grasp_points.shape
+    device = grasp_points.device
 
     if method == "grad_averaging":
         gps = grasp_points.reshape(B, 1, n_f, 3) + sigma * torch.randn(
-            B, num_samples, n_f, 3
+            B, num_samples, n_f, 3, device=device
         )
         gps.requires_grad = True
 
@@ -157,7 +296,7 @@ def est_grads_vals(nerf, grasp_points, method='central_difference', sigma=1e-3, 
     elif method == "central_difference":
 
         U = (
-            torch.cat([torch.eye(3), -torch.eye(3)])
+            torch.cat([torch.eye(3, device=device), -torch.eye(3, device=device)])
             .reshape(1, 6, 1, 3)
             .expand(B, 6, n_f, 3)
         )
@@ -165,13 +304,16 @@ def est_grads_vals(nerf, grasp_points, method='central_difference', sigma=1e-3, 
         densities = nerf_densities(nerf, gps.reshape(-1, n_f, 3)).reshape(B, 6, n_f)
 
         grad_ests = torch.stack(
-            [(densities[:, ii, :] - densities[:, ii+3, :])
-             / (2 * sigma) for ii in range(3)],
-            dim=-1)
+            [
+                (densities[:, ii, :] - densities[:, ii + 3, :]) / (2 * sigma)
+                for ii in range(3)
+            ],
+            dim=-1,
+        )
 
         density_ests = torch.mean(densities, dim=1)
-    elif method == 'gaussian':
-        dgs = sigma * torch.randn(B, num_samples, n_f, 3)
+    elif method == "gaussian":
+        dgs = sigma * torch.randn(B, num_samples, n_f, 3, device=device)
         gps = grasp_points.reshape(B, 1, n_f, 3) + dgs
         # grads, densities = nerf_grads(nerf, gps.reshape(-1, n_f, 3), ret_densities=True)
         densities = nerf_densities(nerf, gps.reshape(-1, n_f, 3))
@@ -181,13 +323,17 @@ def est_grads_vals(nerf, grasp_points, method='central_difference', sigma=1e-3, 
 
         origin_densities = nerf_densities(nerf, grasp_points.reshape(B, n_f, 3))
         origin_densities = origin_densities.reshape(B, 1, n_f)
-        grad_ests = torch.mean(
-            (densities - origin_densities).reshape(B, num_samples, n_f, 1) * dgs,
-            dim = 1) / sigma
+        grad_ests = (
+            torch.mean(
+                (densities - origin_densities).reshape(B, num_samples, n_f, 1) * dgs,
+                dim=1,
+            )
+            / sigma
+        )
         density_ests = origin_densities.reshape(B, n_f)
 
     return density_ests, grad_ests
-  
+
 
 def nerf_densities(nerf, grasp_points):
     """
@@ -196,7 +342,7 @@ def nerf_densities(nerf, grasp_points):
     B, n_f, _ = grasp_points.shape
     query_points = grasp_points.reshape(1, -1, 3)
 
-    return nerf.get_density(query_points).reshape(B, n_f)
+    return nerf.density(query_points).reshape(B, n_f)
 
 
 def nerf_grads(nerf, grasp_points, ret_densities=False):
@@ -207,8 +353,9 @@ def nerf_grads(nerf, grasp_points, ret_densities=False):
         grasp_points: set of grasp points at which to take gradients.
     """
     densities = nerf_densities(nerf, grasp_points)
-    density_grads = torch.autograd.grad(torch.sum(densities), grasp_points,
-                                        create_graph=False)[0]
+    density_grads = torch.autograd.grad(
+        torch.sum(densities), grasp_points, create_graph=False
+    )[0]
     if ret_densities:
         return density_grads, densities
     else:
@@ -221,7 +368,7 @@ def cos_similarity(a, b):
     """
     return torch.sum(a * b, dim=-1) / (torch.norm(a, dim=-1) * torch.norm(b, dim=-1))
 
-  
+
 def check_gradients(nerf, face_centers, face_normals, grad_params, chunk=500):
     """
     Checks gradients of NeRF against the true normals at the face centers.
@@ -268,14 +415,16 @@ def rejection_sample(mu, Sigma, constraint, num_points):
     """
     n = mu.shape[0]
 
-    sample_points = torch.zeros(num_points, n)
+    sample_points = torch.zeros(num_points, n, device=mu.device)
     num_accepted = 0
     ii = 0
 
     while num_accepted < num_points:
-        new_samples = (mu.reshape(1, n, 1)
-             + torch.linalg.cholesky(Sigma).reshape(1, n, n)
-             @ torch.randn(num_points, n, 1)).reshape(num_points, n)
+        new_samples = (
+            mu.reshape(1, n, 1)
+            + torch.linalg.cholesky(Sigma).reshape(1, n, n)
+            @ torch.randn(num_points, n, 1, device=mu.device)
+        ).reshape(num_points, n)
 
         accept = constraint(new_samples)
         num_curr = torch.sum(accept.int())
@@ -291,3 +440,43 @@ def rejection_sample(mu, Sigma, constraint, num_points):
         logging.debug("rejection_sample(): itr=%d, accepted=%d", ii, num_accepted)
 
     return sample_points
+
+
+def nerf_to_ig_R():
+    R = scipy.spatial.transform.Rotation.from_euler("X", [np.pi / 2])
+    R = R * scipy.spatial.transform.Rotation.from_euler("Y", [np.pi / 2])
+    return R
+
+
+def nerf_to_ig(points, translation=None, return_tensor=True):
+    """Goes from points in NeRF (blender) world frame to IG world frame"""
+    if isinstance(points, torch.Tensor):
+        points = points.cpu().detach().numpy()
+    T = np.eye(4)
+    R = nerf_to_ig_R().as_matrix()
+    T[:3, :3] = R
+    translation = translation if translation is not None else np.zeros(3)
+    T[:3, -1] = translation
+    points = np.concatenate([points, np.ones_like(points)[:, :1]], axis=1)
+    points = (T @ points.T).T
+    points = points[:, :3] / points[:, 3:]
+    if return_tensor:
+        points = torch.tensor(points).float().cuda()
+    return points
+
+
+def ig_to_nerf(points, translation=None, return_tensor=True):
+    """Goes from points in IG world frame to NeRF (blender) world frame"""
+    if isinstance(points, torch.Tensor):
+        points = points.cpu().detach().numpy()
+    T = np.eye(4)
+    R = nerf_to_ig_R().inv().as_matrix()
+    T[:3, :3] = R
+    translation = translation if translation is not None else np.zeros(3)
+    T[:3, -1] = translation
+    points = np.concatenate([points, np.ones_like(points)[:, :1]], axis=1)
+    points = (T @ points.T).T
+    points = points[:, :3] / points[:, 3:]
+    if return_tensor:
+        points = torch.tensor(points).float().cuda()
+    return points

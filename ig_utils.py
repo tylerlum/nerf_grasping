@@ -20,7 +20,8 @@ def gymutil_parser(
         parser.add_argument(
             "--nographics",
             action="store_true",
-            help="Disable graphics context creation, no viewer window is created, and no headless rendering is available",
+            help=
+            "Disable graphics context creation, no viewer window is created, and no headless rendering is available",
         )
     parser.add_argument(
         "--sim_device",
@@ -28,24 +29,27 @@ def gymutil_parser(
         default="cuda:0",
         help="Physics Device in PyTorch-like syntax",
     )
-    parser.add_argument(
-        "--pipeline", type=str, default="gpu", help="Tensor API pipeline (cpu/gpu)"
-    )
-    parser.add_argument(
-        "--graphics_device_id", type=int, default=0, help="Graphics Device ID"
-    )
+    parser.add_argument("--pipeline",
+                        type=str,
+                        default="gpu",
+                        help="Tensor API pipeline (cpu/gpu)")
+    parser.add_argument("--graphics_device_id",
+                        type=int,
+                        default=0,
+                        help="Graphics Device ID")
 
     physics_group = parser.add_mutually_exclusive_group()
-    physics_group.add_argument(
-        "--flex", action="store_true", help="Use FleX for physics"
-    )
-    physics_group.add_argument(
-        "--physx", action="store_true", help="Use PhysX for physics"
-    )
+    physics_group.add_argument("--flex",
+                               action="store_true",
+                               help="Use FleX for physics")
+    physics_group.add_argument("--physx",
+                               action="store_true",
+                               help="Use PhysX for physics")
 
-    parser.add_argument(
-        "--num_threads", type=int, default=0, help="Number of cores used by PhysX"
-    )
+    parser.add_argument("--num_threads",
+                        type=int,
+                        default=0,
+                        help="Number of cores used by PhysX")
     parser.add_argument(
         "--subscenes",
         type=int,
@@ -53,11 +57,13 @@ def gymutil_parser(
         help="Number of PhysX subscenes to simulate in parallel",
     )
     parser.add_argument(
-        "--slices", type=int, help="Number of client threads that process env slices"
-    )
+        "--slices",
+        type=int,
+        help="Number of client threads that process env slices")
 
     for argument in custom_parameters:
-        if ("name" in argument) and ("type" in argument or "action" in argument):
+        if ("name" in argument) and ("type" in argument
+                                     or "action" in argument):
             help_str = ""
             if "help" in argument:
                 help_str = argument["help"]
@@ -71,13 +77,13 @@ def gymutil_parser(
                         help=help_str,
                     )
                 else:
-                    parser.add_argument(
-                        argument["name"], type=argument["type"], help=help_str
-                    )
+                    parser.add_argument(argument["name"],
+                                        type=argument["type"],
+                                        help=help_str)
             elif "action" in argument:
-                parser.add_argument(
-                    argument["name"], action=argument["action"], help=help_str
-                )
+                parser.add_argument(argument["name"],
+                                    action=argument["action"],
+                                    help=help_str)
 
         else:
             print()
@@ -97,10 +103,12 @@ def parse_arguments(
     no_graphics=False,
     custom_parameters=[],
 ):
-    parser = gymutil_parser(description, headless, no_graphics, custom_parameters)
+    parser = gymutil_parser(description, headless, no_graphics,
+                            custom_parameters)
     args = parser.parse_args(args=args)
 
-    args.sim_device_type, args.compute_device_id = parse_device_str(args.sim_device)
+    args.sim_device_type, args.compute_device_id = parse_device_str(
+        args.sim_device)
     pipeline = args.pipeline.lower()
 
     assert pipeline == "cpu" or pipeline in (
@@ -112,10 +120,13 @@ def parse_arguments(
     if args.sim_device_type != "cuda" and args.flex:
         print("Can't use Flex with CPU. Changing sim device to 'cuda:0'")
         args.sim_device = "cuda:0"
-        args.sim_device_type, args.compute_device_id = parse_device_str(args.sim_device)
+        args.sim_device_type, args.compute_device_id = parse_device_str(
+            args.sim_device)
 
     if args.sim_device_type != "cuda" and pipeline == "gpu":
-        print("Can't use GPU pipeline with CPU Physics. Changing pipeline to 'CPU'.")
+        print(
+            "Can't use GPU pipeline with CPU Physics. Changing pipeline to 'CPU'."
+        )
         args.pipeline = "CPU"
         args.use_gpu_pipeline = False
 

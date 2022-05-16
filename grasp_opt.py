@@ -43,7 +43,7 @@ def rot_from_vec(n_z):
     """
     # Construct constants.
     n_z = n_z.reshape(-1, 3)
-    I = torch.eye(3).reshape(1, 3, 3).expand(n_z.shape[0], 3, 3)
+    I = torch.eye(3, device=n_z.device).reshape(1, 3, 3).expand(n_z.shape[0], 3, 3)
     e3 = I[:, :, 2]
 
     # Compute cross product to find axis of rotation.
@@ -62,7 +62,7 @@ def skew(v):
     """
     v = v.reshape(-1, 3)
 
-    K = torch.zeros(v.shape[0], 3, 3)
+    K = torch.zeros(v.shape[0], 3, 3, device=v.device)
 
     K[:, 0, 1] = -v[:, 2]
     K[:, 0, 2] = v[:, 1]
@@ -217,6 +217,7 @@ def optimize_cem(
     mu, Sigma = mu_0, Sigma_0
     num_elite = int(elite_frac * num_samples)
     device = mu_0.device
+    cost_history = []
     for ii in range(num_iters):
         # Sample points from current distribution.
         if constraint:
@@ -230,6 +231,7 @@ def optimize_cem(
 
         # Evaluate costs of each point.
         cost_vals = cost(x)
+        cost_history.append(cost_vals)
         print(torch.min(cost_vals), torch.mean(cost_vals))
 
         # Get elite indices.
@@ -250,7 +252,7 @@ def optimize_cem(
             dim=0,
         ) + 1e-8 * torch.eye(n, device=device)
 
-    return mu, Sigma
+    return mu, Sigma, cost_history
 
 
 def clip_loss(densities, lb=100, ub=200):
@@ -271,8 +273,8 @@ def grasp_cost(
     n_f,
     model,
     num_grasps=10,
-    residual_dirs=False,
-    cost_fn="psv",
+    residual_dirs=True,
+    cost_fn="l1",
     l1_kwargs=dict(centroid=np.zeros((3, 1))),
 ):
 
@@ -329,7 +331,7 @@ def get_points_cem(
         x, n_f, model, residual_dirs=residual_dirs, cost_fn=cost_fn
     )
 
-    mu_f, Sigma_f = optimize_cem(
+    mu_f, Sigma_f, cost_history = optimize_cem(
         cost, mu_0, Sigma_0, num_iters=10, num_samples=500, constraint=constraint
     )
 

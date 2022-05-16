@@ -8,6 +8,7 @@ from unittest.mock import Mock
 import cvxpy as cp
 from isaacgym import gymapi, gymtorch
 import lietorch
+import os
 import numpy as np
 import torch
 
@@ -16,7 +17,9 @@ from PIL import Image
 
 import grasp_opt
 import grasp_utils
-import gymutils
+import trimesh
+import ig_utils
+import viz_utils
 from nerf import utils
 from quaternions import Quaternion
 
@@ -28,7 +31,23 @@ root_dir = osp.dirname(osp.abspath(__file__))
 asset_dir = f"{root_dir}/assets"
 
 
-def get_fixed_camera_transfrom(gym, sim, env, camera):
+def get_mesh_contacts(gt_mesh, grasp_points, pos_offset=None, rot_offset=None):
+    if pos_offset is not None:
+        # project grasp_points into object frame
+        grasp_points -= pos_offset
+        grasp_points = np.stack([rot_offset.rotate(gp) for gp in grasp_points])
+    points, _, index = trimesh.proximity.closest_point(gt_mesh, grasp_points)
+    # grasp normals follow convention that points into surface,
+    # trimesh computes normals pointing out of surface
+    grasp_normals = -gt_mesh.face_normals[index]
+    if pos_offset is not None:
+        # project back into world frame
+        points += pos_offset
+        grasp_normals = np.stack([rot_offset.T.rotate(x) for x in grasp_normals])
+    return points, grasp_normals
+
+
+def get_fixed_camera_transform(gym, sim, env, camera):
     # currently x+ is pointing down camera view axis - other degree of freedom is messed up
     # output will have x+ be optical axis, y+ pointing left (looking down camera) and z+ pointing up
     t = gym.get_camera_transform(sim, env, camera)
@@ -36,7 +55,7 @@ def get_fixed_camera_transfrom(gym, sim, env, camera):
     quat = Quaternion.fromWLast([t.r.x, t.r.y, t.r.z, t.r.w])
 
     x_axis = torch.tensor([1.0, 0, 0])
-    y_axis = torch.tensor([0, 1.0, 0])
+    # y_axis = torch.tensor([0, 1.0, 0])
     z_axis = torch.tensor([0, 0, 1.0])
 
     optical_axis = quat.rotate(x_axis)
@@ -143,6 +162,9 @@ def calculate_grip_forces(positions, normals, target_force, target_torque):
         logging.debug("normals: %s", normals)
         logging.debug("target_force: %s", target_force)
         logging.debug("target_torque: %s", target_torque)
+        import pdb
+
+        pdb.set_trace()
         assert False
 
     global_forces = np.zeros_like(F.value)
@@ -155,8 +177,30 @@ def calculate_grip_forces(positions, normals, target_force, target_torque):
     return global_forces
 
 
+def load_nerf(workspace, bound, scale):
+    parser = utils.get_config_parser()
+    args = parser.parse_args(
+        [
+            "--workspace",
+            f"{root_dir}/torch-ngp/{workspace}",
+            "--test",
+            "--cuda_ray",
+            "--bound",
+            f"{bound}",
+            "--scale",
+            f"{scale}",
+            "--mode",
+            "blender",
+            f"{root_dir}/torch-ngp",
+        ]
+    )
+    model = grasp_utils.load_nerf(args)
+    return model
+
+
 class RigidObject:
 
+    obj_scale = 1
     scale = 1.0
     bound = 3.0
     centroid = np.zeros((3, 1))
@@ -169,7 +213,8 @@ class RigidObject:
 
         self.asset = self.create_asset()
         self.actor = self.configure_actor(gym, env)
-        self.nerfs_loaded = False
+        self.nerf_loaded = False
+        self.gt_mesh = None
 
     def get_CG(self):
         pos = self.rb_states[0, :3]
@@ -192,72 +237,29 @@ class RigidObject:
             rb_start_index : rb_start_index + rb_count, :
         ]
 
-    def load_nerf_models(self):
-        if self.nerfs_loaded:
+    def load_nerf_model(self):
+        if self.nerf_loaded:
             return
-        parser = utils.get_config_parser()
-        # TODO: hardcoded, replace with reference to dir corresponding to object
+        self.model = load_nerf(self.workspace, self.bound, self.scale)
+        self.nerf_loaded = True
 
-        args = parser.parse_args(
-            [
-                "--workspace",
-                f"{root_dir}/torch-ngp/{self.workspace}",
-                "--test",
-                "--cuda_ray",
-                "--bound",
-                f"{self.bound}",
-                "--scale",
-                f"{self.scale}",
-                "--mode",
-                "blender",
-                f"{root_dir}/torch-ngp",
-            ]
-        )
-        self.model = grasp_utils.load_nerf(args)
-        self.nerfs_loaded = True
+    def load_trimesh(self):
+        mesh_path = os.path.join(asset_dir, self.mesh_file)
+        self.gt_mesh = trimesh.load(mesh_path, force="mesh")
+        T = trimesh.transformations.scale_matrix(self.obj_scale, np.array([0, 0, 0]))
+        T_rot = np.eye(4)
+        self.gt_mesh.apply_transform(T)
+        self.gt_mesh.apply_transform(T_rot)
 
 
 class Box(RigidObject):
     name = "box"
     grasp_points = torch.tensor(
-        [
-            [
-                0.0,
-                0.05,
-                0.05,
-            ],
-            [
-                0.03,
-                -0.05,
-                0.05,
-            ],
-            [
-                -0.03,
-                -0.05,
-                0.05,
-            ],
-        ]
+        [[0.0, 0.05, 0.05], [0.03, -0.05, 0.05], [-0.03, -0.05, 0.05]]
     )
 
-    grasp_normals = torch.tensor(
-        [
-            [
-                0.0,
-                -1.0,
-                0.0,
-            ],
-            [
-                0.0,
-                1.0,
-                0.0,
-            ],
-            [
-                0.0,
-                1.0,
-                0.0,
-            ],
-        ]
-    )
+    grasp_normals = torch.tensor([[0.0, -1.0, 0.0], [0.0, 1.0, 0.0], [0.0, 1.0, 0.0]])
+    mesh_file = "objects/meshes/cube_multicolor.obj"
 
     def create_asset(self):
         asset_options = gymapi.AssetOptions()
@@ -308,6 +310,8 @@ class Box(RigidObject):
 
 class TeddyBear(RigidObject):
     asset_file = "objects/urdf/teddy_bear.urdf"
+    mesh_file = "objects/mehes/isaac_teddy/isaac_bear.obj"
+    obj_scale = 1e-2
     name = "teddy_bear"
 
     data_dir = f"{root_dir}/nerf_shared/data/isaac_teddy"
@@ -415,9 +419,10 @@ class Banana(TeddyBear):
             [-0.058538, -0.051027, 0.013867],
         ]
     )
-
+    obj_scale = 1.0
     grasp_normals = torch.tensor([[1, -1.5, 0.0], [-2, 1.0, 0.0], [1, 0.0, 0.0]])
     asset_file = "objects/urdf/banana.urdf"
+    mesh_file = "objects/meshes/banana/textured.obj"
     name = "banana"
 
 
@@ -459,6 +464,7 @@ class Robot:
         cem_samples=500,
         target_height=0.07,
         use_grad_est=False,
+        use_true_normals=False,
     ):
         self.gym = gym
         self.sim = sim
@@ -476,6 +482,7 @@ class Robot:
         self.cem_samples = cem_samples
         self.target_height = target_height
         self.use_grad_est = use_grad_est
+        self.use_true_normals = use_true_normals
 
     def create_asset(self):
         robot_urdf_file = (
@@ -580,6 +587,7 @@ class Robot:
         self.added_lines = False
         self.grasp_points = self.grasp_normals = self.grad_ests = None
         self.previous_global_forces = None
+        self.grad_ests = None
         return
 
     def setup_tensors(self):
@@ -617,28 +625,33 @@ class Robot:
             rb_start_index : rb_start_index + rb_count, :
         ]
 
-    def sample_grasp(self, obj, residual_dirs=False, metric="l1"):
-        assert obj.nerfs_loaded
+    def sample_grasp(self, obj, metric="l1"):
+        assert obj.nerf_loaded
 
         # currently using object centroid to offset grasp, which is loaded
         # using groundtruth mesh model. TODO: switch to nerf mesh
-        gp = np.array([[0.09, 0.09, 0.0], [0, -0.125, 0.0], [-0.09, 0.09, 0.0]])
-        if obj.use_centroid:
-            gp += obj.centroid
-
-        grasp_points = torch.tensor(gp).reshape(1, 3, 3)
-        if residual_dirs:
+        # gp = np.array([[0.09, 0.09, 0.0], [0, -0.125, 0.0], [-0.09, 0.09, 0.0]])
+        gp = obj.grasp_points
+        grasp_points = grasp_utils.ig_to_nerf(gp).reshape(1, 3, 3)
+        # if obj.use_centroid:
+        #     gp += obj.centroid
+        if self.use_residual_dirs:
             grasp_dirs = torch.zeros_like(grasp_points)
         else:
             grasp_dirs = -grasp_points
 
+        # TODO: add constraint to prevent rays from crossing one another
         def constraint(x):
-            return torch.all(x.abs() <= 0.1, dim=1)
+            """Ensures that all points fall within reasonable range"""
+            return torch.logical_and(
+                torch.all(x.abs() <= 0.1, dim=1),
+                torch.all(x.reshape(-1, 3, 6)[..., 1] >= 0, dim=1),
+            )
 
         mu_0 = torch.cat([grasp_points, grasp_dirs], dim=-1).reshape(-1).cuda()
         Sigma_0 = torch.diag(
             torch.cat(
-                [torch.tensor([5e-3, 5e-3, 5e-3, 1e-3, 1e-3, 1e-3]) for _ in range(3)]
+                [torch.tensor([5e-3, 1e-5, 5e-3, 1e-3, 1e-3, 1e-3]) for _ in range(3)]
             )
         ).cuda()
 
@@ -649,7 +662,7 @@ class Robot:
             Sigma_0=Sigma_0,
             constraint=constraint,
             cost_fn=metric,
-            residual_dirs=residual_dirs,
+            residual_dirs=self.use_residual_dirs,
             num_iters=self.cem_iters,
             num_samples=self.cem_samples,
         )
@@ -657,58 +670,61 @@ class Robot:
         _, _, weights, z_vals = grasp_utils.get_grasp_distribution(
             grasp_points.reshape(1, 3, 6),
             obj.model,
-            residual_dirs=residual_dirs,
+            residual_dirs=self.use_residual_dirs,
         )
-
-        rays_o, rays_d = grasp_points[:, :3], grasp_points[:, 3:]
+        # convert to IG
+        rays_o = grasp_points[:, :3].cpu().detach().numpy()
+        rays_o = grasp_utils.nerf_to_ig(rays_o).to(grasp_points)
+        rays_d = grasp_points[:, 3:]
 
         centroid = torch.tensor(obj.centroid[:, None]).to(rays_o)
         if not obj.use_centroid:
             centroid *= 0.0
 
-        if residual_dirs:
+        if self.use_residual_dirs:
             dirs = lietorch.SO3.exp(rays_d).matrix()[:, :3, :3] @ (
                 centroid - rays_o.unsqueeze(-1)
             )
             rays_d = dirs.squeeze()
+        else:
+            rays_d = rays_d.cpu().detach().numpy()
+            rays_d = grasp_utils.nerf_to_ig(rays_d).to(grasp_points)
+
         # if obj.use_centroid:
         #     rays_o += torch.tensor(obj.centroid, device=rays_o.device)
+
         rays_d = rays_d / rays_d.norm(dim=1, keepdim=True)
         # run z-val corrections on origins
         des_z_dist = 0.1
+        # Correct rays_o to be equidistant from object surface using estimated z_vals from nerf
         # z_correction shape: (number of fingers, 1)
         z_correction = des_z_dist - torch.sum(weights * z_vals, dim=-1).reshape(3, 1)
         rays_o += z_correction * rays_d
+        tip_positions = self.get_tip_positions().to(rays_o)
 
-        self.visualize_grasp_normals(rays_o, rays_d, des_z_dist)
-        return rays_o, rays_d
+        # computes tip/fingertip assignment with the minimum net distance to grasp contact point
+        pdist = []
+        for i in range(len(tip_positions)):
+            pdist.append(
+                torch.nn.functional.pairwise_distance(
+                    tip_positions[i], rays_o + rays_d * des_z_dist
+                )
+            )
+        pdist = torch.stack(pdist, dim=1)
+        perms = [[0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0]]
+        net_dists = [sum([pdist[i][j] for i, j in enumerate(p)]) for p in perms]
+        tip_idx = perms[torch.argmin(torch.tensor(net_dists)).numpy().item()]
+        rays_o, rays_d = rays_o[tip_idx], rays_d[tip_idx]
+        colors = [[0, 1, 0]] * 3
+        viz_utils.visualize_markers(self.gym, self.env, self.sim, gp, colors)
 
-    def visualize_grasp_normals(self, rays_o, rays_d, des_z_dist=0.1):
-        ro, rd = rays_o.detach().cpu().numpy(), rays_d.detach().cpu().numpy()
-        vertices = []
-        for i in range(3):
-            vertices.append(ro[i])
-            vertices.append(ro[i] + rd[i] * des_z_dist)
-        vertices = np.stack(vertices, axis=0)
-        colors = np.array([[0, 0, 1], [0, 1, 0], [1, 0, 0]], dtype="float32")
         if self.added_lines:
             self.gym.clear_lines(self.viewer)
-
-        self.gym.add_lines(
-            self.viewer,
-            self.env,
-            3,
-            vertices,
-            colors,
+        viz_utils.visualize_grasp_normals(
+            self.gym, self.viewer, self.env, rays_o, rays_d, des_z_dist
         )
-        # self.gym.draw_env_rigid_contacts(
-        #     self.viewer, self.env, gymapi.Vec3(0, 0, 1), 1.0, True
-        # )
         self.added_lines = True
-
-    @staticmethod
-    def eval_grasps(obj, n_grasps=50, residual_dirs=False):
-        assert obj.nerfs_loaded
+        return rays_o, rays_d
 
     def get_tip_positions(self, offset_dir=None, radius=0.009):
         tip_indices = [
@@ -720,29 +736,66 @@ class Robot:
             tip_positions -= offset_dir.to(tip_positions.device) * radius
         return tip_positions
 
-    def control(self, interation, obj):
+    def get_grad_ests(self, obj, grasp_points, grasp_normals):
+        tip_positions = self.get_tip_positions(offset_dir=grasp_normals, radius=0.009)
+        if self.grad_ests is None:
+            # tip_positions = grasp_points
+            tip_positions = grasp_points.cuda() + grasp_normals.cuda() * 0.01
+            nerf_tip_pos = grasp_utils.ig_to_nerf(tip_positions.cpu().detach().numpy())
+            _, grad_ests = grasp_utils.est_grads_vals(
+                obj.model,
+                nerf_tip_pos.reshape(1, -1, 3).cuda(),
+                sigma=5e-3,
+                num_samples=1000,
+                method="gaussian",
+            )
+            grad_ests = grad_ests.reshape(3, 3).float()
+            grad_ests /= grad_ests.norm(dim=1, keepdim=True)
+            # rotate surface normals to IG world coordinates
+            grad_ests = grasp_utils.nerf_to_ig(grad_ests.cpu().detach().numpy())
+            logging.info("grad_ests: %s", grad_ests)
+            logging.info("grasp_pts: %s", grasp_points)
+            logging.info("tip_positions: %s", tip_positions)
+            self.grad_ests = grad_ests
+            print("visualizing grad ests")
+        else:
+            tip_positions = self.get_tip_positions(
+                offset_dir=self.grad_ests, radius=0.009
+            )
+        # Assuming that contact normals stay the same, i.e. static contacts
+        grad_ests = self.grad_ests
+        if self.added_lines:
+            self.gym.clear_lines(self.viewer)
+        viz_utils.visualize_grasp_normals(
+            self.gym, self.viewer, self.env, tip_positions, -grad_ests
+        )
+        self.added_lines = True
+        return grad_ests
 
-        # safe_pos = torch.tensor( [[ 0.0,  0.10, 0.05,],
-        #                          [ 0.05,-0.10, 0.05,],
-        #                          [-0.05,-0.10, 0.05,]])
-        if not obj.nerfs_loaded:
-            obj.load_nerf_models()
-
+    def get_grasp_points_normals(self, obj):
         if self.use_nerf_grasping:
             if self.grasp_points is None:
                 self.grasp_points, self.grasp_normals = self.sample_grasp(
-                    obj, residual_dirs=self.use_residual_dirs, metric=self.metric
+                    obj, metric=self.metric
                 )
             grasp_points = self.grasp_points
             grasp_normals = self.grasp_normals
         else:
             grasp_points = obj.grasp_points
             grasp_normals = obj.grasp_normals
+            if self.use_true_normals:
+                pos_offset = obj.rb_states[0, :3].cpu().numpy()
+                rot_offset = Quaternion.fromWLast(obj.rb_states[0, 3:7])
+                gp, gn = get_mesh_contacts(
+                    obj.gt_mesh, grasp_points, pos_offset, rot_offset
+                )
+                grasp_points, grasp_normals = gp, gn
+                grasp_points = torch.tensor(grasp_points).cuda().float()
+                grasp_normals = torch.tensor(grasp_normals).cuda().float()
             grasp_normals /= grasp_normals.norm(dim=1, keepdim=True)
+        return grasp_points, grasp_normals
 
-        # safe grasp point moves slightly off of contact surface
-        safe_pos = grasp_points - grasp_normals * 0.1
-
+    def control(self, interation, obj):
         interation = interation % 1000
 
         mode = "off"
@@ -760,6 +813,19 @@ class Robot:
         if interation % 10 == 0:
             logging.info("%s, %s", interation, mode)
 
+        # safe_pos = torch.tensor( [[ 0.0,  0.10, 0.05,],
+        #                          [ 0.05,-0.10, 0.05,],
+        #                          [-0.05,-0.10, 0.05,]])
+        if not obj.nerf_loaded:
+            obj.load_nerf_model()
+        if obj.gt_mesh is None:
+            obj.load_trimesh()
+
+        grasp_points, grasp_normals = self.get_grasp_points_normals(obj)
+        tip_positions = self.get_tip_positions()
+        # safe grasp point moves slightly off of contact surface
+        safe_pos = grasp_points - grasp_normals * 0.1
+
         if mode == "off":
             pass
         if mode == "safe":
@@ -767,35 +833,28 @@ class Robot:
         if mode == "pos":
             self.position_control(grasp_points)
         if mode == "vel":
-            # move radialy in along xy plane
+            # move radially in along xy plane
             # normal = - (grasp_points - torch.mean(grasp_points, axis=0))
             # normal[:, -1] = 0
             self.vel_control_force_limit(grasp_points, grasp_normals)
+            if self.added_lines:
+                self.gym.clear_lines(self.viewer)
+            viz_utils.visualize_grasp_normals(
+                self.gym, self.viewer, self.env, tip_positions, -grasp_normals
+            )
+            self.added_lines = True
         if mode == "up":
-            if self.grad_ests is None:
-                tip_positions = self.get_tip_positions(
-                    offset_dir=grasp_normals, radius=0.009
-                ).reshape(1, 3, 3)
-                _, grad_ests = grasp_utils.est_grads_vals(
-                    obj.model, tip_positions.cuda(), sigma=1e-1
-                )
-                grad_ests = grad_ests.reshape(3, 3).float()
-                grad_ests /= grad_ests.norm(dim=1, keepdim=True)
-                tip_positions = tip_positions.reshape(3, 3)
-                logging.info("grad_ests: %s", grad_ests)
-                logging.info("grasp_pts: %s", grasp_points)
-                logging.info("tip_positions: %s", tip_positions)
-                self.grad_ests = grad_ests
-                print("visualizing grad ests")
-                self.visualize_grasp_normals(grasp_points, grad_ests)
+            if self.use_grad_est:
+                in_normals = self.get_grad_ests(obj, grasp_points, grasp_normals)
             else:
-                # Assuming that contact normals stay the same, i.e. static contacts
-                grad_ests = self.grad_ests
-                tip_positions = self.get_tip_positions(
-                    offset_dir=grad_ests, radius=0.009
-                ).reshape(3, 3)
-            in_normals = grad_ests if self.use_grad_est else grasp_normals
+                in_normals = grasp_normals
             pos_target = torch.tensor([0, 0, self.target_height])
+            if self.added_lines:
+                self.gym.clear_lines(self.viewer)
+            viz_utils.visualize_grasp_normals(
+                self.gym, self.viewer, self.env, tip_positions, -grasp_normals
+            )
+            self.added_lines = True
             self.object_pos_control(grasp_points, in_normals, obj, pos_target)
 
     def apply_fingertip_forces(self, global_fingertip_forces):
@@ -925,8 +984,7 @@ class Robot:
         )
 
     def object_pos_control(self, grasp_points, in_normal, obj, target_pos):
-        # TODO grasp points should in object frame (rotate with erros in object rotation)
-        pos = obj.rb_states[0, 0:3]
+        # pos = obj.rb_states[0, 0:3]
         quat = obj.rb_states[0, 3:7]
         vel = obj.rb_states[0, 7:10]
         angular_vel = obj.rb_states[0, 10:13]
@@ -935,7 +993,7 @@ class Robot:
         target_quat = Quaternion.Identity()
 
         # cg_pos = pos
-        cg_pos = obj.get_CG()  # thoughts it eliminates the pengulum effect? possibly?
+        cg_pos = obj.get_CG()  # thoughts it eliminates the pendulum effect? possibly?
         # target_pos = torch.tensor([0, 0, self.target_height])  # TEMP
 
         # logging.debug(f"pos={pos}")
@@ -956,10 +1014,10 @@ class Robot:
         # object_weight_comp = - self.zpos_error_integral * torch.tensor([0, 0, 1])
 
         # Box tunning - tunned without moving CG and compensated normals
-        target_force = object_weight_comp - 0.2 * pos_error - 0.10 * vel
-        target_torque = (
-            -0.4 * (quat @ target_quat.T).to_tangent_space() - 0.01 * angular_vel
-        )
+        # target_force = object_weight_comp - 0.2 * pos_error - 0.10 * vel
+        # target_torque = (
+        #     -0.4 * (quat @ target_quat.T).to_tangent_space() - 0.01 * angular_vel
+        # )
 
         # Bear tunning
         # target_force = object_weight_comp - 0.2 * pos_error - 0.10 * vel
@@ -984,15 +1042,13 @@ class Robot:
 
         # print("global_cg.shape", global_cg.shape)
         tip_positions = self.get_tip_positions()
-        # grad_ests = torch.stack([quat.rotate(x) for x in self.grad_ests], axis=0)
-
-        # self.visualize_grasp_normals(tip_positions, grad_ests)
 
         # not necessary for box - changes tunning parameters
         # makes the grasp points and normals follow the tip positions and object rotation
+        # TODO grasp points should in object frame
         grasp_points = tip_positions - cg_pos
-        in_normal = torch.stack([quat.rotate(x) for x in in_normal], axis=0)
 
+        in_normal = torch.stack([quat.rotate(x) for x in in_normal], axis=0)
         try:
             global_forces = calculate_grip_forces(
                 grasp_points, in_normal, target_force, target_torque
@@ -1025,7 +1081,7 @@ class TriFingerEnv:
     def __init__(
         self, viewer=True, robot=True, Obj=None, save_cameras=False, **robot_kwargs
     ):
-        self.args = gymutils.parse_arguments(description="Trifinger test")
+        self.args = ig_utils.parse_arguments(description="Trifinger test")
         self.gym = gymapi.acquire_gym()
 
         self.setup_sim()
@@ -1041,6 +1097,7 @@ class TriFingerEnv:
         else:
             self.camera_handles = []
 
+        self.marker_handles = []
         self.gym.prepare_sim(self.sim)
         self.image_idx = 0
 
@@ -1147,7 +1204,10 @@ class TriFingerEnv:
         self.robot.viewer = self.viewer
         assert self.viewer is not None
 
+        # position outside stage
         cam_pos = gymapi.Vec3(0.7, 0.175, 0.6)
+        # position above banana
+        cam_pos = gymapi.Vec3(0.1, 0.02, 0.4)
         cam_target = gymapi.Vec3(0, 0, 0.2)
         self.gym.viewer_camera_look_at(self.viewer, self.env, cam_pos, cam_target)
 
@@ -1230,7 +1290,7 @@ class TriFingerEnv:
             color_image = (np.clip(color_image, 0.0, 1.0) * 255).astype(np.uint8)
             Image.fromarray(color_image).convert("L").save(path / f"dep_{i}.png")
 
-            pos, quat = get_fixed_camera_transfrom(
+            pos, quat = get_fixed_camera_transform(
                 self.gym, self.sim, self.env, camera_handle
             )
 
@@ -1266,7 +1326,7 @@ class TriFingerEnv:
             color_image = color_image.reshape(400, 400, -1)
             Image.fromarray(color_image).save(path / "train" / f"col_{i}.png")
 
-            pos, quat = get_fixed_camera_transfrom(
+            pos, quat = get_fixed_camera_transform(
                 self.gym, self.sim, self.env, camera_handle
             )
 
@@ -1309,6 +1369,58 @@ class TriFingerEnv:
             self.gym.sync_frame_time(self.sim)
 
         self.refresh_tensors()
+        if self.object.gt_mesh is None:
+            self.object.load_trimesh()
+
+        if isinstance(self.robot, Mock):
+            self.debug_grasp_visualization()
+
+    def debug_grasp_visualization(self):
+        if len(self.marker_handles) == 0:
+            tip_positions = self.object.grasp_points.cuda().reshape(3, 3)
+            if not self.object.nerf_loaded:
+                self.object.load_nerf_model()
+            # get grasp points into nerf frame
+            tip_positions = tip_positions + self.object.grasp_normals.cuda() * 0.01
+            nerf_tip_pos = grasp_utils.ig_to_nerf(tip_positions)
+            _, grad_ests = grasp_utils.est_grads_vals(
+                self.object.model,
+                nerf_tip_pos.reshape(1, 3, 3),
+                sigma=5e-3,
+                method="gaussian",
+                num_samples=1000,
+            )
+            grad_ests = grad_ests.reshape(3, 3).float()
+            grad_ests /= grad_ests.norm(dim=1, keepdim=True)
+            # get normal estimates and gradient estimates back in IG world frame
+            grad_ests = grasp_utils.nerf_to_ig(grad_ests.cpu().detach().numpy())
+            self.grad_ests = grad_ests
+            # self.visualize_grasp_normals(tip_positions, -grad_ests)
+            # self.marker_handles += self.plot_circle(self.gym, self.env, self.sim, self.object)
+            # densities = grasp_utils.nerf_densities(
+            #     self.object.model, nerf_tip_pos.reshape(1, 3, 3)
+            # )
+            # densities = densities.cpu().detach().numpy() / 355
+            # densities = densities.flatten()
+        if len(self.marker_handles) == 0:
+            tip_positions = self.object.grasp_points.cpu().numpy().reshape(3, 3)
+            colors = [[0, 1, 0]] * 3  # green colored markers
+            # self.marker_handles = viz_utils.visualize_markers(
+            #     self.gym, self.env, self.sim, tip_positions, colors
+            # )
+            pos_offset = self.object.rb_states[0, :3].cpu().numpy()
+            rot_offset = None  # Quaternion.fromWLast(self.object.rb_states[0, 3:7])
+            gp, gn = get_mesh_contacts(
+                self.object.gt_mesh, tip_positions, pos_offset, rot_offset
+            )
+            if self.added_lines:
+                self.gym.clear_lines(self.viewer)
+            viz_utils.visualize_grasp_normals(self.gym, self.viewer, self.env, gp, -gn)
+            self.added_lines = True
+            colors = [[1, 0, 0]] * 3  # red colored markers
+            self.marker_handles += viz_utils.visualize_markers(
+                self.gym, self.env, self.sim, gp, colors
+            )
 
     def reset(self):
         # reset object after robot actor
@@ -1342,8 +1454,8 @@ def get_nerf_training(viewer):
     tf.save_images("./nerf_shared/data/isaac_" + name, overwrite=False)
 
 
-def run_robot_control(viewer, Obj, **robot_kwargs):
-    tf = TriFingerEnv(viewer=viewer, robot=True, Obj=Obj, **robot_kwargs)
+def run_robot_control(viewer, Obj, robot, **robot_kwargs):
+    tf = TriFingerEnv(viewer=viewer, robot=robot, Obj=Obj, **robot_kwargs)
     count = 0
     while not tf.gym.query_viewer_has_closed(tf.viewer):
         try:
@@ -1375,7 +1487,10 @@ if __name__ == "__main__":
     run_robot_control(
         viewer=True,
         Obj=Obj,
+        robot=True,
         use_nerf_grasping=False,
-        use_residual_dirs=False,
-        metric="l1",
+        use_residual_dirs=True,
+        use_true_normals=False,
+        use_grad_est=True,
+        metric="psv",
     )

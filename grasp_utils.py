@@ -6,6 +6,8 @@ import logging
 import math
 
 import lietorch
+import numpy as np
+import scipy
 import torch
 from nerf import renderer, utils
 
@@ -210,7 +212,7 @@ def sample_grasps(grasp_vars, num_grasps, model, residual_dirs=False):
     grasp points and their associated normals.
 
     Args:
-        grasp_vars: tensor, shape [B, n_f, 5], of grasp positions ([..., :3]) and
+        grasp_vars: tensor, shape [B, n_f, 6], of grasp positions ([..., :3]) and
             approach directions ([..., 3:]), in spherical coordinates,
             to be used for rendering.
         nerf: nerf_shared.NeRF object defining the object density.
@@ -234,6 +236,7 @@ def sample_grasps(grasp_vars, num_grasps, model, residual_dirs=False):
     sample_points = rays_o.unsqueeze(-2) + z_vals.unsqueeze(-1) * rays_d.unsqueeze(-2)
 
     # Generate distribution from which we'll sample grasp points.
+    weights = torch.clip(weights, 0.0, 1.0)
     grasp_dist = torch.distributions.Categorical(probs=weights + 1e-15)
 
     # Create mask for which rays are empty.
@@ -437,3 +440,43 @@ def rejection_sample(mu, Sigma, constraint, num_points):
         logging.debug("rejection_sample(): itr=%d, accepted=%d", ii, num_accepted)
 
     return sample_points
+
+
+def nerf_to_ig_R():
+    R = scipy.spatial.transform.Rotation.from_euler("X", [np.pi / 2])
+    R = R * scipy.spatial.transform.Rotation.from_euler("Y", [np.pi / 2])
+    return R
+
+
+def nerf_to_ig(points, translation=None, return_tensor=True):
+    """Goes from points in NeRF (blender) world frame to IG world frame"""
+    if isinstance(points, torch.Tensor):
+        points = points.cpu().detach().numpy()
+    T = np.eye(4)
+    R = nerf_to_ig_R().as_matrix()
+    T[:3, :3] = R
+    translation = translation if translation is not None else np.zeros(3)
+    T[:3, -1] = translation
+    points = np.concatenate([points, np.ones_like(points)[:, :1]], axis=1)
+    points = (T @ points.T).T
+    points = points[:, :3] / points[:, 3:]
+    if return_tensor:
+        points = torch.tensor(points).float().cuda()
+    return points
+
+
+def ig_to_nerf(points, translation=None, return_tensor=True):
+    """Goes from points in IG world frame to NeRF (blender) world frame"""
+    if isinstance(points, torch.Tensor):
+        points = points.cpu().detach().numpy()
+    T = np.eye(4)
+    R = nerf_to_ig_R().inv().as_matrix()
+    T[:3, :3] = R
+    translation = translation if translation is not None else np.zeros(3)
+    T[:3, -1] = translation
+    points = np.concatenate([points, np.ones_like(points)[:, :1]], axis=1)
+    points = (T @ points.T).T
+    points = points[:, :3] / points[:, 3:]
+    if return_tensor:
+        points = torch.tensor(points).float().cuda()
+    return points

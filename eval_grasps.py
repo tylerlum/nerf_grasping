@@ -49,24 +49,29 @@ def main(
     cem_iters=10,
     nerf_grasping=True,
     use_grad_est=False,
+    robot=True,
+    use_true_normals=False,
 ):
     if obj == "banana":
         obj = sim.Banana
     elif obj == "teddy_bear":
         obj = sim.TeddyBear
         obj.use_centroid = True
+    elif obj == "powerdrill":
+        obj = sim.PowerDrill
     success = False
     succ_total = 0
     tf = sim.TriFingerEnv(
         viewer=viewer,
-        robot=True,
+        robot=robot,
         Obj=obj,
         use_nerf_grasping=nerf_grasping,
-        use_residual_dirs=nerf_grasping,
+        use_residual_dirs=True,
         metric=metric,
         target_height=height,
         cem_iters=cem_iters,
         use_grad_est=use_grad_est,
+        use_true_normals=use_true_normals,
     )
     for i in range(n_runs):
         if save_dir:
@@ -109,6 +114,9 @@ if __name__ == "__main__":
     parser.add_argument("--cem_iters", default=10)
     parser.add_argument("--no_nerf", action="store_true")
     parser.add_argument("--use_grad_est", action="store_true")
+    parser.add_argument("--no_robot", action="store_true")
+    parser.add_argument("--use_true_normals", action="store_true")
+
     args = parser.parse_args()
     handlers = [logging.StreamHandler()]
     if args.s:
@@ -133,4 +141,6 @@ if __name__ == "__main__":
         cem_iters=args.cem_iters,
         nerf_grasping=not args.no_nerf,
         use_grad_est=args.use_grad_est,
+        robot=not args.no_robot,
+        use_true_normals=args.use_true_normals,
     )

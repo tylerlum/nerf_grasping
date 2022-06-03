@@ -1,3 +1,6 @@
 [submodule "torch-ngp"]
 	path = torch-ngp
 	url = https://github.com/stanfordmsl/torch-ngp
+[submodule "rrc_package"]
+	path = rrc_package
+	url = git@github.com:krishpop/rrc_package.git

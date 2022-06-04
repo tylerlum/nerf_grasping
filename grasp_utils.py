@@ -50,7 +50,7 @@ def load_nerf(opt):
         metrics=[None],
         use_checkpoint="latest",
     )
-
+    assert len(trainer.stats["checkpoints"]) != 0, "failed to load checkpoint"
     return trainer.model
 
 

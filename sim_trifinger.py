@@ -310,7 +310,7 @@ class Box(RigidObject):
 
 class TeddyBear(RigidObject):
     asset_file = "objects/urdf/teddy_bear.urdf"
-    mesh_file = "objects/mehes/isaac_teddy/isaac_bear.obj"
+    mesh_file = "objects/meshes/isaac_teddy/isaac_bear.obj"
     obj_scale = 1e-2
     name = "teddy_bear"
 
@@ -1372,8 +1372,8 @@ class TriFingerEnv:
         if self.object.gt_mesh is None:
             self.object.load_trimesh()
 
-        if isinstance(self.robot, Mock):
-            self.debug_grasp_visualization()
+        # if isinstance(self.robot, Mock):
+        #     self.debug_grasp_visualization()
 
     def debug_grasp_visualization(self):
         if len(self.marker_handles) == 0:
@@ -1437,8 +1437,8 @@ class TriFingerEnv:
 def get_nerf_training(viewer):
     # Obj = None
     # Obj = Box
-    # Obj = TeddyBear
-    Obj = PowerDrill  # put verticaly?
+    Obj = TeddyBear
+    # Obj = PowerDrill  # put verticaly?
     # Obj = Banana
     # Obj = BleachCleanser # too big - put on side?
     # Obj = Spatula
@@ -1451,7 +1451,7 @@ def get_nerf_training(viewer):
             print(tf.object.rb_states[0, :7])
 
     name = "blank" if Obj is None else Obj.name
-    tf.save_images("./nerf_shared/data/isaac_" + name, overwrite=False)
+    tf.save_images("./torch-ngp/data/isaac_" + name, overwrite=False)
 
 
 def run_robot_control(viewer, Obj, robot, **robot_kwargs):

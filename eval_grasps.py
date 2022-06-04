@@ -8,7 +8,7 @@ from viz_utils import img_dir_to_vid
 
 
 def run_robot_control(tf, height, eplen=250, debug=False, save_dir=None):
-    count = 29  # skip off step
+    count = 0  # skip off step
     save_freq = 1
     while not tf.gym.query_viewer_has_closed(tf.viewer) and count < eplen + 30:
         count += 1

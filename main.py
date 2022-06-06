@@ -1,7 +1,5 @@
 # Imports and setup.
-import grasp_opt
-import grasp_utils
-import mesh_utils
+from nerf_grasping import grasp_opt, grasp_utils, mesh_utils
 import numpy as np
 import os
 import pypoisson

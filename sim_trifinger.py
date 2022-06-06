@@ -15,13 +15,11 @@ import torch
 # import mathutils
 from PIL import Image
 
-import grasp_opt
-import grasp_utils
+from nerf_grasping import grasp_opt, grasp_utils, ig_utils, viz_utils
 import trimesh
-import ig_utils
-import viz_utils
+
 from nerf import utils
-from quaternions import Quaternion
+from nerf_grasping.quaternions import Quaternion
 
 # https://github.com/NVIDIA-Omniverse/IsaacGymEnvs
 
@@ -182,7 +180,7 @@ def load_nerf(workspace, bound, scale):
     args = parser.parse_args(
         [
             "--workspace",
-            f"{root_dir}/torch-ngp/{workspace}",
+            f"{root_dir}/torch-ngp/logs/{workspace}",
             "--test",
             "--cuda_ray",
             "--bound",
@@ -202,7 +200,7 @@ class RigidObject:
 
     obj_scale = 1
     scale = 1.0
-    bound = 3.0
+    bound = 2.0
     centroid = np.zeros((3, 1))
     use_centroid = False
 

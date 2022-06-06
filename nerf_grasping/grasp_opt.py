@@ -10,7 +10,7 @@ import numpy as np
 import torch
 from pyhull import convex_hull as cvh
 
-import grasp_utils
+from nerf_grasping import grasp_utils
 
 
 def grasp_matrix(grasp_points, normals):

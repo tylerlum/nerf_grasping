@@ -4,7 +4,7 @@ import pdb
 import time
 
 import sim_trifinger as sim
-from viz_utils import img_dir_to_vid
+from nerf_grasping.viz_utils import img_dir_to_vid
 
 
 def run_robot_control(tf, height, eplen=250, debug=False, save_dir=None):

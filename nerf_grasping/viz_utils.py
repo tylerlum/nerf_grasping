@@ -2,7 +2,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from isaacgym import gymapi
 
-import grasp_utils
+from nerf_grasping import grasp_utils
 
 
 def visualize_grasp_normals(gym, viewer, env, rays_o, rays_d, des_z_dist=0.1):

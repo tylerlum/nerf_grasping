@@ -255,62 +255,6 @@ class RigidObject:
         self.gt_mesh.apply_transform(T_rot)
 
 
-class Box(RigidObject):
-    name = "box"
-    grasp_points = torch.tensor(
-        [[0.0, 0.05, 0.05], [0.03, -0.05, 0.05], [-0.03, -0.05, 0.05]]
-    )
-
-    grasp_normals = torch.tensor([[0.0, -1.0, 0.0], [0.0, 1.0, 0.0], [0.0, 1.0, 0.0]])
-    mesh_file = "objects/meshes/cube_multicolor.obj"
-
-    def create_asset(self):
-        asset_options = gymapi.AssetOptions()
-
-        asset_options.vhacd_enabled = True
-        asset_options.mesh_normal_mode = gymapi.COMPUTE_PER_VERTEX
-        asset_options.override_inertia = False
-        asset_options.override_com = False
-        asset_options.density = 100
-
-        asset_options.vhacd_params.mode = 0
-        asset_options.vhacd_params.resolution = 300000
-        asset_options.vhacd_params.max_convex_hulls = 10
-        asset_options.vhacd_params.max_num_vertices_per_ch = 16
-
-        asset = self.gym.create_box(self.sim, 0.1, 0.1, 0.1, asset_options)
-
-        rs_props = self.gym.get_asset_rigid_shape_properties(asset)
-        for p in rs_props:
-            p.friction = 1.0
-            p.torsion_friction = 1.0
-            p.restitution = 0.1
-        self.gym.set_asset_rigid_shape_properties(asset, rs_props)
-
-        return asset
-
-    def configure_actor(self, gym, env):
-        actor = self.gym.create_actor(
-            env,
-            self.asset,
-            gymapi.Transform(p=gymapi.Vec3(0.0, 0.0, 0.101)),
-            "box",
-            0,
-            0,
-            segmentationId=2,
-        )
-        self.gym.set_rigid_body_color(
-            self.env, actor, 0, gymapi.MESH_VISUAL, gymapi.Vec3(0.8, 0.2, 0.3)
-        )
-
-        rigid_body_props = self.gym.get_actor_rigid_body_properties(self.env, actor)
-        self.mass = sum(x.mass for x in rigid_body_props)
-        com = rigid_body_props[0].com
-        self.CG = torch.tensor([com.x, com.y, com.z])
-
-        return actor
-
-
 class TeddyBear(RigidObject):
     asset_file = "objects/urdf/teddy_bear.urdf"
     mesh_file = "objects/meshes/isaac_teddy/isaac_bear.obj"
@@ -394,6 +338,61 @@ class TeddyBear(RigidObject):
             gymapi.STATE_ALL,
         )
 
+class Box(TeddyBear):
+    name = "box"
+    workspace = "box"
+    grasp_points = torch.tensor(
+        [[0.0, 0.05, 0.05], [0.03, -0.05, 0.05], [-0.03, -0.05, 0.05]]
+    )
+
+    grasp_normals = torch.tensor([[0.0, -1.0, 0.0], [0.0, 1.0, 0.0], [0.0, 1.0, 0.0]])
+    mesh_file = "objects/meshes/cube_multicolor.obj"
+
+    def create_asset(self):
+        asset_options = gymapi.AssetOptions()
+
+        asset_options.vhacd_enabled = True
+        asset_options.mesh_normal_mode = gymapi.COMPUTE_PER_VERTEX
+        asset_options.override_inertia = False
+        asset_options.override_com = False
+        asset_options.density = 100
+
+        asset_options.vhacd_params.mode = 0
+        asset_options.vhacd_params.resolution = 300000
+        asset_options.vhacd_params.max_convex_hulls = 10
+        asset_options.vhacd_params.max_num_vertices_per_ch = 16
+
+        asset = self.gym.create_box(self.sim, 0.1, 0.1, 0.1, asset_options)
+
+        rs_props = self.gym.get_asset_rigid_shape_properties(asset)
+        for p in rs_props:
+            p.friction = 1.0
+            p.torsion_friction = 1.0
+            p.restitution = 0.1
+        self.gym.set_asset_rigid_shape_properties(asset, rs_props)
+
+        return asset
+
+    def configure_actor(self, gym, env):
+        actor = self.gym.create_actor(
+            env,
+            self.asset,
+            gymapi.Transform(p=gymapi.Vec3(0.0, 0.0, 0.101)),
+            "box",
+            0,
+            0,
+            segmentationId=2,
+        )
+        self.gym.set_rigid_body_color(
+            self.env, actor, 0, gymapi.MESH_VISUAL, gymapi.Vec3(0.8, 0.2, 0.3)
+        )
+
+        rigid_body_props = self.gym.get_actor_rigid_body_properties(self.env, actor)
+        self.mass = sum(x.mass for x in rigid_body_props)
+        com = rigid_body_props[0].com
+        self.CG = torch.tensor([com.x, com.y, com.z])
+
+        return actor
 
 class PowerDrill(TeddyBear):
 
@@ -817,11 +816,11 @@ class Robot:
         mode = "off"
         if interation < 0:
             mode = "off"  # Box needs this to get ot graps position - bear can't have it
-        elif interation < 100000:
+        elif interation < 100:
             mode = "safe"
-        elif interation < 140:
-            mode = "pos"
         elif interation < 200:
+            mode = "pos"
+        elif interation < 300:
             mode = "vel"
         else:
             mode = "up"
@@ -1013,7 +1012,7 @@ class Robot:
         target_quat = Quaternion.Identity()
 
         # cg_pos = pos
-                cg_pos = obj.get_CG()  # thoughts it eliminates the pendulum effect? possibly?
+        cg_pos = obj.get_CG()  # thoughts it eliminates the pendulum effect? possibly?
         # target_pos = torch.tensor([0, 0, self.target_height])  # TEMP
 
         # logging.debug(f"pos={pos}")
@@ -1497,10 +1496,10 @@ def run_robot_control(viewer, Obj, robot, **robot_kwargs):
 
 if __name__ == "__main__":
     # get_nerf_training(viewer=False)
-    # Obj = Box
+    Obj = Box
     # Obj = TeddyBear
     # Obj = PowerDrill
-    Obj = Banana
+    # Obj = Banana
     # Obj = BleachCleanser # too big - put on side?
     # Obj = Spatula
     # Obj = Mug

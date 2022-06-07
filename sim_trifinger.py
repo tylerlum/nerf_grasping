@@ -12,14 +12,19 @@ import os
 import numpy as np
 import torch
 
+import pinocchio as pin
+
 # import mathutils
 from PIL import Image
 
 from nerf_grasping import grasp_opt, grasp_utils, ig_utils, viz_utils
+from nerf_grasping import control
 import trimesh
 
 from nerf import utils
 from nerf_grasping.quaternions import Quaternion
+
+from nerf_grasping.control import pos_control
 
 # https://github.com/NVIDIA-Omniverse/IsaacGymEnvs
 
@@ -264,8 +269,8 @@ class Box(RigidObject):
 
         asset_options.vhacd_enabled = True
         asset_options.mesh_normal_mode = gymapi.COMPUTE_PER_VERTEX
-        asset_options.override_inertia = True
-        asset_options.override_com = True
+        asset_options.override_inertia = False
+        asset_options.override_com = False
         asset_options.density = 100
 
         asset_options.vhacd_params.mode = 0
@@ -336,7 +341,7 @@ class TeddyBear(RigidObject):
         asset_options.mesh_normal_mode = gymapi.COMPUTE_PER_VERTEX
         asset_options.density = 100
         asset_options.override_inertia = True
-        asset_options.override_com = True
+        asset_options.override_com = False
 
         asset_options.vhacd_params.mode = 0
         asset_options.vhacd_params.resolution = 300000
@@ -469,6 +474,10 @@ class Robot:
         self.env = env
         self.viewer = None
 
+        self.urdf_filename = (
+            "trifinger/robot_properties_fingers/urdf/pro/trifingerpro.urdf"
+        )
+
         self.added_lines = False
         self.asset = self.create_asset()
         self.actor = self.configure_actor()
@@ -482,25 +491,34 @@ class Robot:
         self.use_grad_est = use_grad_est
         self.use_true_normals = use_true_normals
 
-    def create_asset(self):
-        robot_urdf_file = (
-            "trifinger/robot_properties_fingers/urdf/pro/trifingerpro.urdf"
+        print(os.path.exists(self.urdf_filename))
+
+        self.pin_model = pin.buildModelFromUrdf("assets/" + self.urdf_filename)
+        self.pin_data = self.pin_model.createData()
+
+        pin.forwardKinematics(self.pin_model, self.pin_data, np.random.randn(9))
+        pin.forwardKinematics(
+            self.pin_model, self.pin_data, np.random.randn(9), np.random.randn(9)
         )
-        # robot_urdf_file = "trifinger/robot_properties_fingers/urdf/trifinger_with_stage.urdf"
+
+        self.pos_control_config = pos_control.load_config()
+
+    def create_asset(self):
 
         asset_options = gymapi.AssetOptions()
         asset_options.fix_base_link = True
         asset_options.flip_visual_attachments = False
         asset_options.use_mesh_materials = True
         asset_options.disable_gravity = (
-            True  # to make things easier - will eventually compensate ourselves
+            False  # to make things easier - will eventually compensate ourselves
         )
 
         robot_asset = self.gym.load_asset(
-            self.sim, asset_dir, robot_urdf_file, asset_options
+            self.sim, asset_dir, self.urdf_filename, asset_options
         )
 
         trifinger_props = self.gym.get_asset_rigid_shape_properties(robot_asset)
+        # print([rbp.mass for rbp in self.gym.get_asset_rigid_body_properties(robot_asset)])
         for p in trifinger_props:
             p.friction = 1.0
             p.torsion_friction = 1.0
@@ -797,9 +815,9 @@ class Robot:
         interation = interation % 1000
 
         mode = "off"
-        if interation < 30:
+        if interation < 0:
             mode = "off"  # Box needs this to get ot graps position - bear can't have it
-        elif interation < 60:
+        elif interation < 100000:
             mode = "safe"
         elif interation < 140:
             mode = "pos"
@@ -878,8 +896,12 @@ class Robot:
             self.sim, gymtorch.unwrap_tensor(applied_torque)
         )
 
-    def position_control(self, grasp_points):
+    def position_control(self, p_des):
+        # Build container for joint torques.
         applied_torque = torch.zeros((9))
+
+        # Build list of joint indices to query joint angles + vels.
+        dof_idx = []
         for finger_index, finger_pos in enumerate([0, 120, 240]):
             robot_dof_names = [
                 f"finger_base_to_upper_joint_{finger_pos}",
@@ -887,30 +909,30 @@ class Robot:
                 f"finger_middle_to_lower_joint_{finger_pos}",
             ]
 
-            dof_idx = [self.dofs[dof_name] for dof_name in robot_dof_names]
-            tip_index = self.fingertips_frames[f"finger_tip_link_{finger_pos}"]
+            dof_idx += [self.dofs[dof_name] for dof_name in robot_dof_names]
 
-            # dof_idx = [self.gym.find_actor_dof_index(self.env, self.actor, dof_name, gymapi.DOMAIN_ACTOR) for dof_name in robot_dof_names]
-            # tip_index =  self.gym.find_actor_rigid_body_index(self.env, self.actor, f"finger_tip_link_{finger_pos}", gymapi.DOMAIN_ACTOR)
+        # Unpack joint angles + velocities.
+        q, dq = self.dof_states[dof_idx, 0], self.dof_states[dof_idx, 1]
 
-            # only care about tip position
-            local_jacobian = self.jacobian[0, tip_index - 1, :3, dof_idx]
-            tip_state = self.rb_states[tip_index, :]
+        # Cast everything to numpy for compatibility with pin.
+        q = q.cpu().numpy()
+        dq = dq.cpu().numpy()
+        p_des = p_des.reshape(-1).cpu().numpy()
 
-            tip_pos = tip_state[:3]
-            tip_vel = tip_state[7:10]
+        # Call position controller.
+        joint_torques = pos_control.get_joint_torques(
+            p_des.reshape(-1),
+            self.pin_model,
+            self.pin_data,
+            q,
+            dq,
+            self.pos_control_config,
+        )
 
-            # pos_target = rot_matrix_finger @ torch.tensor([0.0 , 0.15, 0.09])
-            pos_target = grasp_points[finger_index, :].cpu()
+        # Fill in torque vector; cast back to torch.
+        applied_torque[dof_idx] = torch.from_numpy(joint_torques).to(applied_torque)
 
-            # PD controller in xyz space
-            pos_error = tip_pos - pos_target
-            xyz_force = -5.0 * pos_error - 1.0 * tip_vel
-
-            joint_torques = torch.t(local_jacobian) @ xyz_force
-            applied_torque[dof_idx] = joint_torques
-
-        # TODO use global_fingertip_forces
+        # Set joint torques in simulator.
         self.gym.set_dof_actuation_force_tensor(
             self.sim, gymtorch.unwrap_tensor(applied_torque)
         )
@@ -991,7 +1013,7 @@ class Robot:
         target_quat = Quaternion.Identity()
 
         # cg_pos = pos
-        cg_pos = obj.get_CG()  # thoughts it eliminates the pendulum effect? possibly?
+                cg_pos = obj.get_CG()  # thoughts it eliminates the pendulum effect? possibly?
         # target_pos = torch.tensor([0, 0, self.target_height])  # TEMP
 
         # logging.debug(f"pos={pos}")
@@ -1184,7 +1206,7 @@ class TriFingerEnv:
         # stage_urdf_file = "trifinger/robot_properties_fingers/urdf/stage.urdf"
 
         asset_options = gymapi.AssetOptions()
-        asset_options.disable_gravity = True
+        asset_options.disable_gravity = False
         asset_options.fix_base_link = True
         asset_options.flip_visual_attachments = False
         asset_options.use_mesh_materials = True

@@ -37,7 +37,7 @@ def load_nerf(workspace, bound, scale):
 
 class RigidObject:
 
-    obj_scale = 1
+    obj_scale = 1e-2
     scale = 1.0
     bound = 2.0
     centroid = np.zeros((3, 1))
@@ -87,30 +87,6 @@ class RigidObject:
         T_rot = np.eye(4)
         self.gt_mesh.apply_transform(T)
         self.gt_mesh.apply_transform(T_rot)
-
-
-class TeddyBear(RigidObject):
-    asset_file = "objects/urdf/teddy_bear.urdf"
-    mesh_file = "objects/meshes/isaac_teddy/isaac_bear.obj"
-    obj_scale = 1e-2
-    name = "teddy_bear"
-
-    data_dir = f"{root_dir}/nerf_shared/data/isaac_teddy"
-    config_path = f"{root_dir}/nerf_shared/configs/isaac_teddy.txt"
-    centroid = np.array([-0.0001444, 0.00412231, 0.08663063])
-    use_centroid = False
-
-    grasp_points = torch.tensor(
-        [[0.0350, 0.0580, 0.1010], [0.0000, -0.0480, 0.0830], [-0.0390, 0.0580, 0.1010]]
-    )
-
-    grasp_normals = torch.tensor(
-        [
-            [-0.0350, -0.0580, 0.0000],
-            [0.0000, 1.0000, 0.0000],
-            [0.0390, -0.0580, 0.0000],
-        ]
-    )
 
     def create_asset(self):
         asset_options = gymapi.AssetOptions()
@@ -173,7 +149,31 @@ class TeddyBear(RigidObject):
         )
 
 
-class Box(TeddyBear):
+class TeddyBear(RigidObject):
+    asset_file = "objects/urdf/teddy_bear.urdf"
+    mesh_file = "objects/meshes/isaac_teddy/isaac_bear.obj"
+    obj_scale = 1e-2
+    name = "teddy_bear"
+
+    data_dir = f"{root_dir}/nerf_shared/data/isaac_teddy"
+    config_path = f"{root_dir}/nerf_shared/configs/isaac_teddy.txt"
+    centroid = np.array([-0.0001444, 0.00412231, 0.08663063])
+    use_centroid = False
+
+    grasp_points = torch.tensor(
+        [[0.0350, 0.0580, 0.1010], [0.0000, -0.0480, 0.0830], [-0.0390, 0.0580, 0.1010]]
+    )
+
+    grasp_normals = torch.tensor(
+        [
+            [-0.0350, -0.0580, 0.0000],
+            [0.0000, 1.0000, 0.0000],
+            [0.0390, -0.0580, 0.0000],
+        ]
+    )
+
+
+class Box(RigidObject):
     name = "box"
     workspace = "box"
     grasp_points = torch.tensor(
@@ -230,7 +230,7 @@ class Box(TeddyBear):
         return actor
 
 
-class PowerDrill(TeddyBear):
+class PowerDrill(RigidObject):
 
     workspace = "powerdrill"
     centroid = np.zeros(3)
@@ -248,7 +248,7 @@ class PowerDrill(TeddyBear):
     name = "power_drill"
 
 
-class Banana(TeddyBear):
+class Banana(RigidObject):
     workspace = "banana"
     grasp_points = torch.tensor(
         [
@@ -264,19 +264,19 @@ class Banana(TeddyBear):
     name = "banana"
 
 
-class Spatula(TeddyBear):
+class Spatula(RigidObject):
     asset_file = "objects/urdf/spatula.urdf"
     name = "spatula"
 
 
-class Mug(TeddyBear):
+class Mug(RigidObject):
     asset_file = "objects/urdf/mug.urdf"
     data_dir = "./nerf_shared/data/mug"
     config_path = "./nerf_shared/configs/mug.txt"
     name = "mug"
 
 
-class BleachCleanser(TeddyBear):
+class BleachCleanser(RigidObject):
     asset_file = "objects/urdf/bleach_cleanser.urdf"
     data_dir = "./nerf_shared/data/bleach_cleanser"
     config_path = "./nerf_shared/configs/bleach_cleanser.txt"

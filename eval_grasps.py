@@ -54,6 +54,8 @@ def main(
 ):
     if obj == "banana":
         obj = sim.Banana
+    elif obj == "box":
+        obj = sim.Box
     elif obj == "teddy_bear":
         obj = sim.TeddyBear
         obj.use_centroid = True
@@ -106,7 +108,7 @@ if __name__ == "__main__":
     )
     parser.add_argument("--o", "--obj", help="object to use", default="banana")
     parser.add_argument(
-        "--eplen", help="length of episodes for each run", default=250, type=int
+        "--eplen", help="length of episodes for each run", default=750, type=int
     )
     parser.add_argument("--d", "--debug", action="store_true")
     parser.add_argument("--no-viewer", action="store_true")

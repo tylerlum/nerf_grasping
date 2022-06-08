@@ -4,7 +4,9 @@ import pdb
 import time
 
 import sim_trifinger as sim
-from nerf_grasping.viz_utils import img_dir_to_vid
+from nerf_grasping.sim.ig_viz_utils import img_dir_to_vid
+
+from nerf_grasping.sim import ig_objects
 
 
 def run_robot_control(tf, height, eplen=250, debug=False, save_dir=None):
@@ -53,14 +55,14 @@ def main(
     use_true_normals=False,
 ):
     if obj == "banana":
-        obj = sim.Banana
+        obj = ig_objects.Banana
     elif obj == "box":
-        obj = sim.Box
+        obj = ig_objects.Box
     elif obj == "teddy_bear":
-        obj = sim.TeddyBear
+        obj = ig_objects.TeddyBear
         obj.use_centroid = True
     elif obj == "powerdrill":
-        obj = sim.PowerDrill
+        obj = ig_objects.PowerDrill
     success = False
     succ_total = 0
     tf = sim.TriFingerEnv(

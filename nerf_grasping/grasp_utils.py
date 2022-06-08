@@ -480,3 +480,18 @@ def ig_to_nerf(points, translation=None, return_tensor=True):
     if return_tensor:
         points = torch.tensor(points).float().cuda()
     return points
+
+def res_to_true_dirs(rays_o, rays_d, centroid=0.):
+    """Converts raw directions rays_d to true directions in world frame.
+
+    Args:
+        rays_o: ray origins, shape (B, 3).
+        rays_d: (relative) ray directions, shape (B, 3).
+        centroid: (optional) object centroid location, shape (3,).
+    """
+    relative_dir = centroid - rays_o
+    rays_d = lietorch.SO3.exp(rays_d).matrix()[:, :3, :3] @ relative_dir.unsqueeze(-1)
+    rays_d = rays_d.reshape(-1, 3)
+    rays_d = rays_d / torch.norm(rays_d, dim=-1, keepdim=True)
+
+    return rays_d

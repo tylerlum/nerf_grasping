@@ -2,6 +2,7 @@ import numpy as np
 import pinocchio as pin
 import os
 import yaml
+from typing import Union, List
 
 from dataclasses import dataclass
 from nerf_grasping import kinematics_utils
@@ -14,8 +15,8 @@ BASEDIR = os.path.dirname(__file__)
 class PosControlConfig:
     """Helper class to store controller params."""
 
-    Kp: float
-    Kd: float
+    Kp: Union[float, List[float]]
+    Kd: Union[float, List[float]]
     damping: float
 
 
@@ -25,9 +26,17 @@ def load_config(config_file=os.path.join(BASEDIR, "pos_control.yaml")):
         config = yaml.safe_load(file)
 
     # Quick hack to make sure YAML params are loaded in as floats + not strings.
-    config = {k: float(v) for (k, v) in config.items()}
+    conf = {}
+    for k, v in config.items():
+        if isinstance(v, float):
+            pass
+        elif "," in v:
+            v = [float(x) for x in v.split(",")]
+        else:
+            v = float(v)
+        conf[k] = v
 
-    return PosControlConfig(**config)
+    return PosControlConfig(**conf)
 
 
 def get_joint_torques(p_des, model, data, q, dq, config):
@@ -48,6 +57,11 @@ def get_joint_torques(p_des, model, data, q, dq, config):
     J = kinematics_utils.get_fingertip_jacobian(model, data, q)
 
     # Implement PD controller in task space, and map back to joint space.
+    Kp, Kd = config.Kp, config.Kd
+    if isinstance(config.Kp, list):
+        Kp = np.array(Kp)
+    if isinstance(config.Kp, list):
+        Kd = np.array(Kd)
     a_des = config.Kp * (p_des - p_curr) - config.Kd * v_curr
 
     # print(np.linalg.norm(p_des - p_curr))

@@ -47,14 +47,15 @@ def visualize_markers(gym, env, sim, positions, colors):
     asset_options.max_angular_velocity = 0.0
     asset_options.slices_per_cylinder = 40
     marker_handles = []
-    for pos, color in zip(positions, colors):
+    for i, pos in enumerate(positions):
+        color = colors[i]
         pose = gymapi.Transform()
         pose.p.x = pos[0]
         pose.p.y = pos[1]
         pose.p.z = pos[2]
 
         marker_asset = gym.create_sphere(sim, 0.005, asset_options)
-        actor_handle = gym.create_actor(env, marker_asset, pose, "marker", 1, 1)
+        actor_handle = gym.create_actor(env, marker_asset, pose, f"marker_{i}", 1, 1)
         gym.set_rigid_body_color(
             env,
             actor_handle,

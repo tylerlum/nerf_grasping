@@ -14,11 +14,11 @@ from skimage import measure
 
 
 def marching_cubes(
-        nerf,
-        lower=-0.25 * np.ones(3),
-        upper=0.25 * np.ones(3),
-        level_set=0.5,
-        num_points=50,
+    nerf,
+    lower=-0.25 * np.ones(3),
+    upper=0.25 * np.ones(3),
+    level_set=0.5,
+    num_points=50,
 ):
     """
     Generates a mesh of a desired density level set of a NeRF.
@@ -42,19 +42,20 @@ def marching_cubes(
     xv, yv, zv = np.meshgrid(grid_x, grid_y, grid_z, indexing="ij")
 
     # Load points into torch, flatten.
-    test_points = (torch.stack([torch.from_numpy(arr) for arr in (xv, yv, zv)],
-                               axis=-1).reshape(-1, num_points, 3).to(
-                                   next(nerf.parameters()).device,
-                                   next(nerf.parameters()).dtype))
+    test_points = (
+        torch.stack([torch.from_numpy(arr) for arr in (xv, yv, zv)], axis=-1)
+        .reshape(-1, num_points, 3)
+        .to(next(nerf.parameters()).device, next(nerf.parameters()).dtype)
+    )
 
     # Query the network for density values at each point and reshape.
-    test_densities = torch.nn.ReLU()(nerf.get_density(test_points).reshape(
-        num_points, num_points, num_points).cpu()).numpy()
+    test_densities = torch.nn.ReLU()(
+        nerf.get_density(test_points).reshape(num_points, num_points, num_points).cpu()
+    ).numpy()
 
-    verts, faces, normals, values = measure.marching_cubes(test_densities,
-                                                           level_set,
-                                                           spacing=(dx, dy,
-                                                                    dz))
+    verts, faces, normals, values = measure.marching_cubes(
+        test_densities, level_set, spacing=(dx, dy, dz)
+    )
 
     verts -= upper
 
@@ -154,8 +155,7 @@ def plot_density_contours(
     if not ax:
         fig, ax = plt.subplots(figsize=(10, 10))
 
-    device, dtype = next(nerf.parameters()).device, next(
-        nerf.parameters()).dtype
+    device, dtype = next(nerf.parameters()).device, next(nerf.parameters()).dtype
     query_points, (X, Y, Z) = get_query_points(plane, urange, vrange, level)
 
     query_points = query_points.to(device, dtype)
@@ -181,13 +181,13 @@ def plot_density_contours(
 
 
 def pixel_plot(
-        nerf,
-        level=0.0,
-        plane="xy",
-        urange=np.linspace(-0.25, 0.25, num=500),
-        vrange=np.linspace(-0.25, 0.25, num=500),
-        ax=None,
-        colorbar=True,
+    nerf,
+    level=0.0,
+    plane="xy",
+    urange=np.linspace(-0.25, 0.25, num=500),
+    vrange=np.linspace(-0.25, 0.25, num=500),
+    ax=None,
+    colorbar=True,
 ):
     """
     Generates a pixel plot in a desired plane of a NeRF's density channel
@@ -204,8 +204,7 @@ def pixel_plot(
     if not ax:
         fig, ax = plt.subplots(figsize=(10, 10))
 
-    device, dtype = next(nerf.parameters()).device, next(
-        nerf.parameters()).dtype
+    device, dtype = next(nerf.parameters()).device, next(nerf.parameters()).dtype
     query_points, _ = get_query_points(plane, urange, vrange, level)
 
     query_points = query_points.to(device, dtype)
@@ -220,13 +219,13 @@ def pixel_plot(
 
 
 def gradient_norm_plot(
-        nerf,
-        level=0.0,
-        plane="xy",
-        urange=np.linspace(-0.25, 0.25, num=500),
-        vrange=np.linspace(-0.25, 0.25, num=500),
-        ax=None,
-        colorbar=True,
+    nerf,
+    level=0.0,
+    plane="xy",
+    urange=np.linspace(-0.25, 0.25, num=500),
+    vrange=np.linspace(-0.25, 0.25, num=500),
+    ax=None,
+    colorbar=True,
 ):
     """
     Plots the gradient norm, sampled in a desired plane.
@@ -242,8 +241,7 @@ def gradient_norm_plot(
     if not ax:
         fig, ax = plt.subplots(figsize=(10, 10))
 
-    device, dtype = next(nerf.parameters()).device, next(
-        nerf.parameters()).dtype
+    device, dtype = next(nerf.parameters()).device, next(nerf.parameters()).dtype
     query_points, (X, Y, Z) = get_query_points(plane, urange, vrange, level)
 
     query_points = query_points.to(device, dtype)
@@ -263,13 +261,13 @@ def gradient_norm_plot(
 
 
 def gradient_plot(
-        nerf,
-        level=0.0,
-        plane="xy",
-        urange=np.linspace(-0.25, 0.25, num=500),
-        vrange=np.linspace(-0.25, 0.25, num=500),
-        ax=None,
-        colorbar=True,
+    nerf,
+    level=0.0,
+    plane="xy",
+    urange=np.linspace(-0.25, 0.25, num=500),
+    vrange=np.linspace(-0.25, 0.25, num=500),
+    ax=None,
+    colorbar=True,
 ):
     """
     Generates a quiver plot of the NeRF density gradients, in a desired plane.
@@ -285,8 +283,7 @@ def gradient_plot(
     if not ax:
         fig, ax = plt.subplots(figsize=(10, 10))
 
-    device, dtype = next(nerf.parameters()).device, next(
-        nerf.parameters()).dtype
+    device, dtype = next(nerf.parameters()).device, next(nerf.parameters()).dtype
     query_points, (X, Y, Z) = get_query_points(plane, urange, vrange, level)
 
     query_points = query_points.to(device, dtype)
@@ -297,12 +294,14 @@ def gradient_plot(
 
     density_grads = torch.autograd.grad(torch.sum(densities), query_points)[0]
     grad_norms = torch.norm(density_grads, dim=-1)
-    grad_norms = torch.where(grad_norms < 1e-2,
-                             1e-2 * torch.ones_like(grad_norms), grad_norms)
+    grad_norms = torch.where(
+        grad_norms < 1e-2, 1e-2 * torch.ones_like(grad_norms), grad_norms
+    )
     density_dirs = (density_grads / (grad_norms[..., None])).cpu()
 
     if plane == "xy":
-        c = ax.quiver(X, Y, density_dirs[..., 0], density_dirs[..., 1],
-                      grad_norms.cpu())
+        c = ax.quiver(
+            X, Y, density_dirs[..., 0], density_dirs[..., 1], grad_norms.cpu()
+        )
 
     return ax

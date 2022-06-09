@@ -7,6 +7,8 @@ import lietorch
 import os
 import numpy as np
 import torch
+import trimesh
+from typing import Tuple, Any
 
 import pinocchio as pin
 
@@ -19,6 +21,23 @@ from nerf_grasping.quaternions import Quaternion
 root_dir = Path(os.path.abspath(__file__)).parents[2]
 asset_dir = f"{root_dir}/assets"
 
+
+def get_mesh_contacts(gt_mesh, grasp_points, pos_offset=None, rot_offset=None):
+    if pos_offset is not None:
+        # project grasp_points into object frame
+        grasp_points -= pos_offset
+        grasp_points = np.stack([rot_offset.rotate(gp) for gp in grasp_points])
+    points, _, index = trimesh.proximity.closest_point(gt_mesh, grasp_points)
+    # grasp normals follow convention that points into surface,
+    # trimesh computes normals pointing out of surface
+    grasp_normals = -gt_mesh.face_normals[index]
+    if pos_offset is not None:
+        # project back into world frame
+        points += pos_offset
+        grasp_normals = np.stack([rot_offset.T.rotate(x) for x in grasp_normals])
+    return points, grasp_normals
+
+
 def skew_matrix(vectors):
     skew = np.zeros(vectors.shape[:-1] + (3, 3))
 
@@ -30,6 +49,7 @@ def skew_matrix(vectors):
     skew[..., 0, 2] = vectors[..., 1]
 
     return skew
+
 
 def example_rotation_transform(normals):
     # hopefully no one will try grabing directly under or above
@@ -46,6 +66,7 @@ def example_rotation_transform(normals):
 
     rotations = np.stack([local_x, local_y, normals[..., None]], axis=-1)[..., 0, :]
     return rotations
+
 
 # TODO investiate why solves sometimes fail
 def calculate_grip_forces(positions, normals, target_force, target_torque):
@@ -766,3 +787,142 @@ class Robot:
         # logging.debug("grasp_points: %s", grasp_points)
         # logging.debug("in_normal: %s", in_normal)
         self.apply_fingertip_forces(global_forces)
+
+
+class FingertipRobot:
+    """Robot controlling 3 (or n) spheres as "fingers" to grasp an lift an object"""
+
+    def __init__(
+        self,
+        gym: gymapi.Gym,
+        sim: Any,
+        env: Any,
+        target_height: float = 0.07,
+        use_grad_est: bool = True,
+        grasp_vars: Tuple[torch.Tensor, torch.Tensor] = None,
+        **kwargs,
+    ):
+        """
+        Initializes Fingertip-only point mass robot
+        """
+        self.gym = gym
+        self.sim = sim
+        self.env = env
+        self.target_height = target_height
+        self._use_grad_est = use_grad_est
+        self.grasp_points, self.grasp_normals = grasp_vars
+        self.actors = self.create_spheres()
+
+    def create_spheres(self):
+        asset_options = gymapi.AssetOptions()
+        asset_options.fix_base_link = False
+        asset_options.angular_damping = 0.0
+        asset_options.max_angular_velocity = 0.0
+        asset_options.slices_per_cylinder = 40
+        markers = []
+        actors = []
+        colors = np.array([[0, 0, 1], [0, 1, 0], [1, 0, 0]], dtype="float32")
+        ftip_start_pos = self.grasp_points - self.grasp_normals * 0.1
+        for i, pos in enumerate(ftip_start_pos):
+            color = colors[i]
+            pose = gymapi.Transform()
+            pose.p.x = pos[0]
+            pose.p.y = pos[1]
+            pose.p.z = pos[2]
+            marker_asset = self.gym.create_sphere(self.sim, 0.005, asset_options)
+            markers.append(marker_asset)
+            actor_handle = self.gym.create_actor(
+                self.env,
+                marker_asset,
+                pose,
+                f"fingertip_{i}",
+            )
+            actors.append(actor_handle)
+            self.gym.set_rigid_body_color(
+                self.env,
+                actor_handle,
+                0,
+                gymapi.MESH_VISUAL,
+                gymapi.Vec3(*color),
+            )
+        return actors
+
+    def setup_tensors(self):
+        _rb_states = self.gym.acquire_rigid_body_state_tensor(self.sim)
+        # (num_rigid_bodies, 13)
+        rb_count = self.gym.get_actor_rigid_body_count(self.env, self.actors[0])
+        rb_start_index = self.gym.get_actor_rigid_body_index(
+            self.env, self.actors[0], 0, gymapi.DOMAIN_SIM
+        )
+
+        # NOTE: simple indexing will return a view of the data but advanced indexing will return a copy breaking the updateing
+        self.rb_states = gymtorch.wrap_tensor(_rb_states)[
+            rb_start_index : rb_start_index + rb_count * len(self.actors), :
+        ]
+
+    def get_position(self):
+        """Returns tip positions"""
+        return self.rb_states[:, 0:3]
+
+    def get_velocity(self):
+        """Returns linear velocity"""
+        return self.rb_states[:, 7:10]
+
+    def apply_fingertip_forces(self, global_fingertip_forces):
+        """Applies forces to individual actors"""
+        assert global_fingertip_forces.shape == (3, 3)
+        for f, actor_handle in zip(global_fingertip_forces, self.actors):
+            rb_handle = self.gym.get_actor_rigid_body_handle(
+                self.env, self.actor_handle, 0
+            )
+            fx, fy, fz = f
+            self.gym.apply_body_forces(
+                self.env,
+                rb_handle,
+                gymapi.Vec3(fx, fy, fz),  # force
+                gymapi.Vec3(0.0, 0.0, 0.0),  # torque
+                gymapi.CoordinateSpace.GLOBAL_SPACE,
+            )
+        return
+
+    def reset_actor(self, grasp_vars=None):
+        if grasp_vars is not None:
+            self.grasp_points, self.grasp_normals = grasp_vars
+        ftip_start_pos = self.grasp_points - self.grasp_normals * 0.05
+        for pos, handle in zip(ftip_start_pos, self.actors):
+            state = self.gym.get_actor_rigid_body_states(
+                self.env, handle, gymapi.STATE_POS
+            )
+            state["pose"]["p"].fill(tuple(pos))
+            assert self.gym.set_actor_rigid_body_states(
+                self.env, handle, state, gymapi.STATE_POS
+            ), "gym.set_actor_rigid_body_states failed"
+            state = self.gym.get_actor_rigid_body_states(
+                self.env, handle, gymapi.STATE_VEL
+            )
+            state["vel"]["linear"].fill((0.0, 0.0, 0.0))
+            state["vel"]["angular"].fill((0.0, 0.0, 0.0))
+            assert self.gym.set_actor_rigid_body_states(
+                self.env, handle, state, gymapi.STATE_VEL
+            ), "gym.set_actor_rigid_body_states failed"
+        return
+
+    @property
+    def position(self):
+        return self.get_position()
+
+    @property
+    def velocity(self):
+        return self.get_velocity()
+
+    @property
+    def use_grad_est(self):
+        return self._use_grad_est
+
+    @use_grad_est.setter
+    def use_grad_est(self, x):
+        self._use_grad_est = x
+
+    @property
+    def use_true_normals(self):
+        return not self._use_grad_est

@@ -1,4 +1,7 @@
 import argparse
+import os.path as osp
+
+from pathlib import Path
 from isaacgym import gymapi
 from isaacgym.gymutil import parse_device_str
 
@@ -144,3 +147,103 @@ def parse_arguments(
     if args.slices is None:
         args.slices = args.subscenes
     return args
+
+
+def setup_viewer(gym, sim, env):
+    viewer = gym.create_viewer(sim, gymapi.CameraProperties())
+    # position outside stage
+    cam_pos = gymapi.Vec3(0.7, 0.175, 0.6)
+    # position above banana
+    cam_pos = gymapi.Vec3(0.1, 0.02, 0.4)
+    cam_target = gymapi.Vec3(0, 0, 0.2)
+    gym.viewer_camera_look_at(viewer, env, cam_pos, cam_target)
+    return viewer
+
+
+def step_gym(gym, sim, viewer):
+    gym.simulate(sim)
+    gym.fetch_results(sim, True)
+
+    gym.step_graphics(sim)
+    if viewer is not None:
+        gym.draw_viewer(viewer, sim, True)
+        gym.sync_frame_time(sim)
+    refresh_tensors()
+
+
+def setup_env(gym, sim):
+    plane_params = gymapi.PlaneParams()
+    plane_params.normal = gymapi.Vec3(0, 0, 1)  # z-up!
+    gym.add_ground(sim, plane_params)
+
+    spacing = 1.0
+    env_lower = gymapi.Vec3(-spacing, -spacing, 0.0)
+    env_upper = gymapi.Vec3(spacing, spacing, spacing)
+    env = gym.create_env(sim, env_lower, env_upper, 0)
+    return env
+
+
+def refresh_tensors(gym, sim):
+    gym.refresh_mass_matrix_tensors(sim)
+    gym.refresh_jacobian_tensors(sim)
+    gym.refresh_dof_state_tensor(sim)
+    gym.refresh_rigid_body_state_tensor(sim)
+
+
+def setup_sim(gym):
+    args = parse_arguments(description="Trifinger test")
+    # only tested with this one
+    assert args.physics_engine == gymapi.SIM_PHYSX
+
+    # configure sim
+    sim_params = gymapi.SimParams()
+    sim_params.dt = 1.0 / 60.0
+
+    sim_params.up_axis = gymapi.UP_AXIS_Z
+    sim_params.gravity = gymapi.Vec3(0.0, 0.0, -9.8)
+
+    sim_params.physx.solver_type = 1
+    sim_params.physx.num_position_iterations = 6
+    sim_params.physx.num_velocity_iterations = 0
+    sim_params.physx.num_threads = args.num_threads
+    sim_params.physx.use_gpu = args.use_gpu
+    # sim_params.physx.use_gpu = True
+
+    # sim_params.use_gpu_pipeline = True
+    sim_params.use_gpu_pipeline = False
+    sim = gym.create_sim(
+        args.compute_device_id,
+        args.graphics_device_id,
+        args.physics_engine,
+        sim_params,
+    )
+    assert sim is not None, f"{__file__}.setup_sim() failed"
+
+    intensity = 0.5
+    ambient = 0.10 / intensity
+    intensity = gymapi.Vec3(intensity, intensity, intensity)
+    ambient = gymapi.Vec3(ambient, ambient, ambient)
+
+    gym.set_light_parameters(sim, 0, intensity, ambient, gymapi.Vec3(0.5, 1, 1))
+    gym.set_light_parameters(sim, 1, intensity, ambient, gymapi.Vec3(1, 0, 1))
+    gym.set_light_parameters(sim, 2, intensity, ambient, gymapi.Vec3(0.5, -1, 1))
+    gym.set_light_parameters(sim, 3, intensity, ambient, gymapi.Vec3(0, 0, 1))
+    return sim
+
+
+def setup_stage(gym, sim):
+    asset_dir = osp.join(Path(__file__).parents[1], "assets")
+    # this one is convex decomposed
+    stage_urdf_file = "trifinger/robot_properties_fingers/urdf/high_table_boundary.urdf"
+
+    asset_options = gymapi.AssetOptions()
+    asset_options.disable_gravity = True
+    asset_options.fix_base_link = True
+    asset_options.flip_visual_attachments = False
+    asset_options.use_mesh_materials = True
+    asset_options.thickness = 0.001
+
+    stage_asset = gym.load_asset(sim, asset_dir, stage_urdf_file, asset_options)
+    gym.create_actor(
+        env, stage_asset, gymapi.Transform(), "Stage", 0, 0, segmentationId=1
+    )

@@ -64,15 +64,22 @@ def get_fixed_camera_transform(gym, sim, env, camera):
 
     return pos, fixed_quat
 
+
 class TriFingerEnv:
     def __init__(
-        self, viewer=True, robot=True, Obj=None, save_cameras=False, **robot_kwargs
+        self,
+        viewer=True,
+        robot_type="trifinger",
+        Obj=None,
+        save_cameras=False,
+        **robot_kwargs,
     ):
         self.args = ig_utils.parse_arguments(description="Trifinger test")
         self.gym = gymapi.acquire_gym()
+        self.robot_type = robot_type
 
         self.setup_sim()
-        self.setup_envs(robot=robot, Obj=Obj, **robot_kwargs)
+        self.setup_envs(robot_type=robot_type, Obj=Obj, **robot_kwargs)
 
         if viewer:
             self.setup_viewer()
@@ -136,7 +143,7 @@ class TriFingerEnv:
             self.sim, 3, intensity, ambient, gymapi.Vec3(0, 0, 1)
         )
 
-    def setup_envs(self, robot, Obj, **robot_kwargs):
+    def setup_envs(self, robot_type, Obj, **robot_kwargs):
         plane_params = gymapi.PlaneParams()
         plane_params.normal = gymapi.Vec3(0, 0, 1)  # z-up!
         self.gym.add_ground(self.sim, plane_params)
@@ -149,8 +156,12 @@ class TriFingerEnv:
         self.env = env  # used only when there is one env
         self.envs = [env]
 
-        if robot:
+        if robot_type == "trifinger":
             self.robot = ig_robot.Robot(self.gym, self.sim, self.env, **robot_kwargs)
+        elif robot_type == "spheres":
+            self.robot = ig_robot.FingertipRobot(
+                self.gym, self.sim, self.env, **robot_kwargs
+            )
         else:
             self.robot = Mock()
 
@@ -433,7 +444,7 @@ def get_nerf_training(viewer):
     # Obj = Spatula
     # Obj = Mug
 
-    tf = TriFingerEnv(viewer=viewer, robot=False, Obj=Obj, save_cameras=True)
+    tf = TriFingerEnv(viewer=viewer, robot_type="", Obj=Obj, save_cameras=True)
     for _ in range(500):
         tf.step_gym()
         if Obj is not None:
@@ -443,8 +454,8 @@ def get_nerf_training(viewer):
     tf.save_images("./torch-ngp/data/isaac_" + name, overwrite=False)
 
 
-def run_robot_control(viewer, Obj, robot, **robot_kwargs):
-    tf = TriFingerEnv(viewer=viewer, robot=robot, Obj=Obj, **robot_kwargs)
+def run_robot_control(viewer, Obj, robot_type, **robot_kwargs):
+    tf = TriFingerEnv(viewer=viewer, robot_type=robot_type, Obj=Obj, **robot_kwargs)
     count = 0
     while not tf.gym.query_viewer_has_closed(tf.viewer):
         try:
@@ -476,7 +487,7 @@ if __name__ == "__main__":
     run_robot_control(
         viewer=True,
         Obj=Obj,
-        robot=True,
+        robot_type="trifinger",
         use_nerf_grasping=False,
         use_residual_dirs=True,
         use_true_normals=False,

@@ -51,7 +51,7 @@ def main(
     cem_iters=10,
     nerf_grasping=True,
     use_grad_est=False,
-    robot=True,
+    robot_type="trifinger",
     use_true_normals=False,
 ):
     if obj == "banana":
@@ -65,9 +65,10 @@ def main(
         obj = ig_objects.PowerDrill
     success = False
     succ_total = 0
+
     tf = sim.TriFingerEnv(
         viewer=viewer,
-        robot=robot,
+        robot_type=robot_type,
         Obj=obj,
         use_nerf_grasping=nerf_grasping,
         use_residual_dirs=True,
@@ -118,7 +119,7 @@ if __name__ == "__main__":
     parser.add_argument("--cem_iters", default=10)
     parser.add_argument("--no_nerf", action="store_true")
     parser.add_argument("--use_grad_est", action="store_true")
-    parser.add_argument("--no_robot", action="store_true")
+    parser.add_argument("--robot_type", default="spheres", choices=["trifinger", "spheres", ""])
     parser.add_argument("--use_true_normals", action="store_true")
 
     args = parser.parse_args()
@@ -145,6 +146,6 @@ if __name__ == "__main__":
         cem_iters=args.cem_iters,
         nerf_grasping=not args.no_nerf,
         use_grad_est=args.use_grad_est,
-        robot=not args.no_robot,
+        robot_type=args.robot_type,
         use_true_normals=args.use_true_normals,
     )

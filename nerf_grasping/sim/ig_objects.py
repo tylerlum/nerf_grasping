@@ -84,7 +84,11 @@ class RigidObject:
         mesh_path = os.path.join(asset_dir, self.mesh_file)
         self.gt_mesh = trimesh.load(mesh_path, force="mesh")
         T = trimesh.transformations.scale_matrix(self.obj_scale, np.array([0, 0, 0]))
+        R = scipy.spatial.transform.Rotation.from_euler('Y', [-np.pi / 2]).as_matrix()
+        R = R @ scipy.spatial.transform.Rotation.from_euler('X',
+                                                    [-np.pi / 2]).as_matrix()
         T_rot = np.eye(4)
+        T_rot[:3, :3] = R
         self.gt_mesh.apply_transform(T)
         self.gt_mesh.apply_transform(T_rot)
 

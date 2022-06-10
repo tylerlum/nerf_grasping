@@ -415,7 +415,7 @@ def rejection_sample(mu, Sigma, constraint, num_points, max_iters=1000):
     """
     n = mu.shape[0]
 
-    sample_points = torch.zeros(num_points, n, device=mu.device)
+    sample_points = torch.zeros(num_points, n).to(mu)
     num_accepted = 0
     ii = 0
 
@@ -423,7 +423,7 @@ def rejection_sample(mu, Sigma, constraint, num_points, max_iters=1000):
         new_samples = (
             mu.reshape(1, n, 1)
             + torch.linalg.cholesky(Sigma).reshape(1, n, n)
-            @ torch.randn(num_points, n, 1, device=mu.device)
+            @ torch.randn(num_points, n, 1).to(mu)
         ).reshape(num_points, n)
 
         accept = constraint(new_samples)

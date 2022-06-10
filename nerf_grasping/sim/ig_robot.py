@@ -783,6 +783,7 @@ class FingertipRobot:
     def apply_fingertip_forces(self, global_fingertip_forces):
         """Applies forces to individual actors"""
         assert global_fingertip_forces.shape == (3, 3)
+        self.previous_global_forces = global_fingertip_forces
         for f, actor_handle in zip(global_fingertip_forces, self.actors):
             rb_handle = self.gym.get_actor_rigid_body_handle(self.env, actor_handle, 0)
             fx, fy, fz = f

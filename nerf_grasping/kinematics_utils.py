@@ -1,5 +1,10 @@
 import numpy as np
-import pinocchio as pin
+
+try:
+    import pinocchio as pin
+except:
+    pin = None
+    print("WARNING: Unable to import pinocchio, skipping import")
 
 TIP_NAMES = ["finger_tip_link_0", "finger_tip_link_120", "finger_tip_link_240"]
 

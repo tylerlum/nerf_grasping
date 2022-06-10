@@ -1,6 +1,11 @@
 import numpy as np
-import pinocchio as pin
 import os
+
+try:
+    import pinocchio as pin
+except ImportError:
+    pin = None
+    print("WARNING: Unable to import pinocchio, skipping import")
 import yaml
 from typing import Union, List
 

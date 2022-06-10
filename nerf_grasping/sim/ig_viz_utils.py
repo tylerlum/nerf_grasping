@@ -1,19 +1,32 @@
 import matplotlib.pyplot as plt
 import numpy as np
+import torch
 from isaacgym import gymapi
 
 from nerf_grasping import grasp_utils
 
 
-def visualize_grasp_normals(gym, viewer, env, rays_o, rays_d, des_z_dist=0.1):
+def visualize_grasp_normals(
+    gym, viewer, env, rays_o, rays_d, des_z_dist=0.1, colors=None
+):
     """Visualizing surface normals at grasp points"""
-    ro, rd = rays_o.detach().cpu().numpy(), rays_d.detach().cpu().numpy()
+    if isinstance(rays_o, torch.Tensor):
+        ro = rays_o.detach().cpu().numpy()
+    else:
+        ro = rays_o
+    if isinstance(rays_d, torch.Tensor):
+        rd = rays_d.detach().cpu().numpy()
+    else:
+        rd = rays_d
     vertices = []
+    if isinstance(des_z_dist, float):
+        des_z_dist = [des_z_dist for i in range(3)]
     for i in range(3):
         vertices.append(ro[i])
-        vertices.append(ro[i] + rd[i] * des_z_dist)
+        vertices.append(ro[i] + rd[i] * des_z_dist[i])
     vertices = np.stack(vertices, axis=0)
-    colors = np.array([[0, 0, 1], [0, 1, 0], [1, 0, 0]], dtype="float32")
+    if colors is None:
+        colors = np.array([[0, 0, 1], [0, 1, 0], [1, 0, 0]], dtype="float32")
 
     gym.add_lines(
         viewer,
@@ -40,7 +53,11 @@ def visualize_circle_markers(gym, env, sim, obj, n_markers=16):
     return marker_handles
 
 
-def visualize_markers(gym, env, sim, positions, colors):
+def visualize_markers(
+    gym, env, sim, positions, colors=[[0.0, 1.0, 0.0]] * 3, marker_handles=[]
+):
+    if marker_handles:
+        return reset_marker_positions(gym, env, sim, positions, colors, marker_handles)
     asset_options = gymapi.AssetOptions()
     asset_options.fix_base_link = False
     asset_options.angular_damping = 0.0
@@ -81,7 +98,7 @@ def reset_marker_positions(gym, env, sim, positions, colors, marker_handles=[]):
             gymapi.MESH_VISUAL,
             gymapi.Vec3(*color),
         )
-    return
+    return marker_handles
 
 
 def plot_grasp_distribution(

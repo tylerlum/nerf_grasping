@@ -5,6 +5,7 @@ import numpy as np
 import torch
 
 import trimesh
+import scipy
 
 from nerf_grasping.quaternions import Quaternion
 from nerf_grasping import grasp_utils
@@ -13,6 +14,7 @@ from nerf import utils
 
 root_dir = Path(os.path.abspath(__file__)).parents[2]
 asset_dir = f"{root_dir}/assets"
+
 
 def load_nerf(workspace, bound, scale):
     parser = utils.get_config_parser()
@@ -41,6 +43,7 @@ class RigidObject:
     bound = 2.0
     centroid = np.zeros((3, 1))
     use_centroid = False
+    mu = 1.0
 
     def __init__(self, gym, sim, env):
         self.gym = gym
@@ -82,14 +85,16 @@ class RigidObject:
     def load_trimesh(self):
         mesh_path = os.path.join(asset_dir, self.mesh_file)
         self.gt_mesh = trimesh.load(mesh_path, force="mesh")
-        T = trimesh.transformations.scale_matrix(self.obj_scale, np.array([0, 0, 0]))
-        R = scipy.spatial.transform.Rotation.from_euler('Y', [-np.pi / 2]).as_matrix()
-        R = R @ scipy.spatial.transform.Rotation.from_euler('X',
-                                                    [-np.pi / 2]).as_matrix()
-        T_rot = np.eye(4)
-        T_rot[:3, :3] = R
-        self.gt_mesh.apply_transform(T)
-        self.gt_mesh.apply_transform(T_rot)
+        # T = trimesh.transformations.scale_matrix(self.obj_scale, np.array([0, 0, 0]))
+        # R = scipy.spatial.transform.Rotation.from_euler("Y", [-np.pi / 2]).as_matrix()
+        # R = (
+        #     R
+        #     @ scipy.spatial.transform.Rotation.from_euler("X", [-np.pi / 2]).as_matrix()
+        # )
+        # T_rot = np.eye(4)
+        # T_rot[:3, :3] = R
+        # self.gt_mesh.apply_transform(T)
+        # self.gt_mesh.apply_transform(T_rot)
 
     def create_asset(self):
         asset_options = gymapi.AssetOptions()
@@ -109,9 +114,9 @@ class RigidObject:
 
         rs_props = self.gym.get_asset_rigid_shape_properties(asset)
         for p in rs_props:
-            p.friction = 1.0
-            p.torsion_friction = 1.0
-            p.restitution = 0.1
+            p.friction = self.mu
+            p.torsion_friction = self.mu
+            p.restitution = 0.0
         self.gym.set_asset_rigid_shape_properties(asset, rs_props)
 
         return asset
@@ -150,6 +155,25 @@ class RigidObject:
             rb_states,
             gymapi.STATE_ALL,
         )
+
+    @property
+    def position(self):
+        """Returns object position"""
+        return self.rb_states[0, :3]
+
+    @property
+    def orientation(self):
+        """Returns object orientation"""
+        return self.rb_states[0, 3:7]
+
+    @property
+    def velocity(self):
+        """Returns linear velocity"""
+        return self.rb_states[0, 7:10]
+
+    @property
+    def angular_velocity(self):
+        return self.rb_states[0, 10:13]
 
 
 class TeddyBear(RigidObject):
@@ -265,6 +289,7 @@ class Banana(RigidObject):
     asset_file = "objects/urdf/banana.urdf"
     mesh_file = "objects/meshes/banana/textured.obj"
     name = "banana"
+    mu = 100.0
 
 
 class Spatula(RigidObject):

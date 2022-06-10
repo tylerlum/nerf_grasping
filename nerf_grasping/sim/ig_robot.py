@@ -694,6 +694,7 @@ class FingertipRobot:
         target_height: float = 0.07,
         use_grad_est: bool = True,
         grasp_vars: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
+        norm_start_offset: float = 0.05,
         **kwargs,
     ):
         """
@@ -705,6 +706,7 @@ class FingertipRobot:
         self.sphere_radius = sphere_radius
         self.target_height = target_height
         self._use_grad_est = use_grad_est
+        self._norm_start_offset = norm_start_offset
         if grasp_vars:
             self.grasp_points, self.grasp_normals = grasp_vars
         self.actors = self.create_spheres()
@@ -796,10 +798,12 @@ class FingertipRobot:
     def reset_actor(self, grasp_vars=None):
         """Resets fingertips to points on grasp point lines"""
         if grasp_vars is not None:
-            self.grasp_points, self.grasp_normals = grasp_vars
-        if len(self.actors) == 0:
-            self.actors = self.create_spheres()
-        for pos, handle in zip(self.ftip_start_pos, self.actors):
+            grasp_points, grasp_normals = grasp_vars
+            ftip_start_pos = self.get_ftip_start_pos(grasp_points, grasp_normals)
+        else:
+            ftip_start_pos = self.ftip_start_pos
+
+        for pos, handle in zip(ftip_start_pos, self.actors):
             state = self.gym.get_actor_rigid_body_states(
                 self.env, handle, gymapi.STATE_POS
             )
@@ -936,11 +940,14 @@ class FingertipRobot:
         )
         return state
 
+    def get_ftip_start_pos(self, grasp_points, grasp_normals):
+        ftip_start_pos = grasp_points - grasp_normals * self._norm_start_offset
+        ftip_start_pos[:, 2] = grasp_points[:, 2]
+        return ftip_start_pos
+
     @property
     def ftip_start_pos(self):
-        ftip_start_pos = self.grasp_points - self.grasp_normals * 0.05
-        ftip_start_pos[:, 2] = self.grasp_points[:, 2]
-        return ftip_start_pos
+        return self.get_ftip_start_pos(self.grasp_points, self.grasp_normals)
 
     @property
     def position(self):

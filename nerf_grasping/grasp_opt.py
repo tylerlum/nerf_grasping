@@ -10,7 +10,9 @@ import numpy as np
 import torch
 from pyhull import convex_hull as cvh
 
-from nerf_grasping import grasp_utils
+import trimesh
+
+from nerf_grasping import grasp_utils, mesh_utils
 
 
 def grasp_matrix(grasp_points, normals):
@@ -82,11 +84,12 @@ def psv(grasp_points, normals):
              the grasp metric.
     Returns the product singular value of the grasp matrix formed by these points.
     """
+    grasp_points = grasp_points - centroid
     G = grasp_matrix(grasp_points, normals)
     return torch.prod(torch.linalg.svdvals(G), dim=-1)
 
 
-def msv(grasp_points, normals):
+def msv(grasp_points, normals, centroid=0.):
     """
     Evaluates the minimum-singular-value grasp metric proposed in Li and Sastry '88.
     Args:
@@ -94,6 +97,7 @@ def msv(grasp_points, normals):
              the grasp metric.
     Returns the minimum singular value of the grasp matrix formed by these points.
     """
+    grasp_points = grasp_points - centroid
     G = grasp_matrix(grasp_points, normals)
     return torch.min(torch.linalg.svdvals(G), dim=-1)[0]
 
@@ -201,7 +205,6 @@ def optimize_cem(
     num_samples=250,
     elite_frac=0.1,
     constraint=None,
-    centroid=np.zeros((3, 1)),
 ):
     """
     Implements the cross-entropy method to optimize a given cost function.
@@ -275,35 +278,51 @@ def grasp_cost(
     num_grasps=10,
     residual_dirs=True,
     cost_fn="l1",
-    l1_kwargs=dict(centroid=np.zeros((3, 1))),
+    cost_kwargs=dict(centroid=np.zeros((3, 1))),
+    centroid=0.,
+    risk_sensitivity=None,
 ):
 
     gps = grasp_vars.reshape(-1, n_f, 6)
     B = gps.shape[0]
 
-    grasp_points, grad_ests, grasp_mask = grasp_utils.sample_grasps(
-        gps, num_grasps, model, residual_dirs=residual_dirs
-    )
-    # Reshtorch grasp points and grads for msv evaluation.
+    if centroid is not 0.:
+        cost_kwargs['centroid'] = centroid
+
+    if isinstance(model, trimesh.Trimesh):
+        grasp_points, grad_ests, grasp_mask = mesh_utils.get_grasp_points(model, gps, residual_dirs)
+        num_grasps = 1
+        risk_sensitivity=None
+    else:
+        # TODO(pculbert): push centroid logic through code again.
+        grasp_points, grad_ests, grasp_mask = grasp_utils.sample_grasps(
+            gps, num_grasps, model, residual_dirs=residual_dirs
+        )
+
+    # Reshape grasp points and grads for msv evaluation.
     grasp_points = grasp_points.reshape(-1, n_f, 3)
     grad_ests = grad_ests.reshape(-1, n_f, 3)
 
+    # Switch-case for cost function.
     if cost_fn == "psv":
-        cost_fn = psv
+        cost_fn = partial(psv, **cost_kwargs)
     elif cost_fn == "msv":
-        cost_fn = msv
+        cost_fn = partial(msv, **cost_kwargs)
     elif cost_fn == "fc":
         cost_fn = ferrari_canny
     elif cost_fn == "l1":
-        cost_fn = partial(l1_metric, **l1_kwargs)
+        cost_fn = partial(l1_metric, **cost_kwargs)
+
     g_cost = torch.mean(cost_fn(grasp_points, grad_ests).reshape(B, num_grasps), dim=-1)
 
     g_cost = torch.where(
-        torch.all(grasp_mask, dim=-1), g_cost, -torch.inf * torch.ones_like(g_cost)
+        torch.all(grasp_mask, dim=-1), g_cost, -torch.ones_like(g_cost)
     )
 
-    return -g_cost
-
+    if not risk_sensitivity:
+        return -g_cost
+    else:
+        return torch.exp(-risk_sensitivity * g_cost)
 
 def get_points_cem(
     n_f,
@@ -312,27 +331,33 @@ def get_points_cem(
     sigma_scale=1e-3,
     mu_0=None,
     Sigma_0=None,
-    num_samples=750,
+    num_samples=500,
     num_iters=10,
     constraint=None,
     cost_fn="msv",
-    residual_dirs=False,
+    residual_dirs=True,
     device="cuda",
+    centroid=0.,
+    risk_sensitivity=1.,
 ):
 
     # grasp vars are 2 * 3 * number of fingers, since include both pos and direction
     if mu_0 is None:
         mu_0 = mu_scale * torch.randn(6 * n_f, device=device)
 
+    mu_0 = mu_0.reshape(n_f, 6)
+    mu_0[:, :3] = mu_0[:, :3] + centroid
+    mu_0 = mu_0.reshape(-1)
+
     if Sigma_0 is None:
         Sigma_0 = sigma_scale * torch.eye(6 * n_f, device=device)
 
     cost = lambda x: grasp_cost(
-        x, n_f, model, residual_dirs=residual_dirs, cost_fn=cost_fn
+        x, n_f, model, residual_dirs=residual_dirs, cost_fn=cost_fn, centroid=centroid, risk_sensitivity=risk_sensitivity
     )
 
     mu_f, Sigma_f, cost_history = optimize_cem(
-        cost, mu_0, Sigma_0, num_iters=10, num_samples=500, constraint=constraint
+        cost, mu_0, Sigma_0, num_iters=num_iters, num_samples=num_samples, constraint=constraint
     )
 
     return mu_f.reshape(n_f, 6)

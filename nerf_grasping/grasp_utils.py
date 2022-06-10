@@ -402,7 +402,7 @@ def check_gradients(nerf, face_centers, face_normals, grad_params, chunk=500):
     return cos_sims
 
 
-def rejection_sample(mu, Sigma, constraint, num_points):
+def rejection_sample(mu, Sigma, constraint, num_points, max_iters=1000):
     """
     Samples points from a Gaussian distribution N(mu, Sigma)
     and uses rejection to find only points which satisfy constraint.
@@ -419,7 +419,7 @@ def rejection_sample(mu, Sigma, constraint, num_points):
     num_accepted = 0
     ii = 0
 
-    while num_accepted < num_points:
+    while num_accepted < num_points and ii < max_iters:
         new_samples = (
             mu.reshape(1, n, 1)
             + torch.linalg.cholesky(Sigma).reshape(1, n, n)

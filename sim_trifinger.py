@@ -4,7 +4,7 @@ import shutil
 from pathlib import Path
 from unittest.mock import Mock
 
-from isaacgym import gymapi, gymtorch
+from isaacgym import gymapi
 import os
 import numpy as np
 import torch
@@ -422,9 +422,9 @@ class TriFingerEnv:
                 self.gym, self.env, self.sim, gp, colors
             )
 
-    def reset(self):
+    def reset(self, grasp_vars=None):
         # reset object after robot actor
-        self.robot.reset_actor()
+        self.robot.reset_actor(grasp_vars=grasp_vars)
         # reset object actor
         self.object.reset_actor()
         self.refresh_tensors()
@@ -435,14 +435,14 @@ class TriFingerEnv:
 
 
 def get_nerf_training(viewer):
-    # Obj = None
-    # Obj = Box
-    Obj = TeddyBear
-    # Obj = PowerDrill  # put verticaly?
-    # Obj = Banana
-    # Obj = BleachCleanser # too big - put on side?
-    # Obj = Spatula
-    # Obj = Mug
+    # Obj = ig_objects.None
+    # Obj = ig_objects.Box
+    Obj = ig_objects.TeddyBear
+    # Obj = ig_objects.PowerDrill  # put verticaly?
+    # Obj = ig_objects.Banana
+    # Obj = ig_objects.BleachCleanser # too big - put on side?
+    # Obj = ig_objects.Spatula
+    # Obj = ig_objects.Mug
 
     tf = TriFingerEnv(viewer=viewer, robot_type="", Obj=Obj, save_cameras=True)
     for _ in range(500):

@@ -817,8 +817,10 @@ class FingertipRobot:
         asset_options.angular_damping = 0.0
         asset_options.max_angular_velocity = 0.0
         asset_options.slices_per_cylinder = 40
+        asset_options.disable_gravity = True
         asset_options.density = 1000
-        asset_options.override_inertia = True
+        asset_options.override_inertia = False
+        asset_options.default_dof_drive_mode = gymapi.DOF_TRANSLATION
         markers = []
         actors = []
         colors = np.array([[0, 0, 1], [0, 1, 0], [1, 0, 0]], dtype="float32")
@@ -829,9 +831,12 @@ class FingertipRobot:
             pose.p.x = pos[0]
             pose.p.y = pos[1]
             pose.p.z = pos[2]
-            marker_asset = self.gym.create_sphere(
-                self.sim, self.sphere_radius, asset_options
+            marker_asset = self.gym.load_asset(
+                self.sim, asset_dir, "objects/urdf/ball.urdf", asset_options
             )
+            # marker_asset = self.gym.create_sphere(
+            #     self.sim, self.sphere_radius, asset_options
+            # )
             markers.append(marker_asset)
             actor_handle = self.gym.create_actor(
                 self.env,
@@ -887,7 +892,7 @@ class FingertipRobot:
                 rb_handle,
                 gymapi.Vec3(fx, fy, fz),  # force
                 gymapi.Vec3(0.0, 0.0, 0.0),  # torque
-                gymapi.CoordinateSpace.GLOBAL_SPACE,
+                gymapi.CoordinateSpace.ENV_SPACE,
             )
         return
 
@@ -923,7 +928,7 @@ class FingertipRobot:
         return xyz_force
 
     def get_est_grad(self, obj, tip_position):
-        nerf_tip_pos = grasp_utils.ig_to_nerf(closest_points)
+        nerf_tip_pos = grasp_utils.ig_to_nerf(tip_position)
         _, grad_ests = grasp_utils.est_grads_vals(
             obj.model,
             nerf_tip_pos.reshape(1, -1, 3).cuda(),

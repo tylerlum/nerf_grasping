@@ -290,7 +290,7 @@ class Banana(RigidObject):
     asset_file = "objects/urdf/banana.urdf"
     mesh_file = "objects/meshes/banana/textured.obj"
     name = "banana"
-    mu = 1.0
+    mu = 100.0
 
 
 class Spatula(RigidObject):

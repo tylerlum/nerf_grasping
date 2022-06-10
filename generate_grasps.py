@@ -55,7 +55,7 @@ def main(
         gt_mesh.apply_transform(T)
 
         model = gt_mesh
-        centroid = torch.from_numpy(gt_mesh.centroid)
+        centroid = torch.from_numpy(gt_mesh.centroid).float()
 
     if outfile is None:
         if use_nerf:
@@ -75,10 +75,10 @@ def main(
     grasp_points += centroid.reshape(1, 1, 3)
     grasp_dirs = torch.zeros_like(grasp_points)
 
-    mu_0 = torch.cat([grasp_points, grasp_dirs], dim=-1).reshape(-1)
+    mu_0 = torch.cat([grasp_points, grasp_dirs], dim=-1).reshape(-1).to(centroid)
     Sigma_0 = torch.diag(
         torch.cat(
-            [torch.tensor([1e-2, 1e-2, 1e-2, 1e-2, 1e-2, 1e-2]) for _ in range(3)]
+            [torch.tensor([1e-1, 1e-2, 1e-1, 1e-2, 1e-2, 1e-2]) for _ in range(3)]
         )
     ).to(centroid)
 

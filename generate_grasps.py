@@ -7,12 +7,15 @@ import numpy as np
 
 def main(
     obj_name="banana",
+    mesh_in=None,
     min_finger_height=-0.01,
     max_finger_dist=0.15,
     outfile=None,
     num_grasps=50,
 ):
-    if obj_name == "banana":
+    if mesh_in is not None:
+        obj_mesh = mesh_in
+    elif obj_name == "banana":
         obj_mesh = "assets/objects/meshes/banana/textured.obj"
     elif obj_name == "box":
         obj_mesh = "assets/objects/meshes/cube_multicolor.obj"
@@ -22,7 +25,11 @@ def main(
         obj_mesh = "assets/objects/meshes/power_drill/textured.obj"
 
     if outfile is None:
-        outfile = obj_name
+        if mesh_in is not None:
+            outfile = os.path.split(mesh_in)[-1]
+            outfile = outfile.split('.')[0]
+        else:
+            outfile = obj_name
 
     gt_mesh = trimesh.load(obj_mesh, force="mesh")
     T = np.eye(4)
@@ -73,7 +80,8 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--num_grasps", "--n", help="number of grasps to sample", default=50, type=int)
-    parser.add_argument("--obj_name", "--o", help="object to use", default="banana")
+    # parser.add_argument("--obj_name", "--o", help="object to use", default="banana")
+    parser.add_argument("--mesh_in", default=None, type=str)
     parser.add_argument("--min_finger_height", default=-0.01, type=float)
     parser.add_argument("--max_finger_dist", default=0.15, type=float)
     parser.add_argument("--outfile", "--out", default=None)

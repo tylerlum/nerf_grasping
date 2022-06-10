@@ -16,8 +16,8 @@ from skimage import measure
 
 def marching_cubes(
     nerf,
-    lower=-0.25 * np.ones(3),
-    upper=0.25 * np.ones(3),
+    lower=np.array([-0.1, 0.01, -0.1]),
+    upper=np.array([0.1, 0.1, 0.1]),
     level_set=0.5,
     num_points=50,
 ):
@@ -51,14 +51,18 @@ def marching_cubes(
 
     # Query the network for density values at each point and reshape.
     test_densities = torch.nn.ReLU()(
-        nerf.get_density(test_points).reshape(num_points, num_points, num_points).cpu()
+        nerf.density(test_points)
+        .reshape(num_points, num_points, num_points)
+        .cpu()
+        .detach()
     ).numpy()
 
     verts, faces, normals, values = measure.marching_cubes(
         test_densities, level_set, spacing=(dx, dy, dz)
     )
 
-    verts -= upper
+    verts[:, 0] -= upper[0]
+    verts[:, -1] -= upper[-1]
 
     return verts, faces, normals, values
 
@@ -161,7 +165,7 @@ def plot_density_contours(
 
     query_points = query_points.to(device, dtype)
 
-    densities = torch.nn.ReLU()(nerf.get_density(query_points))
+    densities = nerf.density(query_points)
 
     if log_scale:
         levels = np.logspace(-1, 2.7, num=25)
@@ -210,7 +214,7 @@ def pixel_plot(
 
     query_points = query_points.to(device, dtype)
 
-    densities = torch.nn.ReLU()(nerf.get_density(query_points))
+    densities = nerf.density(query_points)
 
     c = ax.imshow(densities.cpu().numpy(), origin="lower")
     if colorbar:
@@ -249,7 +253,7 @@ def gradient_norm_plot(
 
     query_points.requires_grad = True
 
-    densities = torch.nn.ReLU()(nerf.get_density(query_points))
+    densities = nerf.density(query_points)
 
     density_grads = torch.autograd.grad(torch.sum(densities), query_points)[0]
     grad_norms = torch.log(torch.norm(density_grads, dim=-1))
@@ -291,7 +295,7 @@ def gradient_plot(
 
     query_points.requires_grad = True
 
-    densities = torch.nn.ReLU()(nerf.get_density(query_points))
+    densities = nerf.density(query_points)
 
     density_grads = torch.autograd.grad(torch.sum(densities), query_points)[0]
     grad_norms = torch.norm(density_grads, dim=-1)
@@ -341,8 +345,6 @@ def get_grasp_points(mesh, grasp_vars, residual_dirs=True):
 
     grasp_points = torch.from_numpy(grasp_points).reshape(B, n_f, 3).to(rays_o)
     grasp_normals = torch.from_numpy(grasp_normals).reshape(B, n_f, 3).to(rays_d)
-    grasp_mask = (
-        torch.from_numpy(grasp_mask).reshape(B, n_f).to(rays_o).bool()
-    )
+    grasp_mask = torch.from_numpy(grasp_mask).reshape(B, n_f).to(rays_o).bool()
 
     return grasp_points, grasp_normals, grasp_mask

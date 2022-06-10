@@ -21,7 +21,6 @@ def load_nerf(workspace, bound, scale):
             "--workspace",
             f"{root_dir}/torch-ngp/logs/{workspace}",
             "--test",
-            "--cuda_ray",
             "--bound",
             f"{bound}",
             "--scale",

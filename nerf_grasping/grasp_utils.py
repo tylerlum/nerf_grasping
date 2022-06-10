@@ -495,3 +495,20 @@ def res_to_true_dirs(rays_o, rays_d, centroid=0.):
     rays_d = rays_d / torch.norm(rays_d, dim=-1, keepdim=True)
 
     return rays_d
+
+
+def get_centroid(model, object_bounds=[(-0.15, 0.15), (0., 0.15), (-0.15, 0.15)], num_samples=10000):
+    """Computes approximate centroid using NeRF model."""
+    min_corner = torch.tensor([bb[0] for bb in object_bounds])
+    max_corner = torch.tensor([bb[-1] for bb in object_bounds])
+
+    box_center = (1/2) * (max_corner + min_corner)
+    box_scale = max_corner - min_corner
+
+    sample_points = box_scale.reshape(1,3) * (torch.rand(num_samples,3)-0.5) + box_center.reshape(1,3)
+    sample_points = sample_points.cuda().float()
+
+    sample_densities = model.density(sample_points)
+    sample_densities = sample_densities / torch.sum(sample_densities)
+
+    return torch.sum(sample_densities.reshape(-1, 1) * sample_points,dim=0)

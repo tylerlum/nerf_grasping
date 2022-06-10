@@ -1,4 +1,5 @@
 from nerf_grasping import grasp_opt, grasp_utils
+from nerf_grasping.sim import ig_objects
 import os
 import scipy.spatial
 import torch
@@ -7,37 +8,58 @@ import numpy as np
 
 def main(
     obj_name="banana",
+    use_nerf=False,
     mesh_in=None,
     min_finger_height=-0.01,
     max_finger_dist=0.15,
     outfile=None,
     num_grasps=50,
 ):
-    if mesh_in is not None:
-        obj_mesh = mesh_in
-    elif obj_name == "banana":
-        obj_mesh = "assets/objects/meshes/banana/textured.obj"
-    elif obj_name == "box":
-        obj_mesh = "assets/objects/meshes/cube_multicolor.obj"
-    elif obj_name == "teddy_bear":
-        obj_mesh = "assets/objects/meshes/isaac_teddy/isaac_bear.obj"
-    elif obj_name == "powerdrill":
-        obj_mesh = "assets/objects/meshes/power_drill/textured.obj"
-
+    if use_nerf:
+        if obj_name == "banana":
+            obj = ig_objects.Banana
+        elif obj_name == "box":
+            obj = ig_objects.Box
+        elif obj_name == "teddy_bear":
+            obj = ig_objects.TeddyBear
+            obj.use_centroid = True
+        elif obj_name == "powerdrill":
+            obj = ig_objects.PowerDrill
+            
+        model = ig_objects.load_nerf(obj.workspace, obj.bound, obj.scale)
+        centroid = grasp_utils.get_centroid(model)
+        
+    else:
+        if mesh_in is not None:
+            obj_mesh = mesh_in
+        elif obj_name == "banana":
+            obj_mesh = "assets/objects/meshes/banana/textured.obj"
+        elif obj_name == "box":
+            obj_mesh = "assets/objects/meshes/cube_multicolor.obj"
+        elif obj_name == "teddy_bear":
+            obj_mesh = "assets/objects/meshes/isaac_teddy/isaac_bear.obj"
+        elif obj_name == "powerdrill":
+            obj_mesh = "assets/objects/meshes/power_drill/textured.obj"
+            
+        gt_mesh = trimesh.load(obj_mesh, force="mesh")
+        T = np.eye(4)
+        R = scipy.spatial.transform.Rotation.from_euler('Y', [-np.pi / 2]).as_matrix()
+        R = R @ scipy.spatial.transform.Rotation.from_euler('X',
+                                                        [-np.pi / 2]).as_matrix()
+        T[:3, :3] = R
+        gt_mesh.apply_transform(T)
+        
+        model = gt_mesh
+        centroid = gt_mesh.centroid
+    
     if outfile is None:
+        if use_nerf:
+            outfile = obj_name + '_nerf'
         if mesh_in is not None:
             outfile = os.path.split(mesh_in)[-1]
             outfile = outfile.split('.')[0]
         else:
             outfile = obj_name
-
-    gt_mesh = trimesh.load(obj_mesh, force="mesh")
-    T = np.eye(4)
-    R = scipy.spatial.transform.Rotation.from_euler('Y', [-np.pi / 2]).as_matrix()
-    R = R @ scipy.spatial.transform.Rotation.from_euler('X',
-                                                    [-np.pi / 2]).as_matrix()
-    T[:3, :3] = R
-    gt_mesh.apply_transform(T)
 
     grasp_points = torch.tensor([[0.09, 0.0, -0.025], [-0.09, 0.0, -0.025],
                                  [0, 0.0, 0.09]]).reshape(1, 3, 3)
@@ -59,7 +81,7 @@ def main(
     sampled_grasps = np.zeros((num_grasps, 3, 6))
 
     for ii in range(num_grasps):
-        grasp_points = grasp_opt.get_points_cem(3, gt_mesh, num_iters=25, mu_0=mu_0, Sigma_0=Sigma_0, constraint=constraint)
+        grasp_points = grasp_opt.get_points_cem(3, model, num_iters=25, mu_0=mu_0, Sigma_0=Sigma_0, constraint=constraint, centroid=centroid)
         mu_np = grasp_points.cpu().detach().reshape(3, 6)
         rays_o, rays_d = mu_np[:, :3], mu_np[:, 3:]
 
@@ -81,6 +103,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--num_grasps", "--n", help="number of grasps to sample", default=50, type=int)
     # parser.add_argument("--obj_name", "--o", help="object to use", default="banana")
+    parser.add_argument("--use_nerf", "--nerf", help="flag to use NeRF to generate grasps", action="store_true")
     parser.add_argument("--mesh_in", default=None, type=str)
     parser.add_argument("--min_finger_height", default=-0.01, type=float)
     parser.add_argument("--max_finger_dist", default=0.15, type=float)

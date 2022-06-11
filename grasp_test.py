@@ -610,7 +610,7 @@ obj.load_trimesh()
 for i in range(4):
     step_gym()
 
-grasps = np.load("grasp_data/banana_50.npy")
+grasps = np.load("grasp_data/banana_nerf.npy")
 grasp_idx = np.random.choice(np.arange(grasps.shape[0]))
 
 grasp_points = torch.tensor(grasps[grasp_idx, :, :3], dtype=torch.float32)

@@ -78,7 +78,7 @@ def main(
     mu_0 = torch.cat([grasp_points, grasp_dirs], dim=-1).reshape(-1).to(centroid)
     Sigma_0 = torch.diag(
         torch.cat(
-            [torch.tensor([5e-2, 1e-2, 5e-2, 5e-2, 5e-2, 5e-2]) for _ in range(3)]
+            [torch.tensor([5e-2, 1e-2, 5e-2, 1e-2, 1e-2, 1e-2]) for _ in range(3)]
         )
     ).to(centroid)
 
@@ -97,7 +97,7 @@ def main(
             Sigma_0=Sigma_0,
             projection=grasp_utils.box_projection,
             centroid=centroid,
-            num_samples=250
+            num_samples=500
         )
         grasp_points = grasp_points.reshape(3, 6)
         rays_o, rays_d = grasp_points[:, :3], grasp_points[:, 3:]
@@ -107,7 +107,7 @@ def main(
         if isinstance(model, trimesh.Trimesh):
             rays_o = mesh_utils.correct_z_dists(model, rays_o, rays_d)
         else:
-            rays_o = grasp_utils.correct_z_dists(model, rays_o, rays_d)
+            rays_o = grasp_utils.correct_z_dists(model, grasp_points)
 
         rays_o, rays_d = grasp_utils.nerf_to_ig(rays_o), grasp_utils.nerf_to_ig(rays_d)
 

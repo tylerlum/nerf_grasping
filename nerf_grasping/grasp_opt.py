@@ -76,7 +76,7 @@ def skew(v):
     return K
 
 
-def psv(grasp_points, normals):
+def psv(grasp_points, normals, centroid=0.):
     """
     Evaluates the minimum-singular-value grasp metric proposed in Li and Sastry '88.
     Args:
@@ -183,18 +183,28 @@ def min_norm_vector_in_facet(facet, wrench_regularizer=1e-10):
     return abs(min_norm), v
 
 
-def l1_metric(grasp_points_t, normals_t, centroid=None, mu=1.0, num_edges=10):
+def l1_metric(grasp_points_t, normals_t, centroid=None, mu=1.0, num_edges=10, grasp_mask=None):
     """L1 Grasp quality metric using PyFastGrasp. Assumes object center of mass is at origin"""
     import fastgrasp as fg
 
+    B, _, _ = grasp_points_t.shape
+
+    if grasp_mask is not None:
+        valid_inds = torch.argwhere(grasp_mask.reshape(-1)).cpu().numpy().reshape(-1)
+    else:
+        valid_inds = torch.arange(B)
+
     device = normals_t.device
-    grasp_points = grasp_points_t.detach().cpu().numpy().reshape(-1, 9)
-    normals = normals_t.detach().cpu().numpy().reshape(-1, 9)
+    grasp_points = grasp_points_t.detach().cpu().numpy().reshape(-1, 9)[valid_inds, :]
+    normals = normals_t.detach().cpu().numpy().reshape(-1, 9)[valid_inds, :]
     centroid = np.zeros((len(grasp_points), 3))
     grasps = np.concatenate([grasp_points, normals, centroid], axis=1)
     result = np.zeros(len(grasps))
     _ = fg.getLowerBoundsPurgeQHull(grasps, mu, num_edges, result)
-    return torch.tensor(result, device=device)
+
+    result_full = np.zeros(B)
+    result_full[valid_inds] = result
+    return torch.tensor(result_full, device=device)
 
 
 def optimize_cem(
@@ -280,7 +290,7 @@ def grasp_cost(
     grasp_vars,
     n_f,
     model,
-    num_grasps=10,
+    num_grasps=5,
     residual_dirs=True,
     cost_fn="l1",
     cost_kwargs=dict(centroid=np.zeros((3, 1))),
@@ -299,9 +309,8 @@ def grasp_cost(
         num_grasps = 1
         risk_sensitivity=None
     else:
-        # TODO(pculbert): push centroid logic through code again.
         grasp_points, grad_ests, grasp_mask = grasp_utils.sample_grasps(
-            gps, num_grasps, model, residual_dirs=residual_dirs
+            gps, num_grasps, model, residual_dirs=residual_dirs, centroid=centroid
         )
 
     # Reshape grasp points and grads for msv evaluation.
@@ -316,18 +325,25 @@ def grasp_cost(
     elif cost_fn == "fc":
         cost_fn = ferrari_canny
     elif cost_fn == "l1":
+        cost_kwargs['grasp_mask'] = grasp_mask.all(-1, keepdim=True).expand(B, num_grasps)
         cost_fn = partial(l1_metric, **cost_kwargs)
 
-    g_cost = torch.mean(cost_fn(grasp_points, grad_ests).reshape(B, num_grasps), dim=-1)
+    g_cost = cost_fn(grasp_points, grad_ests).reshape(B, num_grasps)
+    if risk_sensitivity:
+        g_cost = torch.exp(-risk_sensitivity * g_cost)
+    else:
+        g_cost = -g_cost
+
+    g_cost = g_cost.mean(-1)
 
     g_cost = torch.where(
-        torch.all(grasp_mask, dim=-1), g_cost, -torch.ones_like(g_cost)
+        torch.all(grasp_mask, dim=-1), g_cost, 2. * torch.ones_like(g_cost)
     )
 
-    if not risk_sensitivity:
-        return -g_cost
-    else:
-        return torch.exp(-risk_sensitivity * g_cost)
+    if risk_sensitivity:
+        g_cost = (1/risk_sensitivity) * torch.log(g_cost)
+
+    return g_cost
 
 def get_points_cem(
     n_f,
@@ -343,7 +359,7 @@ def get_points_cem(
     residual_dirs=True,
     device="cuda",
     centroid=0.,
-    risk_sensitivity=1.,
+    risk_sensitivity=5.,
 ):
 
     # grasp vars are 2 * 3 * number of fingers, since include both pos and direction

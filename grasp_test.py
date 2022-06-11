@@ -610,12 +610,14 @@ obj.load_trimesh()
 for i in range(4):
     step_gym()
 
-grasps = np.load("grasp_data/banana.npy")
+grasps = np.load("grasp_data/banana_50.npy")
 grasp_idx = np.random.choice(np.arange(grasps.shape[0]))
 
 grasp_points = torch.tensor(grasps[grasp_idx, :, :3], dtype=torch.float32)
 grasp_normals = torch.tensor(grasps[grasp_idx, :, 3:], dtype=torch.float32)
 grasp_vars = (grasp_points, grasp_normals)
+
+print(grasp_points)
 
 robot.reset_actor(grasp_vars)
 obj.reset_actor()
@@ -640,7 +642,7 @@ for timestep in range(750):
     closest_points = ig_utils.closest_point(grasp_points,
                                             grasp_points + grasp_normals,
                                             robot.position)
-    closest_points[:, 2] = obj.position[2] + 0.005
+    #closest_points[:, 2] = obj.position[2] #+ 0.005
     if timestep < 50:
         mode = "reach"
         f = robot.position_control(grasp_points)

@@ -512,3 +512,29 @@ def get_centroid(model, object_bounds=[(-0.15, 0.15), (0., 0.15), (-0.15, 0.15)]
     sample_densities = sample_densities / torch.sum(sample_densities)
 
     return torch.sum(sample_densities.reshape(-1, 1) * sample_points,dim=0)
+
+def correct_z_dists(model, rays_o, rays_d, des_z_dist=0.05, num_iters=10):
+    for ii in range(num_iters):
+        grasp_points = torch.cat([rays_o, rays_d], dim=-1).reshape(3,6)
+        _, _, weights, z_vals = get_grasp_distribution(
+                grasp_points.reshape(1, 3, 6),
+                obj.model,
+                residual_dirs=self.use_residual_dirs,
+            )
+
+        z_correction = des_z_dist - torch.sum(weights * z_vals, dim=-1).reshape(3, 1)
+        rays_o = rays_o - z_correction * rays_d
+
+    return rays_o
+
+def box_projection(x, object_bounds=[(-0.1, 0.1), (0.01, 0.05), (-0.1, 0.1)]):
+    B, _ = x.shape
+    x = x.reshape(B, 3, -1)
+
+    lower = torch.tensor([oo[0] for oo in object_bounds]).to(x)
+    upper = torch.tensor([oo[1] for oo in object_bounds]).to(x)
+
+    x[..., :3] = x[..., :3].clamp(lower, upper)
+
+    return x.reshape(B, -1)
+

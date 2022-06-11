@@ -348,3 +348,26 @@ def get_grasp_points(mesh, grasp_vars, residual_dirs=True):
     grasp_mask = torch.from_numpy(grasp_mask).reshape(B, n_f).to(rays_o).bool()
 
     return grasp_points, grasp_normals, grasp_mask
+
+def correct_z_dists(mesh, rays_o, rays_d, des_dist=0.025):
+
+    if isinstance(rays_o, torch.Tensor):
+        rays_o_np, rays_d_np = rays_o.cpu().numpy(), rays_d.cpu().numpy()
+    else:
+        rays_o_np, rays_d_np = rays_o, rays_d
+
+    rays_o_np, rays_d_np = rays_o_np.reshape(-1, 3), rays_d_np.reshape(-1, 3)
+
+    hit_points, ray_ids, face_ids = mesh.ray.intersects_location(
+        rays_o_np, rays_d_np, multiple_hits=False
+    )
+
+    dists = np.linalg.norm(rays_o_np - hit_points, axis=-1)
+    rays_o_corrected = rays_o_np + (dists-des_dist).reshape(3,1) * rays_d_np
+
+    print(np.linalg.norm(rays_o_corrected - hit_points, axis=-1))
+
+    if isinstance(rays_o, torch.Tensor):
+        rays_o_corrected = torch.from_numpy(rays_o_corrected).to(rays_o)
+
+    return rays_o_corrected

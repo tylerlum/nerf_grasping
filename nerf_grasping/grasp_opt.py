@@ -204,7 +204,7 @@ def optimize_cem(
     num_iters=25,
     num_samples=250,
     elite_frac=0.1,
-    constraint=None,
+    projection=None,
 ):
     """
     Implements the cross-entropy method to optimize a given cost function.
@@ -221,16 +221,18 @@ def optimize_cem(
     num_elite = int(elite_frac * num_samples)
     device = mu_0.device
     cost_history = []
+    best_point = None
+    best_cost = torch.inf
     for ii in range(num_iters):
         # Sample points from current distribution.
-        if constraint:
-            x = grasp_utils.rejection_sample(mu, Sigma, constraint, num_samples)
-        else:
-            x = (
-                mu.reshape(1, n, 1)
-                + torch.linalg.cholesky(Sigma).reshape(1, n, n)
-                @ torch.randn(num_samples, n, 1, device=device)
-            ).reshape(num_samples, n)
+        x = (
+            mu.reshape(1, n, 1)
+            + torch.linalg.cholesky(Sigma).reshape(1, n, n)
+            @ torch.randn(num_samples, n, 1, device=device)
+        ).reshape(num_samples, n)
+
+        if projection:
+            x = projection(x)
 
         # Evaluate costs of each point.
         cost_vals = cost(x)
@@ -240,6 +242,9 @@ def optimize_cem(
         # Get elite indices.
         _, inds = torch.sort(cost_vals)
         elite_inds = inds[:num_elite]
+
+        if cost_vals[inds[0]] < best_cost:
+            best_point = x[inds[0]]
 
         # Refit the sample distribution.
         mu = torch.mean(x[elite_inds, :], dim=0)
@@ -255,7 +260,7 @@ def optimize_cem(
             dim=0,
         ) + 1e-8 * torch.eye(n, device=device)
 
-    return mu, Sigma, cost_history
+    return mu, Sigma, cost_history, best_point
 
 
 def clip_loss(densities, lb=100, ub=200):
@@ -333,8 +338,8 @@ def get_points_cem(
     Sigma_0=None,
     num_samples=500,
     num_iters=10,
-    constraint=None,
-    cost_fn="msv",
+    projection=None,
+    cost_fn="l1",
     residual_dirs=True,
     device="cuda",
     centroid=0.,
@@ -356,8 +361,8 @@ def get_points_cem(
         x, n_f, model, residual_dirs=residual_dirs, cost_fn=cost_fn, centroid=centroid, risk_sensitivity=risk_sensitivity
     )
 
-    mu_f, Sigma_f, cost_history = optimize_cem(
-        cost, mu_0, Sigma_0, num_iters=num_iters, num_samples=num_samples, constraint=constraint
+    mu_f, Sigma_f, cost_history, best_point = optimize_cem(
+        cost, mu_0, Sigma_0, num_iters=num_iters, num_samples=num_samples, projection=projection,
     )
 
-    return mu_f.reshape(n_f, 6)
+    return best_point.reshape(n_f, 6)

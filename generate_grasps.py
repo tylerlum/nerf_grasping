@@ -1,5 +1,5 @@
 from nerf_grasping.sim import ig_objects
-from nerf_grasping import grasp_opt, grasp_utils
+from nerf_grasping import grasp_opt, grasp_utils, mesh_utils
 
 import os
 import scipy.spatial
@@ -78,20 +78,13 @@ def main(
     mu_0 = torch.cat([grasp_points, grasp_dirs], dim=-1).reshape(-1).to(centroid)
     Sigma_0 = torch.diag(
         torch.cat(
-            [torch.tensor([1e-1, 1e-2, 1e-1, 1e-2, 1e-2, 1e-2]) for _ in range(3)]
+            [torch.tensor([5e-2, 1e-2, 5e-2, 5e-2, 5e-2, 5e-2]) for _ in range(3)]
         )
     ).to(centroid)
 
     if use_nerf:
         mu_0, Sigma_0 = mu_0.float().cuda(), Sigma_0.float().cuda()
         centroid = centroid.float().cuda()
-
-    def constraint(x):
-        """Ensures that all points fall within reasonable range"""
-        return torch.logical_and(
-            (x.reshape(-1, 3, 6)[..., :3].abs() <= max_finger_dist).all(-1).all(-1),
-            (x.reshape(-1, 3, 6)[..., 1] >= min_finger_height).all(-1),
-        )
 
     sampled_grasps = np.zeros((num_grasps, 3, 6))
 
@@ -102,14 +95,19 @@ def main(
             num_iters=10,
             mu_0=mu_0,
             Sigma_0=Sigma_0,
-            constraint=constraint,
+            projection=grasp_utils.box_projection,
             centroid=centroid,
+            num_samples=250
         )
-        # mu_np = grasp_points.cpu().detach().reshape(3, 6)]
         grasp_points = grasp_points.reshape(3, 6)
         rays_o, rays_d = grasp_points[:, :3], grasp_points[:, 3:]
 
         rays_d = grasp_utils.res_to_true_dirs(rays_o, rays_d, centroid)
+
+        if isinstance(model, trimesh.Trimesh):
+            rays_o = mesh_utils.correct_z_dists(model, rays_o, rays_d)
+        else:
+            rays_o = grasp_utils.correct_z_dists(model, rays_o, rays_d)
 
         rays_o, rays_d = grasp_utils.nerf_to_ig(rays_o), grasp_utils.nerf_to_ig(rays_d)
 

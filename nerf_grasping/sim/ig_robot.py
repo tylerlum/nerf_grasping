@@ -799,9 +799,7 @@ class FingertipRobot:
     def reset_actor(self, grasp_vars=None):
         """Resets fingertips to points on grasp point lines"""
         if grasp_vars is not None:
-            grasp_points, grasp_normals = grasp_vars
-            ftip_start_pos = self.get_ftip_start_pos(grasp_points, grasp_normals)
-        else:
+            self.grasp_points, self.grasp_normals = grasp_vars
             ftip_start_pos = self.ftip_start_pos
 
         for pos, handle in zip(ftip_start_pos, self.actors):
@@ -852,7 +850,8 @@ class FingertipRobot:
         target_normal=0.4,
         kp=0.4,
         kd=0.1,
-        return_wrench=False,
+        kp_angle=0.04,
+        kd_angle=0.001,
     ):
         """Object position control for lifting trajectory"""
         if target_position is None:
@@ -870,10 +869,9 @@ class FingertipRobot:
         # banana tuning
         target_force = object_weight_comp - kp * pos_error - kd * vel
         target_torque = (
-            -0.04 * (quat @ target_quat.T).to_tangent_space() - 0.0001 * angular_vel
+            -kp_angle * (quat @ target_quat.T).to_tangent_space()
+            - kd_angle * angular_vel
         )
-        if return_wrench:
-            return torch.cat([target_force, target_torque])
         # grasp points in object frame
         # TODO: compute tip radius here?
         grasp_points = tip_position - cg_pos
@@ -902,6 +900,7 @@ class FingertipRobot:
         closest_points = ig_utils.closest_point(
             self.grasp_points, self.grasp_points + self.grasp_normals, self.position
         )
+        # copy z-dim of object position for maintaining height
         closest_points[:, 2] = obj.position[2]
         # height_err = 0.0
         if timestep < 50:
@@ -912,16 +911,21 @@ class FingertipRobot:
             mode = "grasp"
             pos_err = closest_points - self.position
             pos_control = pos_err * 3
-            f = torch.tensor(self.grasp_normals * 0.02) + pos_control
+            pos_control = pos_err * 5
+            vel_control = -0.25 * self.velocity
+            f = torch.tensor(self.grasp_normals * 0.1) + pos_control + vel_control
         else:
             mode = "lift"
             closest_points[:, 2] += 0.005
             pos_err = closest_points - self.position
             # height_err = self.target_height - obj.position[-1]
+            gp, ge = ig_utils.get_mesh_contacts(obj.gt_mesh, closest_points)
+            ge = torch.tensor(ge, dtype=torch.float32)
             f_lift, target_force, target_torque = self.object_pos_control(
-                obj, self.grasp_normals, target_normal=0.4, kp=0.5, kd=0.1
+                obj, ge, target_normal=1.0, kp=1.5, kd=1.0, kp_angle=0.1, kd_angle=1e-2
             )
-            f = f_lift + pos_err * 3
+            # des_wrench = torch.cat([target_force, target_torque])
+            f = f_lift  # + pos_err * 3
         self.apply_fingertip_forces(f)
         net_obj_force = self.gym.get_rigid_contact_forces(self.sim)[obj.actor]
         if timestep % 50 == 0:

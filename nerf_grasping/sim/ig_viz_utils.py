@@ -59,7 +59,7 @@ def visualize_markers(
     if marker_handles:
         return reset_marker_positions(gym, env, sim, positions, colors, marker_handles)
     asset_options = gymapi.AssetOptions()
-    asset_options.fix_base_link = False
+    asset_options.fix_base_link = True
     asset_options.angular_damping = 0.0
     asset_options.max_angular_velocity = 0.0
     asset_options.slices_per_cylinder = 40

@@ -63,7 +63,7 @@ def get_grasp_distribution(
     far_finger=0.15,
     perturb=True,
     residual_dirs=True,
-    centroid=0.,
+    centroid=0.0,
 ):
     """
     Generates a "grasp distribution," a set of n_f categorical distributions
@@ -203,7 +203,7 @@ def get_grasp_distribution(
     )
 
 
-def sample_grasps(grasp_vars, num_grasps, model, residual_dirs=True, centroid=0.):
+def sample_grasps(grasp_vars, num_grasps, model, residual_dirs=True, centroid=0.0):
     """
     Generates and samples from a distribution of grasps, returning a batch of
     grasp points and their associated normals.
@@ -232,11 +232,13 @@ def sample_grasps(grasp_vars, num_grasps, model, residual_dirs=True, centroid=0.
 
     # Mask sample points to clip out object.
     weight_mask = sample_points[..., 1] >= 0.01
-    weight_mask = torch.logical_and(weight_mask, torch.all(torch.abs(sample_points) <= 0.1, dim=-1))
+    weight_mask = torch.logical_and(
+        weight_mask, torch.all(torch.abs(sample_points) <= 0.1, dim=-1)
+    )
 
     weights = weights * weight_mask
 
-    print(torch.sum(weight_mask)/torch.sum(torch.ones_like(weight_mask)))
+    print(torch.sum(weight_mask) / torch.sum(torch.ones_like(weight_mask)))
 
     # Generate distribution from which we'll sample grasp points.
     weights = torch.clip(weights, 0.0, 1.0)
@@ -245,7 +247,7 @@ def sample_grasps(grasp_vars, num_grasps, model, residual_dirs=True, centroid=0.
     # Create mask for which rays are empty.
     grasp_mask = torch.sum(weights, -1) > 0.5
 
-    print(torch.sum(grasp_mask)/torch.sum(torch.ones_like(grasp_mask)))
+    print(torch.sum(grasp_mask) / torch.sum(torch.ones_like(grasp_mask)))
 
     # Sample num_grasps grasp from this distribution.
     grasp_inds = grasp_dist.sample(sample_shape=[num_grasps])  # [num_grasps, B, n_f]
@@ -279,6 +281,7 @@ def sample_grasps(grasp_vars, num_grasps, model, residual_dirs=True, centroid=0.
     grad_ests = grad_ests.permute(0, 2, 1, 3)
 
     return grasp_points, grad_ests, grasp_mask
+
 
 def est_grads_vals(
     nerf, grasp_points, method="gaussian", sigma=7.5e-3, num_samples=250
@@ -493,7 +496,8 @@ def ig_to_nerf(points, translation=None, return_tensor=True):
         points = torch.tensor(points).float().cuda()
     return points
 
-def res_to_true_dirs(rays_o, rays_d, centroid=0.):
+
+def res_to_true_dirs(rays_o, rays_d, centroid=0.0):
     """Converts raw directions rays_d to true directions in world frame.
 
     Args:
@@ -509,39 +513,45 @@ def res_to_true_dirs(rays_o, rays_d, centroid=0.):
     return rays_d
 
 
-def get_centroid(model, object_bounds=[(-0.15, 0.15), (0., 0.15), (-0.15, 0.15)], num_samples=10000):
+def get_centroid(
+    model, object_bounds=[(-0.15, 0.15), (0.0, 0.15), (-0.15, 0.15)], num_samples=10000
+):
     """Computes approximate centroid using NeRF model."""
     min_corner = torch.tensor([bb[0] for bb in object_bounds])
     max_corner = torch.tensor([bb[-1] for bb in object_bounds])
 
-    box_center = (1/2) * (max_corner + min_corner)
+    box_center = (1 / 2) * (max_corner + min_corner)
     box_scale = max_corner - min_corner
 
-    sample_points = box_scale.reshape(1,3) * (torch.rand(num_samples,3)-0.5) + box_center.reshape(1,3)
+    sample_points = box_scale.reshape(1, 3) * (
+        torch.rand(num_samples, 3) - 0.5
+    ) + box_center.reshape(1, 3)
     sample_points = sample_points.cuda().float()
 
     sample_densities = model.density(sample_points)
     sample_densities = sample_densities / torch.sum(sample_densities)
 
-    return torch.sum(sample_densities.reshape(-1, 1) * sample_points,dim=0)
+    return torch.sum(sample_densities.reshape(-1, 1) * sample_points, dim=0)
 
-def correct_z_dists(model, grasp_points, centroid=0., des_z_dist=0.025, num_iters=10):
+
+def correct_z_dists(model, grasp_points, centroid=0.0, des_z_dist=0.025, num_iters=10):
     rays_o = grasp_points[:, :3]
     rays_d_raw = grasp_points[:, 3:]
     rays_d = res_to_true_dirs(rays_o, rays_d_raw, centroid)
 
     for ii in range(num_iters):
-        grasp_points = torch.cat([rays_o, rays_d_raw], dim=-1).reshape(3,6)
+        grasp_points = torch.cat([rays_o, rays_d_raw], dim=-1).reshape(3, 6)
         _, _, weights, z_vals = get_grasp_distribution(
-                grasp_points.reshape(1, 3, 6),
-                model,
-                residual_dirs=True,
-            )
+            grasp_points.reshape(1, 3, 6),
+            model,
+            residual_dirs=True,
+        )
 
         z_correction = des_z_dist - torch.sum(weights * z_vals, dim=-1).reshape(3, 1)
         rays_o = rays_o - 0.1 * z_correction * rays_d
 
     return rays_o
+
 
 def box_projection(x, object_bounds=[(-0.1, 0.1), (0.01, 0.05), (-0.1, 0.1)]):
     B, _ = x.shape
@@ -553,4 +563,3 @@ def box_projection(x, object_bounds=[(-0.1, 0.1), (0.01, 0.05), (-0.1, 0.1)]):
     x[..., :3] = x[..., :3].clamp(lower, upper)
 
     return x.reshape(B, -1)
-

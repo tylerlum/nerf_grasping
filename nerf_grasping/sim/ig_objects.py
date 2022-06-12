@@ -181,6 +181,7 @@ class TeddyBear(RigidObject):
     mesh_file = "objects/meshes/isaac_teddy/isaac_bear.obj"
     obj_scale = 1e-2
     name = "teddy_bear"
+    workspace = "teddy_bear"
 
     data_dir = f"{root_dir}/nerf_shared/data/isaac_teddy"
     config_path = f"{root_dir}/nerf_shared/configs/isaac_teddy.txt"

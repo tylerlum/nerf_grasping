@@ -161,7 +161,7 @@ def step_gym(gym, sim, viewer):
     if viewer is not None:
         gym.draw_viewer(viewer, sim, True)
         gym.sync_frame_time(sim)
-    refresh_tensors()
+    refresh_tensors(gym, sim)
 
 
 def setup_env(gym, sim):

@@ -76,7 +76,7 @@ def skew(v):
     return K
 
 
-def psv(grasp_points, normals, centroid=0.):
+def psv(grasp_points, normals, centroid=0.0):
     """
     Evaluates the minimum-singular-value grasp metric proposed in Li and Sastry '88.
     Args:
@@ -89,7 +89,7 @@ def psv(grasp_points, normals, centroid=0.):
     return torch.prod(torch.linalg.svdvals(G), dim=-1)
 
 
-def msv(grasp_points, normals, centroid=0.):
+def msv(grasp_points, normals, centroid=0.0):
     """
     Evaluates the minimum-singular-value grasp metric proposed in Li and Sastry '88.
     Args:
@@ -183,7 +183,9 @@ def min_norm_vector_in_facet(facet, wrench_regularizer=1e-10):
     return abs(min_norm), v
 
 
-def l1_metric(grasp_points_t, normals_t, centroid=None, mu=1.0, num_edges=10, grasp_mask=None):
+def l1_metric(
+    grasp_points_t, normals_t, centroid=None, mu=1.0, num_edges=10, grasp_mask=None
+):
     """L1 Grasp quality metric using PyFastGrasp. Assumes object center of mass is at origin"""
     import fastgrasp as fg
 
@@ -197,7 +199,13 @@ def l1_metric(grasp_points_t, normals_t, centroid=None, mu=1.0, num_edges=10, gr
     device = normals_t.device
     grasp_points = grasp_points_t.detach().cpu().numpy().reshape(-1, 9)[valid_inds, :]
     normals = normals_t.detach().cpu().numpy().reshape(-1, 9)[valid_inds, :]
-    centroid = np.zeros((len(grasp_points), 3))
+    if centroid is None:
+        centroid = np.zeros((len(grasp_points), 3))
+    else:
+        centroid = centroid.cpu().detach().numpy()
+        centroid = np.stack([centroid for _ in range(len(grasp_points))]).astype(
+            "float64"
+        )
     grasps = np.concatenate([grasp_points, normals, centroid], axis=1)
     result = np.zeros(len(grasps))
     _ = fg.getLowerBoundsPurgeQHull(grasps, mu, num_edges, result)
@@ -294,20 +302,22 @@ def grasp_cost(
     residual_dirs=True,
     cost_fn="l1",
     cost_kwargs=dict(centroid=np.zeros((3, 1))),
-    centroid=0.,
+    centroid=0.0,
     risk_sensitivity=None,
 ):
 
     gps = grasp_vars.reshape(-1, n_f, 6)
     B = gps.shape[0]
 
-    if centroid is not 0.:
-        cost_kwargs['centroid'] = centroid
+    if centroid is not 0.0:
+        cost_kwargs["centroid"] = centroid
 
     if isinstance(model, trimesh.Trimesh):
-        grasp_points, grad_ests, grasp_mask = mesh_utils.get_grasp_points(model, gps, residual_dirs)
+        grasp_points, grad_ests, grasp_mask = mesh_utils.get_grasp_points(
+            model, gps, residual_dirs
+        )
         num_grasps = 1
-        risk_sensitivity=None
+        risk_sensitivity = None
     else:
         grasp_points, grad_ests, grasp_mask = grasp_utils.sample_grasps(
             gps, num_grasps, model, residual_dirs=residual_dirs, centroid=centroid
@@ -325,7 +335,9 @@ def grasp_cost(
     elif cost_fn == "fc":
         cost_fn = ferrari_canny
     elif cost_fn == "l1":
-        cost_kwargs['grasp_mask'] = grasp_mask.all(-1, keepdim=True).expand(B, num_grasps)
+        cost_kwargs["grasp_mask"] = grasp_mask.all(-1, keepdim=True).expand(
+            B, num_grasps
+        )
         cost_fn = partial(l1_metric, **cost_kwargs)
 
     g_cost = cost_fn(grasp_points, grad_ests).reshape(B, num_grasps)
@@ -337,13 +349,14 @@ def grasp_cost(
     g_cost = g_cost.mean(-1)
 
     g_cost = torch.where(
-        torch.all(grasp_mask, dim=-1), g_cost, 2. * torch.ones_like(g_cost)
+        torch.all(grasp_mask, dim=-1), g_cost, 2.0 * torch.ones_like(g_cost)
     )
 
     if risk_sensitivity:
-        g_cost = (1/risk_sensitivity) * torch.log(g_cost)
+        g_cost = (1 / risk_sensitivity) * torch.log(g_cost)
 
     return g_cost
+
 
 def get_points_cem(
     n_f,
@@ -358,8 +371,9 @@ def get_points_cem(
     cost_fn="l1",
     residual_dirs=True,
     device="cuda",
-    centroid=0.,
-    risk_sensitivity=5.,
+    centroid=0.0,
+    risk_sensitivity=5.0,
+    return_cost_hist=False,
 ):
 
     # grasp vars are 2 * 3 * number of fingers, since include both pos and direction
@@ -374,11 +388,24 @@ def get_points_cem(
         Sigma_0 = sigma_scale * torch.eye(6 * n_f, device=device)
 
     cost = lambda x: grasp_cost(
-        x, n_f, model, residual_dirs=residual_dirs, cost_fn=cost_fn, centroid=centroid, risk_sensitivity=risk_sensitivity
+        x,
+        n_f,
+        model,
+        residual_dirs=residual_dirs,
+        cost_fn=cost_fn,
+        centroid=centroid,
+        risk_sensitivity=risk_sensitivity,
     )
 
     mu_f, Sigma_f, cost_history, best_point = optimize_cem(
-        cost, mu_0, Sigma_0, num_iters=num_iters, num_samples=num_samples, projection=projection,
+        cost,
+        mu_0,
+        Sigma_0,
+        num_iters=num_iters,
+        num_samples=num_samples,
+        projection=projection,
     )
-
-    return best_point.reshape(n_f, 6)
+    ret = best_point.reshape(n_f, 6)
+    if return_cost_hist:
+        ret = (ret, cost_history)
+    return ret

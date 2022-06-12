@@ -8,6 +8,27 @@ import trimesh
 import numpy as np
 
 
+def get_mesh_centroid(obj_name):
+    if obj_name == "banana":
+        obj_mesh = "assets/objects/meshes/banana/textured.obj"
+    elif obj_name == "box":
+        obj_mesh = "assets/objects/meshes/cube_multicolor.obj"
+    elif obj_name == "teddy_bear":
+        obj_mesh = "assets/objects/meshes/isaac_teddy/isaac_bear.obj"
+    elif obj_name == "powerdrill":
+        obj_mesh = "assets/objects/meshes/power_drill/textured.obj"
+
+    gt_mesh = trimesh.load(obj_mesh, force="mesh")
+    T = np.eye(4)
+    R = scipy.spatial.transform.Rotation.from_euler("Y", [-np.pi / 2]).as_matrix()
+    R = R @ scipy.spatial.transform.Rotation.from_euler("X", [-np.pi / 2]).as_matrix()
+    T[:3, :3] = R
+    gt_mesh.apply_transform(T)
+
+    centroid = torch.from_numpy(gt_mesh.centroid).float()
+    return centroid
+
+
 def main(
     obj_name="banana",
     use_nerf=False,
@@ -31,6 +52,8 @@ def main(
 
         model = ig_objects.load_nerf(obj.workspace, obj.bound, obj.scale)
         centroid = grasp_utils.get_centroid(model)
+        print(f"Estimated Centroid: {centroid}")
+        print(f"True Centroid: {get_mesh_centroid(obj_name)}")
 
     else:
         if mesh_in is not None:
@@ -78,26 +101,29 @@ def main(
     mu_0 = torch.cat([grasp_points, grasp_dirs], dim=-1).reshape(-1).to(centroid)
     Sigma_0 = torch.diag(
         torch.cat(
-            [torch.tensor([5e-2, 1e-2, 5e-2, 1e-2, 1e-2, 1e-2]) for _ in range(3)]
+            [torch.tensor([3e-2, 1e-5, 3e-2, 1e-2, 4e-4, 1e-2]) for _ in range(3)]
         )
     ).to(centroid)
 
+    cost_fn = "psv"
     if use_nerf:
         mu_0, Sigma_0 = mu_0.float().cuda(), Sigma_0.float().cuda()
         centroid = centroid.float().cuda()
+        cost_fn = "l1"
 
     sampled_grasps = np.zeros((num_grasps, 3, 6))
-
     for ii in range(num_grasps):
         grasp_points = grasp_opt.get_points_cem(
             3,
             model,
-            num_iters=10,
+            num_iters=40,
             mu_0=mu_0,
             Sigma_0=Sigma_0,
             projection=grasp_utils.box_projection,
             centroid=centroid,
-            num_samples=500
+            num_samples=500,
+            cost_fn=cost_fn,
+            risk_sensitivity=risk_sensitivity,
         )
         grasp_points = grasp_points.reshape(3, 6)
         rays_o, rays_d = grasp_points[:, :3], grasp_points[:, 3:]
@@ -136,7 +162,7 @@ if __name__ == "__main__":
     parser.add_argument("--min_finger_height", default=-0.01, type=float)
     parser.add_argument("--max_finger_dist", default=0.15, type=float)
     parser.add_argument("--outfile", "--out", default=None)
-    parser.add_argument("--risk_sensitivity", default=None)
+    parser.add_argument("--risk_sensitivity", default=5.0, type=float)
     args = parser.parse_args()
 
     print(args)

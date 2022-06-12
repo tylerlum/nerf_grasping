@@ -57,10 +57,10 @@ def load_nerf(opt):
 def get_grasp_distribution(
     grasp_vars,
     model,
-    num_steps=32,
-    upsample_steps=32,
+    num_steps=128,
+    upsample_steps=256,
     near_finger=0.0001,
-    far_finger=0.2,
+    far_finger=0.15,
     perturb=True,
     residual_dirs=True,
     centroid=0.,
@@ -281,7 +281,7 @@ def sample_grasps(grasp_vars, num_grasps, model, residual_dirs=True, centroid=0.
     return grasp_points, grad_ests, grasp_mask
 
 def est_grads_vals(
-    nerf, grasp_points, method="central_difference", sigma=1e-3, num_samples=1000
+    nerf, grasp_points, method="gaussian", sigma=7.5e-3, num_samples=250
 ):
     """
     Uses sampling to estimate gradients and density values for

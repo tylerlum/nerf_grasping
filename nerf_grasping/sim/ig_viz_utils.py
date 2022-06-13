@@ -128,13 +128,17 @@ def plot_grasp_distribution(
     plt.show()
 
 
-def plot_points(points, lines=None, obj_mesh=None):
-    """Plots points and lines (using ax.quiver) if given"""
-    fig = plt.figure()
-    ax = fig.add_subplot(projection="3d")
+def plot_grasps(points, lines=None, obj_mesh=None, ax=None, c="C1"):
+    """
+    Plots points and lines (using ax.quiver) if given. Assumes all points and meshes
+    are given in ig frame.
+    """
+    if ax is None:
+        fig = plt.figure()
+        ax = fig.add_subplot(projection="3d")
     if obj_mesh is not None:
         ax.scatter(*[obj_mesh[:, ii] for ii in range(3)], c="blue", alpha=0.025)
-    ax.scatter(points[:, 0], points[:, 1], points[:, 2], c="C1")
+    ax.scatter(points[:, 0], points[:, 1], points[:, 2], c=c)
     if lines is not None:
         assert len(lines) == len(
             points

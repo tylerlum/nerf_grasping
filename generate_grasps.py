@@ -1,5 +1,6 @@
 from nerf_grasping.sim import ig_objects
 from nerf_grasping import grasp_opt, grasp_utils, mesh_utils
+from functools import partial
 
 import os
 import scipy.spatial
@@ -33,11 +34,10 @@ def main(
     obj_name="banana",
     use_nerf=False,
     mesh_in=None,
-    min_finger_height=0.01,
-    max_finger_dist=0.2,
     outfile=None,
     num_grasps=50,
     risk_sensitivity=None,
+    cost_fn="l1",
 ):
     if use_nerf:
         if obj_name == "banana":
@@ -101,25 +101,29 @@ def main(
     mu_0 = torch.cat([grasp_points, grasp_dirs], dim=-1).reshape(-1).to(centroid)
     Sigma_0 = torch.diag(
         torch.cat(
-            [torch.tensor([3e-2, 1e-5, 3e-2, 1e-2, 4e-4, 1e-2]) for _ in range(3)]
+            [torch.tensor([5e-2, 1e-2, 5e-2, 1e-2, 1e-3, 1e-2]) for _ in range(3)]
         )
     ).to(centroid)
 
-    cost_fn = "psv"
+    # cost_fn = "psv"
     if use_nerf:
         mu_0, Sigma_0 = mu_0.float().cuda(), Sigma_0.float().cuda()
         centroid = centroid.float().cuda()
-        cost_fn = "l1"
+        # cost_fn = "l1"
 
+    centroid_npy = centroid.detach().cpu().numpy()
     sampled_grasps = np.zeros((num_grasps, 3, 6))
+    max_sample_height = min(2 * centroid_npy[1] - 0.01, 0.05)
+    object_bounds = [(-0.1, 0.1), (0.01, max_sample_height), (-0.1, 0.1)]
+    projection_fn = partial(grasp_utils.box_projection, object_bounds=object_bounds)
     for ii in range(num_grasps):
         grasp_points = grasp_opt.get_points_cem(
             3,
             model,
-            num_iters=40,
+            num_iters=10,
             mu_0=mu_0,
             Sigma_0=Sigma_0,
-            projection=grasp_utils.box_projection,
+            projection=projection_fn,
             centroid=centroid,
             num_samples=500,
             cost_fn=cost_fn,
@@ -159,10 +163,9 @@ if __name__ == "__main__":
         action="store_true",
     )
     parser.add_argument("--mesh_in", default=None, type=str)
-    parser.add_argument("--min_finger_height", default=-0.01, type=float)
-    parser.add_argument("--max_finger_dist", default=0.15, type=float)
     parser.add_argument("--outfile", "--out", default=None)
     parser.add_argument("--risk_sensitivity", default=5.0, type=float)
+    parser.add_argument("--cost_fn", default="l1", type=str)
     args = parser.parse_args()
 
     print(args)

@@ -254,8 +254,13 @@ def optimize_cem(
 
         # Evaluate costs of each point.
         cost_vals = cost(x)
-        cost_history.append(cost_vals)
-        print(torch.min(cost_vals), torch.mean(cost_vals))
+        cost_history.append(cost_vals.detach())
+        print(
+            "minimum cost_val:",
+            torch.min(cost_vals),
+            "mean cost_val:",
+            torch.mean(cost_vals),
+        )
 
         # Get elite indices.
         _, inds = torch.sort(cost_vals)
@@ -346,11 +351,20 @@ def grasp_cost(
     else:
         g_cost = -g_cost
 
-    g_cost = g_cost.mean(-1)
+    g_cost = g_cost.mean(-1)  # shape (B,)
 
     g_cost = torch.where(
         torch.all(grasp_mask, dim=-1), g_cost, 2.0 * torch.ones_like(g_cost)
     )
+
+    dists = []
+    for i in range(B):
+        dists.append(
+            torch.triu(torch.pairwise_distance(grasp_points[i], grasp_points[i])).sum()
+        )
+    dists = torch.stack(dists)
+    dists /= dists.max() * 5  # scale from 0 to 0.1
+    g_cost += dists
 
     if risk_sensitivity:
         g_cost = (1 / risk_sensitivity) * torch.log(g_cost)

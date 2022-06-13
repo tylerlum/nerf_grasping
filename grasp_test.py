@@ -232,6 +232,20 @@ def double_reset(robot, obj, grasp_vars):
         step_gym()
 
 
+def compute_potential(points, magnitude=0.01):
+    potentials = []
+    for i in range(len(points)):
+        p = points[i]
+        mask = np.arange(len(points)) != i
+        other_pts = points[mask]
+        p_dists = p - other_pts
+        closest_pt = other_pts[np.argmin(np.linalg.norm(p_dists, axis=1).squeeze())]
+        potentials.append((closest_pt - p))  # direction away from closest_pt
+    potentials = np.stack(potentials)
+    potentials = potentials / np.linalg.norm(potentials, axis=1) * magnitude
+    return potentials
+
+
 def lifting_trajectory(grasp_vars):
     double_reset(robot, obj, grasp_vars)
     grasp_points, grasp_normals = grasp_vars
@@ -241,8 +255,9 @@ def lifting_trajectory(grasp_vars):
     # _net_cf = gym.acquire_net_contact_force_tensor(sim)
     # net_cf = gymtorch.wrap_tensor(_net_cf)
     start_timestep = 0
+    ge = None
 
-    for timestep in range(750):
+    for timestep in range(500):
         height_err = 0.04 - obj.position[-1].cpu().numpy().item()
         # time.sleep(0.01)
         step_gym()
@@ -250,6 +265,8 @@ def lifting_trajectory(grasp_vars):
         closest_points = ig_utils.closest_point(
             grasp_points, grasp_points + grasp_normals, robot.position
         )
+        # compute potential to closest points
+        potential = compute_potential(grasp_points)
         if timestep < 50:
             mode = "reach"
             f = robot.position_control(grasp_points)
@@ -262,11 +279,13 @@ def lifting_trajectory(grasp_vars):
             f = torch.tensor(grasp_normals * 0.1) + pos_control + vel_control
         else:
             mode = "lift"
-            pos_err = closest_points - robot.position
             closest_points[:, 2] = obj.position[2] + 0.005
+            pos_err = closest_points - robot.position
             # f, target_force, target_torque = object_pos_control(
             #     obj, grasp_normals, target_normal=0.15
-            gp, ge = get_mesh_contacts(obj.gt_mesh, closest_points)
+            # if ge is None:
+            #     ge = robot.get_grad_ests(obj, robot.position)
+            gp, ge = get_mesh_contacts(obj.gt_mesh, robot.position)
             ge = torch.tensor(ge, dtype=torch.float32)
             f_lift, target_force, target_torque = object_pos_control(
                 obj, ge, target_normal=1.0, kp=1.5, kd=1.0, kp_angle=0.1, kd_angle=1e-2
@@ -276,12 +295,15 @@ def lifting_trajectory(grasp_vars):
             # f_lift = fop_obj(des_wrench, closest_points, ge)
             f = f_lift
 
+        # if f.norm() > 3:
+        #     break
         gym.refresh_net_contact_force_tensor(sim)
         robot.apply_fingertip_forces(f)
         if timestep >= 100 and timestep % 50 == 0:
             print("MODE:", mode)
             print("TIMESTEP:", timestep)
             print("POSITION ERR:", pos_err)
+            print("POTENTIAL:", potential)
             print("VELOCITY:", robot.velocity)
             print("FORCE MAG:", f.norm())
             # print("Z Force:", f[:, 2])
@@ -289,7 +311,7 @@ def lifting_trajectory(grasp_vars):
             if mode == "lift":
                 print("HEIGHT_ERR:", height_err)
             # print(f"NET CONTACT FORCE:", net_cf[obj.index,:])
-        if (robot.position[:, -1] >= 0.5).any():
+        if (robot.position[:, -1] >= 0.1).any():
             return False
         # state = dict(pos_err=pos_err, velocity=robot.velocity, force_mag=f.norm(dim=1))
         # if number of timesteps of grasp success exceeds 3 seconds
@@ -331,7 +353,7 @@ obj.load_trimesh()
 for i in range(4):
     step_gym()
 
-grasp_data = "grasp_data/banana_nerf3.npy"
+grasp_data = "grasp_data/banana_nerf10psv-rs10-3.npy"
 grasp = "all"
 grasps = np.load(grasp_data)
 if grasp == "random":
@@ -354,4 +376,3 @@ for grasp_idx in range(len(grasps)):
     successes += lifting_trajectory(grasp_vars)
 
 print(f"Percent successes: {successes / len(grasps) * 100}% out of {len(grasps)}")
-

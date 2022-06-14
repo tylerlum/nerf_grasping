@@ -331,7 +331,7 @@ obj.load_trimesh()
 for i in range(4):
     step_gym()
 
-grasp_data = "grasp_data/banana_nerf3.npy"
+grasp_data = "grasp_data/banana_diced.npy"
 grasp = "all"
 grasps = np.load(grasp_data)
 if grasp == "random":

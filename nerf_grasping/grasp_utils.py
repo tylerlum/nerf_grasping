@@ -11,6 +11,8 @@ import scipy
 import torch
 from nerf import renderer, utils
 
+OBJ_BOUNDS =[(-0.1, 0.1), (0.01, 0.05), (-0.1, 0.1)]
+
 
 def load_nerf(opt):
     """
@@ -245,7 +247,7 @@ def sample_grasps(grasp_vars, num_grasps, model, residual_dirs=True, centroid=0.
     grasp_dist = torch.distributions.Categorical(probs=weights + 1e-15)
 
     # Create mask for which rays are empty.
-    grasp_mask = torch.sum(weights, -1) > 0.5
+    grasp_mask = torch.sum(weights, -1) > 0.5  # [B, n_f]
 
     print(torch.sum(grasp_mask) / torch.sum(torch.ones_like(grasp_mask)))
 
@@ -275,7 +277,9 @@ def sample_grasps(grasp_vars, num_grasps, model, residual_dirs=True, centroid=0.
     density_ests, _ = est_grads_vals(model, rays_o.reshape(B, -1, 3))
     density_ests = density_ests.reshape(B, n_f)
 
-    grasp_mask = torch.logical_and(grasp_mask, density_ests < 50)
+    grasp_mask = torch.logical_and(grasp_mask, density_ests < 50)  # [B, n_f]
+
+    # Add a check on collisions
 
     # Permute dims to put batch dimensions together.
     grad_ests = grad_ests.permute(0, 2, 1, 3)
@@ -553,7 +557,7 @@ def correct_z_dists(model, grasp_points, centroid=0.0, des_z_dist=0.025, num_ite
     return rays_o
 
 
-def box_projection(x, object_bounds=[(-0.1, 0.1), (0.01, 0.05), (-0.1, 0.1)]):
+def box_projection(x, object_bounds=OBJ_BOUNDS):
     B, _ = x.shape
     x = x.reshape(B, 3, -1)
 
@@ -563,3 +567,25 @@ def box_projection(x, object_bounds=[(-0.1, 0.1), (0.01, 0.05), (-0.1, 0.1)]):
     x[..., :3] = x[..., :3].clamp(lower, upper)
 
     return x.reshape(B, -1)
+
+
+def dicing_rejection_heuristic(grasp_normals, mu=0.5):
+    """Implements the disturbance rejection heuristic from Borst et al., '03.
+
+    Args:
+        grasp_normals: set of grasp normals [B, n_f, 3] at contact points.
+        mu: (optional) coefficient of friction, default 0.5.
+
+    Returns a boolean mask [B] defining which grasps satisfy the rejection heuristic.
+    """
+    # Compute heuristic disturbance force proposed in paper -- opposite of mean contact normal.
+    F_ext = -np.sum(grasp_normals, axis=1) / grasp_normals.shape[1]
+
+    # Make sure F_ext, grasp_normals are unit vectors.
+    F_ext = F_ext / np.linalg.norm(F_ext, axis=-1, keepdims=True)
+    grasp_normals = grasp_normals / np.linalg.norm(grasp_normals, axis=-1, keepdims=True)
+
+    # Reject grasps whose angles between the disturbance direction + all normals is > 90deg + atan(mu).
+    valid_fingers = np.arccos(np.sum(np.expand_dims(F_ext, 1) * grasp_normals, axis=-1)) > np.pi/2 + np.arctan(mu)
+
+    return np.any(valid_fingers, axis=-1)

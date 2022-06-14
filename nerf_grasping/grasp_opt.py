@@ -36,7 +36,7 @@ def grasp_matrix(grasp_points, normals):
     return torch.cat([grasp_mats[:, ii, :, :] for ii in range(n_f)], dim=-1)
 
 
-def rot_from_vec(n_z):
+def rot_from_vec(n_z, start_vec=None):
     """
     Creates rotation matrix which maps the basis vector e_3 to a vector n_z.
     Gets poorly conditioned when n_z ≅ ±e_3.
@@ -46,11 +46,12 @@ def rot_from_vec(n_z):
     # Construct constants.
     n_z = n_z.reshape(-1, 3)
     I = torch.eye(3, device=n_z.device).reshape(1, 3, 3).expand(n_z.shape[0], 3, 3)
-    e3 = I[:, :, 2]
+    if start_vec is None:
+        start_vec = I[:, :, 2]
 
     # Compute cross product to find axis of rotation.
-    v = torch.cross(e3, n_z, dim=-1)
-    theta = torch.arccos(torch.sum(e3 * n_z, dim=-1)).reshape(-1, 1, 1)
+    v = torch.cross(start_vec, n_z, dim=-1)
+    theta = torch.arccos(torch.sum(start_vec * n_z, dim=-1)).reshape(-1, 1, 1)
     K = skew(v)
 
     ans = I + torch.sin(theta) * K + (1 - torch.cos(theta)) * K @ K
@@ -409,3 +410,49 @@ def get_points_cem(
     if return_cost_hist:
         ret = (ret, cost_history)
     return ret
+
+def dice_the_grasp(model, cost_fn="psv", num_grasps=5000, mu=0.5, centroid=0., des_z_dist=0.025, projection=None):
+    """Implements the sampling scheme proposed in Borst et al., '03."""
+
+    face_inds = np.arange(model.triangles_center.shape[0])
+
+    rays_o, rays_d = np.zeros((num_grasps, 3, 3)), np.zeros((num_grasps, 3, 3))
+    num_sampled = 0
+
+    lower_corner = np.array([oo[0] for oo in grasp_utils.OBJ_BOUNDS]).reshape(1, 1, 3)
+    upper_corner = np.array([oo[1] for oo in grasp_utils.OBJ_BOUNDS]).reshape(1, 1, 3)
+
+    while num_sampled < num_grasps:
+        curr_inds = np.random.choice(face_inds, size=(num_grasps, 3), replace=True)
+        curr_points = model.triangles_center[curr_inds, :]
+        curr_normals = model.face_normals[curr_inds, :]
+
+        # Correct so ray originas are off the mesh.
+        curr_points = curr_points + des_z_dist * curr_normals
+
+        # Mask out invalid points.
+        grasp_mask = grasp_utils.dicing_rejection_heuristic(curr_normals, mu)
+        grasp_mask = grasp_mask * np.all(curr_points >= lower_corner, axis=(-1,-2))
+        grasp_mask = grasp_mask * np.all(curr_points <= upper_corner, axis=(-1,-2))
+
+        valid_inds = np.argwhere(grasp_mask)[:, 0]
+        num_added = min(num_grasps - num_sampled, valid_inds.shape[0])
+        end_slice = num_sampled + num_added
+
+        rays_o[num_sampled:end_slice] = curr_points[valid_inds[:num_added]]
+        rays_d[num_sampled:end_slice] = -curr_normals[valid_inds[:num_added]]
+
+        num_sampled += num_added
+
+    # Stack into "grasp var" form.
+    grasp_vars = np.concatenate([rays_o, rays_d], axis=-1)
+    grasp_vars = torch.from_numpy(grasp_vars).cuda().float().reshape(num_grasps, -1)
+
+    # Finally evaluate all with a desired grasp metric to find the best one.
+    costs = grasp_cost(grasp_vars, 3, model, residual_dirs=False, cost_fn=cost_fn, centroid=torch.from_numpy(centroid).float().cuda())
+
+    best_grasp = np.argmin(costs.cpu())
+
+    print(costs.cpu()[best_grasp])
+
+    return rays_o[best_grasp], rays_d[best_grasp]

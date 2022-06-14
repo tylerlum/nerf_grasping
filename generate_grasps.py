@@ -38,6 +38,7 @@ def main(
     outfile=None,
     num_grasps=50,
     risk_sensitivity=None,
+    dice_grasp=False,
 ):
     if use_nerf:
         if obj_name == "banana":
@@ -89,6 +90,8 @@ def main(
         else:
             outfile = obj_name
 
+        if dice_grasp: outfile += "_diced"
+
     grasp_points = (
         torch.tensor([[0.09, 0.0, -0.025], [-0.09, 0.0, -0.025], [0, 0.0, 0.09]])
         .reshape(1, 3, 3)
@@ -113,6 +116,17 @@ def main(
 
     sampled_grasps = np.zeros((num_grasps, 3, 6))
     for ii in range(num_grasps):
+        if dice_grasp:
+            rays_o, rays_d = grasp_opt.dice_the_grasp(gt_mesh, cost_fn, centroid=gt_mesh.centroid)
+
+            rays_o = grasp_utils.nerf_to_ig(torch.from_numpy(rays_o).float().cuda())
+            rays_d = grasp_utils.nerf_to_ig(torch.from_numpy(rays_d).float().cuda())
+
+            sampled_grasps[ii, :, :3] = rays_o.cpu()
+            sampled_grasps[ii, :, 3:] = rays_d.cpu()
+
+            continue
+
         grasp_points = grasp_opt.get_points_cem(
             3,
             model,
@@ -163,6 +177,7 @@ if __name__ == "__main__":
     parser.add_argument("--max_finger_dist", default=0.15, type=float)
     parser.add_argument("--outfile", "--out", default=None)
     parser.add_argument("--risk_sensitivity", default=5.0, type=float)
+    parser.add_argument("--dice_grasp", action="store_true")
     args = parser.parse_args()
 
     print(args)

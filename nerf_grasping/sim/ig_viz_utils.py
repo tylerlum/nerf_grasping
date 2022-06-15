@@ -128,7 +128,28 @@ def plot_grasp_distribution(
     plt.show()
 
 
-def plot_grasps(points, lines=None, obj_mesh=None, ax=None, c="C1"):
+def plot_lines(start_points, lines, ax, color="C1"):
+    assert len(lines) == len(
+        start_points
+    ), "# of points: {}, # of lines: {}. Must be equal!".format(
+        len(start_points), len(lines)
+    )
+    for ii in range(len(start_points)):
+        ax.quiver(
+            start_points[ii, 0],
+            start_points[ii, 1],
+            start_points[ii, 2],
+            lines[ii, 0],
+            lines[ii, 1],
+            lines[ii, 2],
+            length=0.05,
+            normalize=True,
+            color=color,
+        )
+    return
+
+
+def plot_grasps(points, lines=None, est_lines=None, obj_mesh=None, ax=None, c="C1"):
     """
     Plots points and lines (using ax.quiver) if given. Assumes all points and meshes
     are given in ig frame.
@@ -138,24 +159,12 @@ def plot_grasps(points, lines=None, obj_mesh=None, ax=None, c="C1"):
         ax = fig.add_subplot(projection="3d")
     if obj_mesh is not None:
         ax.scatter(*[obj_mesh[:, ii] for ii in range(3)], c="blue", alpha=0.025)
+    # plots grasp points
     ax.scatter(points[:, 0], points[:, 1], points[:, 2], c=c)
     if lines is not None:
-        assert len(lines) == len(
-            points
-        ), "# of points: {}, # of lines: {}. Must be equal!".format(
-            len(points), len(lines)
-        )
-        for ii in range(len(points)):
-            ax.quiver(
-                points[ii, 0],
-                points[ii, 1],
-                points[ii, 2],
-                lines[ii, 0],
-                lines[ii, 1],
-                lines[ii, 2],
-                length=0.05,
-                normalize=True,
-            )
+        plot_lines(points, lines, ax)
+    if est_lines is not None:
+        plot_lines(points, est_lines, ax, color="orange")
     ax.set_zlim(0.0, 0.06)
     return ax
 

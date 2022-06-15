@@ -40,40 +40,29 @@ def main(
     dice_grasp=False,
     cost_fn="l1",
 ):
-    if obj_name == "teddy_bear":
-        object_bounds = [(-0.1, 0.1), (0.01, 0.15), (-0.1, 0.1)]
-    elif obj_name == "banana":
-        object_bounds = [(-0.1, 0.1), (0.01, 0.05), (-0.1, 0.1)]
+
+    object_bounds = [(-0.1, 0.1), (0.01, 0.15), (-0.1, 0.1)]
+
+    if obj_name == "banana":
+        obj = ig_objects.Banana()
+    elif obj_name == "box":
+        obj = ig_objects.Box()
+    elif obj_name == "teddy_bear":
+        obj = ig_objects.TeddyBear()
+        obj.use_centroid = True
+    elif obj_name == "powerdrill":
+        obj = ig_objects.PowerDrill()
 
     if use_nerf:
-        if obj_name == "banana":
-            obj = ig_objects.Banana
-        elif obj_name == "box":
-            obj = ig_objects.Box
-        elif obj_name == "teddy_bear":
-            obj = ig_objects.TeddyBear
-            obj.use_centroid = True
-        elif obj_name == "powerdrill":
-            obj = ig_objects.PowerDrill
-
         model = ig_objects.load_nerf(obj.workspace, obj.bound, obj.scale)
         centroid = grasp_utils.get_centroid(model, object_bounds)
         print(f"Estimated Centroid: {centroid}")
         print(f"True Centroid: {get_mesh_centroid(obj_name)}")
 
     else:
-        if mesh_in is not None:
-            obj_mesh = mesh_in
-        elif obj_name == "banana":
-            obj_mesh = "assets/objects/meshes/banana/textured.obj"
-        elif obj_name == "box":
-            obj_mesh = "assets/objects/meshes/cube_multicolor.obj"
-        elif obj_name == "teddy_bear":
-            obj_mesh = "assets/objects/meshes/isaac_teddy/isaac_bear.obj"
-        elif obj_name == "powerdrill":
-            obj_mesh = "assets/objects/meshes/power_drill/textured.obj"
+        obj.load_trimesh()
+        gt_mesh = obj.gt_mesh
 
-        gt_mesh = trimesh.load(obj_mesh, force="mesh")
         T = np.eye(4)
         R = scipy.spatial.transform.Rotation.from_euler("Y", [-np.pi / 2]).as_matrix()
         R = (

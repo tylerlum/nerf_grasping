@@ -11,7 +11,7 @@ import scipy
 import torch
 from nerf import renderer, utils
 
-OBJ_BOUNDS = [(-0.1, 0.1), (0.01, 0.05), (-0.1, 0.1)]
+OBJ_BOUNDS = [(-0.1, 0.1), (0.01, 0.15), (-0.1, 0.1)]
 
 
 def load_nerf(opt):

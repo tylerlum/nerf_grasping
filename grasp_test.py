@@ -169,7 +169,7 @@ def object_pos_control(
     in_normal,
     target_position=None,
     target_normal=2.5,
-    kp=0.1,
+    kp=10.,
     kd=0.1,
     kp_angle=0.04,
     kd_angle=0.001,
@@ -291,7 +291,7 @@ def lifting_trajectory(grasp_vars, mesh=None):
                     pos_offset=obj.position,
                     rot_offset=obj.orientation,
                 )
-                ge = -torch.tensor(ge, dtype=torch.float32)
+                ge = torch.tensor(ge, dtype=torch.float32)
             f_lift, target_force, target_torque = object_pos_control(
                 obj, ge, target_normal=0.4, kp=1.5, kd=1.0, kp_angle=0.1, kd_angle=1e-2
             )
@@ -335,7 +335,7 @@ env = setup_env()
 setup_stage(env)
 viewer = setup_viewer() if visualization else None
 
-Obj = ig_objects.TeddyBear
+Obj = ig_objects.Box
 grasp_points, grasp_normals = Obj.grasp_points, Obj.grasp_normals
 
 grasp_normals = grasp_normals / grasp_normals.norm(dim=1, keepdim=True)
@@ -346,6 +346,7 @@ robot = FingertipRobot(
     gym, sim, env, grasp_vars=grasp_vars, use_grad_est=True, norm_start_offset=0.1
 )
 obj = Obj(gym, sim, env)
+print(obj.mass)
 
 robot.setup_tensors()
 obj.setup_tensors()
@@ -354,7 +355,7 @@ obj.load_trimesh()
 for i in range(4):
     step_gym()
 
-grasp_data = "grasp_data/banana_diced.npy"
+grasp_data = "grasp_data/box.npy"
 nerf = "nerf" in grasp_data
 if not nerf:
     mesh_name = grasp_data.split("/")[1].rstrip(".npy")

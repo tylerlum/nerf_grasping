@@ -14,8 +14,8 @@
 	<mesh filename="meshes/banana/textured.obj" scale="1.0 1.0 1.0"/>
       </geometry>
     </collision>
-    <!-- <inertial> -->
-    <!--   <density value="600.0"/> -->
-    <!-- </inertial> -->
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
   </link>
 </robot>

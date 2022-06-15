@@ -45,13 +45,15 @@ class RigidObject:
     use_centroid = False
     mu = 1.0
 
-    def __init__(self, gym, sim, env):
+    def __init__(self, gym=None, sim=None, env=None):
         self.gym = gym
         self.sim = sim
         self.env = env
 
-        self.asset = self.create_asset()
-        self.actor = self.configure_actor(gym, env)
+        if self.sim is not None:
+            self.asset = self.create_asset()
+            self.actor = self.configure_actor(gym, env)
+
         self.nerf_loaded = False
         self.gt_mesh = None
 
@@ -95,6 +97,7 @@ class RigidObject:
         # T_rot[:3, :3] = R
         # self.gt_mesh.apply_transform(T)
         # self.gt_mesh.apply_transform(T_rot)
+        self.gt_mesh.apply_scale(self.obj_scale)
 
     def create_asset(self):
         asset_options = gymapi.AssetOptions()
@@ -207,55 +210,57 @@ class Box(RigidObject):
     grasp_points = torch.tensor(
         [[0.0, 0.05, 0.05], [0.03, -0.05, 0.05], [-0.03, -0.05, 0.05]]
     )
+    obj_scale = 0.05
 
     grasp_normals = torch.tensor([[0.0, -1.0, 0.0], [0.0, 1.0, 0.0], [0.0, 1.0, 0.0]])
     mesh_file = "objects/meshes/cube_multicolor.obj"
+    asset_file = "objects/urdf/cube_multicolor.urdf"
 
-    def create_asset(self):
-        asset_options = gymapi.AssetOptions()
+#     def create_asset(self):
+#         asset_options = gymapi.AssetOptions()
 
-        asset_options.vhacd_enabled = True
-        asset_options.mesh_normal_mode = gymapi.COMPUTE_PER_VERTEX
-        asset_options.override_inertia = False
-        asset_options.override_com = False
-        asset_options.density = 100
+#         asset_options.vhacd_enabled = True
+#         asset_options.mesh_normal_mode = gymapi.COMPUTE_PER_VERTEX
+#         asset_options.override_inertia = False
+#         asset_options.override_com = False
+#         asset_options.density = 100
 
-        asset_options.vhacd_params.mode = 0
-        asset_options.vhacd_params.resolution = 300000
-        asset_options.vhacd_params.max_convex_hulls = 10
-        asset_options.vhacd_params.max_num_vertices_per_ch = 16
+#         asset_options.vhacd_params.mode = 0
+#         asset_options.vhacd_params.resolution = 300000
+#         asset_options.vhacd_params.max_convex_hulls = 10
+#         asset_options.vhacd_params.max_num_vertices_per_ch = 16
 
-        asset = self.gym.create_box(self.sim, 0.1, 0.1, 0.1, asset_options)
+#         asset = self.gym.create_box(self.sim, 0.1, 0.1, 0.1, asset_options)
 
-        rs_props = self.gym.get_asset_rigid_shape_properties(asset)
-        for p in rs_props:
-            p.friction = 1.0
-            p.torsion_friction = 1.0
-            p.restitution = 0.1
-        self.gym.set_asset_rigid_shape_properties(asset, rs_props)
+#         rs_props = self.gym.get_asset_rigid_shape_properties(asset)
+#         for p in rs_props:
+#             p.friction = 1.0
+#             p.torsion_friction = 1.0
+#             p.restitution = 0.1
+#         self.gym.set_asset_rigid_shape_properties(asset, rs_props)
 
-        return asset
+#         return asset
 
-    def configure_actor(self, gym, env):
-        actor = self.gym.create_actor(
-            env,
-            self.asset,
-            gymapi.Transform(p=gymapi.Vec3(0.0, 0.0, 0.101)),
-            "box",
-            0,
-            0,
-            segmentationId=2,
-        )
-        self.gym.set_rigid_body_color(
-            self.env, actor, 0, gymapi.MESH_VISUAL, gymapi.Vec3(0.8, 0.2, 0.3)
-        )
+#     def configure_actor(self, gym, env):
+#         actor = self.gym.create_actor(
+#             env,
+#             self.asset,
+#             gymapi.Transform(p=gymapi.Vec3(0.0, 0.0, 0.101)),
+#             "box",
+#             0,
+#             0,
+#             segmentationId=2,
+#         )
+#         self.gym.set_rigid_body_color(
+#             self.env, actor, 0, gymapi.MESH_VISUAL, gymapi.Vec3(0.8, 0.2, 0.3)
+#         )
 
-        rigid_body_props = self.gym.get_actor_rigid_body_properties(self.env, actor)
-        self.mass = sum(x.mass for x in rigid_body_props)
-        com = rigid_body_props[0].com
-        self.CG = torch.tensor([com.x, com.y, com.z])
+#         rigid_body_props = self.gym.get_actor_rigid_body_properties(self.env, actor)
+#         self.mass = sum(x.mass for x in rigid_body_props)
+#         com = rigid_body_props[0].com
+#         self.CG = torch.tensor([com.x, com.y, com.z])
 
-        return actor
+#         return actor
 
 
 class PowerDrill(RigidObject):

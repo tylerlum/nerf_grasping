@@ -225,7 +225,7 @@ def setup_sim(gym):
 
 
 def setup_stage(gym, sim, env):
-    asset_dir = osp.join(Path(__file__).parents[1], "assets")
+    asset_dir = osp.join(Path(__file__).parents[2], "assets")
     # this one is convex decomposed
     stage_urdf_file = "trifinger/robot_properties_fingers/urdf/high_table_boundary.urdf"
 

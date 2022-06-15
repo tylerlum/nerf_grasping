@@ -59,7 +59,7 @@ def visualize_markers(
     if marker_handles:
         return reset_marker_positions(gym, env, sim, positions, colors, marker_handles)
     asset_options = gymapi.AssetOptions()
-    asset_options.fix_base_link = False
+    asset_options.fix_base_link = True
     asset_options.angular_damping = 0.0
     asset_options.max_angular_velocity = 0.0
     asset_options.slices_per_cylinder = 40
@@ -128,7 +128,7 @@ def plot_grasp_distribution(
     plt.show()
 
 
-def plot_lines(start_points, lines, ax, color="C1"):
+def plot_lines(start_points, lines, ax, color="C0"):
     assert len(lines) == len(
         start_points
     ), "# of points: {}, # of lines: {}. Must be equal!".format(
@@ -165,7 +165,13 @@ def plot_grasps(points, lines=None, est_lines=None, obj_mesh=None, ax=None, c="C
         plot_lines(points, lines, ax)
     if est_lines is not None:
         plot_lines(points, est_lines, ax, color="orange")
-    ax.set_zlim(0.0, 0.06)
+
+    x_min, x_max = grasp_utils.OBJ_BOUNDS[0]
+    y_min, y_max = grasp_utils.OBJ_BOUNDS[1]
+    z_min, z_max = grasp_utils.OBJ_BOUNDS[2]
+    ax.set_xlim(x_min, x_max)
+    ax.set_ylim(y_min, y_max)
+    ax.set_zlim(z_min, z_max)
     return ax
 
 

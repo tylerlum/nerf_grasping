@@ -694,8 +694,8 @@ class FingertipRobot:
         sphere_radius: float = 0.01,
         target_height: float = 0.07,
         use_grad_est: bool = False,
-        norm_start_offset: float = 0.05,
         grasp_vars: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
+        norm_start_offset: float = 0.05,
         **kwargs,
     ):
         """
@@ -804,7 +804,9 @@ class FingertipRobot:
         """Resets fingertips to points on grasp point lines"""
         if grasp_vars is not None:
             self.grasp_points, self.grasp_normals = grasp_vars
-        for pos, handle in zip(self.ftip_start_pos, self.actors):
+            ftip_start_pos = self.ftip_start_pos
+
+        for pos, handle in zip(ftip_start_pos, self.actors):
             state = self.gym.get_actor_rigid_body_states(
                 self.env, handle, gymapi.STATE_POS
             )
@@ -903,6 +905,8 @@ class FingertipRobot:
         closest_points = ig_utils.closest_point(
             self.grasp_points, self.grasp_points + self.grasp_normals, self.position
         )
+        # copy z-dim of object position for maintaining height
+        closest_points[:, 2] = obj.position[2]
         height_err = 0.0
         if timestep < 50:
             mode = "reach"
@@ -911,7 +915,7 @@ class FingertipRobot:
         elif timestep < 150:
             mode = "grasp"
             pos_err = closest_points - self.position
-            pos_control = pos_err * 5
+            pos_control = pos_err * 3
             vel_control = -0.25 * self.velocity
             f = torch.tensor(self.grasp_normals * 0.1) + pos_control + vel_control
         else:
@@ -946,11 +950,14 @@ class FingertipRobot:
         )
         return state
 
+    def get_ftip_start_pos(self, grasp_points, grasp_normals):
+        ftip_start_pos = grasp_points - grasp_normals * self.norm_start_offset
+        ftip_start_pos[:, 2] = grasp_points[:, 2]
+        return ftip_start_pos
+
     @property
     def ftip_start_pos(self):
-        ftip_start_pos = self.grasp_points - self.grasp_normals * self.norm_start_offset
-        ftip_start_pos[:, 2] = self.grasp_points[:, 2]
-        return ftip_start_pos
+        return self.get_ftip_start_pos(self.grasp_points, self.grasp_normals)
 
     @property
     def position(self):

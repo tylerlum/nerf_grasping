@@ -20,13 +20,16 @@ def get_mesh_centroid(obj_name):
         obj_mesh = "assets/objects/meshes/power_drill/textured.obj"
 
     gt_mesh = trimesh.load(obj_mesh, force="mesh")
+    if obj_name == "teddy_bear":
+        T = trimesh.transformations.scale_matrix(1e-2, np.array([0, 0, 0]))
+        gt_mesh.apply_transform(T)
     T = np.eye(4)
     R = scipy.spatial.transform.Rotation.from_euler("Y", [-np.pi / 2]).as_matrix()
     R = R @ scipy.spatial.transform.Rotation.from_euler("X", [-np.pi / 2]).as_matrix()
     T[:3, :3] = R
     gt_mesh.apply_transform(T)
 
-    centroid = torch.from_numpy(gt_mesh.centroid).float()
+    centroid = torch.from_numpy(gt_mesh.centroid.copy()).float()
     return centroid
 
 
@@ -38,10 +41,10 @@ def main(
     num_grasps=50,
     risk_sensitivity=None,
     dice_grasp=False,
-    cost_fn="l1",
+    cost_fn="psv",
 ):
 
-    object_bounds = [(-0.1, 0.1), (0.01, 0.15), (-0.1, 0.1)]
+    object_bounds = grasp_utils.OBJ_BOUNDS
 
     if obj_name == "banana":
         obj = ig_objects.Banana()
@@ -88,7 +91,7 @@ def main(
             outfile += "_diced"
 
     grasp_points = (
-        torch.tensor([[0.09, 0.0, -0.025], [-0.09, 0.0, -0.025], [0, 0.0, 0.09]])
+        torch.tensor([[0.09, 0.0, -0.045], [-0.09, 0.0, -0.045], [0, 0.0, 0.09]])
         .reshape(1, 3, 3)
         .to(centroid)
     )
@@ -103,11 +106,9 @@ def main(
         )
     ).to(centroid)
 
-    # cost_fn = "psv"
     if use_nerf:
         mu_0, Sigma_0 = mu_0.float().cuda(), Sigma_0.float().cuda()
         centroid = centroid.float().cuda()
-        # cost_fn = "l1"
 
     # centroid_npy = centroid.detach().cpu().numpy()
     sampled_grasps = np.zeros((num_grasps, 3, 6))
@@ -135,7 +136,7 @@ def main(
             Sigma_0=Sigma_0,
             projection=projection_fn,
             centroid=centroid,
-            num_samples=500,
+            num_samples=2000,
             cost_fn=cost_fn,
             risk_sensitivity=risk_sensitivity,
         )
@@ -176,7 +177,7 @@ if __name__ == "__main__":
     parser.add_argument("--outfile", "--out", default=None)
     parser.add_argument("--risk_sensitivity", default=5.0, type=float)
     parser.add_argument("--dice_grasp", action="store_true")
-    parser.add_argument("--cost_fn", default="l1", type=str)
+    parser.add_argument("--cost_fn", default="psv", type=str)
     args = parser.parse_args()
 
     print(args)

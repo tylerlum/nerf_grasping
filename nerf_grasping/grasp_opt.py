@@ -321,6 +321,7 @@ def grasp_cost(
         grasp_points, grad_ests, grasp_mask = mesh_utils.get_grasp_points(
             model, gps, residual_dirs
         )
+        grasp_mask = grasp_mask.all(-1, keepdim=True)
         num_grasps = 1
         risk_sensitivity = None
     else:
@@ -340,12 +341,20 @@ def grasp_cost(
     elif cost_fn == "fc":
         cost_fn = ferrari_canny
     elif cost_fn == "l1":
-        cost_kwargs["grasp_mask"] = grasp_mask.all(-1, keepdim=True).expand(
-            B, num_grasps
-        )
+        cost_kwargs["grasp_mask"] = grasp_mask.expand(B, num_grasps)
         cost_fn = partial(l1_metric, **cost_kwargs)
 
     g_cost = cost_fn(grasp_points, grad_ests).reshape(B, num_grasps)
+
+    # dists = []
+    # for i in range(B):
+    #     dists.append(
+    #         torch.triu(torch.pairwise_distance(grasp_points[i], grasp_points[i])).sum()
+    #     )
+    # dists = torch.stack(dists)
+    # dists /= dists.max() * 10.0  # scale from 0 to 0.2
+    # g_cost += dists.reshape(B, 1)
+
     if risk_sensitivity:
         g_cost = torch.exp(-risk_sensitivity * g_cost)
     else:
@@ -356,15 +365,6 @@ def grasp_cost(
     g_cost = torch.where(
         torch.all(grasp_mask, dim=-1), g_cost, 2.0 * torch.ones_like(g_cost)
     )
-
-    dists = []
-    for i in range(B):
-        dists.append(
-            torch.triu(torch.pairwise_distance(grasp_points[i], grasp_points[i])).sum()
-        )
-    dists = torch.stack(dists)
-    dists /= dists.max() * 5  # scale from 0 to 0.1
-    g_cost += dists
 
     if risk_sensitivity:
         g_cost = (1 / risk_sensitivity) * torch.log(g_cost)

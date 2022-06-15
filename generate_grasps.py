@@ -39,6 +39,11 @@ def main(
     risk_sensitivity=None,
     cost_fn="l1",
 ):
+    if obj_name == "teddy_bear":
+        object_bounds = [(-0.1, 0.1), (0.01, 0.15), (-0.1, 0.1)]
+    elif obj_name == "banana":
+        object_bounds = [(-0.1, 0.1), (0.01, 0.05), (-0.1, 0.1)]
+
     if use_nerf:
         if obj_name == "banana":
             obj = ig_objects.Banana
@@ -51,7 +56,7 @@ def main(
             obj = ig_objects.PowerDrill
 
         model = ig_objects.load_nerf(obj.workspace, obj.bound, obj.scale)
-        centroid = grasp_utils.get_centroid(model)
+        centroid = grasp_utils.get_centroid(model, object_bounds)
         print(f"Estimated Centroid: {centroid}")
         print(f"True Centroid: {get_mesh_centroid(obj_name)}")
 
@@ -111,10 +116,9 @@ def main(
         centroid = centroid.float().cuda()
         # cost_fn = "l1"
 
-    centroid_npy = centroid.detach().cpu().numpy()
+    # centroid_npy = centroid.detach().cpu().numpy()
     sampled_grasps = np.zeros((num_grasps, 3, 6))
-    max_sample_height = min(2 * centroid_npy[1] - 0.01, 0.05)
-    object_bounds = [(-0.1, 0.1), (0.01, max_sample_height), (-0.1, 0.1)]
+    # max_sample_height = min(2 * centroid_npy[1] - 0.01, 0.05)
     projection_fn = partial(grasp_utils.box_projection, object_bounds=object_bounds)
     for ii in range(num_grasps):
         grasp_points = grasp_opt.get_points_cem(

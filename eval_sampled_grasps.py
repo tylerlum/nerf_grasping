@@ -6,32 +6,13 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 
-def get_mesh(obj_name):
-    if obj_name == "banana":
-        obj_mesh = "assets/objects/meshes/banana/textured.obj"
-    elif obj_name == "box":
-        obj_mesh = "assets/objects/meshes/cube_multicolor.obj"
-    elif obj_name == "teddy_bear":
-        obj_mesh = "assets/objects/meshes/isaac_teddy/isaac_bear.obj"
-    elif obj_name == "powerdrill":
-        obj_mesh = "assets/objects/meshes/power_drill/textured.obj"
-
-    gt_mesh = trimesh.load(obj_mesh, force="mesh")
-    # T = np.eye(4)
-    # R = scipy.spatial.transform.Rotation.from_euler("Y", [-np.pi / 2]).as_matrix()
-    # R = R @ scipy.spatial.transform.Rotation.from_euler("X", [-np.pi / 2]).as_matrix()
-    # T[:3, :3] = R
-    return gt_mesh
-
-
-grasps = np.load("grasp_data/bear_l1_nerf.npy")
+grasps = np.load("grasp_data/powerdrill_10.npy")
 residual_dirs = False
-cost_fn = "psv"
+cost_fn = "l1"
 n_f = 3
-obj = ig_objects.TeddyBear
-gt_mesh = get_mesh(obj.name)
-T = trimesh.transformations.scale_matrix(obj.obj_scale, np.array([0, 0, 0]))
-gt_mesh.apply_transform(T)
+obj = ig_objects.PowerDrill()
+if obj.name == "teddy_bear":
+    obj.use_centroid = True
 model = ig_objects.load_nerf(obj.workspace, obj.bound, obj.scale)
 centroid = grasp_utils.get_centroid(model)
 
@@ -48,11 +29,8 @@ cost = lambda x: grasp_opt.grasp_cost(
 ax = ig_viz_utils.plot_grasps(
     grasps[:, :, :3],
     grasps[:, :, 3:] * 0.05,
-    obj_mesh=gt_mesh.triangles_center,
+    obj_mesh=obj.gt_mesh.triangles_center,
 )
 plt.show()
 
-
-for x in grasps:
-    x = torch.tensor(x).cuda().float()
-    print(cost(x))
+print(cost(torch.tensor(grasps).cuda().float()))

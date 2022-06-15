@@ -85,7 +85,8 @@ class RigidObject:
     def load_trimesh(self):
         mesh_path = os.path.join(asset_dir, self.mesh_file)
         self.gt_mesh = trimesh.load(mesh_path, force="mesh")
-        # T = trimesh.transformations.scale_matrix(self.obj_scale, np.array([0, 0, 0]))
+        T = trimesh.transformations.scale_matrix(self.obj_scale, np.array([0, 0, 0]))
+        self.gt_mesh.apply_transform(T)
         # R = scipy.spatial.transform.Rotation.from_euler("Y", [-np.pi / 2]).as_matrix()
         # R = (
         #     R
@@ -93,7 +94,6 @@ class RigidObject:
         # )
         # T_rot = np.eye(4)
         # T_rot[:3, :3] = R
-        # self.gt_mesh.apply_transform(T)
         # self.gt_mesh.apply_transform(T_rot)
 
     def create_asset(self):
@@ -181,6 +181,7 @@ class TeddyBear(RigidObject):
     mesh_file = "objects/meshes/isaac_teddy/isaac_bear.obj"
     obj_scale = 1e-2
     name = "teddy_bear"
+    workspace = "teddy_bear"
 
     data_dir = f"{root_dir}/nerf_shared/data/isaac_teddy"
     config_path = f"{root_dir}/nerf_shared/configs/isaac_teddy.txt"
@@ -198,6 +199,7 @@ class TeddyBear(RigidObject):
             [0.0390, -0.0580, 0.0000],
         ]
     )
+    mu = 100.0
 
 
 class Box(RigidObject):

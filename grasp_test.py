@@ -339,64 +339,105 @@ def lifting_trajectory(grasp_vars, mesh=None):
             start_timestep = timestep
     return height_err <= err_bound
 
+if __name__ == '__main__':
 
-visualization = True
-gym = gymapi.acquire_gym()
+    import argparse
 
-sim = setup_sim()
-env = setup_env()
-setup_stage(env)
-viewer = setup_viewer() if visualization else None
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--obj_name", "--o", help="object to use", default="banana")
+    parser.add_argument(
+        "--use_nerf",
+        "--nerf",
+        help="flag to use NeRF to generate grasps",
+        action="store_true",
+    )
+    parser.add_argument('--diced', action='store_true')
+    parser.add_argument('--level_set', default=None)
+    parser.add_argument('--gt_normals', action='store_true')
+    parser.add_argument('--grasp', default='all', type=str)
+    args = parser.parse_args()
 
-Obj = ig_objects.Box
-grasp_points, grasp_normals = Obj.grasp_points, Obj.grasp_normals
+    print(args)
 
-grasp_normals = grasp_normals / grasp_normals.norm(dim=1, keepdim=True)
-grasp_vars = (grasp_points, grasp_normals)
+    visualization = True
+    gym = gymapi.acquire_gym()
 
-# Creates the robot, fop objective, and object
-robot = FingertipRobot(
-    gym, sim, env, grasp_vars=grasp_vars, use_grad_est=True, norm_start_offset=0.1
-)
-obj = Obj(gym, sim, env)
-print(obj.mass)
+    sim = setup_sim()
+    env = setup_env()
+    setup_stage(env)
+    viewer = setup_viewer() if visualization else None
 
-robot.setup_tensors()
-obj.setup_tensors()
-obj.load_nerf_model()
-obj.load_trimesh()
-for i in range(4):
-    step_gym()
+    if args.obj_name == "banana":
+        obj = ig_objects.Banana
+    elif args.obj_name == "box":
+        obj = ig_objects.Box
+    elif args.obj_name == "teddy_bear":
+        obj = ig_objects.TeddyBear
+        obj.use_centroid = True
+    elif args.obj_name == "powerdrill":
+        obj = ig_objects.PowerDrill
 
-grasp_data = "grasp_data/box_10.npy"
-nerf = "nerf" in grasp_data
-if not nerf:
-    mesh_name = grasp_data.split("/")[1].rstrip(".npy")
-    mesh = trimesh.load(f"grasp_data/meshes/{mesh_name}.obj", force="mesh")
-else:
-    mesh = None
-grasp = "all"
-grasps = np.load(grasp_data)
-if grasp == "random":
-    sample_idx = np.random.choice(np.arange(grasps.shape[0]))
-elif grasp != "all":
-    sample_idx = float(grasp)
-else:
-    sample_idx = None
-if sample_idx is not None:
-    grasps = grasps[sample_idx][None]
-successes = 0
+    grasp_points, grasp_normals = obj.grasp_points, obj.grasp_normals
 
-for grasp_idx in range(len(grasps)):
-    grasp_points = torch.tensor(grasps[grasp_idx, :, :3], dtype=torch.float32)
-    grasp_normals = torch.tensor(grasps[grasp_idx, :, 3:], dtype=torch.float32)
+    grasp_normals = grasp_normals / grasp_normals.norm(dim=1, keepdim=True)
     grasp_vars = (grasp_points, grasp_normals)
 
-    print(f"EVALUATING GRASP from {grasp_data} {grasp_idx}: {grasp_points}")
-    print(grasp_points, grasp_idx)
-    success = lifting_trajectory(grasp_vars, mesh=mesh)
-    successes += success
-    if success:
-        print(f"SUCCESS! grasp {grasp_idx}")
+    # Creates the robot, fop objective, and object
+    robot = FingertipRobot(
+        gym, sim, env, grasp_vars=grasp_vars, use_grad_est=True, norm_start_offset=0.1
+    )
+    obj = obj(gym, sim, env)
+    print(obj.mass)
 
-print(f"Percent successes: {successes / len(grasps) * 100}% out of {len(grasps)}")
+    robot.setup_tensors()
+    obj.setup_tensors()
+    obj.load_nerf_model()
+    obj.load_trimesh()
+    for i in range(4):
+        step_gym()
+
+
+    grasp_data = "grasp_data/" + args.obj_name
+    if args.diced:
+        grasp_data += '_diced'
+    elif args.use_nerf:
+        grasp_data += '_nerf'
+    elif args.level_set is not None:
+        grasp_data += f'_{args.level_set}'
+
+    grasp_data += '.npy'
+    if not args.use_nerf:
+        if args.gt_normals:
+            mesh_name = obj_name
+        else:
+            mesh_name = grasp_data.split("/")[1].rstrip(".npy")
+        mesh = trimesh.load(f"grasp_data/meshes/{mesh_name}.obj", force="mesh")
+    else:
+        mesh = None
+
+    grasps = np.load(grasp_data)
+    if args.grasp == "random":
+        sample_idx = np.random.choice(np.arange(grasps.shape[0]))
+    elif args.grasp != "all":
+        sample_idx = float(grasp)
+    else:
+        sample_idx = None
+
+    if sample_idx is not None:
+        grasps = grasps[sample_idx][None]
+
+    successes = 0
+
+    for grasp_idx in range(len(grasps)):
+        grasp_points = torch.tensor(grasps[grasp_idx, :, :3], dtype=torch.float32)
+        grasp_normals = torch.tensor(grasps[grasp_idx, :, 3:], dtype=torch.float32)
+        grasp_vars = (grasp_points, grasp_normals)
+
+        print(f"EVALUATING GRASP from {grasp_data} {grasp_idx}: {grasp_points}")
+        print(grasp_points, grasp_idx)
+        success = lifting_trajectory(grasp_vars, mesh=mesh)
+        successes += success
+        if success:
+            print(f"SUCCESS! grasp {grasp_idx}")
+
+    print(f"Percent successes: {successes / len(grasps) * 100}% out of {len(grasps)}")

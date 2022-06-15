@@ -11,7 +11,7 @@ import scipy
 import torch
 from nerf import renderer, utils
 
-OBJ_BOUNDS = [(-0.0625, 0.0625), (0.01, 0.15), (-0.0625, 0.0625)]
+OBJ_BOUNDS = [(-0.0625, 0.0625), (0.01, 0.125), (-0.0625, 0.0625)]
 
 
 def load_nerf(opt):
@@ -307,10 +307,10 @@ def sample_grasps(grasp_vars, num_grasps, model, residual_dirs=True, centroid=0.
     )
 
     # Mask approach directions that will not collide with each other
-    approach_mask = intersect_grasp_dirs(
-        grasp_vars, model, residual_dirs, centroid, B, n_f
-    )
-    grasp_mask = torch.logical_and(grasp_mask, approach_mask)
+    # approach_mask = intersect_grasp_dirs(
+    #     grasp_vars, model, residual_dirs, centroid, B, n_f
+    # )
+    # grasp_mask = torch.logical_and(grasp_mask, approach_mask)
 
     # Estimate gradients.
     _, grad_ests = est_grads_vals(model, grasp_points.reshape(B, -1, 3))
@@ -564,11 +564,11 @@ def res_to_true_dirs(rays_o, rays_d, centroid=0.0):
 
 
 def get_centroid(
-    model, object_bounds=[(-0.15, 0.15), (0.0, 0.15), (-0.15, 0.15)], num_samples=10000
+    model, num_samples=10000, thresh=None
 ):
     """Computes approximate centroid using NeRF model."""
-    min_corner = torch.tensor([bb[0] for bb in object_bounds])
-    max_corner = torch.tensor([bb[-1] for bb in object_bounds])
+    min_corner = torch.tensor([bb[0] for bb in OBJ_BOUNDS])
+    max_corner = torch.tensor([bb[-1] for bb in OBJ_BOUNDS])
 
     box_center = (1 / 2) * (max_corner + min_corner)
     box_scale = max_corner - min_corner
@@ -579,9 +579,13 @@ def get_centroid(
     sample_points = sample_points.cuda().float()
 
     sample_densities = model.density(sample_points)
-    sample_densities = sample_densities / torch.sum(sample_densities)
+    if thresh is not None:
+        mask_inds = torch.argwhere(sample_densities > thresh)
+        return torch.mean(sample_points[mask_inds], dim=0)
+    else:
+        sample_densities = sample_densities / torch.sum(sample_densities)
 
-    return torch.sum(sample_densities.reshape(-1, 1) * sample_points, dim=0)
+        return torch.sum(sample_densities.reshape(-1, 1) * sample_points, dim=0)
 
 
 def correct_z_dists(model, grasp_points, centroid=0.0, des_z_dist=0.025, num_iters=10):

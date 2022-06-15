@@ -17,7 +17,7 @@ from skimage import measure
 def marching_cubes(
     nerf,
     lower=np.array([-0.1, 0.01, -0.1]),
-    upper=np.array([0.1, 0.1, 0.1]),
+    upper=np.array([0.1, 0.2, 0.1]),
     level_set=0.5,
     num_points=50,
 ):
@@ -349,6 +349,7 @@ def get_grasp_points(mesh, grasp_vars, residual_dirs=True):
 
     return grasp_points, grasp_normals, grasp_mask
 
+
 def correct_z_dists(mesh, rays_o, rays_d, des_dist=0.025):
 
     if isinstance(rays_o, torch.Tensor):
@@ -363,7 +364,7 @@ def correct_z_dists(mesh, rays_o, rays_d, des_dist=0.025):
     )
 
     dists = np.linalg.norm(rays_o_np - hit_points, axis=-1)
-    rays_o_corrected = rays_o_np + (dists-des_dist).reshape(3,1) * rays_d_np
+    rays_o_corrected = rays_o_np + (dists - des_dist).reshape(3, 1) * rays_d_np
 
     print(np.linalg.norm(rays_o_corrected - hit_points, axis=-1))
 

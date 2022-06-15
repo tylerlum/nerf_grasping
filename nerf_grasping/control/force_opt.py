@@ -85,7 +85,7 @@ def calculate_grip_forces(
 
     if F.value is None:
         print("Failed to solve!")
-        return torch.zeros((3, 3))
+        return torch.zeros((3, 3), dtype=torch.float32)
 
     global_forces = np.zeros_like(F.value)
     for i in range(n):

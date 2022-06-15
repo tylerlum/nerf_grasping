@@ -783,7 +783,10 @@ class FingertipRobot:
 
     def apply_fingertip_forces(self, global_fingertip_forces):
         """Applies forces to individual actors"""
-        assert global_fingertip_forces.shape == (3, 3)
+        assert global_fingertip_forces.shape == (
+            3,
+            3,
+        ), f"actualshape:{global_fingertip_forces.shape}"
         self.previous_global_forces = global_fingertip_forces
         for f, actor_handle in zip(global_fingertip_forces, self.actors):
             rb_handle = self.gym.get_actor_rigid_body_handle(self.env, actor_handle, 0)
@@ -833,13 +836,13 @@ class FingertipRobot:
         _, grad_ests = grasp_utils.est_grads_vals(
             obj.model,
             nerf_tip_pos.reshape(1, -1, 3).cuda(),
-            sigma=5e-3,
-            num_samples=1000,
+            sigma=7.5e-3,
+            num_samples=250,
             method="gaussian",
         )
         grad_ests = grad_ests.reshape(3, 3).float()
         grad_ests /= grad_ests.norm(dim=1, keepdim=True)
-        grad_ests = grasp_utils.nerf_to_ig(grad_ests.cpu().detach().numpy())
+        grad_ests = grasp_utils.nerf_to_ig(grad_ests)
         return grad_ests
 
     def object_pos_control(
@@ -900,7 +903,7 @@ class FingertipRobot:
         closest_points = ig_utils.closest_point(
             self.grasp_points, self.grasp_points + self.grasp_normals, self.position
         )
-        # height_err = 0.0
+        height_err = 0.0
         if timestep < 50:
             mode = "reach"
             f = self.position_control(self.grasp_points)
@@ -914,16 +917,15 @@ class FingertipRobot:
         else:
             mode = "lift"
             pos_err = closest_points - self.position
-            # height_err = self.target_height - obj.position[-1]
+            height_err = self.target_height - obj.position[-1]
             if self.use_grad_est:
                 ge = self.get_grad_ests(obj, closest_points).cpu().float()
             else:
                 gp, ge = ig_utils.get_mesh_contacts(obj.gt_mesh, closest_points)
                 ge = torch.tensor(ge, dtype=torch.float32)
             f_lift, target_force, target_torque = self.object_pos_control(
-                obj, ge, target_normal=1.0, kp=1.5, kd=1.0, kp_angle=0.1, kd_angle=1e-2
+                obj, ge, target_normal=0.4, kp=1.5, kd=1.0, kp_angle=0.1, kd_angle=1e-2
             )
-            # des_wrench = torch.cat(object_pos_control(obj, ge)[1:])
             f = f_lift
         self.apply_fingertip_forces(f)
         net_obj_force = self.gym.get_rigid_contact_forces(self.sim)[obj.actor]
@@ -934,7 +936,7 @@ class FingertipRobot:
             print("VELOCITY:", self.velocity)
             print("FORCE MAG:", f.norm())
             print("OBJECT FORCES:", net_obj_force)
-
+            print("HEIGHT ERROR:", height_err)
         state = dict(
             mode=mode,
             pos_err=pos_err,

@@ -276,8 +276,8 @@ def lifting_trajectory(grasp_vars, mesh=None):
             mode = "grasp"
             pos_err = closest_points - robot.position
             pos_control = pos_err * 5
-            vel_control = -10. * robot.velocity
-            f = torch.tensor(grasp_normals * 0.0001) + pos_control + vel_control
+            vel_control = -1. * robot.velocity
+            f = torch.tensor(grasp_normals * 0.05) + pos_control + vel_control
         else:
             mode = "lift"
             closest_points[:, 2] = obj.position[2] + 0.005
@@ -348,7 +348,7 @@ env = setup_env()
 setup_stage(env)
 viewer = setup_viewer() if visualization else None
 
-Obj = ig_objects.Banana
+Obj = ig_objects.Box
 grasp_points, grasp_normals = Obj.grasp_points, Obj.grasp_normals
 
 grasp_normals = grasp_normals / grasp_normals.norm(dim=1, keepdim=True)
@@ -368,7 +368,7 @@ obj.load_trimesh()
 for i in range(4):
     step_gym()
 
-grasp_data = "grasp_data/banana.npy"
+grasp_data = "grasp_data/box_10.npy"
 nerf = "nerf" in grasp_data
 if not nerf:
     mesh_name = grasp_data.split("/")[1].rstrip(".npy")

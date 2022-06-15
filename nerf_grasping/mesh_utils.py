@@ -64,7 +64,7 @@ def marching_cubes(
     verts[:, 0] -= upper[0]
     verts[:, -1] -= upper[-1]
 
-    return verts, faces, normals, values
+    return verts, faces, -normals, values
 
 
 def poisson_mesh(mesh, depth=10, samples_per_node=5.0):

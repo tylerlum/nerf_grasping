@@ -11,7 +11,7 @@ import scipy
 import torch
 from nerf import renderer, utils
 
-OBJ_BOUNDS = [(-0.1, 0.1), (0.01, 0.05), (-0.1, 0.1)]
+OBJ_BOUNDS = [(-0.1, 0.1), (0.01, 0.15), (-0.1, 0.1)]
 
 
 def load_nerf(opt):
@@ -307,20 +307,23 @@ def sample_grasps(grasp_vars, num_grasps, model, residual_dirs=True, centroid=0.
     )
 
     # Mask approach directions that will not collide with each other
-    # approach_mask = intersect_grasp_dirs(
-    #     grasp_vars, model, residual_dirs, centroid, B, n_f
-    # )
-    # grasp_mask = torch.logical_and(grasp_mask, approach_mask)
+    approach_mask = intersect_grasp_dirs(
+        grasp_vars, model, residual_dirs, centroid, B, n_f
+    )
+    grasp_mask = torch.logical_and(grasp_mask, approach_mask)
 
     # Estimate gradients.
     _, grad_ests = est_grads_vals(model, grasp_points.reshape(B, -1, 3))
     grad_ests = grad_ests.reshape(B, n_f, num_grasps, 3)
 
-    normal_ests = grad_ests / torch.norm(grad_ests, dim=-1, keepdim=True)
+    # normal_ests = grad_ests / torch.norm(grad_ests, dim=-1, keepdim=True)
 
     # # Enforce constraint that expected normal is no more than 30 deg from approach dir.
     # grasp_mask = torch.logical_and(
-    #      grasp_mask, torch.median(torch.sum(normal_ests * rays_d.unsqueeze(-2), dim=-1), dim=-1)[0] >= 0.5)
+    #     grasp_mask,
+    #     torch.median(torch.sum(normal_ests * rays_d.unsqueeze(-2), dim=-1), dim=-1)[0]
+    #     >= 0.5,
+    # )
 
     # print(torch.sum(normal_ests * rays_d.unsqueeze(-2), dim=-1))
 

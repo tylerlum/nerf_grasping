@@ -425,7 +425,16 @@ def get_points_cem(
         ret = (ret, cost_history)
     return ret
 
-def dice_the_grasp(model, cost_fn="psv", num_grasps=5000, mu=0.5, centroid=0., des_z_dist=0.025, projection=None):
+
+def dice_the_grasp(
+    model,
+    cost_fn="psv",
+    num_grasps=5000,
+    mu=0.5,
+    centroid=0.0,
+    des_z_dist=0.025,
+    projection=None,
+):
     """Implements the sampling scheme proposed in Borst et al., '03."""
 
     face_inds = np.arange(model.triangles_center.shape[0])
@@ -446,8 +455,8 @@ def dice_the_grasp(model, cost_fn="psv", num_grasps=5000, mu=0.5, centroid=0., d
 
         # Mask out invalid points.
         grasp_mask = grasp_utils.dicing_rejection_heuristic(curr_normals, mu)
-        grasp_mask = grasp_mask * np.all(curr_points >= lower_corner, axis=(-1,-2))
-        grasp_mask = grasp_mask * np.all(curr_points <= upper_corner, axis=(-1,-2))
+        grasp_mask = grasp_mask * np.all(curr_points >= lower_corner, axis=(-1, -2))
+        grasp_mask = grasp_mask * np.all(curr_points <= upper_corner, axis=(-1, -2))
 
         valid_inds = np.argwhere(grasp_mask)[:, 0]
         num_added = min(num_grasps - num_sampled, valid_inds.shape[0])
@@ -463,7 +472,14 @@ def dice_the_grasp(model, cost_fn="psv", num_grasps=5000, mu=0.5, centroid=0., d
     grasp_vars = torch.from_numpy(grasp_vars).cuda().float().reshape(num_grasps, -1)
 
     # Finally evaluate all with a desired grasp metric to find the best one.
-    costs = grasp_cost(grasp_vars, 3, model, residual_dirs=False, cost_fn=cost_fn, centroid=torch.from_numpy(centroid).float().cuda())
+    costs = grasp_cost(
+        grasp_vars,
+        3,
+        model,
+        residual_dirs=False,
+        cost_fn=cost_fn,
+        centroid=torch.from_numpy(centroid).float().cuda(),
+    )
 
     best_grasp = np.argmin(costs.cpu())
 

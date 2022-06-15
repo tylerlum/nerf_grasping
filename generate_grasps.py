@@ -140,7 +140,7 @@ def main(
             cost_fn=cost_fn,
             risk_sensitivity=risk_sensitivity,
         )
-        grasp_points = grasp_points.reshape(3, 6)
+        grasp_points = grasp_points.reshape(3,6)
         rays_o, rays_d = grasp_points[:, :3], grasp_points[:, 3:]
 
         rays_d = grasp_utils.res_to_true_dirs(rays_o, rays_d, centroid)

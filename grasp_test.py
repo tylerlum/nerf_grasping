@@ -168,7 +168,7 @@ def object_pos_control(
     obj,
     in_normal,
     target_position=None,
-    target_normal=2.5,
+    target_normal=0.5,
     kp=10.,
     kd=0.1,
     kp_angle=0.04,
@@ -190,6 +190,7 @@ def object_pos_control(
     # target_force = object_weight_comp - 0.9 * pos_error - 0.4 * vel
     # banana tuning
     target_force = object_weight_comp - kp * pos_error - kd * vel
+    # target_force = -kp * pos_error - kd * vel
     target_torque = (
         -kp_angle * (quat @ target_quat.T).to_tangent_space() - kd_angle * angular_vel
     )
@@ -293,7 +294,7 @@ def lifting_trajectory(grasp_vars, mesh=None):
                 )
                 ge = torch.tensor(ge, dtype=torch.float32)
             f_lift, target_force, target_torque = object_pos_control(
-                obj, ge, target_normal=0.4, kp=1.5, kd=1.0, kp_angle=0.1, kd_angle=1e-2
+                obj, ge, target_normal=1.0, kp=1.5, kd=1.0, kp_angle=0.1, kd_angle=1e-2
             )
             f = f_lift
 
@@ -313,7 +314,11 @@ def lifting_trajectory(grasp_vars, mesh=None):
             if mode == "lift":
                 print("HEIGHT_ERR:", height_err)
             # print(f"NET CONTACT FORCE:", net_cf[obj.index,:])
-        if (robot.position[:, -1] >= 0.1).any():
+        if (robot.position[:, -1] <= 0.01).any():
+            print("Finger too low!")
+            return False
+        if (robot.position[:, -1] >= 0.5).any():
+            print("Finger too high!")
             return False
         # if number of timesteps of grasp success exceeds 3 seconds
         succ_timesteps = 180
@@ -335,7 +340,7 @@ env = setup_env()
 setup_stage(env)
 viewer = setup_viewer() if visualization else None
 
-Obj = ig_objects.Box
+Obj = ig_objects.TeddyBear
 grasp_points, grasp_normals = Obj.grasp_points, Obj.grasp_normals
 
 grasp_normals = grasp_normals / grasp_normals.norm(dim=1, keepdim=True)
@@ -355,7 +360,7 @@ obj.load_trimesh()
 for i in range(4):
     step_gym()
 
-grasp_data = "grasp_data/box.npy"
+grasp_data = "grasp_data/teddy_bear.npy"
 nerf = "nerf" in grasp_data
 if not nerf:
     mesh_name = grasp_data.split("/")[1].rstrip(".npy")

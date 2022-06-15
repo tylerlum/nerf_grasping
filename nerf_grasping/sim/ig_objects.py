@@ -103,13 +103,13 @@ class RigidObject:
 
         asset_options.vhacd_enabled = True
         asset_options.mesh_normal_mode = gymapi.COMPUTE_PER_VERTEX
-        asset_options.density = 100
-        asset_options.override_inertia = True
+        # asset_options.density = 100
+        asset_options.override_inertia = False
         asset_options.override_com = False
 
         asset_options.vhacd_params.mode = 0
         asset_options.vhacd_params.resolution = 300000
-        asset_options.vhacd_params.max_convex_hulls = 10
+        asset_options.vhacd_params.max_convex_hulls = 30
         asset_options.vhacd_params.max_num_vertices_per_ch = 16
 
         asset = self.gym.load_asset(self.sim, asset_dir, self.asset_file, asset_options)
@@ -202,7 +202,7 @@ class TeddyBear(RigidObject):
             [0.0390, -0.0580, 0.0000],
         ]
     )
-    mu = 10.0
+    mu = 1.0
 
 
 class Box(RigidObject):
@@ -297,7 +297,7 @@ class Banana(RigidObject):
     asset_file = "objects/urdf/banana.urdf"
     mesh_file = "objects/meshes/banana/textured.obj"
     name = "banana"
-    mu = 100.0
+    mu = 1.0
     translation = np.array([-1.4408e-05,  3.8640e-06,  2.7102e-03])
 
 

@@ -9,28 +9,25 @@ import trimesh
 import numpy as np
 
 
-def get_mesh_centroid(obj_name):
-    if obj_name == "banana":
-        obj_mesh = "assets/objects/meshes/banana/textured.obj"
-    elif obj_name == "box":
-        obj_mesh = "assets/objects/meshes/cube_multicolor.obj"
-    elif obj_name == "teddy_bear":
-        obj_mesh = "assets/objects/meshes/isaac_teddy/isaac_bear.obj"
-    elif obj_name == "powerdrill":
-        obj_mesh = "assets/objects/meshes/power_drill/textured.obj"
+# def get_mesh_centroid(obj_name):
+#     if obj_name == "banana":
+#         obj_mesh = "assets/objects/meshes/banana/textured.obj"
+#     elif obj_name == "box":
+#         obj_mesh = "assets/objects/meshes/cube_multicolor.obj"
+#     elif obj_name == "teddy_bear":
+#         obj_mesh = "assets/objects/meshes/isaac_teddy/isaac_bear.obj"
+#     elif obj_name == "powerdrill":
+#         obj_mesh = "assets/objects/meshes/power_drill/textured.obj"
 
-    gt_mesh = trimesh.load(obj_mesh, force="mesh")
-    if obj_name == "teddy_bear":
-        T = trimesh.transformations.scale_matrix(1e-2, np.array([0, 0, 0]))
-        gt_mesh.apply_transform(T)
-    T = np.eye(4)
-    R = scipy.spatial.transform.Rotation.from_euler("Y", [-np.pi / 2]).as_matrix()
-    R = R @ scipy.spatial.transform.Rotation.from_euler("X", [-np.pi / 2]).as_matrix()
-    T[:3, :3] = R
-    gt_mesh.apply_transform(T)
+#     gt_mesh = trimesh.load(obj_mesh, force="mesh")
+#     T = np.eye(4)
+#     R = scipy.spatial.transform.Rotation.from_euler("Y", [-np.pi / 2]).as_matrix()
+#     R = R @ scipy.spatial.transform.Rotation.from_euler("X", [-np.pi / 2]).as_matrix()
+#     T[:3, :3] = R
+#     gt_mesh.apply_transform(T)
 
-    centroid = torch.from_numpy(gt_mesh.centroid.copy()).float()
-    return centroid
+#     centroid = torch.from_numpy(gt_mesh.centroid.copy()).float()
+#     return centroid
 
 
 def main(
@@ -41,7 +38,7 @@ def main(
     num_grasps=50,
     risk_sensitivity=None,
     dice_grasp=False,
-    cost_fn="psv",
+    cost_fn="l1",
 ):
 
     object_bounds = grasp_utils.OBJ_BOUNDS
@@ -60,11 +57,14 @@ def main(
         model = ig_objects.load_nerf(obj.workspace, obj.bound, obj.scale)
         centroid = grasp_utils.get_centroid(model, object_bounds)
         print(f"Estimated Centroid: {centroid}")
-        print(f"True Centroid: {get_mesh_centroid(obj_name)}")
-
+        print(f"True Centroid: {obj.gt_mesh.centroid}")
     else:
-        obj.load_trimesh()
-        gt_mesh = obj.gt_mesh
+
+        if mesh_in is not None:
+            obj_mesh = trimesh.load(mesh_in, force='mesh')
+
+        else:
+            obj_mesh = obj.gt_mesh
 
         T = np.eye(4)
         R = scipy.spatial.transform.Rotation.from_euler("Y", [-np.pi / 2]).as_matrix()
@@ -73,10 +73,10 @@ def main(
             @ scipy.spatial.transform.Rotation.from_euler("X", [-np.pi / 2]).as_matrix()
         )
         T[:3, :3] = R
-        gt_mesh.apply_transform(T)
+        obj_mesh.apply_transform(T)
 
-        model = gt_mesh
-        centroid = torch.from_numpy(gt_mesh.centroid).float()
+        model = obj_mesh
+        centroid = torch.from_numpy(obj_mesh.centroid).float()
 
     if outfile is None:
         if use_nerf:
@@ -117,7 +117,7 @@ def main(
     for ii in range(num_grasps):
         if dice_grasp:
             rays_o, rays_d = grasp_opt.dice_the_grasp(
-                gt_mesh, cost_fn, centroid=gt_mesh.centroid
+                model, cost_fn, centroid=centroid
             )
 
             rays_o = grasp_utils.nerf_to_ig(torch.from_numpy(rays_o).float().cuda())
@@ -177,7 +177,7 @@ if __name__ == "__main__":
     parser.add_argument("--outfile", "--out", default=None)
     parser.add_argument("--risk_sensitivity", default=5.0, type=float)
     parser.add_argument("--dice_grasp", action="store_true")
-    parser.add_argument("--cost_fn", default="psv", type=str)
+    parser.add_argument("--cost_fn", default="l1", type=str)
     args = parser.parse_args()
 
     print(args)

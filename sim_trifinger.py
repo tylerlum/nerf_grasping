@@ -235,6 +235,11 @@ class TriFingerEnv:
 
             self.camera_handles.append(camera_handle)
 
+        self.overhead_camera_handle = self.gym.create_camera_sensor(env, camera_props)
+        self.gym.set_camera_location(
+            self.overhead_camera_handle, env, gymapi.Vec3(0, 0.001, 0.5), gymapi.Vec3(0, 0, 0.01)
+        )
+
     def setup_save_dir(self, folder, overwrite=False):
         path = Path(folder)
 
@@ -260,41 +265,51 @@ class TriFingerEnv:
             )
         self.image_idx += 1
 
+    def save_single_image(self, path, ii, camera_handle, numpy_depth=False):
+        print(f"saving camera {ii}")
+
+        color_image = self.gym.get_camera_image(
+            self.sim, self.env, camera_handle, gymapi.IMAGE_COLOR
+        )
+        color_image = color_image.reshape(400, 400, -1)
+        Image.fromarray(color_image).save(path / f"col_{ii}.png")
+        print(color_image)
+
+        segmentation_image = self.gym.get_camera_image(
+            self.sim, self.env, camera_handle, gymapi.IMAGE_SEGMENTATION
+        )
+        segmentation_image = segmentation_image == 2
+        segmentation_image = (segmentation_image.reshape(400, 400) * 255).astype(np.uint8)
+        Image.fromarray(segmentation_image).convert("L").save(path / f"seg_{ii}.png")
+
+        depth_image = self.gym.get_camera_image(
+            self.sim, self.env, camera_handle, gymapi.IMAGE_DEPTH
+        )
+        # distance in units I think
+        depth_image = -depth_image.reshape(400, 400)
+        if numpy_depth:
+            np.save(path / f"dep_{ii}.npy", depth_image)
+        else:
+            depth_image = (np.clip(depth_image, 0.0, 1.0) * 255).astype(np.uint8)
+            Image.fromarray(depth_image).convert("L").save(path / f"dep_{ii}.png")
+
+        pos, quat = get_fixed_camera_transform(
+            self.gym, self.sim, self.env, camera_handle
+        )
+
+        with open(path / f"pos_xyz_quat_xyzw_{ii}.txt", "w+") as f:
+            data = [*pos.tolist(), *quat.q[1:].tolist(), quat.q[0].tolist()]
+            json.dump(data, f)
+
     def save_images(self, folder, overwrite=False):
         self.gym.render_all_camera_sensors(self.sim)
 
         path = self.setup_save_dir(folder, overwrite)
 
-        for i, camera_handle in enumerate(self.camera_handles):
-            print(f"saving camera {i}")
+        for ii, camera_handle in enumerate(self.camera_handles):
+            self.save_single_image(path, ii, camera_handle)
 
-            color_image = self.gym.get_camera_image(
-                self.sim, self.env, camera_handle, gymapi.IMAGE_COLOR
-            )
-            color_image = color_image.reshape(400, 400, -1)
-            Image.fromarray(color_image).save(path / f"col_{i}.png")
-
-            color_image = self.gym.get_camera_image(
-                self.sim, self.env, camera_handle, gymapi.IMAGE_SEGMENTATION
-            )
-            color_image = color_image.reshape(400, 400) * 30
-            Image.fromarray(color_image, "I").convert("L").save(path / f"seg_{i}.png")
-
-            color_image = self.gym.get_camera_image(
-                self.sim, self.env, camera_handle, gymapi.IMAGE_DEPTH
-            )
-            # distance in units I think
-            color_image = -color_image.reshape(400, 400)
-            color_image = (np.clip(color_image, 0.0, 1.0) * 255).astype(np.uint8)
-            Image.fromarray(color_image).convert("L").save(path / f"dep_{i}.png")
-
-            pos, quat = get_fixed_camera_transform(
-                self.gym, self.sim, self.env, camera_handle
-            )
-
-            with open(path / f"pos_xyz_quat_xyzw_{i}.txt", "w+") as f:
-                data = [*pos.tolist(), *quat.q[1:].tolist(), quat.q[0].tolist()]
-                json.dump(data, f)
+        self.save_single_image(path, 'overhead', self.overhead_camera_handle, numpy_depth=True)
 
     def save_images_nerf_ready(self, folder, overwrite=False):
         self.gym.render_all_camera_sensors(self.sim)
@@ -315,7 +330,7 @@ class TriFingerEnv:
 
         json_meta = {"camera_angle_x": np.radians(self.fov), "frames": []}
 
-        for i, camera_handle in enumerate(self.camera_handles):
+        for i, camera_handle in enumerate(self.camera_handles[:-1]):
             print(f"saving camera {i}")
 
             color_image = self.gym.get_camera_image(
@@ -434,16 +449,7 @@ class TriFingerEnv:
         self.image_idx = 0
 
 
-def get_nerf_training(viewer):
-    # Obj = ig_objects.None
-    # Obj = ig_objects.Box
-    Obj = ig_objects.TeddyBear
-    # Obj = ig_objects.PowerDrill  # put verticaly?
-    # Obj = ig_objects.Banana
-    # Obj = ig_objects.BleachCleanser # too big - put on side?
-    # Obj = ig_objects.Spatula
-    # Obj = ig_objects.Mug
-
+def get_nerf_training(Obj, viewer):
     tf = TriFingerEnv(viewer=viewer, robot_type="", Obj=Obj, save_cameras=True)
     for _ in range(500):
         tf.step_gym()
@@ -476,21 +482,21 @@ def run_robot_control(viewer, Obj, robot_type, **robot_kwargs):
 
 
 if __name__ == "__main__":
-    # get_nerf_training(viewer=False)
-    Obj = ig_objects.Box
-    # Obj = ig_objects.TeddyBear
+    # Obj = ig_objects.Box
+    Obj = ig_objects.TeddyBear
     # Obj = ig_objects.PowerDrill
-    # Obj = ig_objects.Banana
+    # Obj = ig_objects.Box
     # Obj = ig_objects.BleachCleanser # too big - put on side?
     # Obj = ig_objects.Spatula
     # Obj = ig_objects.Mug
-    run_robot_control(
-        viewer=True,
-        Obj=Obj,
-        robot_type="trifinger",
-        use_nerf_grasping=False,
-        use_residual_dirs=True,
-        use_true_normals=False,
-        use_grad_est=True,
-        metric="psv",
-    )
+    get_nerf_training(Obj, viewer=False)
+    # run_robot_control(
+    #     viewer=True,
+    #     Obj=Obj,
+    #     robot_type="trifinger",
+    #     use_nerf_grasping=False,
+    #     use_residual_dirs=True,
+    #     use_true_normals=False,
+    #     use_grad_est=True,
+    #     metric="psv",
+    # )

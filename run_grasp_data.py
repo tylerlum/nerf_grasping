@@ -197,7 +197,7 @@ def lifting_trajectory(
                 )
                 ge = torch.tensor(ge, dtype=torch.float32)
                 if loaded_mesh is not None:
-                    mesh = -ge
+                    ge = -ge
             f_lift, target_force, target_torque = object_pos_control(
                 robot, obj, ge, **obj_pos_control_kwargs
             )

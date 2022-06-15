@@ -24,12 +24,14 @@ def get_mesh(obj_name):
     return gt_mesh
 
 
-grasps = np.load("grasp_data/banana_nerf_intersect.npy")
+grasps = np.load("grasp_data/bear_l1_nerf.npy")
 residual_dirs = False
 cost_fn = "psv"
 n_f = 3
-obj = ig_objects.Banana
+obj = ig_objects.TeddyBear
 gt_mesh = get_mesh(obj.name)
+T = trimesh.transformations.scale_matrix(obj.obj_scale, np.array([0, 0, 0]))
+gt_mesh.apply_transform(T)
 model = ig_objects.load_nerf(obj.workspace, obj.bound, obj.scale)
 centroid = grasp_utils.get_centroid(model)
 
@@ -45,7 +47,7 @@ cost = lambda x: grasp_opt.grasp_cost(
 
 ax = ig_viz_utils.plot_grasps(
     grasps[:, :, :3],
-    grasps[:, :, 3:] * 0.1,
+    grasps[:, :, 3:] * 0.05,
     obj_mesh=gt_mesh.triangles_center,
 )
 plt.show()

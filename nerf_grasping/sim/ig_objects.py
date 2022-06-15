@@ -297,7 +297,7 @@ class Banana(RigidObject):
     asset_file = "objects/urdf/banana.urdf"
     mesh_file = "objects/meshes/banana/textured.obj"
     name = "banana"
-    mu = 1.0
+    mu = 1.
     translation = np.array([-1.4408e-05,  3.8640e-06,  2.7102e-03])
 
 

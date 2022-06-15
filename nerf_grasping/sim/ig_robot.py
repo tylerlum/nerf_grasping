@@ -683,7 +683,7 @@ class FingertipRobot:
         [[0.0, 0.05, 0.05], [0.03, -0.05, 0.05], [-0.03, -0.05, 0.05]]
     )
     grasp_normals = torch.tensor([[0.0, -1.0, 0.0], [0.0, 1.0, 0.0], [0.0, 1.0, 0.0]])
-    mu = 1
+    mu = 1.0
     verbose = False
 
     def __init__(

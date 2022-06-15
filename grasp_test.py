@@ -176,6 +176,7 @@ def object_pos_control(
     return_wrench=False,
 ):
     """Object position control for lifting trajectory"""
+    success = True
     if target_position is None:
         target_position = np.array([0.0, 0.0, robot.target_height])
     tip_position = robot.position
@@ -200,16 +201,15 @@ def object_pos_control(
     # TODO: compute tip radius here?
     grasp_points = tip_position - cg_pos
     in_normal = torch.stack([quat.rotate(x) for x in in_normal], axis=0)
-    try:
-        global_forces = force_opt.calculate_grip_forces(
-            grasp_points,
-            in_normal,
-            target_force,
-            target_torque,
-            target_normal,
-            obj.mu,
-        )
-    except AssertionError:
+    global_forces, success = force_opt.calculate_grip_forces(
+        grasp_points,
+        in_normal,
+        target_force,
+        target_torque,
+        target_normal,
+        obj.mu,
+    )
+    if not success:
         # logging.warning("solve failed, maintaining previous forces")
         global_forces = (
             robot.previous_global_forces
@@ -220,7 +220,7 @@ def object_pos_control(
 
     # print(global_forces.shape)
 
-    return global_forces, target_force, target_torque
+    return global_forces, target_force, target_torque, success
 
 
 def double_reset(robot, obj, grasp_vars):
@@ -255,6 +255,7 @@ def lifting_trajectory(grasp_vars, mesh=None):
     f_lift = None
     start_timestep = 0
     ge = None
+    fail_count = 0
 
     for timestep in range(500):
         height_err = 0.04 - obj.position[-1].cpu().numpy().item()
@@ -264,6 +265,7 @@ def lifting_trajectory(grasp_vars, mesh=None):
         closest_points = ig_utils.closest_point(
             grasp_points, grasp_points + grasp_normals, robot.position
         )
+
         # compute potential to closest points
         potential = compute_potential(grasp_points)
         if timestep < 50:
@@ -274,13 +276,13 @@ def lifting_trajectory(grasp_vars, mesh=None):
             mode = "grasp"
             pos_err = closest_points - robot.position
             pos_control = pos_err * 5
-            vel_control = -0.25 * robot.velocity
-            f = torch.tensor(grasp_normals * 0.1) + pos_control + vel_control
+            vel_control = -10. * robot.velocity
+            f = torch.tensor(grasp_normals * 0.0001) + pos_control + vel_control
         else:
             mode = "lift"
             closest_points[:, 2] = obj.position[2] + 0.005
             pos_err = closest_points - robot.position
-            # f, target_force, target_torque = object_pos_control(
+            # f, target_force, target_torque, success = object_pos_control(
             #     obj, grasp_normals, target_normal=0.15
             if mesh is None:
                 if ge is None or timestep < 130:
@@ -293,10 +295,13 @@ def lifting_trajectory(grasp_vars, mesh=None):
                     rot_offset=obj.orientation,
                 )
                 ge = torch.tensor(ge, dtype=torch.float32)
-            f_lift, target_force, target_torque = object_pos_control(
-                obj, ge, target_normal=1.0, kp=1.5, kd=1.0, kp_angle=0.1, kd_angle=1e-2
+            f_lift, target_force, target_torque, success = object_pos_control(
+                obj, ge, target_normal=3., kp=1.5, kd=1.0, kp_angle=0.3, kd_angle=1e-2
             )
             f = f_lift
+
+            if not success:
+                fail_count += 1
 
         # if f.norm() > 3:
         #     break
@@ -320,6 +325,9 @@ def lifting_trajectory(grasp_vars, mesh=None):
         if (robot.position[:, -1] >= 0.5).any():
             print("Finger too high!")
             return False
+        if fail_count > 10:
+            print("Too many cvx failures!")
+            return False
         # if number of timesteps of grasp success exceeds 3 seconds
         succ_timesteps = 180
         err_bound = 0.003
@@ -340,7 +348,7 @@ env = setup_env()
 setup_stage(env)
 viewer = setup_viewer() if visualization else None
 
-Obj = ig_objects.TeddyBear
+Obj = ig_objects.Banana
 grasp_points, grasp_normals = Obj.grasp_points, Obj.grasp_normals
 
 grasp_normals = grasp_normals / grasp_normals.norm(dim=1, keepdim=True)
@@ -360,7 +368,7 @@ obj.load_trimesh()
 for i in range(4):
     step_gym()
 
-grasp_data = "grasp_data/teddy_bear.npy"
+grasp_data = "grasp_data/banana.npy"
 nerf = "nerf" in grasp_data
 if not nerf:
     mesh_name = grasp_data.split("/")[1].rstrip(".npy")

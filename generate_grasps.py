@@ -102,7 +102,7 @@ def main(
     mu_0 = torch.cat([grasp_points, grasp_dirs], dim=-1).reshape(-1).to(centroid)
     Sigma_0 = torch.diag(
         torch.cat(
-            [torch.tensor([5e-2, 1e-2, 5e-2, 1e-2, 1e-3, 1e-2]) for _ in range(3)]
+            [torch.tensor([5e-2, 5e-3, 5e-2, 1e-2, 1e-2, 1e-2]) for _ in range(3)]
         )
     ).to(centroid)
 
@@ -128,15 +128,17 @@ def main(
 
             continue
 
+        print('orig vals: ', mu_0.reshape(3,6))
+
         grasp_points = grasp_opt.get_points_cem(
             3,
             model,
-            num_iters=10,
+            num_iters=15,
             mu_0=mu_0,
             Sigma_0=Sigma_0,
             projection=projection_fn,
             centroid=centroid,
-            num_samples=2000,
+            num_samples=500,
             cost_fn=cost_fn,
             risk_sensitivity=risk_sensitivity,
         )
@@ -145,10 +147,14 @@ def main(
 
         rays_d = grasp_utils.res_to_true_dirs(rays_o, rays_d, centroid)
 
+        print('optimized vals: ', rays_o)
+
         if isinstance(model, trimesh.Trimesh):
             rays_o = mesh_utils.correct_z_dists(model, rays_o, rays_d)
         else:
             rays_o = grasp_utils.correct_z_dists(model, grasp_points)
+
+        print('corrected vals:', rays_o, centroid)
 
         rays_o, rays_d = grasp_utils.nerf_to_ig(rays_o), grasp_utils.nerf_to_ig(rays_d)
 
@@ -156,6 +162,7 @@ def main(
         sampled_grasps[ii, :, 3:] = rays_d.cpu().numpy()
 
     os.makedirs("grasp_data", exist_ok=True)
+    print('saving to: ' + "grasp_data/" + outfile + ".npy")
     np.save("grasp_data/" + outfile + ".npy", sampled_grasps)
 
 

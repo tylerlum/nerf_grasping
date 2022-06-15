@@ -387,6 +387,7 @@ def get_points_cem(
     residual_dirs=True,
     device="cuda",
     centroid=0.0,
+    elite_frac=0.1,
     risk_sensitivity=5.0,
     return_cost_hist=False,
 ):
@@ -395,9 +396,9 @@ def get_points_cem(
     if mu_0 is None:
         mu_0 = mu_scale * torch.randn(6 * n_f, device=device)
 
-    mu_0 = mu_0.reshape(n_f, 6)
-    mu_0[:, :3] = mu_0[:, :3] + centroid
-    mu_0 = mu_0.reshape(-1)
+        mu_0 = mu_0.reshape(n_f, 6)
+        mu_0[:, :3] = mu_0[:, :3] + centroid
+        mu_0 = mu_0.reshape(-1)
 
     if Sigma_0 is None:
         Sigma_0 = sigma_scale * torch.eye(6 * n_f, device=device)
@@ -419,6 +420,7 @@ def get_points_cem(
         num_iters=num_iters,
         num_samples=num_samples,
         projection=projection,
+        elite_frac=elite_frac
     )
     ret = best_point.reshape(n_f, 6)
     if return_cost_hist:

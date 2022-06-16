@@ -272,7 +272,7 @@ class TriFingerEnv:
             self.sim, self.env, camera_handle, gymapi.IMAGE_COLOR
         )
         color_image = color_image.reshape(400, 400, -1)
-        Image.fromarray(color_image).save(path / f"col_{ii}.png")=
+        Image.fromarray(color_image).save(path / f"col_{ii}.png")
 
         segmentation_image = self.gym.get_camera_image(
             self.sim, self.env, camera_handle, gymapi.IMAGE_SEGMENTATION
@@ -481,11 +481,11 @@ def run_robot_control(viewer, Obj, robot_type, **robot_kwargs):
 
 
 if __name__ == "__main__":
-    Obj = ig_objects.Box
+    # Obj = ig_objects.Box
     # Obj = ig_objects.TeddyBear
     # Obj = ig_objects.PowerDrill
     # Obj = ig_objects.Box
-    # Obj = ig_objects.BleachCleanser # too big - put on side?
+    Obj = ig_objects.BleachCleanser # too big - put on side?
     # Obj = ig_objects.Spatula
     # Obj = ig_objects.Mug
     get_nerf_training(Obj, viewer=False)

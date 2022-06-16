@@ -110,7 +110,7 @@ class RigidObject:
 
         asset_options.vhacd_params.mode = 0
         asset_options.vhacd_params.resolution = 300000
-        asset_options.vhacd_params.max_convex_hulls = 30
+        asset_options.vhacd_params.max_convex_hulls = 100
         asset_options.vhacd_params.max_num_vertices_per_ch = 16
 
         asset = self.gym.load_asset(self.sim, asset_dir, self.asset_file, asset_options)
@@ -212,8 +212,8 @@ class Box(RigidObject):
     grasp_points = torch.tensor(
         [[0.0, 0.05, 0.05], [0.03, -0.05, 0.05], [-0.03, -0.05, 0.05]]
     )
-    obj_scale = 0.05
-    translation = np.array([1.6597e-07, -6.8061e-07, 2.7000e-02])
+    obj_scale = 0.075
+    translation = np.array([1.6316e-07, -6.7600e-07, 3.9500e-02])
 
     grasp_normals = torch.tensor([[0.0, -1.0, 0.0], [0.0, 1.0, 0.0], [0.0, 1.0, 0.0]])
     mesh_file = "objects/meshes/cube_multicolor.obj"
@@ -268,9 +268,7 @@ class Box(RigidObject):
 
 
 class PowerDrill(RigidObject):
-    mesh_file = "objects/meshes/power_drill/textured.obj"
-    workspace = "powerdrill"
-    obj_scale = 1
+    workspace = "power_drill"
     centroid = np.zeros(3)
     translation = np.array([-0.00031597, 0.00020537, 0.00023557])
     grasp_points = torch.tensor(
@@ -285,7 +283,10 @@ class PowerDrill(RigidObject):
     bound = 3.0
 
     asset_file = "objects/urdf/power_drill.urdf"
+    mesh_file = "objects/meshes/power_drill/textured.obj"
     name = "power_drill"
+    obj_scale = 1.0
+    translation = np.array([-4.0196e-06, 2.4881e-05, 5.2011e-03])
 
 
 class Banana(RigidObject):
@@ -323,3 +324,17 @@ class BleachCleanser(RigidObject):
     data_dir = "./nerf_shared/data/bleach_cleanser"
     config_path = "./nerf_shared/configs/bleach_cleanser.txt"
     name = "bleach_cleanser"
+    mesh_file = "objects/meshes/bleach_cleanser/textured.obj"
+    workspace = "bleach_cleanser"
+    grasp_points = torch.tensor(
+        [
+            [-0.038539, 0.115021, 0.023878],
+            [0.030017, -0.002467, 0.027816],
+            [-0.029284, -0.099212, 0.027294],
+        ]
+    )
+
+    grasp_normals = torch.tensor([[0, -1.0, 0.0], [-1, 0.0, 0.0], [1.0, 1.0, 0.0]])
+    translation = np.array([1.2256e-05, -1.2865e-06, 1.3161e-03])
+    obj_scale = 0.75
+    mu = 1.0

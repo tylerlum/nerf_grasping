@@ -9,27 +9,6 @@ import trimesh
 import numpy as np
 
 
-# def get_mesh_centroid(obj_name):
-#     if obj_name == "banana":
-#         obj_mesh = "assets/objects/meshes/banana/textured.obj"
-#     elif obj_name == "box":
-#         obj_mesh = "assets/objects/meshes/cube_multicolor.obj"
-#     elif obj_name == "teddy_bear":
-#         obj_mesh = "assets/objects/meshes/isaac_teddy/isaac_bear.obj"
-#     elif obj_name == "powerdrill":
-#         obj_mesh = "assets/objects/meshes/power_drill/textured.obj"
-
-#     gt_mesh = trimesh.load(obj_mesh, force="mesh")
-#     T = np.eye(4)
-#     R = scipy.spatial.transform.Rotation.from_euler("Y", [-np.pi / 2]).as_matrix()
-#     R = R @ scipy.spatial.transform.Rotation.from_euler("X", [-np.pi / 2]).as_matrix()
-#     T[:3, :3] = R
-#     gt_mesh.apply_transform(T)
-
-#     centroid = torch.from_numpy(gt_mesh.centroid.copy()).float()
-#     return centroid
-
-
 def main(
     obj_name="banana",
     use_nerf=False,
@@ -50,12 +29,14 @@ def main(
     elif obj_name == "teddy_bear":
         obj = ig_objects.TeddyBear()
         obj.use_centroid = True
-    elif obj_name == "powerdrill":
+    elif obj_name == "power_drill":
         obj = ig_objects.PowerDrill()
+    elif obj_name == "bleach_cleanser":
+        obj = ig_objects.BleachCleanser()
 
     if use_nerf:
         model = ig_objects.load_nerf(obj.workspace, obj.bound, obj.scale)
-        centroid = grasp_utils.get_centroid(model, thresh=None)
+        centroid = grasp_utils.get_centroid(model)
         print(f"Estimated Centroid: {centroid}")
         print(f"True Centroid: {obj.gt_mesh.centroid}")
     else:
@@ -102,7 +83,7 @@ def main(
     mu_0 = torch.cat([grasp_points, grasp_dirs], dim=-1).reshape(-1).to(centroid)
     Sigma_0 = torch.diag(
         torch.cat(
-            [torch.tensor([5e-2, 5e-2, 5e-2, 1e-2, 1e-2, 1e-2]) for _ in range(3)]
+            [torch.tensor([5e-2, 5e-2, 5e-2, 5e-2, 5e-2, 5e-2]) for _ in range(3)]
         )
     ).to(centroid)
 
@@ -116,7 +97,9 @@ def main(
     projection_fn = partial(grasp_utils.box_projection, object_bounds=object_bounds)
     for ii in range(num_grasps):
         if dice_grasp:
-            rays_o, rays_d = grasp_opt.dice_the_grasp(model, cost_fn, centroid=centroid)
+            rays_o, rays_d = grasp_opt.dice_the_grasp(
+                model, cost_fn, centroid=centroid.cpu().numpy()
+            )
 
             rays_o = grasp_utils.nerf_to_ig(torch.from_numpy(rays_o).float().cuda())
             rays_d = grasp_utils.nerf_to_ig(torch.from_numpy(rays_d).float().cuda())
@@ -180,7 +163,7 @@ if __name__ == "__main__":
     )
     parser.add_argument("--mesh_in", default=None, type=str)
     parser.add_argument("--outfile", "--out", default=None)
-    parser.add_argument("--risk_sensitivity", default=25.0, type=float)
+    parser.add_argument("--risk_sensitivity", default=10.0, type=float)
     parser.add_argument("--dice_grasp", action="store_true")
     parser.add_argument("--cost_fn", default="l1", type=str)
     args = parser.parse_args()

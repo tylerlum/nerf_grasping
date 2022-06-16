@@ -305,7 +305,7 @@ def grasp_cost(
     grasp_vars,
     n_f,
     model,
-    num_grasps=5,
+    num_grasps=4,
     residual_dirs=True,
     cost_fn="l1",
     cost_kwargs=dict(centroid=np.zeros((3, 1))),

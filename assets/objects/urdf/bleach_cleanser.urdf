@@ -4,18 +4,18 @@
     <visual>
       <origin xyz="0 0 0"/>
       <geometry>
-	      <mesh filename="meshes/bleach_cleanser/textured.obj" scale="1.0 1.0 1.0"/>
+	      <mesh filename="meshes/bleach_cleanser/textured.obj" scale="0.75 0.75 0.75"/>
       </geometry>
     </visual>
     <collision>
       <origin xyz="0 0 0"/>
       <geometry>
         <!-- <box size="0.05 0.05 0.05"/> -->
-	<mesh filename="meshes/bleach_cleanser/textured.obj" scale="1.0 1.0 1.0"/>
+	<mesh filename="meshes/bleach_cleanser/textured.obj" scale="0.75 0.75 0.75"/>
       </geometry>
     </collision>
-    <!-- <inertial> -->
-    <!--   <density value="600.0"/> -->
-    <!-- </inertial> -->
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
   </link>
 </robot>

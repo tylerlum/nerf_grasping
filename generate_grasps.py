@@ -61,7 +61,7 @@ def main(
     else:
 
         if mesh_in is not None:
-            obj_mesh = trimesh.load(mesh_in, force='mesh')
+            obj_mesh = trimesh.load(mesh_in, force="mesh")
 
         else:
             obj_mesh = obj.gt_mesh
@@ -102,7 +102,7 @@ def main(
     mu_0 = torch.cat([grasp_points, grasp_dirs], dim=-1).reshape(-1).to(centroid)
     Sigma_0 = torch.diag(
         torch.cat(
-            [torch.tensor([5e-2, 5e-3, 5e-2, 1e-2, 1e-2, 1e-2]) for _ in range(3)]
+            [torch.tensor([5e-2, 8e-4, 5e-2, 5e-3, 4e-4, 5e-3]) for _ in range(3)]
         )
     ).to(centroid)
 
@@ -116,9 +116,7 @@ def main(
     projection_fn = partial(grasp_utils.box_projection, object_bounds=object_bounds)
     for ii in range(num_grasps):
         if dice_grasp:
-            rays_o, rays_d = grasp_opt.dice_the_grasp(
-                model, cost_fn, centroid=centroid
-            )
+            rays_o, rays_d = grasp_opt.dice_the_grasp(model, cost_fn, centroid=centroid)
 
             rays_o = grasp_utils.nerf_to_ig(torch.from_numpy(rays_o).float().cuda())
             rays_d = grasp_utils.nerf_to_ig(torch.from_numpy(rays_d).float().cuda())
@@ -128,8 +126,8 @@ def main(
 
             continue
 
-        print('orig vals: ', mu_0.reshape(3,6))
-
+        print("orig vals: ", mu_0.reshape(3, 6))
+        num_samples = 500 if not use_nerf else 3000
         grasp_points = grasp_opt.get_points_cem(
             3,
             model,
@@ -138,23 +136,23 @@ def main(
             Sigma_0=Sigma_0,
             projection=projection_fn,
             centroid=centroid,
-            num_samples=500,
+            num_samples=num_samples,
             cost_fn=cost_fn,
             risk_sensitivity=risk_sensitivity,
         )
-        grasp_points = grasp_points.reshape(3,6)
+        grasp_points = grasp_points.reshape(3, 6)
         rays_o, rays_d = grasp_points[:, :3], grasp_points[:, 3:]
 
         rays_d = grasp_utils.res_to_true_dirs(rays_o, rays_d, centroid)
 
-        print('optimized vals: ', rays_o)
+        print("optimized vals: ", rays_o)
 
         if isinstance(model, trimesh.Trimesh):
             rays_o = mesh_utils.correct_z_dists(model, rays_o, rays_d)
         else:
             rays_o = grasp_utils.correct_z_dists(model, grasp_points)
 
-        print('corrected vals:', rays_o, centroid)
+        print("corrected vals:", rays_o, centroid)
 
         rays_o, rays_d = grasp_utils.nerf_to_ig(rays_o), grasp_utils.nerf_to_ig(rays_d)
 
@@ -162,7 +160,7 @@ def main(
         sampled_grasps[ii, :, 3:] = rays_d.cpu().numpy()
 
     os.makedirs("grasp_data", exist_ok=True)
-    print('saving to: ' + "grasp_data/" + outfile + ".npy")
+    print("saving to: " + "grasp_data/" + outfile + ".npy")
     np.save("grasp_data/" + outfile + ".npy", sampled_grasps)
 
 

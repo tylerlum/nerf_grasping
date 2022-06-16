@@ -254,8 +254,9 @@ def optimize_cem(
             x = projection(x)
 
         # Evaluate costs of each point.
-        cost_vals = cost(x)
-        cost_history.append(cost_vals.detach())
+        with torch.no_grad():
+            cost_vals = cost(x)
+        cost_history.append(cost_vals)
         print(
             "minimum cost_val:",
             torch.min(cost_vals),
@@ -347,13 +348,13 @@ def grasp_cost(
 
     g_cost = cost_fn(grasp_points, grad_ests).reshape(B, num_grasps)
 
-    # dists = []
-    # for i in range(B):
-    #     dists.append(
-    #         torch.triu(torch.pairwise_distance(grasp_points[i], grasp_points[i])).sum()
-    #     )
+    dists = []
+    for i in range(B):
+        dists.append(
+            torch.triu(torch.pairwise_distance(grasp_points[i], grasp_points[i])).sum()
+        )
     # dists = torch.stack(dists)
-    # dists /= dists.max() * 10.0  # scale from 0 to 0.2
+    # dists /= dists.max()  # scale from 0 to 0.2
     # g_cost += dists.reshape(B, 1)
 
     if risk_sensitivity:
@@ -420,7 +421,7 @@ def get_points_cem(
         num_iters=num_iters,
         num_samples=num_samples,
         projection=projection,
-        elite_frac=elite_frac
+        elite_frac=elite_frac,
     )
     ret = best_point.reshape(n_f, 6)
     if return_cost_hist:

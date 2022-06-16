@@ -51,65 +51,6 @@ def random_forces(timestep):
     return f
 
 
-def object_pos_control(
-    robot,
-    obj,
-    in_normal,
-    target_position=None,
-    target_normal=2.5,
-    kp=0.1,
-    kd=0.1,
-    kp_angle=0.04,
-    kd_angle=0.001,
-    return_wrench=False,
-):
-    """Object position control for lifting trajectory"""
-    if target_position is None:
-        target_position = np.array([0.0, 0.0, robot.target_height])
-    tip_position = robot.position
-    vel = obj.velocity
-    angular_vel = obj.angular_velocity
-    quat = Quaternion.fromWLast(obj.orientation)
-    target_quat = Quaternion.Identity()
-    cg_pos = obj.get_CG()  # thoughts it eliminates the pendulum effect? possibly?
-
-    pos_error = cg_pos - target_position
-    object_weight_comp = obj.mass * 9.8 * torch.tensor([0, 0, 1])
-    # target_force = object_weight_comp - 0.9 * pos_error - 0.4 * vel
-    # banana tuning
-    target_force = object_weight_comp - kp * pos_error - kd * vel
-    target_torque = (
-        -kp_angle * (quat @ target_quat.T).to_tangent_space() - kd_angle * angular_vel
-    )
-    if return_wrench:
-        return torch.cat([target_force, target_torque])
-    # grasp points in object frame
-    # TODO: compute tip radius here?
-    grasp_points = tip_position - cg_pos
-    in_normal = torch.stack([quat.rotate(x) for x in in_normal], axis=0)
-    try:
-        global_forces = force_opt.calculate_grip_forces(
-            grasp_points,
-            in_normal,
-            target_force,
-            target_torque,
-            target_normal,
-            obj.mu,
-        )
-    except AssertionError:
-        # logging.warning("solve failed, maintaining previous forces")
-        global_forces = (
-            robot.previous_global_forces
-        )  # will fail if we failed solve on first iteration
-        assert global_forces is not None
-    else:
-        robot.previous_global_forces = global_forces
-
-    # print(global_forces.shape)
-
-    return global_forces, target_force, target_torque
-
-
 def double_reset(gym, sim, viewer, robot, obj, grasp_vars):
     robot.reset_actor(grasp_vars)
     obj.reset_actor()
@@ -135,6 +76,66 @@ def compute_potential(points, magnitude=0.01):
     return potentials
 
 
+def object_pos_control(
+    robot,
+    obj,
+    in_normal,
+    target_position=None,
+    target_normal=0.5,
+    kp=10.0,
+    kd=0.1,
+    kp_angle=0.04,
+    kd_angle=0.001,
+    return_wrench=False,
+):
+    """Object position control for lifting trajectory"""
+    success = True
+    if target_position is None:
+        target_position = np.array([0.0, 0.0, robot.target_height])
+    tip_position = robot.position
+    vel = obj.velocity
+    angular_vel = obj.angular_velocity
+    quat = Quaternion.fromWLast(obj.orientation)
+    target_quat = Quaternion.Identity()
+    cg_pos = obj.get_CG()  # thoughts it eliminates the pendulum effect? possibly?
+
+    pos_error = cg_pos - target_position
+    object_weight_comp = obj.mass * 9.8 * torch.tensor([0, 0, 1])
+    # target_force = object_weight_comp - 0.9 * pos_error - 0.4 * vel
+    # banana tuning
+    target_force = object_weight_comp - kp * pos_error - kd * vel
+    # target_force = -kp * pos_error - kd * vel
+    target_torque = (
+        -kp_angle * (quat @ target_quat.T).to_tangent_space() - kd_angle * angular_vel
+    )
+    if return_wrench:
+        return torch.cat([target_force, target_torque])
+    # grasp points in object frame
+    # TODO: compute tip radius here?
+    grasp_points = tip_position - cg_pos
+    in_normal = torch.stack([quat.rotate(x) for x in in_normal], axis=0)
+    global_forces, success = force_opt.calculate_grip_forces(
+        grasp_points,
+        in_normal,
+        target_force,
+        target_torque,
+        target_normal,
+        obj.mu,
+    )
+    if not success:
+        # logging.warning("solve failed, maintaining previous forces")
+        global_forces = (
+            robot.previous_global_forces
+        )  # will fail if we failed solve on first iteration
+        assert global_forces is not None
+    else:
+        robot.previous_global_forces = global_forces
+
+    # print(global_forces.shape)
+
+    return global_forces, target_force, target_torque, success
+
+
 def lifting_trajectory(
     gym,
     sim,
@@ -158,6 +159,7 @@ def lifting_trajectory(
     f_lift = None
     start_timestep = 0
     ge = None
+    fail_count = 0
 
     for timestep in range(500):
         height_err = 0.04 - obj.position[-1].cpu().numpy().item()
@@ -167,25 +169,26 @@ def lifting_trajectory(
         closest_points = ig_utils.closest_point(
             grasp_points, grasp_points + grasp_normals, robot.position
         )
+
         # compute potential to closest points
         potential = compute_potential(grasp_points)
         if timestep < 50:
             mode = "reach"
-            f = robot.position_control(grasp_points, **pos_control_kwargs)
+            f = robot.position_control(grasp_points)
             pos_err = robot.position - grasp_points
         elif timestep < 150:
             mode = "grasp"
             pos_err = closest_points - robot.position
             pos_control = pos_err * 5
-            vel_control = -0.25 * robot.velocity
-            f = torch.tensor(grasp_normals * 0.1) + pos_control + vel_control
+            vel_control = -10.0 * robot.velocity
+            f = torch.tensor(grasp_normals * 0.0001) + pos_control + vel_control
         else:
             mode = "lift"
             closest_points[:, 2] = obj.position[2] + 0.005
             pos_err = closest_points - robot.position
-            # f, target_force, target_torque = object_pos_control(
+            # f, target_force, target_torque, success = object_pos_control(
             #     obj, grasp_normals, target_normal=0.15
-            if False:  # mesh is None:
+            if mesh is None:
                 if ge is None or timestep < 130:
                     ge = robot.get_grad_ests(obj, robot.position)
             else:
@@ -196,12 +199,22 @@ def lifting_trajectory(
                     rot_offset=obj.orientation,
                 )
                 ge = torch.tensor(ge, dtype=torch.float32)
-                if loaded_mesh is not None:
+                if loaded_mesh:
                     ge = -ge
-            f_lift, target_force, target_torque = object_pos_control(
-                robot, obj, ge, **obj_pos_control_kwargs
+            f_lift, target_force, target_torque, success = object_pos_control(
+                robot,
+                obj,
+                ge,
+                target_normal=3.0,
+                kp=1.5,
+                kd=1.0,
+                kp_angle=0.3,
+                kd_angle=1e-2,
             )
             f = f_lift
+
+            if not success:
+                fail_count += 1
 
         # if f.norm() > 3:
         #     break
@@ -219,7 +232,14 @@ def lifting_trajectory(
             if mode == "lift":
                 print("HEIGHT_ERR:", height_err)
             # print(f"NET CONTACT FORCE:", net_cf[obj.index,:])
-        if (robot.position[:, -1] >= 0.1).any():
+        if (robot.position[:, -1] <= 0.01).any():
+            print("Finger too low!")
+            return False
+        if (robot.position[:, -1] >= 0.5).any():
+            print("Finger too high!")
+            return False
+        if fail_count > 10:
+            print("Too many cvx failures!")
             return False
         # if number of timesteps of grasp success exceeds 3 seconds
         succ_timesteps = 180
@@ -245,6 +265,7 @@ def main(
     kp_angle=None,
     kd_angle=None,
     target_normal=None,
+    use_gt_mesh=False,
 ):
     gym = gymapi.acquire_gym()
 
@@ -252,10 +273,8 @@ def main(
     env = ig_utils.setup_env(gym, sim)
     ig_utils.setup_stage(gym, sim, env)
     viewer = ig_utils.setup_viewer(gym, sim, env) if visualization else None
-    pos_control_kwargs = dict(kp=0.5, kd=0.003)
-    obj_pos_control_kwargs = dict(
-        target_normal=0.4, kp=1.5, kd=1.0, kp_angle=0.1, kd_angle=1e-2
-    )
+    pos_control_kwargs = {}
+    obj_pos_control_kwargs = {}
     if kp is not None:
         pos_control_kwargs["kp"] = kp
     if kd is not None:
@@ -298,20 +317,12 @@ def main(
 
     # grasp_data = "grasp_data/banana_nerf10psv-rs10.npy"
     nerf = "nerf" in grasp_data
+    mesh = None
     if not nerf:
         mesh_name = grasp_data.split("/")[1].rstrip(".npy")
-        mesh = trimesh.load(f"grasp_data/meshes/{mesh_name}.obj", force="mesh")
-    else:
-        mesh = None
+        if "_" in mesh_name and not use_gt_mesh:
+            mesh = trimesh.load(f"grasp_data/meshes/{mesh_name}.obj", force="mesh")
     grasps = np.load(grasp_data)
-    # if grasp == "random":
-    #     sample_idx = np.random.choice(np.arange(grasps.shape[0]))
-    # elif grasp != "all":
-    #     sample_idx = float(grasp)
-    # else:
-    #     sample_idx = None
-    # if sample_idx is not None:
-    #     grasps = grasps[sample_idx][None]
     successes = 0
 
     if grasp_idx is not None:
@@ -349,6 +360,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--obj_name", help="object name", default="banana")
     parser.add_argument("--visualization", action="store_true")
+    parser.add_argument("--use_gt_mesh", action="store_true")
     parser.add_argument(
         "--grasp_data", help="path to generated grasp data file", type=str
     )
@@ -358,27 +370,31 @@ if __name__ == "__main__":
     parser.add_argument(
         "--kd", help="robot position controller velocity gain", type=float
     )
-    # target_normal=0.4, kp=1.5, kd=1.0, kp_angle=0.1, kd_angle=1e-2
+    # Obj controller defaults target_normal=0.4, kp=1.5, kd=1.0, kp_angle=0.1, kd_angle=1e-2
     parser.add_argument(
         "--obj_kp",
         help="object position controller position gain",
         type=float,
-        default=1.5,
     )
     parser.add_argument(
-        "--obj_kd", help="object controller velocity gain", type=float, default=1.0
+        "--obj_kd",
+        help="object controller velocity gain",
+        type=float,
     )
     parser.add_argument(
-        "--kp_angle", help="object controller kp angle gain", type=float, default=0.1
+        "--kp_angle",
+        help="object controller kp angle gain",
+        type=float,
     )
     parser.add_argument(
-        "--kd_angle", help="object controller kd angle gain", type=float, default=1e-2
+        "--kd_angle",
+        help="object controller kd angle gain",
+        type=float,
     )
     parser.add_argument(
         "--target_normal",
         help="object position controller target normal",
         type=float,
-        default=0.4,
     )
     parser.add_argument(
         "--grasp_idx",
@@ -399,4 +415,5 @@ if __name__ == "__main__":
         args.kp_angle,
         args.kd_angle,
         args.target_normal,
+        args.use_gt_mesh,
     )

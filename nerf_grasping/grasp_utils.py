@@ -224,14 +224,17 @@ def intersect_grasp_dirs(grasp_vars, model, residual_dirs, centroid, B, n_f):
         l1, l2 = grasp_dirs[:, i], grasp_dirs[:, j]
         n1 = torch.cross(l1, l2, dim=1)
         n2 = torch.cross(l2, n1, dim=1)
+        # closest distance between the two lines
         dist = (n1 * (p1 - p2)).sum(dim=1, keepdim=True) / n1.norm(dim=1, keepdim=True)
+        # closest intersection point on line 1
         d1 = ((p2 - p1) * n2).sum(dim=1, keepdim=True) / (l1 * n2).sum(
             dim=1, keepdim=True
         )
+        # closest intersection point on line 2
         d2 = ((p1 - p2) * n1).sum(dim=1, keepdim=True) / (l2 * n1).sum(
             dim=1, keepdim=True
         )
-        pair_mask = torch.logical_and(torch.logical_and(dist < 0.02, d1 > z1), d2 > z2)
+        pair_mask = torch.logical_and(torch.logical_and(dist < 0.03, d1 > z1), d2 > z2)
         approach_mask = torch.logical_and(approach_mask, pair_mask)
     return approach_mask
 
@@ -299,32 +302,31 @@ def sample_grasps(grasp_vars, num_grasps, model, residual_dirs=True, centroid=0.
 
     # Mask approach directions that will not collide with object
     grasp_mask = torch.logical_and(grasp_mask, density_ests < 50)
-    grasp_mask = grasp_mask.all(-1, keepdim=True)
-
-    print(
-        "Fraction of accepted grasps:",
-        torch.sum(grasp_mask) / torch.sum(torch.ones_like(grasp_mask)),
-    )
-
-    # Mask approach directions that will not collide with each other
-    approach_mask = intersect_grasp_dirs(
-        grasp_vars, model, residual_dirs, centroid, B, n_f
-    )
-    grasp_mask = torch.logical_and(grasp_mask, approach_mask)
 
     # Estimate gradients.
     _, grad_ests = est_grads_vals(model, grasp_points.reshape(B, -1, 3))
     grad_ests = grad_ests.reshape(B, n_f, num_grasps, 3)
 
-    # normal_ests = grad_ests / torch.norm(grad_ests, dim=-1, keepdim=True)
+    normal_ests = grad_ests / torch.norm(grad_ests, dim=-1, keepdim=True)
 
-    # # Enforce constraint that expected normal is no more than 30 deg from approach dir.
-    # grasp_mask = torch.logical_and(
-    #     grasp_mask,
-    #     torch.median(torch.sum(normal_ests * rays_d.unsqueeze(-2), dim=-1), dim=-1)[0]
-    #     >= 0.5,
+    # Enforce constraint that expected normal is no more than 30 deg from approach dir.
+    grasp_mask = torch.logical_and(
+        grasp_mask,
+        torch.median(torch.sum(normal_ests * rays_d.unsqueeze(-2), dim=-1), dim=-1)[0]
+        >= 0.5,
+    )
+    grasp_mask = grasp_mask.all(-1, keepdim=True)
+
+    # Mask approach directions that will not collide with each other
+    # approach_mask = intersect_grasp_dirs(
+    #     grasp_vars, model, residual_dirs, centroid, B, n_f
     # )
+    # grasp_mask = torch.logical_and(grasp_mask, approach_mask)
 
+    print(
+        "Fraction of accepted grasps:",
+        torch.sum(grasp_mask) / torch.sum(torch.ones_like(grasp_mask)),
+    )
     # print(torch.sum(normal_ests * rays_d.unsqueeze(-2), dim=-1))
 
     # Permute dims to put batch dimensions together.

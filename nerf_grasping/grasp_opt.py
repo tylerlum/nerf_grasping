@@ -348,11 +348,11 @@ def grasp_cost(
 
     g_cost = cost_fn(grasp_points, grad_ests).reshape(B, num_grasps)
 
-    dists = []
-    for i in range(B):
-        dists.append(
-            torch.triu(torch.pairwise_distance(grasp_points[i], grasp_points[i])).sum()
-        )
+    # dists = []
+    # for i in range(B):
+    #     dists.append(
+    #         torch.triu(torch.pairwise_distance(grasp_points[i], grasp_points[i])).sum()
+    #     )
     # dists = torch.stack(dists)
     # dists /= dists.max()  # scale from 0 to 0.2
     # g_cost += dists.reshape(B, 1)

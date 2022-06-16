@@ -258,13 +258,6 @@ def main(
     obj_name="teddy_bear",
     grasp_data="grasp_data/teddy_bear_10.npy",
     grasp_idx=None,
-    kp=None,
-    kd=None,
-    obj_kp=None,
-    obj_kd=None,
-    kp_angle=None,
-    kd_angle=None,
-    target_normal=None,
     use_gt_mesh=False,
 ):
     gym = gymapi.acquire_gym()
@@ -273,27 +266,12 @@ def main(
     env = ig_utils.setup_env(gym, sim)
     ig_utils.setup_stage(gym, sim, env)
     viewer = ig_utils.setup_viewer(gym, sim, env) if visualization else None
-    pos_control_kwargs = {}
-    obj_pos_control_kwargs = {}
-    if kp is not None:
-        pos_control_kwargs["kp"] = kp
-    if kd is not None:
-        pos_control_kwargs["kd"] = kd
-    if obj_kp is not None:
-        obj_pos_control_kwargs["kp"] = obj_kp
-    if obj_kd is not None:
-        obj_pos_control_kwargs["kd"] = obj_kd
-    if kp_angle is not None:
-        obj_pos_control_kwargs["kp_angle"] = kp_angle
-    if kd_angle is not None:
-        obj_pos_control_kwargs["kd_angle"] = kd_angle
-    if target_normal is not None:
-        obj_pos_control_kwargs["target_normal"] = target_normal
-
     if obj_name == "teddy_bear":
         Obj = ig_objects.TeddyBear
     elif obj_name == "banana":
         Obj = ig_objects.Banana
+    elif obj_name == "powerdrill":
+        Obj = ig_objects.PowerDrill
     else:
         print("invalid obj_name:", obj_name)
 
@@ -320,6 +298,8 @@ def main(
     mesh = None
     if not nerf:
         mesh_name = grasp_data.split("/")[1].rstrip(".npy")
+        if mesh_name != "teddy_bear":
+            mesh_name = mesh_name.split("_")[0]
         if "_" in mesh_name and not use_gt_mesh:
             mesh = trimesh.load(f"grasp_data/meshes/{mesh_name}.obj", force="mesh")
     grasps = np.load(grasp_data)
@@ -344,8 +324,6 @@ def main(
             obj,
             grasp_vars,
             loaded_mesh=mesh,
-            pos_control_kwargs=pos_control_kwargs,
-            obj_pos_control_kwargs={},  # obj_pos_control_kwargs,
         )
         successes += success
         if success:
@@ -365,38 +343,6 @@ if __name__ == "__main__":
         "--grasp_data", help="path to generated grasp data file", type=str
     )
     parser.add_argument(
-        "--kp", help="robot position controller position gain", type=float
-    )
-    parser.add_argument(
-        "--kd", help="robot position controller velocity gain", type=float
-    )
-    # Obj controller defaults target_normal=0.4, kp=1.5, kd=1.0, kp_angle=0.1, kd_angle=1e-2
-    parser.add_argument(
-        "--obj_kp",
-        help="object position controller position gain",
-        type=float,
-    )
-    parser.add_argument(
-        "--obj_kd",
-        help="object controller velocity gain",
-        type=float,
-    )
-    parser.add_argument(
-        "--kp_angle",
-        help="object controller kp angle gain",
-        type=float,
-    )
-    parser.add_argument(
-        "--kd_angle",
-        help="object controller kd angle gain",
-        type=float,
-    )
-    parser.add_argument(
-        "--target_normal",
-        help="object position controller target normal",
-        type=float,
-    )
-    parser.add_argument(
         "--grasp_idx",
         help="index of grasp from grasp_data to isolate a single grasp",
         type=int,
@@ -408,12 +354,5 @@ if __name__ == "__main__":
         args.obj_name,
         args.grasp_data,
         args.grasp_idx,
-        args.kp,
-        args.kd,
-        args.obj_kp,
-        args.obj_kd,
-        args.kp_angle,
-        args.kd_angle,
-        args.target_normal,
         args.use_gt_mesh,
     )

@@ -169,7 +169,7 @@ def object_pos_control(
     in_normal,
     target_position=None,
     target_normal=0.5,
-    kp=10.,
+    kp=10.0,
     kd=0.1,
     kp_angle=0.04,
     kd_angle=0.001,
@@ -275,7 +275,7 @@ def lifting_trajectory(grasp_vars, mesh=None):
             mode = "grasp"
             pos_err = closest_points - robot.position
             pos_control = pos_err * 5
-            vel_control = -1. * robot.velocity
+            vel_control = -1.0 * robot.velocity
             f = torch.tensor(grasp_normals * 0.05) + pos_control + vel_control
         else:
             mode = "lift"
@@ -295,7 +295,7 @@ def lifting_trajectory(grasp_vars, mesh=None):
                 )
                 ge = torch.tensor(ge, dtype=torch.float32)
             f_lift, target_force, target_torque, success = object_pos_control(
-                obj, ge, target_normal=3., kp=1.5, kd=1.0, kp_angle=0.3, kd_angle=1e-2
+                obj, ge, target_normal=3.0, kp=1.5, kd=1.0, kp_angle=0.3, kd_angle=1e-2
             )
             f = f_lift
 
@@ -338,7 +338,8 @@ def lifting_trajectory(grasp_vars, mesh=None):
             start_timestep = timestep
     return height_err <= err_bound
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
 
     import argparse
 
@@ -350,10 +351,11 @@ if __name__ == '__main__':
         help="flag to use NeRF to generate grasps",
         action="store_true",
     )
-    parser.add_argument('--diced', action='store_true')
-    parser.add_argument('--level_set', default=None)
-    parser.add_argument('--gt_normals', action='store_true')
-    parser.add_argument('--grasp', default='all', type=str)
+    parser.add_argument("--diced", action="store_true")
+    parser.add_argument("--level_set", default=None)
+    parser.add_argument("--gt_normals", action="store_true")
+    parser.add_argument("--grasp", default="all", type=str)
+    parser.add_argument("--rs", type=float)
     args = parser.parse_args()
 
     print(args)
@@ -397,17 +399,22 @@ if __name__ == '__main__':
     for i in range(4):
         step_gym()
 
-
     grasp_data = "grasp_data/" + args.obj_name
     if args.use_nerf:
-        grasp_data += '_nerf'
+        grasp_data += "_nerf"
+    elif args.diced:
+        grasp_data += "_diced"
     elif args.level_set is not None:
-        grasp_data += f'_{args.level_set}'
+        grasp_data += f"_{args.level_set}"
+    if args.rs is not None:
+        if int(args.rs) == args.rs:
+            args.rs = int(args.rs)
+        grasp_data += f"_rs{args.rs}"
 
     if args.diced:
-        grasp_data += '_diced'
+        grasp_data += "_diced"
 
-    grasp_data += '.npy'
+    grasp_data += ".npy"
     if not args.use_nerf:
         if args.gt_normals:
             mesh_name = args.obj_name
@@ -422,13 +429,8 @@ if __name__ == '__main__':
     grasps = np.load(grasp_data)
     if args.grasp == "random":
         sample_idx = np.random.choice(np.arange(grasps.shape[0]))
-    elif args.grasp != "all":
-        sample_idx = float(grasp)
     else:
         sample_idx = None
-
-    if sample_idx is not None:
-        grasps = grasps[sample_idx][None]
 
     successes = 0
 

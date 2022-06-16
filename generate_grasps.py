@@ -14,7 +14,7 @@ def main(
     use_nerf=False,
     mesh_in=None,
     outfile=None,
-    num_grasps=50,
+    num_grasps=10,
     risk_sensitivity=None,
     dice_grasp=False,
     cost_fn="l1",
@@ -83,7 +83,7 @@ def main(
     mu_0 = torch.cat([grasp_points, grasp_dirs], dim=-1).reshape(-1).to(centroid)
     Sigma_0 = torch.diag(
         torch.cat(
-            [torch.tensor([5e-2, 5e-2, 5e-2, 5e-2, 5e-2, 5e-2]) for _ in range(3)]
+            [torch.tensor([5e-2, 5e-3, 5e-2, 5e-2, 5e-3, 5e-2]) for _ in range(3)]
         )
     ).to(centroid)
 
@@ -110,7 +110,7 @@ def main(
             continue
 
         print("orig vals: ", mu_0.reshape(3, 6))
-        num_samples = 500 if not use_nerf else 3000
+        num_samples = 500 if not use_nerf else 5000
         grasp_points = grasp_opt.get_points_cem(
             3,
             model,

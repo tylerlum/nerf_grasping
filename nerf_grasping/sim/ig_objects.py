@@ -109,7 +109,7 @@ class RigidObject:
 
         asset_options.vhacd_params.mode = 0
         asset_options.vhacd_params.resolution = 300000
-        asset_options.vhacd_params.max_convex_hulls = 30
+        asset_options.vhacd_params.max_convex_hulls = 100
         asset_options.vhacd_params.max_num_vertices_per_ch = 16
 
         asset = self.gym.load_asset(self.sim, asset_dir, self.asset_file, asset_options)
@@ -267,7 +267,7 @@ class Box(RigidObject):
 
 class PowerDrill(RigidObject):
 
-    workspace = "powerdrill"
+    workspace = "power_drill"
     centroid = np.zeros(3)
     grasp_points = torch.tensor(
         [
@@ -280,8 +280,10 @@ class PowerDrill(RigidObject):
     grasp_normals = torch.tensor([[0, -1.0, 0.0], [-1, 0.0, 0.0], [1.0, 1.0, 0.0]])
 
     asset_file = "objects/urdf/power_drill.urdf"
+    mesh_file = "objects/meshes/power_drill/textured.obj"
     name = "power_drill"
-
+    obj_scale = 1.0
+    translation = np.array([-4.0196e-06,  2.4881e-05,  5.2011e-03])
 
 class Banana(RigidObject):
     workspace = "banana"
@@ -318,3 +320,17 @@ class BleachCleanser(RigidObject):
     data_dir = "./nerf_shared/data/bleach_cleanser"
     config_path = "./nerf_shared/configs/bleach_cleanser.txt"
     name = "bleach_cleanser"
+    mesh_file = "objects/meshes/bleach_cleanser/textured.obj"
+    workspace="bleach_cleanser"
+    grasp_points = torch.tensor(
+        [
+            [-0.038539, 0.115021, 0.023878],
+            [0.030017, -0.002467, 0.027816],
+            [-0.029284, -0.099212, 0.027294],
+        ]
+    )
+
+    grasp_normals = torch.tensor([[0, -1.0, 0.0], [-1, 0.0, 0.0], [1.0, 1.0, 0.0]])
+    translation = np.array([1.2256e-05, -1.2865e-06,  1.3161e-03])
+    obj_scale = 0.75
+    mu = 1.

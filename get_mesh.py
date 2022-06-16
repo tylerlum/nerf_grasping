@@ -21,6 +21,8 @@ def main(
         obj.use_centroid = True
     elif obj_name == "powerdrill":
         obj = ig_objects.PowerDrill
+    elif obj_name == "bleach_cleanser":
+        obj = ig_objects.BleachCleanser
 
     if outfile is None:
         outfile = obj_name

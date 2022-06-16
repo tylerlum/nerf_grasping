@@ -373,8 +373,10 @@ if __name__ == '__main__':
     elif args.obj_name == "teddy_bear":
         obj = ig_objects.TeddyBear
         obj.use_centroid = True
-    elif args.obj_name == "powerdrill":
+    elif args.obj_name == "power_drill":
         obj = ig_objects.PowerDrill
+    elif args.obj_name == "bleach_cleanser":
+        obj = ig_objects.BleachCleanser
 
     grasp_points, grasp_normals = obj.grasp_points, obj.grasp_normals
 

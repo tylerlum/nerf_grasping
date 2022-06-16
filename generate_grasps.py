@@ -50,8 +50,11 @@ def main(
     elif obj_name == "teddy_bear":
         obj = ig_objects.TeddyBear()
         obj.use_centroid = True
-    elif obj_name == "powerdrill":
+    elif obj_name == "power_drill":
         obj = ig_objects.PowerDrill()
+    elif obj_name == "bleach_cleanser":
+        obj = ig_objects.BleachCleanser()
+
 
     if use_nerf:
         model = ig_objects.load_nerf(obj.workspace, obj.bound, obj.scale)

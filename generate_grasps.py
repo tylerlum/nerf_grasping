@@ -55,7 +55,7 @@ def main(
 
     if use_nerf:
         model = ig_objects.load_nerf(obj.workspace, obj.bound, obj.scale)
-        centroid = grasp_utils.get_centroid(model, thresh=None)
+        centroid = grasp_utils.get_centroid(model)
         print(f"Estimated Centroid: {centroid}")
         print(f"True Centroid: {obj.gt_mesh.centroid}")
     else:
@@ -102,7 +102,7 @@ def main(
     mu_0 = torch.cat([grasp_points, grasp_dirs], dim=-1).reshape(-1).to(centroid)
     Sigma_0 = torch.diag(
         torch.cat(
-            [torch.tensor([5e-2, 5e-2, 5e-2, 1e-2, 1e-2, 1e-2]) for _ in range(3)]
+            [torch.tensor([5e-2, 5e-2, 5e-2, 5e-2, 5e-2, 5e-2]) for _ in range(3)]
         )
     ).to(centroid)
 
@@ -117,7 +117,7 @@ def main(
     for ii in range(num_grasps):
         if dice_grasp:
             rays_o, rays_d = grasp_opt.dice_the_grasp(
-                model, cost_fn, centroid=centroid
+                model, cost_fn, centroid=centroid.cpu().numpy()
             )
 
             rays_o = grasp_utils.nerf_to_ig(torch.from_numpy(rays_o).float().cuda())
@@ -182,7 +182,7 @@ if __name__ == "__main__":
     )
     parser.add_argument("--mesh_in", default=None, type=str)
     parser.add_argument("--outfile", "--out", default=None)
-    parser.add_argument("--risk_sensitivity", default=25.0, type=float)
+    parser.add_argument("--risk_sensitivity", default=10.0, type=float)
     parser.add_argument("--dice_grasp", action="store_true")
     parser.add_argument("--cost_fn", default="l1", type=str)
     args = parser.parse_args()

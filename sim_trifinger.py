@@ -272,7 +272,7 @@ class TriFingerEnv:
             self.sim, self.env, camera_handle, gymapi.IMAGE_COLOR
         )
         color_image = color_image.reshape(400, 400, -1)
-        Image.fromarray(color_image).save(path / f"col_{ii}.png")=
+        Image.fromarray(color_image).save(path / f"col_{ii}.png")
 
         segmentation_image = self.gym.get_camera_image(
             self.sim, self.env, camera_handle, gymapi.IMAGE_SEGMENTATION

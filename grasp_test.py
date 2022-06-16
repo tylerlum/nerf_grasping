@@ -176,7 +176,6 @@ def object_pos_control(
     return_wrench=False,
 ):
     """Object position control for lifting trajectory"""
-    success = True
     if target_position is None:
         target_position = np.array([0.0, 0.0, robot.target_height])
     tip_position = robot.position
@@ -257,8 +256,8 @@ def lifting_trajectory(grasp_vars, mesh=None):
     ge = None
     fail_count = 0
 
-    for timestep in range(500):
-        height_err = 0.04 - obj.position[-1].cpu().numpy().item()
+    for timestep in range(1000):
+        height_err = 0.02 - obj.position[-1].cpu().numpy().item() + obj.translation[-1]
         # time.sleep(0.01)
         step_gym()
         # finds the closest contact points to the original grasp normal + grasp_point ray
@@ -398,19 +397,22 @@ if __name__ == '__main__':
 
 
     grasp_data = "grasp_data/" + args.obj_name
-    if args.diced:
-        grasp_data += '_diced'
-    elif args.use_nerf:
+    if args.use_nerf:
         grasp_data += '_nerf'
     elif args.level_set is not None:
         grasp_data += f'_{args.level_set}'
 
+    if args.diced:
+        grasp_data += '_diced'
+
     grasp_data += '.npy'
     if not args.use_nerf:
         if args.gt_normals:
-            mesh_name = obj_name
+            mesh_name = args.obj_name
         else:
             mesh_name = grasp_data.split("/")[1].rstrip(".npy")
+            if args.diced:
+                mesh_name = mesh_name.rstrip("_diced")
         mesh = trimesh.load(f"grasp_data/meshes/{mesh_name}.obj", force="mesh")
     else:
         mesh = None

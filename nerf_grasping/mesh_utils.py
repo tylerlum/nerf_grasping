@@ -19,7 +19,7 @@ def marching_cubes(
     lower=np.array([-0.1, 0.01, -0.1]),
     upper=np.array([0.1, 0.2, 0.1]),
     level_set=0.5,
-    num_points=50,
+    num_points=150,
 ):
     """
     Generates a mesh of a desired density level set of a NeRF.
@@ -67,7 +67,7 @@ def marching_cubes(
     return verts, faces, -normals, values
 
 
-def poisson_mesh(mesh, depth=10, samples_per_node=5.0):
+def poisson_mesh(mesh):
     """
     Performs Poisson reconstruction to generate a (hopefully) watertight
     version of a mesh. Note that it can fail sometimes, so make sure to check output.
@@ -76,8 +76,6 @@ def poisson_mesh(mesh, depth=10, samples_per_node=5.0):
     faces, verts = pypoisson.poisson_reconstruction(
         np.array(mesh.triangles_center),
         np.array(mesh.face_normals),
-        depth=depth,
-        samples_per_node=samples_per_node,
     )
 
     return trimesh.Trimesh(verts, faces)

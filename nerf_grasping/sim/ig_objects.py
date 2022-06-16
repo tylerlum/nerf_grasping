@@ -211,8 +211,8 @@ class Box(RigidObject):
     grasp_points = torch.tensor(
         [[0.0, 0.05, 0.05], [0.03, -0.05, 0.05], [-0.03, -0.05, 0.05]]
     )
-    obj_scale = 0.05
-    translation = np.array([1.6597e-07, -6.8061e-07,  2.7000e-02])
+    obj_scale = 0.075
+    translation = np.array([1.6316e-07, -6.7600e-07,  3.9500e-02])
 
     grasp_normals = torch.tensor([[0.0, -1.0, 0.0], [0.0, 1.0, 0.0], [0.0, 1.0, 0.0]])
     mesh_file = "objects/meshes/cube_multicolor.obj"

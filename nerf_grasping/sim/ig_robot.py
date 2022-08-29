@@ -646,11 +646,10 @@ class Robot:
         grasp_points = tip_positions - cg_pos
 
         in_normal = torch.stack([quat.rotate(x) for x in in_normal], axis=0)
-        try:
-            global_forces = force_opt.calculate_grip_forces(
-                grasp_points, in_normal, target_force, target_torque, mu=obj.mu
-            )
-        except AssertionError:
+        global_forces, success = force_opt.calculate_grip_forces(
+            grasp_points, in_normal, target_force, target_torque, mu=obj.mu
+        )
+        if not success:
             logging.warning("solve failed, maintaining previous forces")
             global_forces = (
                 self.previous_global_forces
@@ -659,20 +658,10 @@ class Robot:
         else:
             self.previous_global_forces = global_forces
 
-        # logging.debug("per finger force: %s", global_forces)
-        # logging.debug("applied force: %s", torch.sum(global_forces, dim=0))
-
-        # _net_cf = self.gym.acquire_net_contact_force_tensor(self.sim)
-        # net_cf = gymtorch.wrap_tensor(_net_cf)
         self.gym.refresh_net_contact_force_tensor(self.sim)
 
-        # print(f"net_cf={net_cf[obj.index,:]}")
-        # logging.debug(f"net_cf={net_cf}")
-
-        # logging.debug("grasp_points: %s", grasp_points)
-        # logging.debug("in_normal: %s", in_normal)
         self.apply_fingertip_forces(global_forces)
-        return global_forces, target_force, target_torque
+        return global_forces, target_force, target_torque, success
 
 
 class FingertipRobot:
@@ -685,13 +674,13 @@ class FingertipRobot:
     grasp_normals = torch.tensor([[0.0, -1.0, 0.0], [0.0, 1.0, 0.0], [0.0, 1.0, 0.0]])
     mu = 1.0
     verbose = False
+    sphere_radius = 0.01
 
     def __init__(
         self,
         gym: gymapi.Gym,
         sim: Any,
         env: Any,
-        sphere_radius: float = 0.01,
         target_height: float = 0.07,
         use_grad_est: bool = False,
         grasp_vars: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
@@ -704,7 +693,6 @@ class FingertipRobot:
         self.gym = gym
         self.sim = sim
         self.env = env
-        self.sphere_radius = sphere_radius
         self.target_height = target_height
         self.norm_start_offset = norm_start_offset
         self._use_grad_est = use_grad_est
@@ -881,8 +869,7 @@ class FingertipRobot:
         # TODO: compute tip radius here?
         grasp_points = tip_position - cg_pos
         in_normal = torch.stack([quat.rotate(x) for x in in_normal], axis=0)
-        try:
-            global_forces = force_opt.calculate_grip_forces(
+        global_forces, success = force_opt.calculate_grip_forces(
                 grasp_points,
                 in_normal,
                 target_force,
@@ -890,7 +877,7 @@ class FingertipRobot:
                 target_normal,
                 obj.mu,
             )
-        except AssertionError:
+        if not success:
             logging.warning("solve failed, maintaining previous forces")
             global_forces = (
                 self.previous_global_forces
@@ -899,7 +886,7 @@ class FingertipRobot:
         else:
             self.previous_global_forces = global_forces
 
-        return global_forces, target_force, target_torque
+        return global_forces, target_force, target_torque, success
 
     def control(self, timestep, obj):
         closest_points = ig_utils.closest_point(
@@ -920,15 +907,16 @@ class FingertipRobot:
             f = torch.tensor(self.grasp_normals * 0.1) + pos_control + vel_control
         else:
             mode = "lift"
+            closest_points[:, 2] += 0.005  # encourages lifting
             pos_err = closest_points - self.position
             height_err = self.target_height - obj.position[-1]
-            if self.use_grad_est:
+            if self.use_grad_est and timestep < 130:
                 ge = self.get_grad_ests(obj, closest_points).cpu().float()
             else:
                 gp, ge = ig_utils.get_mesh_contacts(obj.gt_mesh, closest_points)
                 ge = torch.tensor(ge, dtype=torch.float32)
-            f_lift, target_force, target_torque = self.object_pos_control(
-                obj, ge, target_normal=0.4, kp=1.5, kd=1.0, kp_angle=0.1, kd_angle=1e-2
+            f_lift, target_force, target_torque, success = self.object_pos_control(
+                obj, ge, target_normal=3.0, kp=1.5, kd=1.0, kp_angle=0.3, kd_angle=1e-2
             )
             f = f_lift
         self.apply_fingertip_forces(f)
@@ -947,6 +935,7 @@ class FingertipRobot:
             velocity=self.velocity,
             force_mag=f.norm(dim=1),
             net_obj_force=net_obj_force,
+            grasp_opt_success=success
         )
         return state
 
@@ -962,6 +951,13 @@ class FingertipRobot:
     @property
     def position(self):
         return self.get_position()
+
+    @property
+    def contact_pts(self):
+        contact_pts = self.position
+        if self.grasp_normals is not None:
+            contact_pts += self.sphere_radius * self.grasp_normals
+        return contact_pts
 
     @property
     def velocity(self):

@@ -165,6 +165,7 @@ def setup_viewer():
 
 
 def object_pos_control(
+    robot,
     obj,
     in_normal,
     target_position=None,
@@ -178,7 +179,6 @@ def object_pos_control(
     """Object position control for lifting trajectory"""
     if target_position is None:
         target_position = np.array([0.0, 0.0, robot.target_height])
-    tip_position = robot.position
     vel = obj.velocity
     angular_vel = obj.angular_velocity
     quat = Quaternion.fromWLast(obj.orientation)
@@ -198,10 +198,10 @@ def object_pos_control(
         return torch.cat([target_force, target_torque])
     # grasp points in object frame
     # TODO: compute tip radius here?
-    grasp_points = tip_position - cg_pos
+    grasp_points_of = robot.contact_pts - cg_pos
     in_normal = torch.stack([quat.rotate(x) for x in in_normal], axis=0)
     global_forces, success = force_opt.calculate_grip_forces(
-        grasp_points,
+        grasp_points_of,
         in_normal,
         target_force,
         target_torque,
@@ -285,17 +285,24 @@ def lifting_trajectory(grasp_vars, mesh=None):
             #     obj, grasp_normals, target_normal=0.15
             if mesh is None:
                 if ge is None or timestep < 130:
-                    ge = robot.get_grad_ests(obj, robot.position)
+                    ge = robot.get_grad_ests(obj, robot.contact_pts)
             else:
                 gp, ge = get_mesh_contacts(
                     mesh,
-                    robot.position,
+                    robot.contact_pts,
                     pos_offset=obj.position,
                     rot_offset=obj.orientation,
                 )
                 ge = torch.tensor(ge, dtype=torch.float32)
             f_lift, target_force, target_torque, success = object_pos_control(
-                obj, ge, target_normal=3.0, kp=1.5, kd=1.0, kp_angle=0.3, kd_angle=1e-2
+                robot,
+                obj,
+                ge,
+                target_normal=3.0,
+                kp=1.5,
+                kd=1.0,
+                kp_angle=0.3,
+                kd_angle=1e-2,
             )
             f = f_lift
 
@@ -360,7 +367,7 @@ if __name__ == "__main__":
 
     print(args)
 
-    visualization = True
+    visualization = False
     gym = gymapi.acquire_gym()
 
     sim = setup_sim()
@@ -410,6 +417,8 @@ if __name__ == "__main__":
         if int(args.rs) == args.rs:
             args.rs = int(args.rs)
         grasp_data += f"_rs{args.rs}"
+    elif args.rs is None:
+        grasp_data += "_nors"
 
     if args.diced:
         grasp_data += "_diced"

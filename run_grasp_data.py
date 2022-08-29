@@ -272,6 +272,8 @@ def main(
         Obj = ig_objects.Banana
     elif obj_name == "powerdrill":
         Obj = ig_objects.PowerDrill
+    elif obj_name == "bleach_cleanser":
+        Obj = ig_objects.BleachCleanser
     else:
         print("invalid obj_name:", obj_name)
 

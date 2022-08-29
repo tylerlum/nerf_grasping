@@ -305,7 +305,7 @@ def grasp_cost(
     grasp_vars,
     n_f,
     model,
-    num_grasps=4,
+    num_grasps=10,
     residual_dirs=True,
     cost_fn="l1",
     cost_kwargs=dict(centroid=np.zeros((3, 1))),
@@ -391,6 +391,7 @@ def get_points_cem(
     elite_frac=0.1,
     risk_sensitivity=5.0,
     return_cost_hist=False,
+    return_dec_vars=False,
 ):
 
     # grasp vars are 2 * 3 * number of fingers, since include both pos and direction
@@ -423,9 +424,12 @@ def get_points_cem(
         projection=projection,
         elite_frac=elite_frac,
     )
-    ret = best_point.reshape(n_f, 6)
+    ret = [best_point.reshape(n_f, 6)]
     if return_cost_hist:
-        ret = (ret, cost_history)
+        ret.append(cost_history)
+    if return_dec_vars:
+        ret.append(mu_f)
+        ret.append(Sigma_f)
     return ret
 
 

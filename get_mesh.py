@@ -21,6 +21,8 @@ def main(
         obj.use_centroid = True
     elif obj_name == "powerdrill":
         obj = ig_objects.PowerDrill
+    elif obj_name == "bleach_cleanser":
+        obj = ig_objects.BleachCleanser
 
     if outfile is None:
         outfile = obj_name
@@ -37,6 +39,8 @@ def main(
     # Apply inverse transform to map approximate mesh -> ig frame.
     T[:3, :3] = R.reshape(3,3).T
     approx_mesh.apply_transform(T)
+
+    approx_mesh = mesh_utils.poisson_mesh(approx_mesh)
 
     approx_mesh.export(f'grasp_data/meshes/{outfile}_{level_set:.0f}.obj')
 

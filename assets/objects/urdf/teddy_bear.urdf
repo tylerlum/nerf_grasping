@@ -14,8 +14,8 @@
 	<mesh filename="meshes/teddy_bear/teddy_bear.obj" scale=".01 .01 .01"/>
       </geometry>
     </collision>
-    <!-- <inertial>
-      <density value="600.0"/>
-    </inertial> -->
+    <inertial>
+      <density value="60.0"/>
+    </inertial>
   </link>
 </robot>

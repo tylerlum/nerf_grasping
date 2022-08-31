@@ -9,25 +9,25 @@ import trimesh
 import numpy as np
 
 
-def get_mesh_centroid(obj_name):
-    if obj_name == "banana":
-        obj_mesh = "assets/objects/meshes/banana/textured.obj"
-    elif obj_name == "box":
-        obj_mesh = "assets/objects/meshes/cube_multicolor.obj"
-    elif obj_name == "teddy_bear":
-        obj_mesh = "assets/objects/meshes/isaac_teddy/isaac_bear.obj"
-    elif obj_name == "powerdrill":
-        obj_mesh = "assets/objects/meshes/power_drill/textured.obj"
+# def get_mesh_centroid(obj_name):
+#     if obj_name == "banana":
+#         obj_mesh = "assets/objects/meshes/banana/textured.obj"
+#     elif obj_name == "box":
+#         obj_mesh = "assets/objects/meshes/cube_multicolor.obj"
+#     elif obj_name == "teddy_bear":
+#         obj_mesh = "assets/objects/meshes/isaac_teddy/isaac_bear.obj"
+#     elif obj_name == "powerdrill":
+#         obj_mesh = "assets/objects/meshes/power_drill/textured.obj"
 
-    gt_mesh = trimesh.load(obj_mesh, force="mesh")
-    T = np.eye(4)
-    R = scipy.spatial.transform.Rotation.from_euler("Y", [-np.pi / 2]).as_matrix()
-    R = R @ scipy.spatial.transform.Rotation.from_euler("X", [-np.pi / 2]).as_matrix()
-    T[:3, :3] = R
-    gt_mesh.apply_transform(T)
+#     gt_mesh = trimesh.load(obj_mesh, force="mesh")
+#     T = np.eye(4)
+#     R = scipy.spatial.transform.Rotation.from_euler("Y", [-np.pi / 2]).as_matrix()
+#     R = R @ scipy.spatial.transform.Rotation.from_euler("X", [-np.pi / 2]).as_matrix()
+#     T[:3, :3] = R
+#     gt_mesh.apply_transform(T)
 
-    centroid = torch.from_numpy(gt_mesh.centroid).float()
-    return centroid
+#     centroid = torch.from_numpy(gt_mesh.centroid.copy()).float()
+#     return centroid
 
 
 def main(
@@ -40,40 +40,35 @@ def main(
     dice_grasp=False,
     cost_fn="l1",
 ):
-    if obj_name == "teddy_bear":
-        object_bounds = [(-0.1, 0.1), (0.01, 0.15), (-0.1, 0.1)]
-    elif obj_name == "banana":
-        object_bounds = [(-0.1, 0.1), (0.01, 0.05), (-0.1, 0.1)]
+
+    object_bounds = grasp_utils.OBJ_BOUNDS
+
+    if obj_name == "banana":
+        obj = ig_objects.Banana()
+    elif obj_name == "box":
+        obj = ig_objects.Box()
+    elif obj_name == "teddy_bear":
+        obj = ig_objects.TeddyBear()
+        obj.use_centroid = True
+    elif obj_name == "power_drill":
+        obj = ig_objects.PowerDrill()
+    elif obj_name == "bleach_cleanser":
+        obj = ig_objects.BleachCleanser()
+
 
     if use_nerf:
-        if obj_name == "banana":
-            obj = ig_objects.Banana
-        elif obj_name == "box":
-            obj = ig_objects.Box
-        elif obj_name == "teddy_bear":
-            obj = ig_objects.TeddyBear
-            obj.use_centroid = True
-        elif obj_name == "powerdrill":
-            obj = ig_objects.PowerDrill
-
         model = ig_objects.load_nerf(obj.workspace, obj.bound, obj.scale)
-        centroid = grasp_utils.get_centroid(model, object_bounds)
+        centroid = grasp_utils.get_centroid(model)
         print(f"Estimated Centroid: {centroid}")
-        print(f"True Centroid: {get_mesh_centroid(obj_name)}")
-
+        print(f"True Centroid: {obj.gt_mesh.centroid}")
     else:
-        if mesh_in is not None:
-            obj_mesh = mesh_in
-        elif obj_name == "banana":
-            obj_mesh = "assets/objects/meshes/banana/textured.obj"
-        elif obj_name == "box":
-            obj_mesh = "assets/objects/meshes/cube_multicolor.obj"
-        elif obj_name == "teddy_bear":
-            obj_mesh = "assets/objects/meshes/isaac_teddy/isaac_bear.obj"
-        elif obj_name == "powerdrill":
-            obj_mesh = "assets/objects/meshes/power_drill/textured.obj"
 
-        gt_mesh = trimesh.load(obj_mesh, force="mesh")
+        if mesh_in is not None:
+            obj_mesh = trimesh.load(mesh_in, force='mesh')
+
+        else:
+            obj_mesh = obj.gt_mesh
+
         T = np.eye(4)
         R = scipy.spatial.transform.Rotation.from_euler("Y", [-np.pi / 2]).as_matrix()
         R = (
@@ -81,10 +76,10 @@ def main(
             @ scipy.spatial.transform.Rotation.from_euler("X", [-np.pi / 2]).as_matrix()
         )
         T[:3, :3] = R
-        gt_mesh.apply_transform(T)
+        obj_mesh.apply_transform(T)
 
-        model = gt_mesh
-        centroid = torch.from_numpy(gt_mesh.centroid).float()
+        model = obj_mesh
+        centroid = torch.from_numpy(obj_mesh.centroid).float()
 
     if outfile is None:
         if use_nerf:
@@ -99,7 +94,7 @@ def main(
             outfile += "_diced"
 
     grasp_points = (
-        torch.tensor([[0.09, 0.0, -0.025], [-0.09, 0.0, -0.025], [0, 0.0, 0.09]])
+        torch.tensor([[0.09, 0.0, -0.045], [-0.09, 0.0, -0.045], [0, 0.0, 0.09]])
         .reshape(1, 3, 3)
         .to(centroid)
     )
@@ -110,15 +105,13 @@ def main(
     mu_0 = torch.cat([grasp_points, grasp_dirs], dim=-1).reshape(-1).to(centroid)
     Sigma_0 = torch.diag(
         torch.cat(
-            [torch.tensor([5e-2, 1e-2, 5e-2, 1e-2, 1e-3, 1e-2]) for _ in range(3)]
+            [torch.tensor([5e-2, 5e-2, 5e-2, 5e-2, 5e-2, 5e-2]) for _ in range(3)]
         )
     ).to(centroid)
 
-    # cost_fn = "psv"
     if use_nerf:
         mu_0, Sigma_0 = mu_0.float().cuda(), Sigma_0.float().cuda()
         centroid = centroid.float().cuda()
-        # cost_fn = "l1"
 
     # centroid_npy = centroid.detach().cpu().numpy()
     sampled_grasps = np.zeros((num_grasps, 3, 6))
@@ -127,7 +120,7 @@ def main(
     for ii in range(num_grasps):
         if dice_grasp:
             rays_o, rays_d = grasp_opt.dice_the_grasp(
-                gt_mesh, cost_fn, centroid=gt_mesh.centroid
+                model, cost_fn, centroid=centroid.cpu().numpy()
             )
 
             rays_o = grasp_utils.nerf_to_ig(torch.from_numpy(rays_o).float().cuda())
@@ -138,10 +131,12 @@ def main(
 
             continue
 
+        print('orig vals: ', mu_0.reshape(3,6))
+
         grasp_points = grasp_opt.get_points_cem(
             3,
             model,
-            num_iters=10,
+            num_iters=15,
             mu_0=mu_0,
             Sigma_0=Sigma_0,
             projection=projection_fn,
@@ -150,15 +145,19 @@ def main(
             cost_fn=cost_fn,
             risk_sensitivity=risk_sensitivity,
         )
-        grasp_points = grasp_points.reshape(3, 6)
+        grasp_points = grasp_points.reshape(3,6)
         rays_o, rays_d = grasp_points[:, :3], grasp_points[:, 3:]
 
         rays_d = grasp_utils.res_to_true_dirs(rays_o, rays_d, centroid)
+
+        print('optimized vals: ', rays_o)
 
         if isinstance(model, trimesh.Trimesh):
             rays_o = mesh_utils.correct_z_dists(model, rays_o, rays_d)
         else:
             rays_o = grasp_utils.correct_z_dists(model, grasp_points)
+
+        print('corrected vals:', rays_o, centroid)
 
         rays_o, rays_d = grasp_utils.nerf_to_ig(rays_o), grasp_utils.nerf_to_ig(rays_d)
 
@@ -166,6 +165,7 @@ def main(
         sampled_grasps[ii, :, 3:] = rays_d.cpu().numpy()
 
     os.makedirs("grasp_data", exist_ok=True)
+    print('saving to: ' + "grasp_data/" + outfile + ".npy")
     np.save("grasp_data/" + outfile + ".npy", sampled_grasps)
 
 
@@ -174,7 +174,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--num_grasps", "--n", help="number of grasps to sample", default=50, type=int
+        "--num_grasps", "--n", help="number of grasps to sample", default=10, type=int
     )
     parser.add_argument("--obj_name", "--o", help="object to use", default="banana")
     parser.add_argument(
@@ -185,7 +185,7 @@ if __name__ == "__main__":
     )
     parser.add_argument("--mesh_in", default=None, type=str)
     parser.add_argument("--outfile", "--out", default=None)
-    parser.add_argument("--risk_sensitivity", default=5.0, type=float)
+    parser.add_argument("--risk_sensitivity", default=10.0, type=float)
     parser.add_argument("--dice_grasp", action="store_true")
     parser.add_argument("--cost_fn", default="l1", type=str)
     args = parser.parse_args()

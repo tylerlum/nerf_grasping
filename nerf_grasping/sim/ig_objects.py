@@ -21,7 +21,7 @@ def load_nerf(workspace, bound, scale):
     args = parser.parse_args(
         [
             "--workspace",
-            f"{root_dir}/torch-ngp/logs/{workspace}",
+            f"{root_dir}/torch-ngp/data/logs/{workspace}",
             "--test",
             "--bound",
             f"{bound}",
@@ -216,6 +216,7 @@ class Box(RigidObject):
     translation = np.array([1.6316e-07, -6.7600e-07, 3.9500e-02])
 
     grasp_normals = torch.tensor([[0.0, -1.0, 0.0], [0.0, 1.0, 0.0], [0.0, 1.0, 0.0]])
+
     mesh_file = "objects/meshes/cube_multicolor.obj"
     asset_file = "objects/urdf/cube_multicolor.urdf"
 

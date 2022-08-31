@@ -1,5 +1,5 @@
 from nerf_grasping.sim import ig_objects
-from nerf_grasping import grasp_opt, grasp_utils, mesh_utils
+from nerf_grasping import grasp_opt, grasp_utils, mesh_utils, nerf_utils
 from functools import partial
 
 import os
@@ -55,16 +55,15 @@ def main(
     elif obj_name == "bleach_cleanser":
         obj = ig_objects.BleachCleanser()
 
-
     if use_nerf:
         model = ig_objects.load_nerf(obj.workspace, obj.bound, obj.scale)
-        centroid = grasp_utils.get_centroid(model)
+        centroid = nerf_utils.get_centroid(model)
         print(f"Estimated Centroid: {centroid}")
         print(f"True Centroid: {obj.gt_mesh.centroid}")
     else:
 
         if mesh_in is not None:
-            obj_mesh = trimesh.load(mesh_in, force='mesh')
+            obj_mesh = trimesh.load(mesh_in, force="mesh")
 
         else:
             obj_mesh = obj.gt_mesh
@@ -131,7 +130,7 @@ def main(
 
             continue
 
-        print('orig vals: ', mu_0.reshape(3,6))
+        print("orig vals: ", mu_0.reshape(3, 6))
 
         grasp_points = grasp_opt.get_points_cem(
             3,
@@ -145,19 +144,19 @@ def main(
             cost_fn=cost_fn,
             risk_sensitivity=risk_sensitivity,
         )
-        grasp_points = grasp_points.reshape(3,6)
+        grasp_points = grasp_points.reshape(3, 6)
         rays_o, rays_d = grasp_points[:, :3], grasp_points[:, 3:]
 
         rays_d = grasp_utils.res_to_true_dirs(rays_o, rays_d, centroid)
 
-        print('optimized vals: ', rays_o)
+        print("optimized vals: ", rays_o)
 
         if isinstance(model, trimesh.Trimesh):
             rays_o = mesh_utils.correct_z_dists(model, rays_o, rays_d)
         else:
-            rays_o = grasp_utils.correct_z_dists(model, grasp_points)
+            rays_o = nerf_utils.correct_z_dists(model, grasp_points)
 
-        print('corrected vals:', rays_o, centroid)
+        print("corrected vals:", rays_o, centroid)
 
         rays_o, rays_d = grasp_utils.nerf_to_ig(rays_o), grasp_utils.nerf_to_ig(rays_d)
 
@@ -165,7 +164,7 @@ def main(
         sampled_grasps[ii, :, 3:] = rays_d.cpu().numpy()
 
     os.makedirs("grasp_data", exist_ok=True)
-    print('saving to: ' + "grasp_data/" + outfile + ".npy")
+    print("saving to: " + "grasp_data/" + outfile + ".npy")
     np.save("grasp_data/" + outfile + ".npy", sampled_grasps)
 
 

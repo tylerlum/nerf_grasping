@@ -8,7 +8,7 @@ import trimesh
 import scipy
 
 from nerf_grasping.quaternions import Quaternion
-from nerf_grasping import grasp_utils
+from nerf_grasping import grasp_utils, nerf_utils
 
 from nerf import utils
 
@@ -32,7 +32,7 @@ def load_nerf(workspace, bound, scale):
             f"{root_dir}/torch-ngp",
         ]
     )
-    model = grasp_utils.load_nerf(args)
+    model = nerf_utils.load_nerf(args)
     return model
 
 
@@ -189,7 +189,7 @@ class TeddyBear(RigidObject):
     config_path = f"{root_dir}/nerf_shared/configs/isaac_teddy.txt"
     centroid = np.array([-0.0001444, 0.00412231, 0.08663063])
     use_centroid = False
-    translation = np.array([-1.2824e-05,  6.9302e-06,  2.2592e-03])
+    translation = np.array([-1.2824e-05, 6.9302e-06, 2.2592e-03])
 
     grasp_points = torch.tensor(
         [[0.0350, 0.0580, 0.1010], [0.0000, -0.0480, 0.0830], [-0.0390, 0.0580, 0.1010]]
@@ -212,11 +212,12 @@ class Box(RigidObject):
         [[0.0, 0.05, 0.05], [0.03, -0.05, 0.05], [-0.03, -0.05, 0.05]]
     )
     obj_scale = 0.075
-    translation = np.array([1.6316e-07, -6.7600e-07,  3.9500e-02])
+    translation = np.array([1.6316e-07, -6.7600e-07, 3.9500e-02])
 
     grasp_normals = torch.tensor([[0.0, -1.0, 0.0], [0.0, 1.0, 0.0], [0.0, 1.0, 0.0]])
     mesh_file = "objects/meshes/cube_multicolor.obj"
     asset_file = "objects/urdf/cube_multicolor.urdf"
+
 
 #     def create_asset(self):
 #         asset_options = gymapi.AssetOptions()
@@ -283,7 +284,8 @@ class PowerDrill(RigidObject):
     mesh_file = "objects/meshes/power_drill/textured.obj"
     name = "power_drill"
     obj_scale = 1.0
-    translation = np.array([-4.0196e-06,  2.4881e-05,  5.2011e-03])
+    translation = np.array([-4.0196e-06, 2.4881e-05, 5.2011e-03])
+
 
 class Banana(RigidObject):
     workspace = "banana"
@@ -299,8 +301,8 @@ class Banana(RigidObject):
     asset_file = "objects/urdf/banana.urdf"
     mesh_file = "objects/meshes/banana/textured.obj"
     name = "banana"
-    mu = 1.
-    translation = np.array([-1.4408e-05,  3.8640e-06,  2.7102e-03])
+    mu = 1.0
+    translation = np.array([-1.4408e-05, 3.8640e-06, 2.7102e-03])
 
 
 class Spatula(RigidObject):
@@ -321,7 +323,7 @@ class BleachCleanser(RigidObject):
     config_path = "./nerf_shared/configs/bleach_cleanser.txt"
     name = "bleach_cleanser"
     mesh_file = "objects/meshes/bleach_cleanser/textured.obj"
-    workspace="bleach_cleanser"
+    workspace = "bleach_cleanser"
     grasp_points = torch.tensor(
         [
             [-0.038539, 0.115021, 0.023878],
@@ -331,6 +333,6 @@ class BleachCleanser(RigidObject):
     )
 
     grasp_normals = torch.tensor([[0, -1.0, 0.0], [-1, 0.0, 0.0], [1.0, 1.0, 0.0]])
-    translation = np.array([1.2256e-05, -1.2865e-06,  1.3161e-03])
+    translation = np.array([1.2256e-05, -1.2865e-06, 1.3161e-03])
     obj_scale = 0.75
-    mu = 1.
+    mu = 1.0

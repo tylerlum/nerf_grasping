@@ -12,7 +12,7 @@ from pyhull import convex_hull as cvh
 
 import trimesh
 
-from nerf_grasping import grasp_utils, mesh_utils
+from nerf_grasping import grasp_utils, mesh_utils, nerf_utils
 
 
 def grasp_matrix(grasp_points, normals):
@@ -45,16 +45,18 @@ def rot_from_vec(n_z, start_vec=None):
     """
     # Construct constants.
     n_z = n_z.reshape(-1, 3)
-    I = torch.eye(3, device=n_z.device).reshape(1, 3, 3).expand(n_z.shape[0], 3, 3)
+    Identity = (
+        torch.eye(3, device=n_z.device).reshape(1, 3, 3).expand(n_z.shape[0], 3, 3)
+    )
     if start_vec is None:
-        start_vec = I[:, :, 2]
+        start_vec = Identity[:, :, 2]
 
     # Compute cross product to find axis of rotation.
     v = torch.cross(start_vec, n_z, dim=-1)
     theta = torch.arccos(torch.sum(start_vec * n_z, dim=-1)).reshape(-1, 1, 1)
     K = skew(v)
 
-    ans = I + torch.sin(theta) * K + (1 - torch.cos(theta)) * K @ K
+    ans = Identity + torch.sin(theta) * K + (1 - torch.cos(theta)) * K @ K
 
     return ans
 
@@ -315,7 +317,7 @@ def grasp_cost(
     gps = grasp_vars.reshape(-1, n_f, 6)
     B = gps.shape[0]
 
-    if centroid is not 0.0:
+    if not (isinstance(centroid, float) and centroid == 0.0):
         cost_kwargs["centroid"] = centroid
 
     if isinstance(model, trimesh.Trimesh):
@@ -326,7 +328,7 @@ def grasp_cost(
         num_grasps = 1
         risk_sensitivity = None
     else:
-        grasp_points, grad_ests, grasp_mask = grasp_utils.sample_grasps(
+        grasp_points, grad_ests, grasp_mask = nerf_utils.sample_grasps(
             gps, num_grasps, model, residual_dirs=residual_dirs, centroid=centroid
         )
 
@@ -403,15 +405,16 @@ def get_points_cem(
     if Sigma_0 is None:
         Sigma_0 = sigma_scale * torch.eye(6 * n_f, device=device)
 
-    cost = lambda x: grasp_cost(
-        x,
-        n_f,
-        model,
-        residual_dirs=residual_dirs,
-        cost_fn=cost_fn,
-        centroid=centroid,
-        risk_sensitivity=risk_sensitivity,
-    )
+    def cost(x):
+        return grasp_cost(
+            x,
+            n_f,
+            model,
+            residual_dirs=residual_dirs,
+            cost_fn=cost_fn,
+            centroid=centroid,
+            risk_sensitivity=risk_sensitivity,
+        )
 
     mu_f, Sigma_f, cost_history, best_point = optimize_cem(
         cost,
@@ -420,7 +423,7 @@ def get_points_cem(
         num_iters=num_iters,
         num_samples=num_samples,
         projection=projection,
-        elite_frac=elite_frac
+        elite_frac=elite_frac,
     )
     ret = best_point.reshape(n_f, 6)
     if return_cost_hist:

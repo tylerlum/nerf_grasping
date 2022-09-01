@@ -35,6 +35,7 @@ def load_nerf(workspace, bound, scale):
     model = nerf_utils.load_nerf(args)
     return model
 
+
 def load_object(exp_config: config.ExperimentConfig):
     if exp_config.object == config.ObjectType.BANANA:
         obj = Banana()

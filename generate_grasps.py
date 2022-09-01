@@ -8,6 +8,7 @@ import torch
 import trimesh
 import numpy as np
 
+
 def main(exp_config):
 
     object_bounds = grasp_utils.OBJ_BOUNDS
@@ -18,12 +19,12 @@ def main(exp_config):
         model = ig_objects.load_nerf(obj.workspace, obj.bound, obj.scale)
         print(f"Estimated Centroid: {model.centroid}")
         print(f"True Centroid: {obj.gt_mesh.centroid}")
-    
+
     else:
 
         # Load triangle mesh from file.
         obj_mesh = trimesh.load(config.mesh_file(exp_config.model_config), force="mesh")
-        
+
         # Transform triangle mesh to NeRF frame.
         T = np.eye(4)
         R = scipy.spatial.transform.Rotation.from_euler("Y", [-np.pi / 2]).as_matrix()

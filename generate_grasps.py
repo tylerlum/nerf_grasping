@@ -1,5 +1,5 @@
 from nerf_grasping.sim import ig_objects
-from nerf_grasping import grasp_opt, grasp_utils, mesh_utils
+from nerf_grasping import grasp_opt, grasp_utils, mesh_utils, nerf_utils
 from functools import partial
 
 import os
@@ -16,7 +16,7 @@ def compute_sampled_grasps(model, grasp_points, centroid):
     if isinstance(model, trimesh.Trimesh):
         rays_o = mesh_utils.correct_z_dists(model, rays_o, rays_d)
     else:
-        rays_o = grasp_utils.correct_z_dists(model, grasp_points)
+        rays_o = nerf_utils.correct_z_dists(model, grasp_points)
     print("corrected vals:", rays_o, centroid)
     rays_o, rays_d = grasp_utils.nerf_to_ig(rays_o), grasp_utils.nerf_to_ig(rays_d)
     return rays_o, rays_d
@@ -49,7 +49,7 @@ def main(
 
     if use_nerf:
         model = ig_objects.load_nerf(obj.workspace, obj.bound, obj.scale)
-        centroid = grasp_utils.get_centroid(model)
+        centroid = nerf_utils.get_centroid(model)
         print(f"Estimated Centroid: {centroid}")
         print(f"True Centroid: {obj.gt_mesh.centroid}")
     else:
@@ -125,7 +125,7 @@ def main(
             continue
 
         print("orig vals: ", mu_0.reshape(3, 6))
-        num_samples = 500 if not use_nerf else 500
+        num_samples = 500
         mu_f, Sigma_f = mu_0, Sigma_0
         for i in range(3):
             grasp_points, mu_f, Sigma_f = grasp_opt.get_points_cem(

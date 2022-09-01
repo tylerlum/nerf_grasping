@@ -8,7 +8,7 @@ import trimesh
 import scipy
 
 from nerf_grasping.quaternions import Quaternion
-from nerf_grasping import grasp_utils
+from nerf_grasping import grasp_utils, nerf_utils
 
 from nerf import utils
 
@@ -32,7 +32,7 @@ def load_nerf(workspace, bound, scale):
             f"{root_dir}/torch-ngp",
         ]
     )
-    model = grasp_utils.load_nerf(args)
+    model = nerf_utils.load_nerf(args)
     return model
 
 
@@ -189,7 +189,7 @@ class TeddyBear(RigidObject):
     data_dir = f"{root_dir}/nerf_shared/data/isaac_teddy"
     config_path = f"{root_dir}/nerf_shared/configs/isaac_teddy.txt"
     centroid = np.array([-0.0001444, 0.00412231, 0.08663063])
-    use_centroid = True
+    use_centroid = False
     translation = np.array([-1.2824e-05, 6.9302e-06, 2.2592e-03])
 
     grasp_points = torch.tensor(

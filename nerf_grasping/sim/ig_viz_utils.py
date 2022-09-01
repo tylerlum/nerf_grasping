@@ -3,7 +3,7 @@ import numpy as np
 import torch
 from isaacgym import gymapi
 
-from nerf_grasping import grasp_utils
+from nerf_grasping import grasp_utils, nerf_utils
 
 
 def visualize_grasp_normals(
@@ -44,7 +44,7 @@ def visualize_circle_markers(gym, env, sim, obj, n_markers=16):
         [np.sin(theta) * rad, np.cos(theta) * rad, np.ones(16) * rad], axis=1
     )
     nerf_pos = grasp_utils.ig_to_nerf(points)
-    densities = grasp_utils.nerf_densities(obj.model, nerf_pos.reshape(-1, 1, 3))
+    densities = nerf_utils.nerf_densities(obj.model, nerf_pos.reshape(-1, 1, 3))
     points[:, 2] = 0.03
     densities = densities.cpu().detach().numpy() / 300
     densities = densities.flatten()
@@ -106,7 +106,7 @@ def plot_grasp_distribution(
 ):
     # Test grasp sampling
 
-    rays, weights, z_vals = grasp_utils.get_grasp_distribution(
+    rays, weights, z_vals = nerf_utils.get_grasp_distribution(
         mu_f.reshape(1, 3, 6),
         coarse_model,
         fine_model,

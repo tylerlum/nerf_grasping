@@ -15,7 +15,7 @@ except ImportError:
     pin = None
     print("WARNING: Unable to import pinocchio, skipping import")
 
-from nerf_grasping import grasp_opt, grasp_utils
+from nerf_grasping import grasp_opt, grasp_utils, nerf_utils
 from nerf_grasping.control import pos_control, force_opt
 from nerf_grasping.sim import ig_viz_utils, ig_utils
 
@@ -269,7 +269,7 @@ class Robot:
             # tip_positions = grasp_points
             tip_positions = grasp_points.cuda() + grasp_normals.cuda() * 0.01
             nerf_tip_pos = grasp_utils.ig_to_nerf(tip_positions.cpu().detach().numpy())
-            _, grad_ests = grasp_utils.est_grads_vals(
+            _, grad_ests = nerf_utils.est_grads_vals(
                 obj.model,
                 nerf_tip_pos.reshape(1, -1, 3).cuda(),
                 sigma=5e-3,
@@ -722,7 +722,7 @@ class FingertipRobot:
         if not obj.nerf_loaded:
             obj.load_nerf_model()
         nerf_tip_pos = grasp_utils.ig_to_nerf(tip_position)
-        _, grad_ests = grasp_utils.est_grads_vals(
+        _, grad_ests = nerf_utils.est_grads_vals(
             obj.model,
             nerf_tip_pos.reshape(1, -1, 3).cuda(),
             sigma=7.5e-3,

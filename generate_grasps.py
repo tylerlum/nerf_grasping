@@ -44,7 +44,7 @@ def main(exp_config: config.Experiment):
     else:
 
         # Load triangle mesh from file.
-        obj_mesh = trimesh.load(config.mesh_file(exp_config.model_config), force="mesh")
+        obj_mesh = trimesh.load(config.mesh_file(exp_config), force="mesh")
 
         # Transform triangle mesh to NeRF frame.
         T = np.eye(4)

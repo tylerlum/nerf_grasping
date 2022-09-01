@@ -131,6 +131,9 @@ class Mesh:
     # What level set to extract with marching cubes; if None, uses gt mesh.
     level_set: Optional[float] = None
 
+    # How far fingers should be positioned from surface.
+    des_z_dist: float = 0.025
+
 
 @dataclasses.dataclass(frozen=True)
 class Experiment:

@@ -303,9 +303,7 @@ def gradient_plot(
     density_dirs = (density_grads / (grad_norms[..., None])).cpu()
 
     if plane == "xy":
-        c = ax.quiver(
-            X, Y, density_dirs[..., 0], density_dirs[..., 1], grad_norms.cpu()
-        )
+        ax.quiver(X, Y, density_dirs[..., 0], density_dirs[..., 1], grad_norms.cpu())
 
     return ax
 
@@ -348,7 +346,7 @@ def get_grasp_points(mesh, grasp_vars, residual_dirs=True):
     return grasp_points, grasp_normals, grasp_mask
 
 
-def correct_z_dists(mesh, rays_o, rays_d, des_dist=0.025):
+def correct_z_dists(mesh, rays_o, rays_d, mesh_config):
 
     if isinstance(rays_o, torch.Tensor):
         rays_o_np, rays_d_np = rays_o.cpu().numpy(), rays_d.cpu().numpy()
@@ -362,9 +360,9 @@ def correct_z_dists(mesh, rays_o, rays_d, des_dist=0.025):
     )
 
     dists = np.linalg.norm(rays_o_np - hit_points, axis=-1)
-    rays_o_corrected = rays_o_np + (dists - des_dist).reshape(3, 1) * rays_d_np
-
-    print(np.linalg.norm(rays_o_corrected - hit_points, axis=-1))
+    rays_o_corrected = (
+        rays_o_np + (dists - mesh_config.des_z_dist).reshape(3, 1) * rays_d_np
+    )
 
     if isinstance(rays_o, torch.Tensor):
         rays_o_corrected = torch.from_numpy(rays_o_corrected).to(rays_o)

@@ -293,12 +293,10 @@ def optimize_cem(
 def get_cost_function(exp_config, model):
     """Factory for grasp cost function; generates grasp cost for CEM using config/model."""
 
-    # if isinstance(model.centroid, torch.Tensor):
-    #     cost_kwargs = {"centroid": model.centroid.cpu().detach().numpy().reshape(3,1)}
-    # else:
-    #     cost_kwargs = {"centroid": model.centroid.reshape(3,1)}
-
-    cost_kwargs = {"centroid": model.centroid}
+    if isinstance(model.centroid, torch.Tensor):
+        cost_kwargs = {"centroid": model.centroid}
+    else:
+        cost_kwargs = {"centroid": torch.from_numpy(model.centroid)}
 
     def cost_function(grasp_vars):
 
@@ -314,12 +312,18 @@ def get_cost_function(exp_config, model):
             )
             grasp_mask = grasp_mask.all(-1, keepdim=True)
 
+            risk_sensitivity = None
+            num_grasp_samples = 1
+
         # Otherwise, use fuzzy NeRF method for point/normals.
         else:
 
             grasp_points, grad_ests, grasp_mask = nerf_utils.sample_grasps(
                 gps, exp_config.num_grasp_samples, model, exp_config.model_config
             )
+
+            risk_sensitivity = exp_config.risk_sensitivity
+            num_grasp_samples = exp_config.num_grasp_samples
 
         # Reshape grasp points and grads for cost evaluation.
         grasp_points = grasp_points.reshape(-1, n_f, 3)
@@ -333,18 +337,14 @@ def get_cost_function(exp_config, model):
         elif exp_config.cost_function == config.CostType.FC:
             grasp_metric = ferrari_canny
         elif exp_config.cost_function == config.CostType.L1:
-            cost_kwargs["grasp_mask"] = grasp_mask.expand(
-                B, exp_config.num_grasp_samples
-            )
+            cost_kwargs["grasp_mask"] = grasp_mask.expand(B, num_grasp_samples)
             grasp_metric = partial(l1_metric, **cost_kwargs)
 
-        raw_cost = grasp_metric(grasp_points, grad_ests).reshape(
-            B, exp_config.num_grasp_samples
-        )
+        raw_cost = grasp_metric(grasp_points, grad_ests).reshape(B, num_grasp_samples)
 
         # Exponentiate cost if using risk sensitivity.
-        if exp_config.risk_sensitivity:
-            g_cost = torch.exp(-exp_config.risk_sensitivity * raw_cost)
+        if risk_sensitivity:
+            g_cost = torch.exp(-risk_sensitivity * raw_cost)
         else:
             g_cost = -raw_cost
 
@@ -356,8 +356,8 @@ def get_cost_function(exp_config, model):
             torch.all(grasp_mask, dim=-1), g_cost, 2.0 * torch.ones_like(g_cost)
         )
 
-        if exp_config.risk_sensitivity:
-            g_cost = (1 / exp_config.risk_sensitivity) * torch.log(g_cost)
+        if risk_sensitivity:
+            g_cost = (1 / risk_sensitivity) * torch.log(g_cost)
 
         return g_cost
 

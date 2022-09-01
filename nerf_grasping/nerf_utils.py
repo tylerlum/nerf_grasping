@@ -10,7 +10,7 @@ import numpy as np
 import scipy
 import torch
 from nerf import renderer, utils
-from nerf_grasping import grasp_utils
+from nerf_grasping import config, grasp_utils
 
 
 def load_nerf(opt):
@@ -52,20 +52,16 @@ def load_nerf(opt):
         use_checkpoint="latest",
     )
     assert len(trainer.stats["checkpoints"]) != 0, "failed to load checkpoint"
-    return trainer.model
+    model = trainer.model
+
+    model.centroid = get_centroid(
+        model
+    )  # Pretty ugly hack, mutating to compute just once.
+
+    return model
 
 
-def get_grasp_distribution(
-    grasp_vars,
-    model,
-    num_steps=128,
-    upsample_steps=256,
-    near_finger=0.0001,
-    far_finger=0.15,
-    perturb=True,
-    residual_dirs=True,
-    centroid=0.0,
-):
+def get_grasp_distribution(grasp_vars, model, nerf_config):
     """
     Generates a "grasp distribution," a set of n_f categorical distributions
     for where each finger will contact the object surface, along with the associated
@@ -89,10 +85,8 @@ def get_grasp_distribution(
     device = rays_o.device
     rays_d = torch.reshape(rays_d, [-1, 3]).float()
 
-    if residual_dirs:
-        rays_d = grasp_utils.res_to_true_dirs(rays_o, rays_d, centroid=centroid)
-    else:
-        rays_d = rays_d / torch.norm(rays_d, dim=-1, keepdim=True)
+    # Convert dirs from residual to NeRF frame.
+    rays_d = grasp_utils.res_to_true_dirs(rays_o, rays_d, model.centroid)
 
     # Get near/far bounds for each ray.
     # First, generate near/far bounds for cube.
@@ -101,8 +95,8 @@ def get_grasp_distribution(
     )
 
     # Then setup near/far bounds for fingertip renderer.
-    near_finger = near_finger * torch.ones_like(near_cube)
-    far_finger = far_finger * torch.ones_like(far_cube)
+    near_finger = nerf_config.render_near_bound * torch.ones_like(near_cube)
+    far_finger = nerf_config.render_far_bound * torch.ones_like(far_cube)
 
     # Keep mask of rays which miss the cube altogether.
     mask = near_cube > 1e8
@@ -112,13 +106,15 @@ def get_grasp_distribution(
     far = torch.minimum(far_finger, far_cube)
     far[mask] = 1e9
 
-    z_vals = torch.linspace(0.0, 1.0, num_steps, device=device).unsqueeze(0)  # [1, T]
-    z_vals = z_vals.expand((N, num_steps))  # [N, T]
+    z_vals = torch.linspace(0.0, 1.0, nerf_config.num_steps, device=device).unsqueeze(
+        0
+    )  # [1, T]
+    z_vals = z_vals.expand((N, nerf_config.num_steps))  # [N, T]
     z_vals = near + (far - near) * z_vals  # [N, T], in [near, far]
 
     # perturb z_vals
-    sample_dist = (far - near) / num_steps
-    if perturb:
+    sample_dist = (far - near) / nerf_config.num_steps
+    if nerf_config.render_perturb_samples:
         z_vals = z_vals + (torch.rand(z_vals.shape, device=device) - 0.5) * sample_dist
 
     # generate pts
@@ -134,11 +130,11 @@ def get_grasp_distribution(
 
     sigmas, rgbs = model(pts.reshape(-1, 3), dirs.reshape(-1, 3))
 
-    rgbs = rgbs.reshape(N, num_steps, 3)  # [N, T, 3]
-    sigmas = sigmas.reshape(N, num_steps)  # [N, T]
+    rgbs = rgbs.reshape(N, nerf_config.num_steps, 3)  # [N, T, 3]
+    sigmas = sigmas.reshape(N, nerf_config.num_steps)  # [N, T]
 
     # upsample z_vals (nerf-like)
-    if upsample_steps > 0:
+    if nerf_config.upsample_steps > 0:
         with torch.no_grad():
 
             deltas = z_vals[..., 1:] - z_vals[..., :-1]  # [N, T-1]
@@ -155,7 +151,10 @@ def get_grasp_distribution(
             # sample new z_vals
             z_vals_mid = z_vals[..., :-1] + 0.5 * deltas[..., :-1]  # [N, T-1]
             new_z_vals = renderer.sample_pdf(
-                z_vals_mid, weights[:, 1:-1], upsample_steps, det=not model.training
+                z_vals_mid,
+                weights[:, 1:-1],
+                nerf_config.upsample_steps,
+                det=not model.training,
             ).detach()  # [N, t]
 
             new_pts = rays_o.unsqueeze(-2) + rays_d.unsqueeze(
@@ -168,8 +167,8 @@ def get_grasp_distribution(
         # only forward new points to save computation
         new_dirs = rays_d.unsqueeze(-2).expand_as(new_pts)
         new_sigmas, new_rgbs = model(new_pts.reshape(-1, 3), new_dirs.reshape(-1, 3))
-        new_rgbs = new_rgbs.reshape(N, upsample_steps, 3)  # [N, t, 3]
-        new_sigmas = new_sigmas.reshape(N, upsample_steps)  # [N, t]
+        new_rgbs = new_rgbs.reshape(N, nerf_config.upsample_steps, 3)  # [N, t, 3]
+        new_sigmas = new_sigmas.reshape(N, nerf_config.upsample_steps)  # [N, t]
 
         # re-order
         z_vals = torch.cat([z_vals, new_z_vals], dim=-1)  # [N, T+t]
@@ -204,7 +203,7 @@ def get_grasp_distribution(
     )
 
 
-def sample_grasps(grasp_vars, num_grasps, model, residual_dirs=True, centroid=0.0):
+def sample_grasps(grasp_vars, num_grasps, model, nerf_config):
     """
     Generates and samples from a distribution of grasps, returning a batch of
     grasp points and their associated normals.
@@ -219,7 +218,7 @@ def sample_grasps(grasp_vars, num_grasps, model, residual_dirs=True, centroid=0.
     used to compute grasp metrics.
     """
     rays_o, rays_d, weights, z_vals = get_grasp_distribution(
-        grasp_vars, model, residual_dirs=residual_dirs, centroid=centroid
+        grasp_vars, model, nerf_config
     )
 
     B, n_f, _ = rays_o.shape
@@ -276,7 +275,7 @@ def sample_grasps(grasp_vars, num_grasps, model, residual_dirs=True, centroid=0.
 
     # Mask approach directions that will not collide with each other
     # approach_mask = grasp_utils.intersect_grasp_dirs(
-    #     grasp_vars, model, residual_dirs, centroid, B, n_f
+    #     grasp_vars, model, model.centroid, B, n_f
     # )
     # grasp_mask = torch.logical_and(grasp_mask, approach_mask)
 
@@ -301,9 +300,7 @@ def sample_grasps(grasp_vars, num_grasps, model, residual_dirs=True, centroid=0.
     return grasp_points, grad_ests, grasp_mask
 
 
-def est_grads_vals(
-    nerf, grasp_points, method="gaussian", sigma=7.5e-3, num_samples=250
-):
+def est_grads_vals(nerf, grasp_points, grad_config):
     """
     Uses sampling to estimate gradients and density values for
     a given batch of grasp points.
@@ -316,9 +313,9 @@ def est_grads_vals(
     B, n_f, _ = grasp_points.shape
     device = grasp_points.device
 
-    if method == "grad_averaging":
-        gps = grasp_points.reshape(B, 1, n_f, 3) + sigma * torch.randn(
-            B, num_samples, n_f, 3, device=device
+    if grad_config.method == config.GradType.AVERAGE:
+        gps = grasp_points.reshape(B, 1, n_f, 3) + grad_config.variance * torch.randn(
+            B, grad_config.num_samples, n_f, 3, device=device
         )
         gps.requires_grad = True
 
@@ -326,42 +323,48 @@ def est_grads_vals(
 
         grad_ests = torch.mean(grads.reshape(B, -1, n_f, 3), dim=1)
         density_ests = torch.mean(densities.reshape(B, -1, n_f), dim=1)
-    elif method == "central_difference":
+    elif grad_config.method == config.GradType.CENTRAL_DIFFERENCE:
 
         U = (
             torch.cat([torch.eye(3, device=device), -torch.eye(3, device=device)])
             .reshape(1, 6, 1, 3)
             .expand(B, 6, n_f, 3)
         )
-        gps = grasp_points.reshape(B, 1, n_f, 3) + sigma * U
+        gps = grasp_points.reshape(B, 1, n_f, 3) + grad_config.variance * U
         densities = nerf_densities(nerf, gps.reshape(-1, n_f, 3)).reshape(B, 6, n_f)
 
         grad_ests = torch.stack(
             [
-                (densities[:, ii, :] - densities[:, ii + 3, :]) / (2 * sigma)
+                (densities[:, ii, :] - densities[:, ii + 3, :])
+                / (2 * grad_config.variance)
                 for ii in range(3)
             ],
             dim=-1,
         )
 
         density_ests = torch.mean(densities, dim=1)
-    elif method == "gaussian":
-        dgs = sigma * torch.randn(B, num_samples, n_f, 3, device=device)
+    elif grad_config.method == config.GradType.GAUSSIAN:
+        dgs = grad_config.variance * torch.randn(
+            B, grad_config.num_samples, n_f, 3, device=device
+        )
         gps = grasp_points.reshape(B, 1, n_f, 3) + dgs
         # grads, densities = nerf_grads(nerf, gps.reshape(-1, n_f, 3), ret_densities=True)
         densities = nerf_densities(nerf, gps.reshape(-1, n_f, 3))
 
-        # grads = grads.reshape(B, num_samples, n_f, 3)
-        densities = densities.reshape(B, num_samples, n_f)
+        # grads = grads.reshape(B, grad_config.num_samples, n_f, 3)
+        densities = densities.reshape(B, grad_config.num_samples, n_f)
 
         origin_densities = nerf_densities(nerf, grasp_points.reshape(B, n_f, 3))
         origin_densities = origin_densities.reshape(B, 1, n_f)
         grad_ests = (
             torch.mean(
-                (densities - origin_densities).reshape(B, num_samples, n_f, 1) * dgs,
+                (densities - origin_densities).reshape(
+                    B, grad_config.num_samples, n_f, 1
+                )
+                * dgs,
                 dim=1,
             )
-            / sigma
+            / grad_config.variance
         )
         density_ests = origin_densities.reshape(B, n_f)
 
@@ -453,36 +456,34 @@ def get_centroid(model, num_samples=10000, thresh=None):
         return torch.sum(sample_densities.reshape(-1, 1) * sample_points, dim=0)
 
 
-def correct_z_dists(model, grasp_points, centroid=0.0, des_z_dist=0.025, num_iters=10):
+def correct_z_dists(model, grasp_points, nerf_config):
     rays_o = grasp_points[:, :3]
     rays_d_raw = grasp_points[:, 3:]
-    rays_d = grasp_utils.res_to_true_dirs(rays_o, rays_d_raw, centroid)
+    rays_d = grasp_utils.res_to_true_dirs(rays_o, rays_d_raw, model.centroid)
 
-    for ii in range(num_iters):
+    for ii in range(nerf_config.num_z_dist_iters):
         grasp_points = torch.cat([rays_o, rays_d_raw], dim=-1).reshape(3, 6)
         _, _, weights, z_vals = get_grasp_distribution(
-            grasp_points.reshape(1, 3, 6),
-            model,
-            residual_dirs=True,
+            grasp_points.reshape(1, 3, 6), model, nerf_config
         )
 
-        z_correction = des_z_dist - torch.sum(weights * z_vals, dim=-1).reshape(3, 1)
+        z_correction = nerf_config.des_z_dist - torch.sum(
+            weights * z_vals, dim=-1
+        ).reshape(3, 1)
         rays_o = rays_o - 0.1 * z_correction * rays_d
 
     return rays_o
 
 
-def intersect_grasp_dirs(grasp_vars, model, residual_dirs, centroid, B, n_f):
+def intersect_grasp_dirs(grasp_vars, model, B, n_f, nerf_config):
     grasp_pairs = [[0, 1], [0, 2], [1, 2]]
     grasp_starts = grasp_vars[:, :, :3]
     grasp_dirs = grasp_utils.res_to_true_dirs(
         grasp_starts.reshape(-1, 3),
         grasp_vars[:, :, 3:].reshape(-1, 3),
-        centroid=centroid,
+        centroid=model.centroid,
     ).reshape(-1, n_f, 3)
-    _, _, weights, z_vals = get_grasp_distribution(
-        grasp_vars, model, residual_dirs=residual_dirs
-    )
+    _, _, weights, z_vals = get_grasp_distribution(grasp_vars, model, nerf_config)
     z_dists = torch.sum(weights * z_vals, dim=-1)  # shape B x 3
     approach_mask = torch.ones((B, 1), device=grasp_vars.device)
     for i, j in grasp_pairs:

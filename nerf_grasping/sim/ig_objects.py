@@ -8,7 +8,7 @@ import trimesh
 import scipy
 
 from nerf_grasping.quaternions import Quaternion
-from nerf_grasping import grasp_utils, nerf_utils
+from nerf_grasping import config, grasp_utils, nerf_utils
 
 from nerf import utils
 
@@ -34,6 +34,20 @@ def load_nerf(workspace, bound, scale):
     )
     model = nerf_utils.load_nerf(args)
     return model
+
+def load_object(exp_config: config.ExperimentConfig):
+    if exp_config.object == config.ObjectType.BANANA:
+        obj = Banana()
+    elif exp_config.object == config.ObjectType.BOX:
+        obj = Box()
+    elif exp_config.object == config.ObjectType.TEDDY_BEAR:
+        obj = TeddyBear()
+        obj.use_centroid = True
+    elif exp_config.object == config.ObjectType.POWER_DRILL:
+        obj = PowerDrill()
+    elif exp_config.object == config.ObjectType.BLEACH_CLEANSER:
+        obj = BleachCleanser()
+    return obj
 
 
 class RigidObject:

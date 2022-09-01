@@ -14,6 +14,7 @@ class CostType(enum.Enum):
     L1 = enum.auto()
     PSV = enum.auto()
     MSV = enum.auto()
+    FC = enum.auto()
 
 
 class ObjectType(enum.Enum):
@@ -25,7 +26,7 @@ class ObjectType(enum.Enum):
     BLEACH_CLEANSER = enum.auto()
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class GradEst:
     # Style of gradient estimation to use.
     method: GradType = GradType.GAUSSIAN
@@ -37,7 +38,13 @@ class GradEst:
     num_samples: int = 250
 
 
-@dataclasses.dataclass
+grad_configs = {
+    "grasp_opt": GradEst(),
+    "sim": GradEst(variance=5e-3, num_samples=1000),
+}
+
+
+@dataclasses.dataclass(frozen=True)
 class ControllerParams:
     """Grasp and PD Object Position Controller parameters"""
 
@@ -57,39 +64,39 @@ class ControllerParams:
     kd_angle = 0.001
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class RobotConfig:
     """Params to initialize FingertipRobot with controller config"""
 
-    # Target height to lift to
+    # Number of fingers robot has.
+    num_fingers: int = 3
+
+    # Target height to lift to.
     target_height: float = 0.7
 
-    # use groundtruth mesh normals for contact surface normals
+    # Use groundtruth mesh normals for contact surface normals.
     gt_normals: bool = False
 
-    # offset from object surface to start initial grasp trajectory from
+    # Offset from object surface to start initial grasp trajectory from.
     des_z_dist: float = 0.1
 
-    # fingertip friction coefficient
+    # Fingertip friction coefficient.
     mu: float = 1.0
 
-    # fingertip sphere radius (also used when computing approximate contact point)
+    # Fingertip sphere radius (also used when computing approximate contact point).
     sphere_radius: float = 0.01
 
-    # PD controller parameters
+    # PD controller parameters.
     controller_params: ControllerParams = ControllerParams()
+
+    # Gradient estimation parameters.
+    grad_config: GradEst = grad_configs["sim"]
 
     # use for debugging Robot controller
     verbose: bool = False
 
 
-grad_configs = {
-    "grasp_opt": GradEst(),
-    "sim": GradEst(variance=5e-3, num_samples=1000),
-}
-
-
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class NeRF:
     # Number of initial steps for finger rendering.
     num_steps: int = 128
@@ -116,13 +123,14 @@ class NeRF:
     num_z_dist_iters: int = 10
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class Mesh:
 
     # What level set to extract with marching cubes; if None, uses gt mesh.
     level_set: Optional[float] = None
 
 
+@dataclasses.dataclass(frozen=True)
 class Experiment:
 
     # Which object is used in experiment.
@@ -131,14 +139,26 @@ class Experiment:
     # Configuration for object model; dispatch on NeRF vs. mesh.
     model_config: Union[NeRF, Mesh] = NeRF()
 
+    # Configuration for robot.
+    robot_config: RobotConfig = RobotConfig()
+
     # Number of grasps to generate / test.
     num_grasps: int = 50
 
     # Which cost function to optimize.
     cost_function: CostType = CostType.L1
 
-    # Flag to use ground truth normals for lifting.
-    gt_normals: bool = False
+    # How many samples to use for CEM.
+    cem_num_samples: int = 500
+
+    # Number of iterations to run CEM.
+    cem_num_iters: int = 15
+
+    # Elite fraction for CEM.
+    cem_elite_frac: float = 0.1
+
+    # Number of grasp samples to draw to compute expectations.
+    num_grasp_samples: int = 10
 
     # Risk sensitivity value to use in cost.
     risk_sensitivity: Optional[float] = None
@@ -156,13 +176,13 @@ def mesh_file(exp_config: Experiment):
         return f"grasp_data/meshes/{obj_name}.obj"
 
 
-def grasp_file(exp_config: ExperimentConfig):
+def grasp_file(exp_config: Experiment):
     outfile = f"grasp_data/{exp_config.object.name.lower()}"
 
     if isinstance(exp_config.model_config, NeRF):
         outfile += "_nerf"
         outfile += f"_{exp_config.cost_function.name.lower()}"
-        if exp_config.model_config.risk_sensitivity:
+        if exp_config.risk_sensitivity:
             outfile += f"_rs{exp_config.risk_sensitivity}"
 
     else:

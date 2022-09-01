@@ -56,7 +56,7 @@ def load_nerf(opt):
 
     model.centroid = get_centroid(
         model
-    )  # Pretty ugly hack, mutating to compute just once.
+    )  # Pretty ugly hack, mutating object to compute just once.
 
     return model
 
@@ -261,7 +261,9 @@ def sample_grasps(grasp_vars, num_grasps, model, nerf_config):
     )  # [B, n_f, num_grasps, 3]
 
     # Estimate densities at fingertips.
-    density_ests, _ = est_grads_vals(model, rays_o.reshape(B, -1, 3))
+    density_ests, _ = est_grads_vals(
+        model, rays_o.reshape(B, -1, 3), nerf_config.grad_config
+    )
     density_ests = density_ests.reshape(B, n_f)
 
     # Mask approach directions that will not collide with object
@@ -280,7 +282,9 @@ def sample_grasps(grasp_vars, num_grasps, model, nerf_config):
     # grasp_mask = torch.logical_and(grasp_mask, approach_mask)
 
     # Estimate gradients.
-    _, grad_ests = est_grads_vals(model, grasp_points.reshape(B, -1, 3))
+    _, grad_ests = est_grads_vals(
+        model, grasp_points.reshape(B, -1, 3), nerf_config.grad_config
+    )
     grad_ests = grad_ests.reshape(B, n_f, num_grasps, 3)
 
     # normal_ests = grad_ests / torch.norm(grad_ests, dim=-1, keepdim=True)

@@ -23,16 +23,18 @@ def compute_sampled_grasps(model, grasp_points, centroid):
     return rays_o, rays_d
 
 
-def main(exp_config: config.ExperimentConfig):
+def main(exp_config: config.Experiment):
 
     object_bounds = grasp_utils.OBJ_BOUNDS
 
-    obj = ig_objects.load_obj(exp_config)
+    obj = ig_objects.load_object(exp_config)
 
     if isinstance(exp_config.model_config, config.NeRF):
         model = ig_objects.load_nerf(obj.workspace, obj.bound, obj.scale)
         print(f"Estimated Centroid: {model.centroid}")
         print(f"True Centroid: {obj.gt_mesh.centroid}")
+
+        centroid = model.centroid
 
     else:
 
@@ -70,21 +72,22 @@ def main(exp_config: config.ExperimentConfig):
         )
     ).to(centroid)
 
-    if use_nerf:
+    if isinstance(exp_config.model_config, config.NeRF):
         mu_0, Sigma_0 = mu_0.float().cuda(), Sigma_0.float().cuda()
         centroid = centroid.float().cuda()
 
     # centroid_npy = centroid.detach().cpu().numpy()
-    sampled_grasps = np.zeros((num_grasps, 3, 6))
+    sampled_grasps = np.zeros((exp_config.num_grasps, 3, 6))
     # max_sample_height = min(2 * centroid_npy[1] - 0.01, 0.05)
     projection_fn = partial(grasp_utils.box_projection, object_bounds=object_bounds)
-    num_cem_iters = 15
-    grasp_data = []
-    for ii in range(num_grasps):
-        if dice_grasp:
+
+    cost_function = grasp_opt.get_cost_function(exp_config, model)
+
+    for ii in range(exp_config.num_grasps):
+        if exp_config.dice_grasp:
             rays_o, rays_d = grasp_opt.dice_the_grasp(
-                model, cost_fn, centroid=centroid.cpu().numpy()
-            )
+                exp_config, model
+            )  # TODO(pculbert): fix this function trace.
 
             rays_o = grasp_utils.nerf_to_ig(torch.from_numpy(rays_o).float().cuda())
             rays_d = grasp_utils.nerf_to_ig(torch.from_numpy(rays_d).float().cuda())
@@ -92,36 +95,20 @@ def main(exp_config: config.ExperimentConfig):
             sampled_grasps[ii, :, :3] = rays_o.cpu()
             sampled_grasps[ii, :, 3:] = rays_d.cpu()
 
-            continue
+        else:
 
-        print("orig vals: ", mu_0.reshape(3, 6))
-        num_samples = 500
-        mu_f, Sigma_f = mu_0, Sigma_0
-        for i in range(3):
-            grasp_points, mu_f, Sigma_f = grasp_opt.get_points_cem(
-                3,
-                model,
-                num_iters=num_cem_iters // 3,
-                mu_0=mu_f,
-                Sigma_0=Sigma_f,
+            mu_f, Sigma_f, cost_history, best_point = grasp_opt.optimize_cem(
+                cost_function,
+                mu_0,
+                Sigma_0,
+                num_iters=exp_config.cem_num_iters,
+                num_samples=exp_config.cem_num_samples,
+                elite_frac=exp_config.cem_elite_frac,
                 projection=projection_fn,
-                centroid=centroid,
-                num_samples=num_samples,
-                cost_fn=cost_fn,
-                risk_sensitivity=risk_sensitivity,
-                return_dec_vars=True,
             )
-            grasp_points = grasp_points.reshape(3, 6)
+
+            grasp_points = best_point.reshape(3, 6)
             rays_o, rays_d = compute_sampled_grasps(model, grasp_points, centroid)
-            grasp_data.append(
-                {
-                    "cem_iter": num_cem_iters // 3 * (i + 1),
-                    "rays_o": rays_o.cpu().numpy(),
-                    "rays_d": rays_d.cpu().numpy(),
-                    "mu": mu_f.detach().cpu().numpy(),
-                    "Sigma": Sigma_f.detach().cpu().numpy(),
-                }
-            )
 
         sampled_grasps[ii, :, :3] = rays_o.cpu().numpy()
         sampled_grasps[ii, :, 3:] = rays_d.cpu().numpy()
@@ -129,32 +116,7 @@ def main(exp_config: config.ExperimentConfig):
     os.makedirs("grasp_data", exist_ok=True)
     print(f"saving to: grasp_data/{outfile}.npy")
     np.save(f"grasp_data/{outfile}.npy", sampled_grasps)
-    np.save(f"grasp_data/{outfile}_full.npy", grasp_data)
 
 
-dcargs.cli(main)
-
-# if __name__ == "__main__":
-#     import argparse
-#
-#     parser = argparse.ArgumentParser()
-#     parser.add_argument(
-#         "--num_grasps", "--n", help="number of grasps to sample", default=10, type=int
-#     )
-#     parser.add_argument("--obj_name", "--o", help="object to use", default="banana")
-#     parser.add_argument(
-#         "--use_nerf",
-#         "--nerf",
-#         help="flag to use NeRF to generate grasps",
-#         action="store_true",
-#     )
-#     parser.add_argument("--mesh_in", default=None, type=str)
-#     parser.add_argument("--outfile", "--out", default=None)
-#     parser.add_argument("--risk_sensitivity", type=float)
-#     parser.add_argument("--dice_grasp", action="store_true")
-#     parser.add_argument("--cost_fn", default="l1", type=str)
-#     args = parser.parse_args()
-#
-#     print(args)
-#
-#     main(**vars(args))
+exp_config = dcargs.cli(config.Experiment)
+main(exp_config)

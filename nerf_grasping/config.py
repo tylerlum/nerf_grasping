@@ -120,11 +120,10 @@ class NeRF:
 class Mesh:
 
     # What level set to extract with marching cubes; if None, uses gt mesh.
-    level_set: Optional[int] = None
+    level_set: Optional[float] = None
 
 
-@dataclasses.dataclass
-class ExperimentConfig:
+class Experiment:
 
     # Which object is used in experiment.
     object: ObjectType = ObjectType.BANANA
@@ -148,7 +147,7 @@ class ExperimentConfig:
     dice_grasp: bool = False
 
 
-def mesh_file(exp_config: ExperimentConfig):
+def mesh_file(exp_config: Experiment):
     obj_name = exp_config.object.name.lower()
 
     if exp_config.model_config.level_set:

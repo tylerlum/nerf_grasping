@@ -1,5 +1,7 @@
 import dataclasses
+import dcargs
 import enum
+import pickle
 
 from typing import Optional, Union
 
@@ -168,6 +170,7 @@ class Experiment:
 
 
 def mesh_file(exp_config: Experiment):
+    """Gets mesh filename from experiment config."""
     obj_name = exp_config.object.name.lower()
 
     if exp_config.model_config.level_set:
@@ -177,6 +180,8 @@ def mesh_file(exp_config: Experiment):
 
 
 def grasp_file(exp_config: Experiment):
+    """Generates grasp data filenames from experiment config."""
+
     outfile = f"grasp_data/{exp_config.object.name.lower()}"
 
     if isinstance(exp_config.model_config, NeRF):
@@ -191,6 +196,24 @@ def grasp_file(exp_config: Experiment):
         if exp_config.dice_grasp:
             outfile += "_diced"
 
-    outfile += ".npy"
-
     return outfile
+
+
+def save(exp_config: Experiment):
+    outfile = grasp_file(exp_config)
+
+    with open(f"{outfile}.pkl", "wb") as f:
+        pickle.dump(exp_config, f)
+
+    # Deprecated due to bug in dcargs
+    # with open(f"{outfile}.yaml", "w") as file:
+    #     file.write(dcargs.extras.to_yaml(exp_config))
+
+
+def load(infile):
+    with open(infile, "rb") as f:
+        return pickle.load(f)
+
+    # Deprecated due to bug in dcargs.
+    # with open(infile, "r") as file:
+    #     return dcargs.extras.from_yaml(Experiment, file)

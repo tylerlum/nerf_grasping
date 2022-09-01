@@ -8,6 +8,7 @@ import scipy.spatial
 import torch
 import trimesh
 import numpy as np
+import yaml
 
 
 def compute_sampled_grasps(model, grasp_points, centroid):
@@ -15,9 +16,13 @@ def compute_sampled_grasps(model, grasp_points, centroid):
     rays_d = grasp_utils.res_to_true_dirs(rays_o, rays_d, centroid)
     print("optimized vals: ", rays_o)
     if isinstance(model, trimesh.Trimesh):
-        rays_o = mesh_utils.correct_z_dists(model, rays_o, rays_d)
+        rays_o = mesh_utils.correct_z_dists(
+            model, rays_o, rays_d, exp_config.model_config
+        )
     else:
-        rays_o = nerf_utils.correct_z_dists(model, grasp_points)
+        rays_o = nerf_utils.correct_z_dists(
+            model, grasp_points, exp_config.model_config
+        )
     print("corrected vals:", rays_o, centroid)
     rays_o, rays_d = grasp_utils.nerf_to_ig(rays_o), grasp_utils.nerf_to_ig(rays_d)
     return rays_o, rays_d
@@ -114,8 +119,9 @@ def main(exp_config: config.Experiment):
         sampled_grasps[ii, :, 3:] = rays_d.cpu().numpy()
 
     os.makedirs("grasp_data", exist_ok=True)
-    print(f"saving to: grasp_data/{outfile}.npy")
-    np.save(f"grasp_data/{outfile}.npy", sampled_grasps)
+    print(f"saving to: {outfile}[.npy, .yaml]")
+    np.save(f"{outfile}.npy", sampled_grasps)
+    config.save(exp_config)
 
 
 exp_config = dcargs.cli(config.Experiment)

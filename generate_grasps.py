@@ -34,7 +34,7 @@ def main(exp_config: config.Experiment):
 
     obj = ig_objects.load_object(exp_config)
 
-    if isinstance(exp_config.model_config, config.NeRF):
+    if isinstance(exp_config.model_config, config.Nerf):
         model = ig_objects.load_nerf(obj.workspace, obj.bound, obj.scale)
         print(f"Estimated Centroid: {model.centroid}")
         print(f"True Centroid: {obj.gt_mesh.centroid}")
@@ -46,7 +46,7 @@ def main(exp_config: config.Experiment):
         # Load triangle mesh from file.
         obj_mesh = trimesh.load(config.mesh_file(exp_config), force="mesh")
 
-        # Transform triangle mesh to NeRF frame.
+        # Transform triangle mesh to Nerf frame.
         T = np.eye(4)
         R = scipy.spatial.transform.Rotation.from_euler("Y", [-np.pi / 2]).as_matrix()
         R = (
@@ -77,7 +77,7 @@ def main(exp_config: config.Experiment):
         )
     ).to(centroid)
 
-    if isinstance(exp_config.model_config, config.NeRF):
+    if isinstance(exp_config.model_config, config.Nerf):
         mu_0, Sigma_0 = mu_0.float().cuda(), Sigma_0.float().cuda()
         centroid = centroid.float().cuda()
 

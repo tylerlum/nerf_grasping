@@ -99,7 +99,7 @@ class RobotConfig:
 
 
 @dataclasses.dataclass(frozen=True)
-class NeRF:
+class Nerf:
     # Number of initial steps for finger rendering.
     num_steps: int = 128
 
@@ -141,8 +141,8 @@ class Experiment:
     # Which object is used in experiment.
     object: ObjectType = ObjectType.BANANA
 
-    # Configuration for object model; dispatch on NeRF vs. mesh.
-    model_config: Union[NeRF, Mesh] = NeRF()
+    # Configuration for object model; dispatch on Nerf vs. mesh.
+    model_config: Union[Nerf, Mesh] = Nerf()
 
     # Configuration for robot.
     robot_config: RobotConfig = RobotConfig()
@@ -180,7 +180,9 @@ def mesh_file(exp_config: Experiment):
     obj_name = exp_config.object.name.lower()
 
     if exp_config.model_config.level_set:
-        return f"grasp_data/meshes/{obj_name}_{exp_config.model_config.level_set}.obj"
+        return (
+            f"grasp_data/meshes/{obj_name}_{int(exp_config.model_config.level_set)}.obj"
+        )
     else:
         return f"grasp_data/meshes/{obj_name}.obj"
 
@@ -190,7 +192,7 @@ def grasp_file(exp_config: Experiment):
 
     outfile = f"grasp_data/{exp_config.object.name.lower()}"
 
-    if isinstance(exp_config.model_config, NeRF):
+    if isinstance(exp_config.model_config, Nerf):
         outfile += "_nerf"
         outfile += f"_{exp_config.cost_function.name.lower()}"
         if exp_config.risk_sensitivity:
@@ -198,7 +200,7 @@ def grasp_file(exp_config: Experiment):
 
     else:
         if exp_config.model_config.level_set:
-            outfile += f"_{exp_config.model_config.level_set}"
+            outfile += f"_{int(exp_config.model_config.level_set)}"
         if exp_config.dice_grasp:
             outfile += "_diced"
 

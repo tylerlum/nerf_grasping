@@ -37,9 +37,55 @@ class GradEst:
     num_samples: int = 250
 
 
+@dataclasses.dataclass
+class ControllerParams:
+    """Grasp and PD Object Position Controller parameters"""
+
+    # Grasp target normal force to apply with fingers
+    target_normal = 0.5
+
+    # Proportional position gain
+    kp = 10.0
+
+    # Derivative position gain
+    kd = 0.1
+
+    # Proportional rotation gain
+    kp_angle = 0.04
+
+    # Derivative rotation gain
+    kd_angle = 0.001
+
+
+@dataclasses.dataclass
+class RobotConfig:
+    """Params to initialize FingertipRobot with controller config"""
+
+    # Target height to lift to
+    target_height: float = 0.7
+
+    # use groundtruth mesh normals for contact surface normals
+    gt_normals: bool = False
+
+    # offset from object surface to start initial grasp trajectory from
+    des_z_dist: float = 0.1
+
+    # fingertip friction coefficient
+    mu: float = 1.0
+
+    # fingertip sphere radius (also used when computing approximate contact point)
+    sphere_radius: float = 0.01
+
+    # PD controller parameters
+    controller_params: ControllerParams = ControllerParams()
+
+    # use for debugging Robot controller
+    verbose: bool = False
+
+
 grad_configs = {
-    "grasp_opt": GradConfig(),
-    "sim": GradConfig(variance=5e-3, num_samples=1000),
+    "grasp_opt": GradEst(),
+    "sim": GradEst(variance=5e-3, num_samples=1000),
 }
 
 
@@ -77,7 +123,6 @@ class Mesh:
     level_set: Optional[float] = None
 
 
-@dataclasses.dataclass
 class Experiment:
 
     # Which object is used in experiment.
@@ -118,7 +163,7 @@ def grasp_file(exp_config: ExperimentConfig):
         outfile += "_nerf"
         outfile += f"_{exp_config.cost_function.name.lower()}"
         if exp_config.model_config.risk_sensitivity:
-            outfile += f"_rs{exp_config.model_config.risk_sensitivity}"
+            outfile += f"_rs{exp_config.risk_sensitivity}"
 
     else:
         if exp_config.model_config.level_set:

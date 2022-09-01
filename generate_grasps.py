@@ -2,6 +2,7 @@ from nerf_grasping.sim import ig_objects
 from nerf_grasping import config, grasp_opt, grasp_utils, mesh_utils, nerf_utils
 from functools import partial
 
+import dcargs
 import os
 import scipy.spatial
 import torch
@@ -9,7 +10,20 @@ import trimesh
 import numpy as np
 
 
-def main(exp_config):
+def compute_sampled_grasps(model, grasp_points, centroid):
+    rays_o, rays_d = grasp_points[:, :3], grasp_points[:, 3:]
+    rays_d = grasp_utils.res_to_true_dirs(rays_o, rays_d, centroid)
+    print("optimized vals: ", rays_o)
+    if isinstance(model, trimesh.Trimesh):
+        rays_o = mesh_utils.correct_z_dists(model, rays_o, rays_d)
+    else:
+        rays_o = nerf_utils.correct_z_dists(model, grasp_points)
+    print("corrected vals:", rays_o, centroid)
+    rays_o, rays_d = grasp_utils.nerf_to_ig(rays_o), grasp_utils.nerf_to_ig(rays_d)
+    return rays_o, rays_d
+
+
+def main(exp_config: config.ExperimentConfig):
 
     object_bounds = grasp_utils.OBJ_BOUNDS
 
@@ -52,7 +66,7 @@ def main(exp_config):
     mu_0 = torch.cat([grasp_points, grasp_dirs], dim=-1).reshape(-1).to(centroid)
     Sigma_0 = torch.diag(
         torch.cat(
-            [torch.tensor([5e-2, 5e-2, 5e-2, 5e-2, 5e-2, 5e-2]) for _ in range(3)]
+            [torch.tensor([5e-2, 1e-3, 5e-2, 5e-3, 1e-3, 5e-3]) for _ in range(3)]
         )
     ).to(centroid)
 
@@ -64,6 +78,8 @@ def main(exp_config):
     sampled_grasps = np.zeros((num_grasps, 3, 6))
     # max_sample_height = min(2 * centroid_npy[1] - 0.01, 0.05)
     projection_fn = partial(grasp_utils.box_projection, object_bounds=object_bounds)
+    num_cem_iters = 15
+    grasp_data = []
     for ii in range(num_grasps):
         if dice_grasp:
             rays_o, rays_d = grasp_opt.dice_the_grasp(
@@ -79,64 +95,66 @@ def main(exp_config):
             continue
 
         print("orig vals: ", mu_0.reshape(3, 6))
-
-        grasp_points = grasp_opt.get_points_cem(
-            3,
-            model,
-            num_iters=15,
-            mu_0=mu_0,
-            Sigma_0=Sigma_0,
-            projection=projection_fn,
-            centroid=centroid,
-            num_samples=500,
-            cost_fn=cost_fn,
-            risk_sensitivity=risk_sensitivity,
-        )
-        grasp_points = grasp_points.reshape(3, 6)
-        rays_o, rays_d = grasp_points[:, :3], grasp_points[:, 3:]
-
-        rays_d = grasp_utils.res_to_true_dirs(rays_o, rays_d, centroid)
-
-        print("optimized vals: ", rays_o)
-
-        if isinstance(model, trimesh.Trimesh):
-            rays_o = mesh_utils.correct_z_dists(model, rays_o, rays_d)
-        else:
-            rays_o = nerf_utils.correct_z_dists(model, grasp_points)
-
-        print("corrected vals:", rays_o, centroid)
-
-        rays_o, rays_d = grasp_utils.nerf_to_ig(rays_o), grasp_utils.nerf_to_ig(rays_d)
+        num_samples = 500
+        mu_f, Sigma_f = mu_0, Sigma_0
+        for i in range(3):
+            grasp_points, mu_f, Sigma_f = grasp_opt.get_points_cem(
+                3,
+                model,
+                num_iters=num_cem_iters // 3,
+                mu_0=mu_f,
+                Sigma_0=Sigma_f,
+                projection=projection_fn,
+                centroid=centroid,
+                num_samples=num_samples,
+                cost_fn=cost_fn,
+                risk_sensitivity=risk_sensitivity,
+                return_dec_vars=True,
+            )
+            grasp_points = grasp_points.reshape(3, 6)
+            rays_o, rays_d = compute_sampled_grasps(model, grasp_points, centroid)
+            grasp_data.append(
+                {
+                    "cem_iter": num_cem_iters // 3 * (i + 1),
+                    "rays_o": rays_o.cpu().numpy(),
+                    "rays_d": rays_d.cpu().numpy(),
+                    "mu": mu_f.detach().cpu().numpy(),
+                    "Sigma": Sigma_f.detach().cpu().numpy(),
+                }
+            )
 
         sampled_grasps[ii, :, :3] = rays_o.cpu().numpy()
         sampled_grasps[ii, :, 3:] = rays_d.cpu().numpy()
 
     os.makedirs("grasp_data", exist_ok=True)
-    print("saving to: " + "grasp_data/" + outfile + ".npy")
-    np.save("grasp_data/" + outfile + ".npy", sampled_grasps)
+    print(f"saving to: grasp_data/{outfile}.npy")
+    np.save(f"grasp_data/{outfile}.npy", sampled_grasps)
+    np.save(f"grasp_data/{outfile}_full.npy", grasp_data)
 
 
-if __name__ == "__main__":
-    import argparse
+dcargs.cli(main)
 
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--num_grasps", "--n", help="number of grasps to sample", default=10, type=int
-    )
-    parser.add_argument("--obj_name", "--o", help="object to use", default="banana")
-    parser.add_argument(
-        "--use_nerf",
-        "--nerf",
-        help="flag to use NeRF to generate grasps",
-        action="store_true",
-    )
-    parser.add_argument("--mesh_in", default=None, type=str)
-    parser.add_argument("--outfile", "--out", default=None)
-    parser.add_argument("--risk_sensitivity", default=10.0, type=float)
-    parser.add_argument("--dice_grasp", action="store_true")
-    parser.add_argument("--cost_fn", default="l1", type=str)
-    args = parser.parse_args()
-
-    print(args)
-
-    main(**vars(args))
+# if __name__ == "__main__":
+#     import argparse
+#
+#     parser = argparse.ArgumentParser()
+#     parser.add_argument(
+#         "--num_grasps", "--n", help="number of grasps to sample", default=10, type=int
+#     )
+#     parser.add_argument("--obj_name", "--o", help="object to use", default="banana")
+#     parser.add_argument(
+#         "--use_nerf",
+#         "--nerf",
+#         help="flag to use NeRF to generate grasps",
+#         action="store_true",
+#     )
+#     parser.add_argument("--mesh_in", default=None, type=str)
+#     parser.add_argument("--outfile", "--out", default=None)
+#     parser.add_argument("--risk_sensitivity", type=float)
+#     parser.add_argument("--dice_grasp", action="store_true")
+#     parser.add_argument("--cost_fn", default="l1", type=str)
+#     args = parser.parse_args()
+#
+#     print(args)
+#
+#     main(**vars(args))

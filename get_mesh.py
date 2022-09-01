@@ -37,9 +37,8 @@ def main(exp_config: config.ExperimentConfig):
     # Apply inverse transform to map approximate mesh -> ig frame.
     T[:3, :3] = R.reshape(3, 3).T
     approx_mesh.apply_transform(T)
-
+    
     approx_mesh = mesh_utils.poisson_mesh(approx_mesh)
-
     approx_mesh.export(f"grasp_data/meshes/{outfile}_{level_set:.0f}.obj")
 
 

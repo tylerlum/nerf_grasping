@@ -21,7 +21,7 @@ def load_nerf(workspace, bound, scale):
     args = parser.parse_args(
         [
             "--workspace",
-            f"{root_dir}/torch-ngp/logs/{workspace}",
+            f"{root_dir}/torch-ngp/data/logs/{workspace}",
             "--test",
             "--bound",
             f"{bound}",
@@ -59,6 +59,7 @@ class RigidObject:
     centroid = np.zeros((3, 1))
     use_centroid = False
     mu = 1.0
+    translation = np.zeros(3)
 
     def __init__(self, gym=None, sim=None, env=None):
         self.gym = gym
@@ -70,7 +71,16 @@ class RigidObject:
             self.actor = self.configure_actor(gym, env)
 
         self.nerf_loaded = False
+        self.model = None
         self.load_trimesh()
+
+    def setup_gym(self, gym, sim, env):
+        self.gym = gym
+        self.sim = sim
+        self.env = env
+        if self.sim is not None:
+            self.asset = self.create_asset()
+            self.actor = self.configure_actor(self.gym, self.env)
 
     def get_CG(self):
         pos = self.rb_states[0, :3]
@@ -230,6 +240,7 @@ class Box(RigidObject):
     translation = np.array([1.6316e-07, -6.7600e-07, 3.9500e-02])
 
     grasp_normals = torch.tensor([[0.0, -1.0, 0.0], [0.0, 1.0, 0.0], [0.0, 1.0, 0.0]])
+
     mesh_file = "objects/meshes/cube_multicolor.obj"
     asset_file = "objects/urdf/cube_multicolor.urdf"
 
@@ -282,9 +293,9 @@ class Box(RigidObject):
 
 
 class PowerDrill(RigidObject):
-
     workspace = "power_drill"
     centroid = np.zeros(3)
+    translation = np.array([-0.00031597, 0.00020537, 0.00023557])
     grasp_points = torch.tensor(
         [
             [-0.038539, 0.115021, 0.023878],
@@ -294,6 +305,7 @@ class PowerDrill(RigidObject):
     )
 
     grasp_normals = torch.tensor([[0, -1.0, 0.0], [-1, 0.0, 0.0], [1.0, 1.0, 0.0]])
+    bound = 3.0
 
     asset_file = "objects/urdf/power_drill.urdf"
     mesh_file = "objects/meshes/power_drill/textured.obj"

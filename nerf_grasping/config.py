@@ -171,6 +171,9 @@ class Experiment:
     # Flag to use "dicing the grasp" to optimize grasp.
     dice_grasp: bool = False
 
+    # Rejection parameter for "dicing the grasp."
+    dice_mu: float = 0.5
+
 
 def mesh_file(exp_config: Experiment):
     """Gets mesh filename from experiment config."""

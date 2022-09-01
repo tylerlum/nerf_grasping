@@ -90,9 +90,12 @@ def main(exp_config: config.Experiment):
 
     for ii in range(exp_config.num_grasps):
         if exp_config.dice_grasp:
+
+            assert isinstance(exp_config.model_config, config.Mesh)
+
             rays_o, rays_d = grasp_opt.dice_the_grasp(
-                exp_config, model
-            )  # TODO(pculbert): fix this function trace.
+                model, cost_function, exp_config, projection_fn
+            )
 
             rays_o = grasp_utils.nerf_to_ig(torch.from_numpy(rays_o).float().cuda())
             rays_d = grasp_utils.nerf_to_ig(torch.from_numpy(rays_d).float().cuda())

@@ -16,6 +16,7 @@ except ImportError:
     print("WARNING: Unable to import pinocchio, skipping import")
 
 from nerf_grasping import grasp_opt, grasp_utils, nerf_utils
+from nerf_grasping.config import RobotConfig
 from nerf_grasping.control import pos_control, force_opt
 from nerf_grasping.sim import ig_viz_utils, ig_utils
 
@@ -23,29 +24,6 @@ from nerf_grasping.quaternions import Quaternion
 
 root_dir = Path(os.path.abspath(__file__)).parents[2]
 asset_dir = f"{root_dir}/assets"
-
-
-@dataclass
-class RobotConfig:
-    """Params to initialize FingertipRobot with controller config"""
-
-    # Target height to lift to
-    target_height: float = 0.7
-
-    # use groundtruth mesh normals for contact surface normals
-    use_true_normals: bool = False
-
-    # offset from object surface to start initial grasp trajectory from
-    norm_start_offset: float = 0.1
-
-    # fingertip friction coefficient
-    mu: float = 1.0
-
-    # fingertip sphere radius (also used when computing approximate contact point)
-    sphere_radius: float = 0.01
-
-    # use for debugging Robot controller
-    verbose: bool = False
 
 
 class Robot:
@@ -60,7 +38,7 @@ class Robot:
         gym,
         sim,
         env,
-        config,
+        config: RobotConfig,
     ):
         self.gym = gym
         self.sim = sim
@@ -74,8 +52,8 @@ class Robot:
         self.asset = self.create_asset()
         self.actor = self.configure_actor()
         self.target_height = config.target_height
-        self.use_true_normals = config.use_true_normals
-        self.norm_start_offset = config.norm_start_offset
+        self.use_true_normals = config.gt_normals
+        self.des_z_dist = config.des_z_dist
 
         print(os.path.exists("assets/" + self.urdf_filename))
 
@@ -186,7 +164,6 @@ class Robot:
 
         self.gym.clear_lines(self.viewer)
         self.added_lines = False
-        self.grasp_points = self.grasp_normals = self.grad_ests = None
         self.previous_global_forces = None
         self.grad_ests = None
         return
@@ -244,7 +221,7 @@ class Robot:
         for i in range(len(tip_positions)):
             pdist.append(
                 torch.nn.functional.pairwise_distance(
-                    tip_positions[i], rays_o + rays_d * self.norm_start_offset
+                    tip_positions[i], rays_o + rays_d * self.des_z_dist
                 )
             )
         pdist = torch.stack(pdist, dim=1)
@@ -258,7 +235,7 @@ class Robot:
         if self.added_lines:
             self.gym.clear_lines(self.viewer)
         ig_viz_utils.visualize_grasp_normals(
-            self.gym, self.viewer, self.env, rays_o, rays_d, self.norm_start_offset
+            self.gym, self.viewer, self.env, rays_o, rays_d, self.des_z_dist
         )
         self.added_lines = True
         return rays_o, rays_d
@@ -591,9 +568,10 @@ class FingertipRobot:
         self.gym = gym
         self.sim = sim
         self.env = env
+        self.controller_params = config.controller_params
         self.target_height = config.target_height
-        self.use_true_normals = config.use_true_normals
-        self.norm_start_offset = config.norm_start_offset
+        self.use_true_normals = config.gt_normals
+        self.norm_start_offset = config.des_z_dist
         self.mu = config.mu
         self.sphere_radius = config.sphere_radius
         self.verbose = config.verbose
@@ -612,7 +590,8 @@ class FingertipRobot:
         markers = []
         actors = []
         colors = np.array([[0, 0, 1], [0, 1, 0], [1, 0, 0]], dtype="float32")
-        for i, pos in enumerate(self.ftip_start_pos):
+
+        for i, pos in enumerate(self.get_ftip_start_pos()):
             color = colors[i]
             pose = gymapi.Transform()
             pose.p.x = pos[0]
@@ -690,8 +669,10 @@ class FingertipRobot:
     def reset_actor(self, grasp_vars=None):
         """Resets fingertips to points on grasp point lines"""
         if grasp_vars is not None:
-            self.grasp_points, self.grasp_normals = grasp_vars
-            ftip_start_pos = self.ftip_start_pos
+            grasp_points, grasp_normals = grasp_vars
+            ftip_start_pos = self.get_ftip_start_pos(grasp_points, grasp_normals)
+        else:
+            self.get_ftip_start_pos()
 
         for pos, handle in zip(ftip_start_pos, self.actors):
             state = self.gym.get_actor_rigid_body_states(
@@ -739,13 +720,15 @@ class FingertipRobot:
         obj,
         in_normal,
         target_position=None,
-        target_normal=0.4,
-        kp=0.1,
-        kd=0.1,
-        kp_angle=0.04,
-        kd_angle=0.001,
     ):
         """Object position control for lifting trajectory"""
+        # Get controller params
+        target_normal = self.controller_params.target_normal
+        kp = self.controller_params.kp
+        kd = self.controller_params.kd
+        kp_angle = self.controller_params.kp_angle
+        kd_angle = self.controller_params.kd_angle
+
         if target_position is None:
             target_position = np.array([0.0, 0.0, self.target_height])
         tip_position = self.position
@@ -838,14 +821,18 @@ class FingertipRobot:
         )
         return state
 
-    def get_ftip_start_pos(self, grasp_points, grasp_normals):
+    def get_ftip_start_pos(self, grasp_points=None, grasp_normals=None):
+        if grasp_points is None:
+            grasp_points = torch.tensor(
+                [[0.0, 0.05, 0.05], [0.03, -0.05, 0.05], [-0.03, -0.05, 0.05]]
+            )
+            grasp_normals = torch.tensor(
+                [[0.0, -1.0, 0.0], [0.0, 1.0, 0.0], [0.0, 1.0, 0.0]]
+            )
+
         ftip_start_pos = grasp_points - grasp_normals * self.norm_start_offset
         ftip_start_pos[:, 2] = grasp_points[:, 2]
         return ftip_start_pos
-
-    @property
-    def ftip_start_pos(self):
-        return self.get_ftip_start_pos(self.grasp_points, self.grasp_normals)
 
     @property
     def position(self):

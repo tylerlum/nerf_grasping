@@ -35,6 +35,7 @@ def load_nerf(workspace, bound, scale):
     model = nerf_utils.load_nerf(args)
     return model
 
+
 def load_object(exp_config: config.ExperimentConfig):
     if exp_config.object == config.ObjectType.BANANA:
         obj = Banana()
@@ -70,7 +71,16 @@ class RigidObject:
             self.actor = self.configure_actor(gym, env)
 
         self.nerf_loaded = False
+        self.model = None
         self.load_trimesh()
+
+    def setup_gym(self, gym, sim, env):
+        self.gym = gym
+        self.sim = sim
+        self.env = env
+        if self.sim is not None:
+            self.asset = self.create_asset()
+            self.actor = self.configure_actor(self.gym, self.env)
 
     def get_CG(self):
         pos = self.rb_states[0, :3]

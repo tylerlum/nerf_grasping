@@ -2,6 +2,7 @@ from nerf_grasping.sim import ig_objects
 from nerf_grasping import config, grasp_opt, grasp_utils, mesh_utils, nerf_utils
 from functools import partial
 
+import dcargs
 import os
 import scipy.spatial
 import torch
@@ -22,7 +23,7 @@ def compute_sampled_grasps(model, grasp_points, centroid):
     return rays_o, rays_d
 
 
-def main(exp_config):
+def main(exp_config: config.ExperimentConfig):
 
     object_bounds = grasp_utils.OBJ_BOUNDS
 
@@ -131,27 +132,29 @@ def main(exp_config):
     np.save(f"grasp_data/{outfile}_full.npy", grasp_data)
 
 
-if __name__ == "__main__":
-    import argparse
+dcargs.cli(main)
 
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--num_grasps", "--n", help="number of grasps to sample", default=10, type=int
-    )
-    parser.add_argument("--obj_name", "--o", help="object to use", default="banana")
-    parser.add_argument(
-        "--use_nerf",
-        "--nerf",
-        help="flag to use NeRF to generate grasps",
-        action="store_true",
-    )
-    parser.add_argument("--mesh_in", default=None, type=str)
-    parser.add_argument("--outfile", "--out", default=None)
-    parser.add_argument("--risk_sensitivity", type=float)
-    parser.add_argument("--dice_grasp", action="store_true")
-    parser.add_argument("--cost_fn", default="l1", type=str)
-    args = parser.parse_args()
-
-    print(args)
-
-    main(**vars(args))
+# if __name__ == "__main__":
+#     import argparse
+#
+#     parser = argparse.ArgumentParser()
+#     parser.add_argument(
+#         "--num_grasps", "--n", help="number of grasps to sample", default=10, type=int
+#     )
+#     parser.add_argument("--obj_name", "--o", help="object to use", default="banana")
+#     parser.add_argument(
+#         "--use_nerf",
+#         "--nerf",
+#         help="flag to use NeRF to generate grasps",
+#         action="store_true",
+#     )
+#     parser.add_argument("--mesh_in", default=None, type=str)
+#     parser.add_argument("--outfile", "--out", default=None)
+#     parser.add_argument("--risk_sensitivity", type=float)
+#     parser.add_argument("--dice_grasp", action="store_true")
+#     parser.add_argument("--cost_fn", default="l1", type=str)
+#     args = parser.parse_args()
+#
+#     print(args)
+#
+#     main(**vars(args))

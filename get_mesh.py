@@ -1,18 +1,14 @@
 from nerf_grasping.sim import ig_objects
 
-from nerf_grasping import grasp_opt, grasp_utils, mesh_utils
+from nerf_grasping import config, grasp_opt, grasp_utils, mesh_utils
 import os
 import scipy.spatial
 import torch
 import trimesh
 import numpy as np
 
-def main(
-    obj_name="banana",
-    outfile=None,
-    level_set=50,
-):
-    if obj_name == "banana":
+def main(exp_config: config.ExperimentConfig):
+    if exp_cfg.obj_name == "banana":
         obj = ig_objects.Banana
     elif obj_name == "box":
         obj = ig_objects.Box

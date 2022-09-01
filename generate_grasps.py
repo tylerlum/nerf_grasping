@@ -1,5 +1,5 @@
 from nerf_grasping.sim import ig_objects
-from nerf_grasping import grasp_opt, grasp_utils, mesh_utils, nerf_utils
+from nerf_grasping import config, grasp_opt, grasp_utils, mesh_utils, nerf_utils
 from functools import partial
 
 import os
@@ -8,66 +8,23 @@ import torch
 import trimesh
 import numpy as np
 
-
-# def get_mesh_centroid(obj_name):
-#     if obj_name == "banana":
-#         obj_mesh = "assets/objects/meshes/banana/textured.obj"
-#     elif obj_name == "box":
-#         obj_mesh = "assets/objects/meshes/cube_multicolor.obj"
-#     elif obj_name == "teddy_bear":
-#         obj_mesh = "assets/objects/meshes/isaac_teddy/isaac_bear.obj"
-#     elif obj_name == "powerdrill":
-#         obj_mesh = "assets/objects/meshes/power_drill/textured.obj"
-
-#     gt_mesh = trimesh.load(obj_mesh, force="mesh")
-#     T = np.eye(4)
-#     R = scipy.spatial.transform.Rotation.from_euler("Y", [-np.pi / 2]).as_matrix()
-#     R = R @ scipy.spatial.transform.Rotation.from_euler("X", [-np.pi / 2]).as_matrix()
-#     T[:3, :3] = R
-#     gt_mesh.apply_transform(T)
-
-#     centroid = torch.from_numpy(gt_mesh.centroid.copy()).float()
-#     return centroid
-
-
-def main(
-    obj_name="banana",
-    use_nerf=False,
-    mesh_in=None,
-    outfile=None,
-    num_grasps=50,
-    risk_sensitivity=None,
-    dice_grasp=False,
-    cost_fn="l1",
-):
+def main(exp_config):
 
     object_bounds = grasp_utils.OBJ_BOUNDS
 
-    if obj_name == "banana":
-        obj = ig_objects.Banana()
-    elif obj_name == "box":
-        obj = ig_objects.Box()
-    elif obj_name == "teddy_bear":
-        obj = ig_objects.TeddyBear()
-        obj.use_centroid = True
-    elif obj_name == "power_drill":
-        obj = ig_objects.PowerDrill()
-    elif obj_name == "bleach_cleanser":
-        obj = ig_objects.BleachCleanser()
+    obj = ig_objects.load_obj(exp_config)
 
-    if use_nerf:
+    if isinstance(exp_config.model_config, config.NeRF):
         model = ig_objects.load_nerf(obj.workspace, obj.bound, obj.scale)
-        centroid = nerf_utils.get_centroid(model)
-        print(f"Estimated Centroid: {centroid}")
+        print(f"Estimated Centroid: {model.centroid}")
         print(f"True Centroid: {obj.gt_mesh.centroid}")
+    
     else:
 
-        if mesh_in is not None:
-            obj_mesh = trimesh.load(mesh_in, force="mesh")
-
-        else:
-            obj_mesh = obj.gt_mesh
-
+        # Load triangle mesh from file.
+        obj_mesh = trimesh.load(config.mesh_file(exp_config.model_config), force="mesh")
+        
+        # Transform triangle mesh to NeRF frame.
         T = np.eye(4)
         R = scipy.spatial.transform.Rotation.from_euler("Y", [-np.pi / 2]).as_matrix()
         R = (
@@ -80,17 +37,7 @@ def main(
         model = obj_mesh
         centroid = torch.from_numpy(obj_mesh.centroid).float()
 
-    if outfile is None:
-        if use_nerf:
-            outfile = obj_name + "_nerf"
-        elif mesh_in is not None:
-            outfile = os.path.split(mesh_in)[-1]
-            outfile = outfile.split(".")[0]
-        else:
-            outfile = obj_name
-
-        if dice_grasp:
-            outfile += "_diced"
+    outfile = config.grasp_file(exp_config)
 
     grasp_points = (
         torch.tensor([[0.09, 0.0, -0.045], [-0.09, 0.0, -0.045], [0, 0.0, 0.09]])

@@ -51,19 +51,19 @@ class ControllerParams:
     """Grasp and PD Object Position Controller parameters"""
 
     # Grasp target normal force to apply with fingers
-    target_normal = 0.5
+    target_normal = 3.0  # 0.5
 
     # Proportional position gain
-    kp = 10.0
+    kp = 1.5  # 10.0
 
     # Derivative position gain
-    kd = 0.1
+    kd = 1.0  # 0.1
 
     # Proportional rotation gain
-    kp_angle = 0.04
+    kp_angle = 0.3  # 0.04
 
     # Derivative rotation gain
-    kd_angle = 0.001
+    kd_angle = 1e-2  # 0.001
 
 
 @dataclasses.dataclass(frozen=True)
@@ -80,7 +80,7 @@ class RobotConfig:
     gt_normals: bool = False
 
     # Offset from object surface to start initial grasp trajectory from.
-    des_z_dist: float = 0.1
+    des_z_dist: float = 0.025
 
     # Fingertip friction coefficient.
     mu: float = 1.0
@@ -173,6 +173,9 @@ class Experiment:
 
     # Rejection parameter for "dicing the grasp."
     dice_mu: float = 0.5
+    
+    # Enable visualization to see grasping policy
+    visualize: bool = False
 
 
 def mesh_file(exp_config: Experiment):

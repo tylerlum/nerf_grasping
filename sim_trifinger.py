@@ -12,7 +12,7 @@ import torch
 # import mathutils
 from PIL import Image
 
-from nerf_grasping import grasp_utils
+from nerf_grasping import grasp_utils, nerf_utils
 from nerf_grasping.sim import ig_utils, ig_objects, ig_robot, ig_viz_utils
 import trimesh
 
@@ -237,7 +237,10 @@ class TriFingerEnv:
 
         self.overhead_camera_handle = self.gym.create_camera_sensor(env, camera_props)
         self.gym.set_camera_location(
-            self.overhead_camera_handle, env, gymapi.Vec3(0, 0.001, 0.5), gymapi.Vec3(0, 0, 0.01)
+            self.overhead_camera_handle,
+            env,
+            gymapi.Vec3(0, 0.001, 0.5),
+            gymapi.Vec3(0, 0, 0.01),
         )
 
     def setup_save_dir(self, folder, overwrite=False):
@@ -278,7 +281,9 @@ class TriFingerEnv:
             self.sim, self.env, camera_handle, gymapi.IMAGE_SEGMENTATION
         )
         segmentation_image = segmentation_image == 2
-        segmentation_image = (segmentation_image.reshape(400, 400) * 255).astype(np.uint8)
+        segmentation_image = (segmentation_image.reshape(400, 400) * 255).astype(
+            np.uint8
+        )
         Image.fromarray(segmentation_image).convert("L").save(path / f"seg_{ii}.png")
 
         depth_image = self.gym.get_camera_image(
@@ -308,7 +313,9 @@ class TriFingerEnv:
         for ii, camera_handle in enumerate(self.camera_handles):
             self.save_single_image(path, ii, camera_handle)
 
-        self.save_single_image(path, 'overhead', self.overhead_camera_handle, numpy_depth=True)
+        self.save_single_image(
+            path, "overhead", self.overhead_camera_handle, numpy_depth=True
+        )
 
     def save_images_nerf_ready(self, folder, overwrite=False):
         self.gym.render_all_camera_sensors(self.sim)
@@ -395,7 +402,7 @@ class TriFingerEnv:
             # get grasp points into nerf frame
             tip_positions = tip_positions + self.object.grasp_normals.cuda() * 0.01
             nerf_tip_pos = grasp_utils.ig_to_nerf(tip_positions)
-            _, grad_ests = grasp_utils.est_grads_vals(
+            _, grad_ests = nerf_utils.est_grads_vals(
                 self.object.model,
                 nerf_tip_pos.reshape(1, 3, 3),
                 sigma=5e-3,
@@ -409,7 +416,7 @@ class TriFingerEnv:
             self.grad_ests = grad_ests
             # self.visualize_grasp_normals(tip_positions, -grad_ests)
             # self.marker_handles += self.plot_circle(self.gym, self.env, self.sim, self.object)
-            # densities = grasp_utils.nerf_densities(
+            # densities = nerf_utils.nerf_densities(
             #     self.object.model, nerf_tip_pos.reshape(1, 3, 3)
             # )
             # densities = densities.cpu().detach().numpy() / 355
@@ -485,7 +492,7 @@ if __name__ == "__main__":
     # Obj = ig_objects.TeddyBear
     # Obj = ig_objects.PowerDrill
     # Obj = ig_objects.Box
-    Obj = ig_objects.BleachCleanser # too big - put on side?
+    Obj = ig_objects.BleachCleanser  # too big - put on side?
     # Obj = ig_objects.Spatula
     # Obj = ig_objects.Mug
     get_nerf_training(Obj, viewer=False)

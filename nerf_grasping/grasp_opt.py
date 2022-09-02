@@ -12,7 +12,7 @@ from pyhull import convex_hull as cvh
 
 import trimesh
 
-from nerf_grasping import grasp_utils, mesh_utils
+from nerf_grasping import config, grasp_utils, mesh_utils, nerf_utils
 
 
 def grasp_matrix(grasp_points, normals):
@@ -45,16 +45,18 @@ def rot_from_vec(n_z, start_vec=None):
     """
     # Construct constants.
     n_z = n_z.reshape(-1, 3)
-    I = torch.eye(3, device=n_z.device).reshape(1, 3, 3).expand(n_z.shape[0], 3, 3)
+    Identity = (
+        torch.eye(3, device=n_z.device).reshape(1, 3, 3).expand(n_z.shape[0], 3, 3)
+    )
     if start_vec is None:
-        start_vec = I[:, :, 2]
+        start_vec = Identity[:, :, 2]
 
     # Compute cross product to find axis of rotation.
     v = torch.cross(start_vec, n_z, dim=-1)
     theta = torch.arccos(torch.sum(start_vec * n_z, dim=-1)).reshape(-1, 1, 1)
     K = skew(v)
 
-    ans = I + torch.sin(theta) * K + (1 - torch.cos(theta)) * K @ K
+    ans = Identity + torch.sin(theta) * K + (1 - torch.cos(theta)) * K @ K
 
     return ans
 
@@ -254,8 +256,9 @@ def optimize_cem(
             x = projection(x)
 
         # Evaluate costs of each point.
-        cost_vals = cost(x)
-        cost_history.append(cost_vals.detach())
+        with torch.no_grad():
+            cost_vals = cost(x)
+        cost_history.append(cost_vals)
         print(
             "minimum cost_val:",
             torch.min(cost_vals),
@@ -287,145 +290,142 @@ def optimize_cem(
     return mu, Sigma, cost_history, best_point
 
 
-def clip_loss(densities, lb=100, ub=200):
-    """
-    Helper function, provides "double hinge" loss to encourage fingers
-    to lie in a desired density band [lb, ub].
-    """
-    return torch.mean(
-        torch.maximum(
-            torch.zeros_like(densities), torch.maximum(lb - densities, densities - ub)
-        ),
-        dim=-1,
-    )
+def get_cost_function(exp_config, model):
+    """Factory for grasp cost function; generates grasp cost for CEM using config/model."""
 
+    # if isinstance(model.centroid, torch.Tensor):
+    #     cost_kwargs = {"centroid": model.centroid.cpu().detach().numpy().reshape(3,1)}
+    # else:
+    #     cost_kwargs = {"centroid": model.centroid.reshape(3,1)}
 
-def grasp_cost(
-    grasp_vars,
-    n_f,
-    model,
-    num_grasps=4,
-    residual_dirs=True,
-    cost_fn="l1",
-    cost_kwargs=dict(centroid=np.zeros((3, 1))),
-    centroid=0.0,
-    risk_sensitivity=None,
-):
+    cost_kwargs = {"centroid": model.centroid}
 
-    gps = grasp_vars.reshape(-1, n_f, 6)
-    B = gps.shape[0]
+    def cost_function(grasp_vars):
 
-    if centroid is not 0.0:
-        cost_kwargs["centroid"] = centroid
+        # Reshape grasp vars into something useful, get dims.
+        n_f = exp_config.robot_config.num_fingers
+        gps = grasp_vars.reshape(-1, n_f, 6)
+        B = gps.shape[0]
 
-    if isinstance(model, trimesh.Trimesh):
-        grasp_points, grad_ests, grasp_mask = mesh_utils.get_grasp_points(
-            model, gps, residual_dirs
+        # If model is a triangle mesh, extract points/normals from it.
+        if isinstance(model, trimesh.Trimesh):
+            grasp_points, grad_ests, grasp_mask = mesh_utils.get_grasp_points(
+                model, gps
+            )
+            grasp_mask = grasp_mask.all(-1, keepdim=True)
+
+        # Otherwise, use fuzzy NeRF method for point/normals.
+        else:
+
+            grasp_points, grad_ests, grasp_mask = nerf_utils.sample_grasps(
+                gps, exp_config.num_grasp_samples, model, exp_config.model_config
+            )
+
+        # Reshape grasp points and grads for cost evaluation.
+        grasp_points = grasp_points.reshape(-1, n_f, 3)
+        grad_ests = grad_ests.reshape(-1, n_f, 3)
+
+        # Switch-case for cost function.
+        if exp_config.cost_function == config.CostType.PSV:
+            grasp_metric = partial(psv, **cost_kwargs)
+        elif exp_config.cost_function == config.CostType.MSV:
+            grasp_metric = partial(msv, **cost_kwargs)
+        elif exp_config.cost_function == config.CostType.FC:
+            grasp_metric = ferrari_canny
+        elif exp_config.cost_function == config.CostType.L1:
+            cost_kwargs["grasp_mask"] = grasp_mask.expand(
+                B, exp_config.num_grasp_samples
+            )
+            grasp_metric = partial(l1_metric, **cost_kwargs)
+
+        raw_cost = grasp_metric(grasp_points, grad_ests).reshape(
+            B, exp_config.num_grasp_samples
         )
-        grasp_mask = grasp_mask.all(-1, keepdim=True)
-        num_grasps = 1
-        risk_sensitivity = None
-    else:
-        grasp_points, grad_ests, grasp_mask = grasp_utils.sample_grasps(
-            gps, num_grasps, model, residual_dirs=residual_dirs, centroid=centroid
+
+        # Exponentiate cost if using risk sensitivity.
+        if exp_config.risk_sensitivity:
+            g_cost = torch.exp(-exp_config.risk_sensitivity * raw_cost)
+        else:
+            g_cost = -raw_cost
+
+        # Take expectation along sample dim.
+        g_cost = g_cost.mean(-1)  # shape (B,)
+
+        # Set invalid grasp costs to an upper bound (here, 2.0).
+        g_cost = torch.where(
+            torch.all(grasp_mask, dim=-1), g_cost, 2.0 * torch.ones_like(g_cost)
         )
 
-    # Reshape grasp points and grads for msv evaluation.
-    grasp_points = grasp_points.reshape(-1, n_f, 3)
-    grad_ests = grad_ests.reshape(-1, n_f, 3)
+        if exp_config.risk_sensitivity:
+            g_cost = (1 / exp_config.risk_sensitivity) * torch.log(g_cost)
 
-    # Switch-case for cost function.
-    if cost_fn == "psv":
-        cost_fn = partial(psv, **cost_kwargs)
-    elif cost_fn == "msv":
-        cost_fn = partial(msv, **cost_kwargs)
-    elif cost_fn == "fc":
-        cost_fn = ferrari_canny
-    elif cost_fn == "l1":
-        cost_kwargs["grasp_mask"] = grasp_mask.expand(B, num_grasps)
-        cost_fn = partial(l1_metric, **cost_kwargs)
+        return g_cost
 
-    g_cost = cost_fn(grasp_points, grad_ests).reshape(B, num_grasps)
-
-    # dists = []
-    # for i in range(B):
-    #     dists.append(
-    #         torch.triu(torch.pairwise_distance(grasp_points[i], grasp_points[i])).sum()
-    #     )
-    # dists = torch.stack(dists)
-    # dists /= dists.max() * 10.0  # scale from 0 to 0.2
-    # g_cost += dists.reshape(B, 1)
-
-    if risk_sensitivity:
-        g_cost = torch.exp(-risk_sensitivity * g_cost)
-    else:
-        g_cost = -g_cost
-
-    g_cost = g_cost.mean(-1)  # shape (B,)
-
-    g_cost = torch.where(
-        torch.all(grasp_mask, dim=-1), g_cost, 2.0 * torch.ones_like(g_cost)
-    )
-
-    if risk_sensitivity:
-        g_cost = (1 / risk_sensitivity) * torch.log(g_cost)
-
-    return g_cost
+    return cost_function
 
 
-def get_points_cem(
-    n_f,
-    model,
-    mu_scale=5e-3,
-    sigma_scale=1e-3,
-    mu_0=None,
-    Sigma_0=None,
-    num_samples=500,
-    num_iters=10,
-    projection=None,
-    cost_fn="l1",
-    residual_dirs=True,
-    device="cuda",
-    centroid=0.0,
-    elite_frac=0.1,
-    risk_sensitivity=5.0,
-    return_cost_hist=False,
-):
+# def grasp_cost(
+#     grasp_vars,
+#     n_f,
+#     model,
+#     num_grasps=10,
+#     residual_dirs=True,
+#     cost_fn="l1",
+#     cost_kwargs=dict(centroid=np.zeros((3, 1))),
+#     centroid=0.0,
+#     risk_sensitivity=None,
+# ):
 
-    # grasp vars are 2 * 3 * number of fingers, since include both pos and direction
-    if mu_0 is None:
-        mu_0 = mu_scale * torch.randn(6 * n_f, device=device)
+#     gps = grasp_vars.reshape(-1, n_f, 6)
+#     B = gps.shape[0]
 
-        mu_0 = mu_0.reshape(n_f, 6)
-        mu_0[:, :3] = mu_0[:, :3] + centroid
-        mu_0 = mu_0.reshape(-1)
+#     if not (isinstance(centroid, float) and centroid == 0.0):
+#         cost_kwargs["centroid"] = centroid
 
-    if Sigma_0 is None:
-        Sigma_0 = sigma_scale * torch.eye(6 * n_f, device=device)
+#     if isinstance(model, trimesh.Trimesh):
+#         grasp_points, grad_ests, grasp_mask = mesh_utils.get_grasp_points(
+#             model, gps, residual_dirs
+#         )
+#         grasp_mask = grasp_mask.all(-1, keepdim=True)
+#         num_grasps = 1
+#         risk_sensitivity = None
+#     else:
+#         grasp_points, grad_ests, grasp_mask = nerf_utils.sample_grasps(
+#             gps, num_grasps, model, residual_dirs=residual_dirs, centroid=centroid
+#         )
 
-    cost = lambda x: grasp_cost(
-        x,
-        n_f,
-        model,
-        residual_dirs=residual_dirs,
-        cost_fn=cost_fn,
-        centroid=centroid,
-        risk_sensitivity=risk_sensitivity,
-    )
+#     # Reshape grasp points and grads for msv evaluation.
+#     grasp_points = grasp_points.reshape(-1, n_f, 3)
+#     grad_ests = grad_ests.reshape(-1, n_f, 3)
 
-    mu_f, Sigma_f, cost_history, best_point = optimize_cem(
-        cost,
-        mu_0,
-        Sigma_0,
-        num_iters=num_iters,
-        num_samples=num_samples,
-        projection=projection,
-        elite_frac=elite_frac
-    )
-    ret = best_point.reshape(n_f, 6)
-    if return_cost_hist:
-        ret = (ret, cost_history)
-    return ret
+#     # Switch-case for cost function.
+#     if cost_fn == "psv":
+#         cost_fn = partial(psv, **cost_kwargs)
+#     elif cost_fn == "msv":
+#         cost_fn = partial(msv, **cost_kwargs)
+#     elif cost_fn == "fc":
+#         cost_fn = ferrari_canny
+#     elif cost_fn == "l1":
+#         cost_kwargs["grasp_mask"] = grasp_mask.expand(B, num_grasps)
+#         cost_fn = partial(l1_metric, **cost_kwargs)
+
+#     g_cost = cost_fn(grasp_points, grad_ests).reshape(B, num_grasps)
+
+#     if risk_sensitivity:
+#         g_cost = torch.exp(-risk_sensitivity * g_cost)
+#     else:
+#         g_cost = -g_cost
+
+#     g_cost = g_cost.mean(-1)  # shape (B,)
+
+#     g_cost = torch.where(
+#         torch.all(grasp_mask, dim=-1), g_cost, 2.0 * torch.ones_like(g_cost)
+#     )
+
+#     if risk_sensitivity:
+#         g_cost = (1 / risk_sensitivity) * torch.log(g_cost)
+
+#     return g_cost
 
 
 def dice_the_grasp(
@@ -473,18 +473,21 @@ def dice_the_grasp(
     grasp_vars = np.concatenate([rays_o, rays_d], axis=-1)
     grasp_vars = torch.from_numpy(grasp_vars).cuda().float().reshape(num_grasps, -1)
 
+    pass
+
     # Finally evaluate all with a desired grasp metric to find the best one.
-    costs = grasp_cost(
-        grasp_vars,
-        3,
-        model,
-        residual_dirs=False,
-        cost_fn=cost_fn,
-        centroid=torch.from_numpy(centroid).float().cuda(),
-    )
+    # costs = grasp_cost(
+    #     grasp_vars,
+    #     3,
+    #     model,
+    #     residual_dirs=False,
+    #     cost_fn=cost_fn,
+    #     centroid=torch.from_numpy(centroid).float().cuda(),
+    # )
 
-    best_grasp = np.argmin(costs.cpu())
 
-    print(costs.cpu()[best_grasp])
+#     best_grasp = np.argmin(costs.cpu())
 
-    return rays_o[best_grasp], rays_d[best_grasp]
+#     print(costs.cpu()[best_grasp])
+
+#     return rays_o[best_grasp], rays_d[best_grasp]

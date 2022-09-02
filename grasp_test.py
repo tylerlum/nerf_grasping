@@ -1,5 +1,6 @@
 from typing import Tuple, Any
 from isaacgym import gymapi, gymtorch
+from nerf_grasping import config
 from nerf_grasping.grasp_opt import grasp_matrix, rot_from_vec
 from nerf_grasping.control import force_opt
 from nerf_grasping import grasp_utils
@@ -9,6 +10,7 @@ from nerf_grasping.sim import ig_objects
 from nerf_grasping.sim import ig_viz_utils
 from nerf_grasping.sim.ig_robot import FingertipRobot
 
+import dcargs
 import time
 import torch
 import numpy as np
@@ -20,7 +22,14 @@ root_dir = os.path.abspath("./")
 asset_dir = f"{root_dir}/assets"
 
 
-def step_gym():
+def refresh_tensors(gym, sim):
+    gym.refresh_mass_matrix_tensors(sim)
+    gym.refresh_jacobian_tensors(sim)
+    gym.refresh_dof_state_tensor(sim)
+    gym.refresh_rigid_body_state_tensor(sim)
+
+
+def step_gym(gym, sim, viewer=None):
     gym.simulate(sim)
     gym.fetch_results(sim, True)
 
@@ -28,10 +37,23 @@ def step_gym():
     if viewer is not None:
         gym.draw_viewer(viewer, sim, True)
         gym.sync_frame_time(sim)
-    refresh_tensors()
+    refresh_tensors(gym, sim)
 
 
-def setup_env():
+def double_reset(robot, obj, grasp_vars, viewer=None):
+    print(f"robot position before reset: {robot.position}")
+    robot.reset_actor(grasp_vars)
+    obj.reset_actor()
+    for i in range(4):
+        step_gym(robot.gym, robot.sim, viewer)
+    robot.reset_actor(grasp_vars)
+    obj.reset_actor()
+    for i in range(50):
+        step_gym(robot.gym, robot.sim, viewer)
+    print(f"robot position after reset: {robot.position}")
+
+
+def setup_env(gym, sim):
     plane_params = gymapi.PlaneParams()
     plane_params.normal = gymapi.Vec3(0, 0, 1)  # z-up!
     gym.add_ground(sim, plane_params)
@@ -43,14 +65,7 @@ def setup_env():
     return env
 
 
-def refresh_tensors():
-    gym.refresh_mass_matrix_tensors(sim)
-    gym.refresh_jacobian_tensors(sim)
-    gym.refresh_dof_state_tensor(sim)
-    gym.refresh_rigid_body_state_tensor(sim)
-
-
-def setup_sim():
+def setup_sim(gym):
     args = ig_utils.parse_arguments(description="Trifinger test")
     # only tested with this one
     assert args.physics_engine == gymapi.SIM_PHYSX
@@ -93,7 +108,7 @@ def setup_sim():
     return sim
 
 
-def setup_stage(env):
+def setup_stage(gym, sim, env):
     # this one is convex decomposed
     stage_urdf_file = "trifinger/robot_properties_fingers/urdf/high_table_boundary.urdf"
     # stage_urdf_file = "trifinger/robot_properties_fingers/urdf/trifinger_stage.urdf"
@@ -153,7 +168,7 @@ def closest_point(a, b, p):
     return res
 
 
-def setup_viewer():
+def setup_viewer(gym, sim, env):
     viewer = gym.create_viewer(sim, gymapi.CameraProperties())
     # position outside stage
     cam_pos = gymapi.Vec3(0.7, 0.175, 0.6)
@@ -165,20 +180,22 @@ def setup_viewer():
 
 
 def object_pos_control(
+    robot,
     obj,
     in_normal,
     target_position=None,
-    target_normal=0.5,
-    kp=10.,
-    kd=0.1,
-    kp_angle=0.04,
-    kd_angle=0.001,
     return_wrench=False,
 ):
     """Object position control for lifting trajectory"""
+
+    target_normal = robot.controller_params.target_normal
+    kp = robot.controller_params.kp
+    kd = robot.controller_params.kd
+    kp_angle = robot.controller_params.kp_angle
+    kd_angle = robot.controller_params.kd_angle
+
     if target_position is None:
         target_position = np.array([0.0, 0.0, robot.target_height])
-    tip_position = robot.position
     vel = obj.velocity
     angular_vel = obj.angular_velocity
     quat = Quaternion.fromWLast(obj.orientation)
@@ -198,10 +215,10 @@ def object_pos_control(
         return torch.cat([target_force, target_torque])
     # grasp points in object frame
     # TODO: compute tip radius here?
-    grasp_points = tip_position - cg_pos
+    grasp_points_of = robot.get_contact_points(in_normal) - cg_pos
     in_normal = torch.stack([quat.rotate(x) for x in in_normal], axis=0)
     global_forces, success = force_opt.calculate_grip_forces(
-        grasp_points,
+        grasp_points_of,
         in_normal,
         target_force,
         target_torque,
@@ -222,17 +239,6 @@ def object_pos_control(
     return global_forces, target_force, target_torque, success
 
 
-def double_reset(robot, obj, grasp_vars):
-    robot.reset_actor(grasp_vars)
-    obj.reset_actor()
-    for i in range(4):
-        step_gym()
-    robot.reset_actor(grasp_vars)
-    obj.reset_actor()
-    for i in range(50):
-        step_gym()
-
-
 def compute_potential(points, magnitude=0.01):
     potentials = []
     for i in range(len(points)):
@@ -247,7 +253,7 @@ def compute_potential(points, magnitude=0.01):
     return potentials
 
 
-def lifting_trajectory(grasp_vars, mesh=None):
+def lifting_trajectory(robot, obj, grasp_vars, mesh=None, viewer=None):
     double_reset(robot, obj, grasp_vars)
     grasp_points, grasp_normals = grasp_vars
 
@@ -255,11 +261,12 @@ def lifting_trajectory(grasp_vars, mesh=None):
     start_timestep = 0
     ge = None
     fail_count = 0
+    gym, sim = robot.gym, robot.sim
 
     for timestep in range(1000):
         height_err = 0.02 - obj.position[-1].cpu().numpy().item() + obj.translation[-1]
         # time.sleep(0.01)
-        step_gym()
+        step_gym(gym, sim, viewer)
         # finds the closest contact points to the original grasp normal + grasp_point ray
         closest_points = ig_utils.closest_point(
             grasp_points, grasp_points + grasp_normals, robot.position
@@ -275,27 +282,28 @@ def lifting_trajectory(grasp_vars, mesh=None):
             mode = "grasp"
             pos_err = closest_points - robot.position
             pos_control = pos_err * 5
-            vel_control = -1. * robot.velocity
+            vel_control = -1.0 * robot.velocity
+            contact_pts = robot.get_contact_points(grasp_normals)
             f = torch.tensor(grasp_normals * 0.05) + pos_control + vel_control
         else:
             mode = "lift"
             closest_points[:, 2] = obj.position[2] + 0.005
             pos_err = closest_points - robot.position
-            # f, target_force, target_torque, success = object_pos_control(
-            #     obj, grasp_normals, target_normal=0.15
             if mesh is None:
                 if ge is None or timestep < 130:
-                    ge = robot.get_grad_ests(obj, robot.position)
+                    ge = robot.get_grad_ests(obj, contact_pts)
             else:
                 gp, ge = get_mesh_contacts(
                     mesh,
-                    robot.position,
+                    contact_pts,
                     pos_offset=obj.position,
                     rot_offset=obj.orientation,
                 )
                 ge = torch.tensor(ge, dtype=torch.float32)
             f_lift, target_force, target_torque, success = object_pos_control(
-                obj, ge, target_normal=3., kp=1.5, kd=1.0, kp_angle=0.3, kd_angle=1e-2
+                robot,
+                obj,
+                ge,
             )
             f = f_lift
 
@@ -320,6 +328,9 @@ def lifting_trajectory(grasp_vars, mesh=None):
             # print(f"NET CONTACT FORCE:", net_cf[obj.index,:])
         if (robot.position[:, -1] <= 0.01).any():
             print("Finger too low!")
+            import pdb
+
+            pdb.set_trace()
             return False
         if (robot.position[:, -1] >= 0.5).any():
             print("Finger too high!")
@@ -338,98 +349,42 @@ def lifting_trajectory(grasp_vars, mesh=None):
             start_timestep = timestep
     return height_err <= err_bound
 
-if __name__ == '__main__':
 
-    import argparse
-
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--obj_name", "--o", help="object to use", default="banana")
-    parser.add_argument(
-        "--use_nerf",
-        "--nerf",
-        help="flag to use NeRF to generate grasps",
-        action="store_true",
-    )
-    parser.add_argument('--diced', action='store_true')
-    parser.add_argument('--level_set', default=None)
-    parser.add_argument('--gt_normals', action='store_true')
-    parser.add_argument('--grasp', default='all', type=str)
-    args = parser.parse_args()
-
-    print(args)
-
-    visualization = True
+def main():
+    exp_config = dcargs.cli(config.Experiment)
     gym = gymapi.acquire_gym()
 
-    sim = setup_sim()
-    env = setup_env()
-    setup_stage(env)
-    viewer = setup_viewer() if visualization else None
+    sim = setup_sim(gym)
+    env = setup_env(gym, sim)
+    setup_stage(gym, sim, env)
+    viewer = setup_viewer(gym, sim, env) if exp_config.visualize else None
 
-    if args.obj_name == "banana":
-        obj = ig_objects.Banana
-    elif args.obj_name == "box":
-        obj = ig_objects.Box
-    elif args.obj_name == "teddy_bear":
-        obj = ig_objects.TeddyBear
-        obj.use_centroid = True
-    elif args.obj_name == "power_drill":
-        obj = ig_objects.PowerDrill
-    elif args.obj_name == "bleach_cleanser":
-        obj = ig_objects.BleachCleanser
+    # Loads grasp data
+    grasp_data_path = config.grasp_file(exp_config)
+    grasps = np.load(grasp_data_path)
 
-    grasp_points, grasp_normals = obj.grasp_points, obj.grasp_normals
+    # Creates the robot
+    robot = FingertipRobot(exp_config.robot_config)
+    robot.setup_env(gym, sim, env, grasps[0, :, :3], grasps[0, :, 3:])
 
-    grasp_normals = grasp_normals / grasp_normals.norm(dim=1, keepdim=True)
-    grasp_vars = (grasp_points, grasp_normals)
+    # Creates object and loads nerf and object mesh
+    obj = ig_objects.load_object(exp_config)
+    obj.setup_gym(gym, sim, env)
+    obj.load_trimesh()
 
-    # Creates the robot, fop objective, and object
-    robot = FingertipRobot(
-        gym, sim, env, grasp_vars=grasp_vars, use_grad_est=True, norm_start_offset=0.1
-    )
-    obj = obj(gym, sim, env)
-    print(obj.mass)
-
+    # setup tensors
     robot.setup_tensors()
     obj.setup_tensors()
-    obj.load_nerf_model()
-    obj.load_trimesh()
-    for i in range(4):
-        step_gym()
 
-
-    grasp_data = "grasp_data/" + args.obj_name
-    if args.use_nerf:
-        grasp_data += '_nerf'
-    elif args.level_set is not None:
-        grasp_data += f'_{args.level_set}'
-
-    if args.diced:
-        grasp_data += '_diced'
-
-    grasp_data += '.npy'
-    if not args.use_nerf:
-        if args.gt_normals:
-            mesh_name = args.obj_name
-        else:
-            mesh_name = grasp_data.split("/")[1].rstrip(".npy")
-            if args.diced:
-                mesh_name = mesh_name.rstrip("_diced")
-        mesh = trimesh.load(f"grasp_data/meshes/{mesh_name}.obj", force="mesh")
-    else:
+    # Loads nerf or mesh
+    if isinstance(exp_config.model_config, config.NeRF):
+        obj.load_nerf_model()
         mesh = None
-
-    grasps = np.load(grasp_data)
-    if args.grasp == "random":
-        sample_idx = np.random.choice(np.arange(grasps.shape[0]))
-    elif args.grasp != "all":
-        sample_idx = float(grasp)
     else:
-        sample_idx = None
+        mesh_path = config.mesh_file(exp_config)
+        mesh = trimesh.load(mesh_path)
 
-    if sample_idx is not None:
-        grasps = grasps[sample_idx][None]
-
+    # Evaluates sampled grasps
     successes = 0
 
     for grasp_idx in range(len(grasps)):
@@ -437,11 +392,15 @@ if __name__ == '__main__':
         grasp_normals = torch.tensor(grasps[grasp_idx, :, 3:], dtype=torch.float32)
         grasp_vars = (grasp_points, grasp_normals)
 
-        print(f"EVALUATING GRASP from {grasp_data} {grasp_idx}: {grasp_points}")
+        # print(f"EVALUATING GRASP from {grasp_data_path} {grasp_idx}: {grasp_points}")
         print(grasp_points, grasp_idx)
-        success = lifting_trajectory(grasp_vars, mesh=mesh)
+        success = lifting_trajectory(robot, obj, grasp_vars, mesh=mesh, viewer=viewer)
         successes += success
         if success:
             print(f"SUCCESS! grasp {grasp_idx}")
 
     print(f"Percent successes: {successes / len(grasps) * 100}% out of {len(grasps)}")
+
+
+if __name__ == "__main__":
+    main()

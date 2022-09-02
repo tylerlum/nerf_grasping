@@ -22,6 +22,13 @@ root_dir = os.path.abspath("./")
 asset_dir = f"{root_dir}/assets"
 
 
+def refresh_tensors(gym, sim):
+    gym.refresh_mass_matrix_tensors(sim)
+    gym.refresh_jacobian_tensors(sim)
+    gym.refresh_dof_state_tensor(sim)
+    gym.refresh_rigid_body_state_tensor(sim)
+
+
 def step_gym(gym, sim, viewer=None):
     gym.simulate(sim)
     gym.fetch_results(sim, True)
@@ -31,6 +38,19 @@ def step_gym(gym, sim, viewer=None):
         gym.draw_viewer(viewer, sim, True)
         gym.sync_frame_time(sim)
     refresh_tensors(gym, sim)
+
+
+def double_reset(robot, obj, grasp_vars, viewer=None):
+    print(f"robot position before reset: {robot.position}")
+    robot.reset_actor(grasp_vars)
+    obj.reset_actor()
+    for i in range(4):
+        step_gym(robot.gym, robot.sim, viewer)
+    robot.reset_actor(grasp_vars)
+    obj.reset_actor()
+    for i in range(50):
+        step_gym(robot.gym, robot.sim, viewer)
+    print(f"robot position after reset: {robot.position}")
 
 
 def setup_env(gym, sim):
@@ -43,13 +63,6 @@ def setup_env(gym, sim):
     env_upper = gymapi.Vec3(spacing, spacing, spacing)
     env = gym.create_env(sim, env_lower, env_upper, 0)
     return env
-
-
-def refresh_tensors(gym, sim):
-    gym.refresh_mass_matrix_tensors(sim)
-    gym.refresh_jacobian_tensors(sim)
-    gym.refresh_dof_state_tensor(sim)
-    gym.refresh_rigid_body_state_tensor(sim)
 
 
 def setup_sim(gym):
@@ -202,7 +215,7 @@ def object_pos_control(
         return torch.cat([target_force, target_torque])
     # grasp points in object frame
     # TODO: compute tip radius here?
-    grasp_points_of = robot.contact_pts - cg_pos
+    grasp_points_of = robot.get_contact_points(in_normal) - cg_pos
     in_normal = torch.stack([quat.rotate(x) for x in in_normal], axis=0)
     global_forces, success = force_opt.calculate_grip_forces(
         grasp_points_of,
@@ -224,17 +237,6 @@ def object_pos_control(
     # print(global_forces.shape)
 
     return global_forces, target_force, target_torque, success
-
-
-def double_reset(robot, obj, grasp_vars, viewer=None):
-    robot.reset_actor(grasp_vars)
-    obj.reset_actor()
-    for i in range(4):
-        step_gym(robot.gym, robot.sim, viewer)
-    robot.reset_actor(grasp_vars)
-    obj.reset_actor()
-    for i in range(50):
-        step_gym(robot.gym, robot.sim, viewer)
 
 
 def compute_potential(points, magnitude=0.01):
@@ -293,7 +295,7 @@ def lifting_trajectory(robot, obj, grasp_vars, mesh=None, viewer=None):
             else:
                 gp, ge = get_mesh_contacts(
                     mesh,
-                    robot.contact_pts,
+                    contact_pts,
                     pos_offset=obj.position,
                     rot_offset=obj.orientation,
                 )
@@ -302,11 +304,6 @@ def lifting_trajectory(robot, obj, grasp_vars, mesh=None, viewer=None):
                 robot,
                 obj,
                 ge,
-                target_normal=3.0,
-                kp=1.5,
-                kd=1.0,
-                kp_angle=0.3,
-                kd_angle=1e-2,
             )
             f = f_lift
 
@@ -330,7 +327,10 @@ def lifting_trajectory(robot, obj, grasp_vars, mesh=None, viewer=None):
                 print("HEIGHT_ERR:", height_err)
             # print(f"NET CONTACT FORCE:", net_cf[obj.index,:])
         if (robot.position[:, -1] <= 0.01).any():
-            print(f"Finger too low! {robot.position}")
+            print("Finger too low!")
+            import pdb
+
+            pdb.set_trace()
             return False
         if (robot.position[:, -1] >= 0.5).any():
             print("Finger too high!")
@@ -366,13 +366,14 @@ def main():
     # Creates the robot
     robot = FingertipRobot(exp_config.robot_config)
     robot.setup_env(gym, sim, env, grasps[0, :, :3], grasps[0, :, 3:])
-    robot.setup_tensors()
-    print(f"STARTING POSITION: {robot.position}")
 
     # Creates object and loads nerf and object mesh
     obj = ig_objects.load_object(exp_config)
     obj.setup_gym(gym, sim, env)
     obj.load_trimesh()
+
+    # setup tensors
+    robot.setup_tensors()
     obj.setup_tensors()
 
     # Loads nerf or mesh
@@ -380,7 +381,8 @@ def main():
         obj.load_nerf_model()
         mesh = None
     else:
-        mesh = config.mesh_file(exp_config)
+        mesh_path = config.mesh_file(exp_config)
+        mesh = trimesh.load(mesh_path)
 
     # Evaluates sampled grasps
     successes = 0

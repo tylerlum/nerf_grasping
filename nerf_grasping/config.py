@@ -49,19 +49,19 @@ class ControllerParams:
     """Grasp and PD Object Position Controller parameters"""
 
     # Grasp target normal force to apply with fingers
-    target_normal = 0.5
+    target_normal = 3.0  # 0.5
 
     # Proportional position gain
-    kp = 10.0
+    kp = 1.5  # 10.0
 
     # Derivative position gain
-    kd = 0.1
+    kd = 1.0  # 0.1
 
     # Proportional rotation gain
-    kp_angle = 0.04
+    kp_angle = 0.3  # 0.04
 
     # Derivative rotation gain
-    kd_angle = 0.001
+    kd_angle = 1e-2  # 0.001
 
 
 @dataclasses.dataclass(frozen=True)

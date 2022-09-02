@@ -105,7 +105,7 @@ class FingertipRobot:
         _rb_states = self.gym.acquire_rigid_body_state_tensor(self.sim)
         # (num_rigid_bodies, 13)
         rb_count = self.gym.get_actor_rigid_body_count(self.env, self.actors[0])
-        print(f"rb_count: {rb_count}")
+        print(f"actor rb_count: {rb_count}")
         rb_start_index = self.gym.get_actor_rigid_body_index(
             self.env, self.actors[0], 0, gymapi.DOMAIN_SIM
         )

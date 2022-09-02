@@ -38,19 +38,21 @@ class FingertipRobot:
         self.actors = []
         self.initialized_actors = False
 
-    def setup_env(self, 
-            gym: gymapi.Gym,
-            sim: Any,
-            env: Any,
-            grasp_points: Optional[torch.Tensor]=None,
-            grasp_normals: Optional[torch.Tensor]=None):
+    def setup_env(
+        self,
+        gym: gymapi.Gym,
+        sim: Any,
+        env: Any,
+        grasp_points: Optional[torch.Tensor] = None,
+        grasp_normals: Optional[torch.Tensor] = None,
+    ):
         self.gym = gym
         self.sim = sim
         self.env = env
         self.actors = self.create_spheres(grasp_points, grasp_normals)
         self.initialized_actors = True
 
-    def create_spheres(self, grasp_points=None, grasp_normals):
+    def create_spheres(self, grasp_points=None, grasp_normals=None):
         asset_options = gymapi.AssetOptions()
         asset_options.fix_base_link = False
         asset_options.angular_damping = 0.0
@@ -103,6 +105,7 @@ class FingertipRobot:
         _rb_states = self.gym.acquire_rigid_body_state_tensor(self.sim)
         # (num_rigid_bodies, 13)
         rb_count = self.gym.get_actor_rigid_body_count(self.env, self.actors[0])
+        print(f"rb_count: {rb_count}")
         rb_start_index = self.gym.get_actor_rigid_body_index(
             self.env, self.actors[0], 0, gymapi.DOMAIN_SIM
         )
@@ -148,13 +151,12 @@ class FingertipRobot:
     def reset_actor(self, grasp_vars=None):
         """Resets fingertips to points on grasp point lines"""
         if grasp_vars is not None:
-            print("Resetting Actor, with grasp vars")
             grasp_points, grasp_normals = grasp_vars
             ftip_start_pos = self.get_ftip_start_pos(grasp_points, grasp_normals)
         else:
             ftip_start_pos = self.get_ftip_start_pos()
 
-        # setting actor rigid body states of spheres 
+        # setting actor rigid body states of spheres
         for pos, handle in zip(ftip_start_pos, self.actors):
             state = self.gym.get_actor_rigid_body_states(
                 self.env, handle, gymapi.STATE_POS

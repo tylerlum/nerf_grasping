@@ -73,12 +73,12 @@ def poisson_mesh(mesh):
     version of a mesh. Note that it can fail sometimes, so make sure to check output.
     """
     trimesh.repair.fix_inversion(mesh)
-    faces, verts = pypoisson.poisson_reconstruction(
-        np.array(mesh.triangles_center),
-        np.array(mesh.face_normals),
-    )
-
-    return trimesh.Trimesh(verts, faces)
+    # faces, verts = pypoisson.poisson_reconstruction(
+    #     np.array(mesh.triangles_center),
+    #     np.array(mesh.face_normals),
+    # )
+    # return trimesh.Trimesh(verts, faces)
+    return mesh
 
 
 def iou(x, y):

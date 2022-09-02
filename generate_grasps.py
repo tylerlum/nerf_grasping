@@ -28,10 +28,44 @@ def compute_sampled_grasps(model, grasp_points, centroid):
     return rays_o, rays_d
 
 
+def get_mesh(exp_config, obj):
+    """Extracts mesh with marching cubes + saves to file if not found."""
+
+    # Load triangle mesh from file.
+    mesh_file = config.mesh_file(exp_config)
+
+    if os.path.exists(mesh_file):
+        obj_mesh = trimesh.load(mesh_file, force="mesh")
+        return obj_mesh
+
+    elif exp_config.model_config.level_set is None:
+        # GT mesh not stored in grasp_data; make copy for simplicity.
+        obj.gt_mesh.export(mesh_file)
+        return obj.gt_mesh
+
+    # Marching cubes mesh not found; generate and save.
+    object_nerf = ig_objects.load_nerf(obj.workspace, obj.bound, obj.scale)
+
+    verts, faces, normals, _ = mesh_utils.marching_cubes(
+        object_nerf, level_set=exp_config.model_config.level_set
+    )
+
+    approx_mesh = trimesh.Trimesh(verts, faces, vertex_normals=normals)
+
+    T = np.eye(4)
+    R = scipy.spatial.transform.Rotation.from_euler("Y", [-np.pi / 2]).as_matrix()
+    R = R @ scipy.spatial.transform.Rotation.from_euler("X", [-np.pi / 2]).as_matrix()
+    # Apply inverse transform to map approximate mesh -> ig frame.
+    T[:3, :3] = R.reshape(3, 3).T
+    approx_mesh.apply_transform(T)
+    approx_mesh = mesh_utils.poisson_mesh(approx_mesh)
+    approx_mesh.export(mesh_file)
+    return approx_mesh
+
+
 def main(exp_config: config.Experiment):
 
     object_bounds = grasp_utils.OBJ_BOUNDS
-
     obj = ig_objects.load_object(exp_config)
 
     if isinstance(exp_config.model_config, config.Nerf):
@@ -43,8 +77,7 @@ def main(exp_config: config.Experiment):
 
     else:
 
-        # Load triangle mesh from file.
-        obj_mesh = trimesh.load(config.mesh_file(exp_config), force="mesh")
+        obj_mesh = get_mesh(exp_config, obj)
 
         # Transform triangle mesh to Nerf frame.
         T = np.eye(4)

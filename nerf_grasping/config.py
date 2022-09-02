@@ -78,7 +78,7 @@ class RobotConfig:
     gt_normals: bool = False
 
     # Offset from object surface to start initial grasp trajectory from.
-    des_z_dist: float = 0.1
+    des_z_dist: float = 0.025
 
     # Fingertip friction coefficient.
     mu: float = 1.0
@@ -166,12 +166,17 @@ class Experiment:
     # Flag to use "dicing the grasp" to optimize grasp.
     dice_grasp: bool = False
 
+    # Enable visualization to see grasping policy
+    visualize: bool = False
+
 
 def mesh_file(exp_config: Experiment):
     obj_name = exp_config.object.name.lower()
 
     if exp_config.model_config.level_set:
-        return f"grasp_data/meshes/{obj_name}_{exp_config.model_config.level_set}.obj"
+        return (
+            f"grasp_data/meshes/{obj_name}_{int(exp_config.model_config.level_set)}.obj"
+        )
     else:
         return f"grasp_data/meshes/{obj_name}.obj"
 
@@ -187,7 +192,7 @@ def grasp_file(exp_config: Experiment):
 
     else:
         if exp_config.model_config.level_set:
-            outfile += f"_{exp_config.model_config.level_set}"
+            outfile += f"_{int(exp_config.model_config.level_set)}"
         if exp_config.dice_grasp:
             outfile += "_diced"
 

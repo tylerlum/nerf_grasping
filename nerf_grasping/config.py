@@ -115,8 +115,15 @@ class Nerf:
     # Flag to add noise to samples during rendering.
     render_perturb_samples: bool = True
 
+    # Commented due to possible bug in dcargs.
     # Config object for gradient estimation.
-    grad_config: GradEst = grad_configs["grasp_opt"]
+    grad_config: GradEst = grad_configs["sim"]
+
+    # Flag to use expected surface point.
+    expected_surface: bool = False
+
+    # Flag to use gradient at expected surface.
+    expected_gradient: bool = False
 
     # Desired z-distance for fingers.
     des_z_dist: float = 0.025
@@ -138,11 +145,11 @@ class Mesh:
 @dataclasses.dataclass(frozen=True)
 class Experiment:
 
-    # Which object is used in experiment.
-    object: ObjectType = ObjectType.BANANA
-
     # Configuration for object model; dispatch on Nerf vs. mesh.
     model_config: Union[Nerf, Mesh] = Nerf()
+
+    # Which object is used in experiment.
+    object: ObjectType = ObjectType.BANANA
 
     # Configuration for robot.
     robot_config: RobotConfig = RobotConfig()
@@ -162,9 +169,6 @@ class Experiment:
     # Elite fraction for CEM.
     cem_elite_frac: float = 0.1
 
-    # Number of grasp samples to draw to compute expectations.
-    num_grasp_samples: int = 10
-
     # Risk sensitivity value to use in cost.
     risk_sensitivity: Optional[float] = None
 
@@ -173,9 +177,12 @@ class Experiment:
 
     # Rejection parameter for "dicing the grasp."
     dice_mu: float = 0.5
-    
+
     # Enable visualization to see grasping policy
     visualize: bool = False
+
+    # Number of grasp samples to draw to compute expectations.
+    num_grasp_samples: int = 10
 
 
 def mesh_file(exp_config: Experiment):

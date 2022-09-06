@@ -323,7 +323,10 @@ def get_cost_function(exp_config, model):
             )
 
             risk_sensitivity = exp_config.risk_sensitivity
-            num_grasp_samples = exp_config.num_grasp_samples
+            if exp_config.model_config.expected_surface:
+                num_grasp_samples = 1
+            else:
+                num_grasp_samples = exp_config.num_grasp_samples
 
         # Reshape grasp points and grads for cost evaluation.
         grasp_points = grasp_points.reshape(-1, n_f, 3)

@@ -264,7 +264,11 @@ def lifting_trajectory(robot, obj, grasp_vars, mesh=None, viewer=None):
     gym, sim = robot.gym, robot.sim
 
     for timestep in range(1000):
-        height_err = 0.02 - obj.position[-1].cpu().numpy().item() + obj.translation[-1]
+        height_err = (
+            robot.target_height
+            - obj.position[-1].cpu().numpy().item()
+            + obj.translation[-1]
+        )
         # time.sleep(0.01)
         step_gym(gym, sim, viewer)
         # finds the closest contact points to the original grasp normal + grasp_point ray
@@ -326,7 +330,7 @@ def lifting_trajectory(robot, obj, grasp_vars, mesh=None, viewer=None):
             if mode == "lift":
                 print("HEIGHT_ERR:", height_err)
             # print(f"NET CONTACT FORCE:", net_cf[obj.index,:])
-        if (robot.position[:, -1] <= 0.01).any():
+        if (robot.position[:, -1] <= 0.005).any():
             print("Finger too low!")
             import pdb
 
@@ -361,11 +365,11 @@ def main():
 
     # Loads grasp data
     grasp_data_path = config.grasp_file(exp_config)
-    grasps = np.load(grasp_data_path)
+    grasps = np.load(f"{grasp_data_path}.npy")
 
     # Creates the robot
     robot = FingertipRobot(exp_config.robot_config)
-    robot.setup_env(gym, sim, env, grasps[0, :, :3], grasps[0, :, 3:])
+    robot.setup_gym(gym, sim, env, grasps[0, :, :3], grasps[0, :, 3:])
 
     # Creates object and loads nerf and object mesh
     obj = ig_objects.load_object(exp_config)
@@ -377,7 +381,7 @@ def main():
     obj.setup_tensors()
 
     # Loads nerf or mesh
-    if isinstance(exp_config.model_config, config.NeRF):
+    if isinstance(exp_config.model_config, config.Nerf):
         obj.load_nerf_model()
         mesh = None
     else:
@@ -392,7 +396,7 @@ def main():
         grasp_normals = torch.tensor(grasps[grasp_idx, :, 3:], dtype=torch.float32)
         grasp_vars = (grasp_points, grasp_normals)
 
-        # print(f"EVALUATING GRASP from {grasp_data_path} {grasp_idx}: {grasp_points}")
+        print(f"EVALUATING GRASP from {grasp_data_path} {grasp_idx}: {grasp_points}")
         print(grasp_points, grasp_idx)
         success = lifting_trajectory(robot, obj, grasp_vars, mesh=mesh, viewer=viewer)
         successes += success

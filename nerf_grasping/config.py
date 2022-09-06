@@ -74,7 +74,7 @@ class RobotConfig:
     num_fingers: int = 3
 
     # Target height to lift to.
-    target_height: float = 0.7
+    target_height: float = 0.07
 
     # Use groundtruth mesh normals for contact surface normals.
     gt_normals: bool = False

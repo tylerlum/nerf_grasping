@@ -38,7 +38,7 @@ class FingertipRobot:
         self.actors = []
         self.initialized_actors = False
 
-    def setup_env(
+    def setup_gym(
         self,
         gym: gymapi.Gym,
         sim: Any,
@@ -252,11 +252,12 @@ class FingertipRobot:
     def control(self, timestep, obj, grasp_vars):
         grasp_points, grasp_normals = grasp_vars
         closest_points = ig_utils.closest_point(
-            grasp_points, grasp_points + grasp_normals, position
+            grasp_points, grasp_points + grasp_normals, self.position
         )
         # copy z-dim of object position for maintaining height
         closest_points[:, 2] = obj.position[2]
         height_err = 0.0
+        success = None
         if timestep < 50:
             mode = "reach"
             f = self.position_control(grasp_points)

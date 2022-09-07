@@ -129,6 +129,18 @@ class FingertipRobot:
             contact_pts += self.sphere_radius * grasp_normals
         return contact_pts
 
+    def get_grad_ests(self, obj, tip_position):
+        if not obj.nerf_loaded:
+            obj.load_nerf_model()
+        nerf_tip_pos = grasp_utils.ig_to_nerf(tip_position)
+        _, grad_ests = nerf_utils.est_grads_vals(
+            obj.model, nerf_tip_pos.reshape(1, -1, 3).cuda(), self.grad_config
+        )
+        grad_ests = grad_ests.reshape(3, 3).float()
+        grad_ests /= grad_ests.norm(dim=1, keepdim=True)
+        grad_ests = grasp_utils.nerf_to_ig(grad_ests)
+        return grad_ests
+
     def apply_fingertip_forces(self, global_fingertip_forces):
         """Applies forces to individual actors"""
         assert global_fingertip_forces.shape == (
@@ -174,25 +186,28 @@ class FingertipRobot:
                 self.env, handle, state, gymapi.STATE_VEL
             ), "gym.set_actor_rigid_body_states failed"
 
-    def position_control(self, desired_position, kp=0.5, kd=0.003):
+    def position_control(self, desired_position):
         """Computes joint torques using tip link jacobian to achieve desired tip position"""
-        tip_positions = self.position
+        assert self.position.shape == desired_position.shape
+        kp = self.controller_params.kp_reach
+        kd = self.controller_params.kd_reach
+        position_error = self.position - desired_position
         tip_velocities = self.velocity
-        assert tip_positions.shape == desired_position.shape
-        xyz_force = -kp * (tip_positions - desired_position) - kd * tip_velocities
+        xyz_force = -kp * position_error - kd * tip_velocities
         return xyz_force
 
-    def get_grad_ests(self, obj, tip_position):
-        if not obj.nerf_loaded:
-            obj.load_nerf_model()
-        nerf_tip_pos = grasp_utils.ig_to_nerf(tip_position)
-        _, grad_ests = nerf_utils.est_grads_vals(
-            obj.model, nerf_tip_pos.reshape(1, -1, 3).cuda(), self.grad_config
+    def grasping_control(self, desired_position, grasp_normals):
+        """Computes joint torques using tip link jacobian to achieve desired tip position"""
+        assert self.position.shape == desired_position.shape
+        kp = self.controller_params.kp_grasp
+        kd = self.controller_params.kd_grasp
+        normal_scale = self.controller_params.normal_scale_grasp
+        position_error = self.position - desired_position
+        tip_velocities = self.velocity
+        xyz_force = (
+            -kp * position_error - kd * tip_velocities + normal_scale * grasp_normals
         )
-        grad_ests = grad_ests.reshape(3, 3).float()
-        grad_ests /= grad_ests.norm(dim=1, keepdim=True)
-        grad_ests = grasp_utils.nerf_to_ig(grad_ests)
-        return grad_ests
+        return xyz_force
 
     def object_pos_control(
         self,
@@ -203,10 +218,10 @@ class FingertipRobot:
         """Object position control for lifting trajectory"""
         # Get controller params
         target_normal = self.controller_params.target_normal
-        kp = self.controller_params.kp
-        kd = self.controller_params.kd
-        kp_angle = self.controller_params.kp_angle
-        kd_angle = self.controller_params.kd_angle
+        kp = self.controller_params.kp_lift
+        kd = self.controller_params.kd_lift
+        kp_rot = self.controller_params.kp_rot_lift
+        kd_rot = self.controller_params.kd_rot_lift
 
         if target_position is None:
             target_position = np.array([0.0, 0.0, self.target_height])
@@ -223,8 +238,7 @@ class FingertipRobot:
         # banana tuning
         target_force = object_weight_comp - kp * pos_error - kd * vel
         target_torque = (
-            -kp_angle * (quat @ target_quat.T).to_tangent_space()
-            - kd_angle * angular_vel
+            -kp_rot * (quat @ target_quat.T).to_tangent_space() - kd_rot * angular_vel
         )
         # grasp points in object frame
         # TODO: compute tip radius here?
@@ -279,7 +293,7 @@ class FingertipRobot:
                 gp, ge = ig_utils.get_mesh_contacts(obj.gt_mesh, closest_points)
                 ge = torch.tensor(ge, dtype=torch.float32)
             f_lift, target_force, target_torque, success = self.object_pos_control(
-                obj, ge, target_normal=3.0, kp=1.5, kd=1.0, kp_angle=0.3, kd_angle=1e-2
+                obj, ge
             )
             f = f_lift
         self.apply_fingertip_forces(f)

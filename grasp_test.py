@@ -1,4 +1,5 @@
-from typing import Tuple, Any
+from dataclasses import dataclass
+from typing import Tuple, Any, Optional, Union
 from isaacgym import gymapi, gymtorch
 from nerf_grasping import config
 from nerf_grasping.grasp_opt import grasp_matrix, rot_from_vec
@@ -42,14 +43,16 @@ def step_gym(gym, sim, viewer=None):
 
 def double_reset(robot, obj, grasp_vars, viewer=None):
     print(f"robot position before reset: {robot.position}")
+    # reset_actor sets actor rigid body states
     robot.reset_actor(grasp_vars)
     obj.reset_actor()
+    # step_gym calls gym.simulate, then refreshes tensors
     for i in range(4):
         step_gym(robot.gym, robot.sim, viewer)
-    robot.reset_actor(grasp_vars)
-    obj.reset_actor()
-    for i in range(50):
-        step_gym(robot.gym, robot.sim, viewer)
+    # robot.reset_actor(grasp_vars)
+    # obj.reset_actor()
+    # for i in range(50):
+    #     step_gym(robot.gym, robot.sim, viewer)
     print(f"robot position after reset: {robot.position}")
 
 
@@ -189,10 +192,10 @@ def object_pos_control(
     """Object position control for lifting trajectory"""
 
     target_normal = robot.controller_params.target_normal
-    kp = robot.controller_params.kp
-    kd = robot.controller_params.kd
-    kp_angle = robot.controller_params.kp_angle
-    kd_angle = robot.controller_params.kd_angle
+    kp = robot.controller_params.kp_lift
+    kd = robot.controller_params.kd_lift
+    kp_angle = robot.controller_params.kp_rot_lift
+    kd_angle = robot.controller_params.kd_rot_lift
 
     if target_position is None:
         target_position = np.array([0.0, 0.0, robot.target_height])
@@ -257,20 +260,19 @@ def lifting_trajectory(robot, obj, grasp_vars, mesh=None, viewer=None):
     double_reset(robot, obj, grasp_vars)
     grasp_points, grasp_normals = grasp_vars
 
-    f_lift = None
     start_timestep = 0
-    ge = None
+    estimated_normal = None
     fail_count = 0
     gym, sim = robot.gym, robot.sim
 
-    for timestep in range(1000):
+    for timestep in range(800):
         height_err = (
             robot.target_height
             - obj.position[-1].cpu().numpy().item()
             + obj.translation[-1]
         )
-        # time.sleep(0.01)
         step_gym(gym, sim, viewer)
+
         # finds the closest contact points to the original grasp normal + grasp_point ray
         closest_points = ig_utils.closest_point(
             grasp_points, grasp_points + grasp_normals, robot.position
@@ -278,24 +280,25 @@ def lifting_trajectory(robot, obj, grasp_vars, mesh=None, viewer=None):
 
         # compute potential to closest points
         potential = compute_potential(grasp_points)
-        if timestep < 50:
+        if timestep < 100:
+            # position control to reach contact points
             mode = "reach"
             f = robot.position_control(grasp_points)
             pos_err = robot.position - grasp_points
-        elif timestep < 150:
+        elif timestep < 200:
+            # position + velocity control to grasp object
             mode = "grasp"
-            pos_err = closest_points - robot.position
-            pos_control = pos_err * 5
-            vel_control = -1.0 * robot.velocity
-            contact_pts = robot.get_contact_points(grasp_normals)
-            f = torch.tensor(grasp_normals * 0.05) + pos_control + vel_control
+            f = robot.grasping_control(closest_points, grasp_normals)
         else:
+            # position and
             mode = "lift"
-            closest_points[:, 2] = obj.position[2] + 0.005
+            closest_points[:, 2] = obj.position[2]
             pos_err = closest_points - robot.position
+            contact_pts = robot.get_contact_points(grasp_normals)
             if mesh is None:
-                if ge is None or timestep < 130:
-                    ge = robot.get_grad_ests(obj, contact_pts)
+                # get estimated normal once
+                if estimated_normal is None:
+                    estimated_normal = robot.get_grad_ests(obj, contact_pts)
             else:
                 gp, ge = get_mesh_contacts(
                     mesh,
@@ -304,18 +307,14 @@ def lifting_trajectory(robot, obj, grasp_vars, mesh=None, viewer=None):
                     rot_offset=obj.orientation,
                 )
                 ge = torch.tensor(ge, dtype=torch.float32)
-            f_lift, target_force, target_torque, success = object_pos_control(
+            f, target_force, target_torque, grasp_opt_success = object_pos_control(
                 robot,
                 obj,
                 ge,
             )
-            f = f_lift
 
-            if not success:
+            if not grasp_opt_success:
                 fail_count += 1
-
-        # if f.norm() > 3:
-        #     break
         gym.refresh_net_contact_force_tensor(sim)
         robot.apply_fingertip_forces(f)
         if timestep >= 100 and timestep % 50 == 0:
@@ -336,7 +335,7 @@ def lifting_trajectory(robot, obj, grasp_vars, mesh=None, viewer=None):
 
             pdb.set_trace()
             return False
-        if (robot.position[:, -1] >= 0.5).any():
+        if (robot.position[:, -1] >= 0.125).any():
             print("Finger too high!")
             return False
         if fail_count > 10:
@@ -344,7 +343,7 @@ def lifting_trajectory(robot, obj, grasp_vars, mesh=None, viewer=None):
             return False
         # if number of timesteps of grasp success exceeds 3 seconds
         succ_timesteps = 180
-        err_bound = 0.003
+        err_bound = 0.01
         if timestep - start_timestep >= succ_timesteps:
             return True
 
@@ -354,8 +353,15 @@ def lifting_trajectory(robot, obj, grasp_vars, mesh=None, viewer=None):
     return height_err <= err_bound
 
 
+@dataclass(frozen=True)
+class EvalExperiment(config.Experiment):
+    # Optional, containing either a single index or tuple of (start, end) indices
+    grasp_idx: Union[None, int, Tuple[int, int]] = None
+    grasp_data: Optional[str] = None
+
+
 def main():
-    exp_config = dcargs.cli(config.Experiment)
+    exp_config = dcargs.cli(EvalExperiment)
     gym = gymapi.acquire_gym()
 
     sim = setup_sim(gym)
@@ -364,12 +370,22 @@ def main():
     viewer = setup_viewer(gym, sim, env) if exp_config.visualize else None
 
     # Loads grasp data
-    grasp_data_path = config.grasp_file(exp_config)
+    if exp_config.grasp_data is None:
+        grasp_data_path = config.grasp_file(exp_config)
+    else:
+        assert os.path.exists(
+            exp_config.grasp_data
+        ), f"{exp_config.grasp_data} does not exist"
+        grasp_data_path = exp_config.grasp_data
     grasps = np.load(f"{grasp_data_path}.npy")
 
     # Creates the robot
     robot = FingertipRobot(exp_config.robot_config)
-    robot.setup_gym(gym, sim, env, grasps[0, :, :3], grasps[0, :, 3:])
+    grasp_idx = exp_config.grasp_idx if exp_config.grasp_idx else 0
+    # if grasp_idx are start, end indices
+    if isinstance(grasp_idx, tuple):
+        grasp_idx = grasp_idx[0]
+    robot.setup_gym(gym, sim, env, grasps[grasp_idx, :, :3], grasps[grasp_idx, :, 3:])
 
     # Creates object and loads nerf and object mesh
     obj = ig_objects.load_object(exp_config)
@@ -390,8 +406,14 @@ def main():
 
     # Evaluates sampled grasps
     successes = 0
+    if exp_config.grasp_idx is None:
+        grasp_ids = range(len(grasps))
+    elif isinstance(exp_config.grasp_idx, tuple):
+        grasp_ids = np.arange(exp_config.grasp_idx[0], exp_config.grasp_idx[1])
+    else:
+        grasp_ids = [exp_config.grasp_idx]
 
-    for grasp_idx in range(len(grasps)):
+    for grasp_idx in grasp_ids:
         grasp_points = torch.tensor(grasps[grasp_idx, :, :3], dtype=torch.float32)
         grasp_normals = torch.tensor(grasps[grasp_idx, :, 3:], dtype=torch.float32)
         grasp_vars = (grasp_points, grasp_normals)
@@ -403,7 +425,9 @@ def main():
         if success:
             print(f"SUCCESS! grasp {grasp_idx}")
 
-    print(f"Percent successes: {successes / len(grasps) * 100}% out of {len(grasps)}")
+    print(
+        f"Percent successes: {successes / len(grasp_ids) * 100}% out of {len(grasp_ids)}"
+    )
 
 
 if __name__ == "__main__":

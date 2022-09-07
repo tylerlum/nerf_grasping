@@ -157,13 +157,10 @@ class FingertipRobot:
             )
         return
 
-    def reset_actor(self, grasp_vars=None):
+    def reset_actor(self, grasp_vars):
         """Resets fingertips to points on grasp point lines"""
         self.previous_global_forces = None
-        if grasp_vars is not None:
-            ftip_start_pos = self.get_ftip_start_pos(grasp_vars)
-        else:
-            ftip_start_pos = self.get_ftip_start_pos()
+        ftip_start_pos = self.get_ftip_start_pos(grasp_vars)
 
         init_states = []
         # setting actor rigid body states of spheres

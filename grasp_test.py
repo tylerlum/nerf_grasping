@@ -57,7 +57,7 @@ def double_reset(robot, obj, grasp_vars, viewer=None):
     # print(f"robot position after reset: {robot.position}")
 
 
-def full_reset(robot, obj, root_state_tensor, viewer, grasp_vars=None):
+def full_reset(robot, obj, root_state_tensor, viewer, grasp_vars):
     # reset_actor sets actor rigid body states
     robot.reset_actor(grasp_vars)
     obj.reset_actor()
@@ -277,7 +277,7 @@ def lifting_trajectory(
     robot, obj, grasp_vars, root_state_tensor, mesh=None, viewer=None
 ):
     double_reset(robot, obj, grasp_vars)
-    full_reset(robot, obj, root_state_tensor, viewer, grasp_vars)
+    # full_reset(robot, obj, root_state_tensor, viewer, grasp_vars)
     grasp_points, grasp_normals = grasp_vars
 
     start_timestep = 0
@@ -428,7 +428,6 @@ def main():
         grasp_vars = (grasp_points, grasp_normals)
 
         print(f"EVALUATING GRASP from {grasp_data_path} {grasp_idx}: {grasp_points}")
-        print(grasp_points, grasp_idx)
         success = lifting_trajectory(
             robot, obj, grasp_vars, root_state_tensor, mesh=mesh, viewer=viewer
         )

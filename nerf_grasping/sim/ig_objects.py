@@ -182,6 +182,7 @@ class RigidObject:
             rb_states,
             gymapi.STATE_ALL,
         )
+        return rb_states
 
     @property
     def position(self):

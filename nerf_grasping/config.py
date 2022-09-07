@@ -3,7 +3,7 @@ import dcargs
 import enum
 import pickle
 
-from typing import Optional, Union
+from typing import Optional, Union, Tuple
 
 
 class GradType(enum.Enum):
@@ -60,13 +60,13 @@ class ControllerParams:
     kp_grasp: float = 5.0
 
     # Derivative gain during grasping
-    kd_grasp: float = 1.0  # 0.25
+    kd_grasp: float = 10.0  # 0.25
 
     # Grasp normal vector scaling applied during grasping
-    normal_scale_grasp: float = 0.05  # 0.1
+    normal_scale_grasp: float = 1e-4  # 0.05 # 1e-4  # 0.1
 
     # Grasp target normal force to apply with fingers
-    target_normal: float = 3.0  # 0.5
+    target_normal: float = 3  # 1.0  # 0.5
 
     # Proportional position gain during lifting
     kp_lift: float = 1.5  # 10.0
@@ -191,6 +191,13 @@ class Experiment:
 
     # Enable visualization to see grasping policy
     visualize: bool = False
+
+
+@dataclasses.dataclass(frozen=True)
+class EvalExperiment(Experiment):
+    # Optional, containing either a single index or tuple of (start, end) indices
+    grasp_idx: Union[None, int, Tuple[int, int]] = None
+    grasp_data: Optional[str] = None
 
 
 def mesh_file(exp_config: Experiment):

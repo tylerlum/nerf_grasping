@@ -43,16 +43,15 @@ class FingertipRobot:
         gym: gymapi.Gym,
         sim: Any,
         env: Any,
-        grasp_points: Optional[torch.Tensor] = None,
-        grasp_normals: Optional[torch.Tensor] = None,
+        grasp_vars: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
     ):
         self.gym = gym
         self.sim = sim
         self.env = env
-        self.actors = self.create_spheres(grasp_points, grasp_normals)
+        self.actors = self.create_spheres(grasp_vars)
         self.initialized_actors = True
 
-    def create_spheres(self, grasp_points=None, grasp_normals=None):
+    def create_spheres(self, grasp_vars=None):
         asset_options = gymapi.AssetOptions()
         asset_options.fix_base_link = False
         asset_options.angular_damping = 0.0
@@ -66,12 +65,10 @@ class FingertipRobot:
         actors = []
         colors = np.array([[0, 0, 1], [0, 1, 0], [1, 0, 0]], dtype="float32")
 
-        for i, pos in enumerate(self.get_ftip_start_pos(grasp_points, grasp_normals)):
+        for i, pos in enumerate(self.get_ftip_start_pos(grasp_vars)):
             color = colors[i]
             pose = gymapi.Transform()
-            pose.p.x = pos[0]
-            pose.p.y = pos[1]
-            pose.p.z = pos[2]
+            pose.p = gymapi.Vec3(pos[0], pos[1], pos[2])
             marker_asset = self.gym.load_asset(
                 self.sim, asset_dir, "objects/urdf/ball.urdf", asset_options
             )
@@ -105,10 +102,10 @@ class FingertipRobot:
         _rb_states = self.gym.acquire_rigid_body_state_tensor(self.sim)
         # (num_rigid_bodies, 13)
         rb_count = self.gym.get_actor_rigid_body_count(self.env, self.actors[0])
-        print(f"actor rb_count: {rb_count}")
         rb_start_index = self.gym.get_actor_rigid_body_index(
             self.env, self.actors[0], 0, gymapi.DOMAIN_SIM
         )
+        print(f"actor rb_count: {rb_count}, start index: {rb_start_index}")
 
         # NOTE: simple indexing will return a view of the data but advanced indexing will return a copy breaking the updateing
         self.rb_states = gymtorch.wrap_tensor(_rb_states)[
@@ -129,6 +126,18 @@ class FingertipRobot:
             contact_pts += self.sphere_radius * grasp_normals
         return contact_pts
 
+    def get_grad_ests(self, obj, tip_position):
+        if not obj.nerf_loaded:
+            obj.load_nerf_model()
+        nerf_tip_pos = grasp_utils.ig_to_nerf(tip_position)
+        _, grad_ests = nerf_utils.est_grads_vals(
+            obj.model, nerf_tip_pos.reshape(1, -1, 3).cuda(), self.grad_config
+        )
+        grad_ests = grad_ests.reshape(3, 3).float()
+        grad_ests /= grad_ests.norm(dim=1, keepdim=True)
+        grad_ests = grasp_utils.nerf_to_ig(grad_ests)
+        return grad_ests
+
     def apply_fingertip_forces(self, global_fingertip_forces):
         """Applies forces to individual actors"""
         assert global_fingertip_forces.shape == (
@@ -148,20 +157,21 @@ class FingertipRobot:
             )
         return
 
-    def reset_actor(self, grasp_vars=None):
+    def reset_actor(self, grasp_vars):
         """Resets fingertips to points on grasp point lines"""
-        if grasp_vars is not None:
-            grasp_points, grasp_normals = grasp_vars
-            ftip_start_pos = self.get_ftip_start_pos(grasp_points, grasp_normals)
-        else:
-            ftip_start_pos = self.get_ftip_start_pos()
+        self.previous_global_forces = None
+        ftip_start_pos = self.get_ftip_start_pos(grasp_vars)
 
+        init_states = []
         # setting actor rigid body states of spheres
         for pos, handle in zip(ftip_start_pos, self.actors):
             state = self.gym.get_actor_rigid_body_states(
                 self.env, handle, gymapi.STATE_POS
             )
+            # print("before reset", state["pose"]["p"])
             state["pose"]["p"].fill(tuple(pos))
+            # print("after reset", state["pose"]["p"])
+
             assert self.gym.set_actor_rigid_body_states(
                 self.env, handle, state, gymapi.STATE_POS
             ), "gym.set_actor_rigid_body_states failed"
@@ -173,26 +183,31 @@ class FingertipRobot:
             assert self.gym.set_actor_rigid_body_states(
                 self.env, handle, state, gymapi.STATE_VEL
             ), "gym.set_actor_rigid_body_states failed"
+            init_states.append(state)
+        return init_states
 
-    def position_control(self, desired_position, kp=0.5, kd=0.003):
+    def position_control(self, desired_position):
         """Computes joint torques using tip link jacobian to achieve desired tip position"""
-        tip_positions = self.position
+        assert self.position.shape == desired_position.shape
+        kp = self.controller_params.kp_reach
+        kd = self.controller_params.kd_reach
+        position_error = self.position - desired_position
         tip_velocities = self.velocity
-        assert tip_positions.shape == desired_position.shape
-        xyz_force = -kp * (tip_positions - desired_position) - kd * tip_velocities
+        xyz_force = -kp * position_error - kd * tip_velocities
         return xyz_force
 
-    def get_grad_ests(self, obj, tip_position):
-        if not obj.nerf_loaded:
-            obj.load_nerf_model()
-        nerf_tip_pos = grasp_utils.ig_to_nerf(tip_position)
-        _, grad_ests = nerf_utils.est_grads_vals(
-            obj.model, nerf_tip_pos.reshape(1, -1, 3).cuda(), self.grad_config
+    def grasping_control(self, desired_position, grasp_normals):
+        """Computes joint torques using tip link jacobian to achieve desired tip position"""
+        assert self.position.shape == desired_position.shape
+        kp = self.controller_params.kp_grasp
+        kd = self.controller_params.kd_grasp
+        normal_scale = self.controller_params.normal_scale_grasp
+        position_error = self.position - desired_position
+        tip_velocities = self.velocity
+        xyz_force = (
+            -kp * position_error - kd * tip_velocities + normal_scale * grasp_normals
         )
-        grad_ests = grad_ests.reshape(3, 3).float()
-        grad_ests /= grad_ests.norm(dim=1, keepdim=True)
-        grad_ests = grasp_utils.nerf_to_ig(grad_ests)
-        return grad_ests
+        return xyz_force
 
     def object_pos_control(
         self,
@@ -203,14 +218,13 @@ class FingertipRobot:
         """Object position control for lifting trajectory"""
         # Get controller params
         target_normal = self.controller_params.target_normal
-        kp = self.controller_params.kp
-        kd = self.controller_params.kd
-        kp_angle = self.controller_params.kp_angle
-        kd_angle = self.controller_params.kd_angle
+        kp = self.controller_params.kp_lift
+        kd = self.controller_params.kd_lift
+        kp_rot = self.controller_params.kp_rot_lift
+        kd_rot = self.controller_params.kd_rot_lift
 
         if target_position is None:
             target_position = np.array([0.0, 0.0, self.target_height])
-        tip_position = self.position
         vel = obj.velocity
         angular_vel = obj.angular_velocity
         quat = Quaternion.fromWLast(obj.orientation)
@@ -223,15 +237,13 @@ class FingertipRobot:
         # banana tuning
         target_force = object_weight_comp - kp * pos_error - kd * vel
         target_torque = (
-            -kp_angle * (quat @ target_quat.T).to_tangent_space()
-            - kd_angle * angular_vel
+            -kp_rot * (quat @ target_quat.T).to_tangent_space() - kd_rot * angular_vel
         )
         # grasp points in object frame
-        # TODO: compute tip radius here?
-        grasp_points = tip_position - cg_pos
+        grasp_points_of = self.get_contact_points(in_normal) - cg_pos
         in_normal = torch.stack([quat.rotate(x) for x in in_normal], axis=0)
         global_forces, success = force_opt.calculate_grip_forces(
-            grasp_points,
+            grasp_points_of,
             in_normal,
             target_force,
             target_torque,
@@ -279,7 +291,7 @@ class FingertipRobot:
                 gp, ge = ig_utils.get_mesh_contacts(obj.gt_mesh, closest_points)
                 ge = torch.tensor(ge, dtype=torch.float32)
             f_lift, target_force, target_torque, success = self.object_pos_control(
-                obj, ge, target_normal=3.0, kp=1.5, kd=1.0, kp_angle=0.3, kd_angle=1e-2
+                obj, ge
             )
             f = f_lift
         self.apply_fingertip_forces(f)
@@ -302,10 +314,12 @@ class FingertipRobot:
         )
         return state
 
-    def get_ftip_start_pos(self, grasp_points=None, grasp_normals=None):
-        if grasp_points is None:
+    def get_ftip_start_pos(self, grasp_vars=None):
+        if grasp_vars is None:
             grasp_points = ig_objects.Box.grasp_points.clone()
             grasp_normals = ig_objects.Box.grasp_normals.clone()
+        else:
+            grasp_points, grasp_normals = grasp_vars
         ftip_start_pos = grasp_points - grasp_normals * self.norm_start_offset
         ftip_start_pos[:, 2] = grasp_points[:, 2]
         ftip_start_pos[:, -1]

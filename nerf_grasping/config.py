@@ -3,7 +3,7 @@ import dcargs
 import enum
 import pickle
 
-from typing import Optional, Union
+from typing import Optional, Union, Tuple
 
 
 class GradType(enum.Enum):
@@ -50,20 +50,35 @@ grad_configs = {
 class ControllerParams:
     """Grasp and PD Object Position Controller parameters"""
 
+    # Proportional gain during reaching
+    kp_reach: float = 0.5
+
+    # Derivative gain during reaching
+    kd_reach: float = 0.003
+
+    # Proportional gain during grasping
+    kp_grasp: float = 5.0
+
+    # Derivative gain during grasping
+    kd_grasp: float = 1.0  # 10. # 0.25
+
+    # Grasp normal vector scaling applied during grasping
+    normal_scale_grasp: float = 0.05  # 1e-4  # 0.1
+
     # Grasp target normal force to apply with fingers
-    target_normal = 3.0  # 0.5
+    target_normal: float = 3.0  # 1.0  # 0.5
 
-    # Proportional position gain
-    kp = 10.0  # 10.0
+    # Proportional position gain during lifting
+    kp_lift: float = 10.0  # 10.0
 
-    # Derivative position gain
-    kd = 2.5  # 0.1
+    # Derivative positi.on gain during lifting
+    kd_lift: float = 2.5  # 0.1
 
-    # Proportional rotation gain
-    kp_angle = 0.3  # 0.04
+    # Proportional rotation gain during lifting
+    kp_rot_lift: float = 0.3  # 0.04
 
-    # Derivative rotation gain
-    kd_angle = 1e-2  # 0.001
+    # Derivative rotation gain during lifting
+    kd_rot_lift: float = 1e-2  # 0.001
 
 
 @dataclasses.dataclass(frozen=True)
@@ -183,6 +198,13 @@ class Experiment:
 
     # Number of grasp samples to draw to compute expectations.
     num_grasp_samples: int = 10
+
+
+@dataclasses.dataclass(frozen=True)
+class EvalExperiment(Experiment):
+    # Optional, containing either a single index or tuple of (start, end) indices
+    grasp_idx: Union[None, int, Tuple[int, int]] = None
+    grasp_data: Optional[str] = None
 
 
 def mesh_file(exp_config: Experiment):

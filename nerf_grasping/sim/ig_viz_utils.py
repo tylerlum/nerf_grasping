@@ -1,6 +1,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
+import os
 from isaacgym import gymapi
 
 from nerf_grasping import grasp_utils, nerf_utils
@@ -206,3 +207,14 @@ def img_dir_to_vid(image_dir, name="test", cleanup=False):
         print("removing files")
         for file in img_files:
             os.remove(file)
+
+
+def save_viewer_frame(gym, sim, viewer, save_dir, img_idx, save_freq=10):
+    """Saves frame from viewer to"""
+    gym.render_all_camera_sensors(sim)
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
+    if img_idx % save_freq == 0:
+        gym.write_viewer_image_to_file(
+            viewer, os.path.join(save_dir, f"img{img_idx}.png")
+        )

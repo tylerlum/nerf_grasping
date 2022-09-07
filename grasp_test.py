@@ -257,6 +257,10 @@ def lifting_trajectory(robot, obj, grasp_vars, mesh=None, viewer=None):
     double_reset(robot, obj, grasp_vars)
     grasp_points, grasp_normals = grasp_vars
 
+    if isinstance(grasp_normals, torch.Tensor):
+        grasp_points = grasp_points.detach().cpu()
+        grasp_normals = grasp_normals.detach().cpu()
+
     f_lift = None
     start_timestep = 0
     ge = None
@@ -295,7 +299,7 @@ def lifting_trajectory(robot, obj, grasp_vars, mesh=None, viewer=None):
             pos_err = closest_points - robot.position
             if mesh is None:
                 if ge is None or timestep < 130:
-                    ge = robot.get_grad_ests(obj, contact_pts)
+                    ge = robot.get_grad_ests(obj, contact_pts).detach().cpu()
             else:
                 gp, ge = get_mesh_contacts(
                     mesh,
@@ -303,7 +307,7 @@ def lifting_trajectory(robot, obj, grasp_vars, mesh=None, viewer=None):
                     pos_offset=obj.position,
                     rot_offset=obj.orientation,
                 )
-                ge = torch.tensor(ge, dtype=torch.float32)
+                ge = torch.tensor(ge, dtype=torch.float32, device="cpu")
             f_lift, target_force, target_torque, success = object_pos_control(
                 robot,
                 obj,
@@ -344,7 +348,7 @@ def lifting_trajectory(robot, obj, grasp_vars, mesh=None, viewer=None):
             return False
         # if number of timesteps of grasp success exceeds 3 seconds
         succ_timesteps = 180
-        err_bound = 0.003
+        err_bound = 0.005
         if timestep - start_timestep >= succ_timesteps:
             return True
 

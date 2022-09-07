@@ -54,10 +54,10 @@ class ControllerParams:
     target_normal = 3.0  # 0.5
 
     # Proportional position gain
-    kp = 1.5  # 10.0
+    kp = 10.0  # 10.0
 
     # Derivative position gain
-    kd = 1.0  # 0.1
+    kd = 2.5  # 0.1
 
     # Proportional rotation gain
     kp_angle = 0.3  # 0.04

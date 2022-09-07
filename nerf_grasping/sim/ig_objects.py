@@ -128,12 +128,12 @@ class RigidObject:
 
         asset_options.vhacd_enabled = True
         asset_options.mesh_normal_mode = gymapi.COMPUTE_PER_VERTEX
-        # asset_options.density = 100
+        asset_options.density = 100
         asset_options.override_inertia = False
         asset_options.override_com = False
 
         asset_options.vhacd_params.mode = 0
-        asset_options.vhacd_params.resolution = 300000
+        asset_options.vhacd_params.resolution = 3000000
         asset_options.vhacd_params.max_convex_hulls = 100
         asset_options.vhacd_params.max_num_vertices_per_ch = 16
 

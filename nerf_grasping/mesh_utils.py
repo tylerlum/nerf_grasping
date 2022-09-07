@@ -330,6 +330,8 @@ def get_grasp_points(mesh, grasp_vars, residual_dirs=True):
     grasp_points, grasp_normals = np.zeros_like(rays_o_np), np.zeros_like(rays_d_np)
     grasp_mask = np.zeros_like(rays_o_np[..., 0])
 
+    print(grasp_vars.shape)
+
     # TODO: handle when rays miss.
     hit_points, ray_ids, face_ids = mesh.ray.intersects_location(
         rays_o_np, rays_d_np, multiple_hits=False

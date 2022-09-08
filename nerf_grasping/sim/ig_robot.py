@@ -159,18 +159,19 @@ class FingertipRobot:
 
     def reset_actor(self, grasp_vars):
         """Resets fingertips to points on grasp point lines"""
+        # Erases last cvx opt solution
         self.previous_global_forces = None
+
+        # Finds valid starting fingertip positions
         ftip_start_pos = self.get_ftip_start_pos(grasp_vars)
 
         init_states = []
-        # setting actor rigid body states of spheres
+        # Sets actor rigid body states of spheres
         for pos, handle in zip(ftip_start_pos, self.actors):
             state = self.gym.get_actor_rigid_body_states(
                 self.env, handle, gymapi.STATE_POS
             )
-            # print("before reset", state["pose"]["p"])
             state["pose"]["p"].fill(tuple(pos))
-            # print("after reset", state["pose"]["p"])
 
             assert self.gym.set_actor_rigid_body_states(
                 self.env, handle, state, gymapi.STATE_POS
@@ -288,7 +289,7 @@ class FingertipRobot:
             if not self.use_true_normals and timestep < 130:
                 ge = self.get_grad_ests(obj, closest_points).cpu().float()
             else:
-                gp, ge = ig_utils.get_mesh_contacts(obj.gt_mesh, closest_points)
+                gp, ge, _ = ig_utils.get_mesh_contacts(obj.gt_mesh, closest_points)
                 ge = torch.tensor(ge, dtype=torch.float32)
             f_lift, target_force, target_torque, success = self.object_pos_control(
                 obj, ge
@@ -320,9 +321,13 @@ class FingertipRobot:
             grasp_normals = ig_objects.Box.grasp_normals.clone()
         else:
             grasp_points, grasp_normals = grasp_vars
+        gn = grasp_normals.clone()
+        gn[:, 2] *= 0
+        gn = gn / gn.norm(dim=1, keepdim=True)
         ftip_start_pos = grasp_points - grasp_normals * self.norm_start_offset
-        ftip_start_pos[:, 2] = grasp_points[:, 2]
-        ftip_start_pos[:, -1]
+        ftip_start_pos[:, 2] = np.clip(
+            grasp_points[:, 2], self.sphere_radius * 1.15, np.inf
+        )
         return ftip_start_pos
 
     @property

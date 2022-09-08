@@ -496,18 +496,28 @@ def correct_z_dists(model, grasp_points, nerf_config):
     rays_d_raw = grasp_points[:, 3:]
     rays_d = grasp_utils.res_to_true_dirs(rays_o, rays_d_raw, model.centroid)
 
+    exp_surf_points = None
+
     for ii in range(nerf_config.num_z_dist_iters):
         grasp_points = torch.cat([rays_o, rays_d_raw], dim=-1).reshape(3, 6)
         _, _, weights, z_vals = get_grasp_distribution(
             grasp_points.reshape(1, 3, 6), model, nerf_config
         )
 
-        z_correction = nerf_config.des_z_dist - torch.sum(
-            weights * z_vals, dim=-1
-        ).reshape(3, 1)
+        exp_dists = torch.sum(weights * z_vals, dim=-1).reshape(3, 1)
+        exp_surf_points = rays_o + exp_dists * rays_d
+
+        z_correction = nerf_config.des_z_dist - exp_dists
         rays_o = rays_o - 0.1 * z_correction * rays_d
 
-    return rays_o
+    # Project points to lie above floor.
+    rays_o[:, 1] = torch.max(rays_o[:, 1], grasp_utils.OBJ_BOUNDS[1][0])
+
+    # Correct directions to keep surface points consistent.
+    exp_dists = torch.norm(rays_o - exp_surf_points, dim=-1, keepdim=True)
+    rays_d = (exp_surf_points - rays_o) / exp_dists
+
+    return rays_o, rays_d
 
 
 def intersect_grasp_dirs(grasp_vars, model, B, n_f, nerf_config):

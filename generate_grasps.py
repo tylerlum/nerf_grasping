@@ -12,17 +12,26 @@ import yaml
 
 
 def compute_sampled_grasps(model, grasp_points, centroid):
+    """Converts grasp vars to ray origins/directions; attempts to clip
+    grasp to lie above floor + be equidistant from the surface."""
+
+    # Unpack grasp vars.
     rays_o, rays_d = grasp_points[:, :3], grasp_points[:, 3:]
+
+    # Convert directions to "true" rather than residual.
     rays_d = grasp_utils.res_to_true_dirs(rays_o, rays_d, centroid)
     print("optimized vals: ", rays_o)
+
+    # Correct z-distances (use correct method for mesh/Nerf).
     if isinstance(model, trimesh.Trimesh):
-        rays_o = mesh_utils.correct_z_dists(
+        rays_o, rays_d = mesh_utils.correct_z_dists(
             model, rays_o, rays_d, exp_config.model_config
         )
     else:
-        rays_o = nerf_utils.correct_z_dists(
+        rays_o, rays_d = nerf_utils.correct_z_dists(
             model, grasp_points, exp_config.model_config
         )
+
     print("corrected vals:", rays_o, centroid)
     rays_o, rays_d = grasp_utils.nerf_to_ig(rays_o), grasp_utils.nerf_to_ig(rays_d)
     return rays_o, rays_d

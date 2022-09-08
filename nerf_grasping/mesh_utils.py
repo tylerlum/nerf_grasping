@@ -330,8 +330,6 @@ def get_grasp_points(mesh, grasp_vars, residual_dirs=True):
     grasp_points, grasp_normals = np.zeros_like(rays_o_np), np.zeros_like(rays_d_np)
     grasp_mask = np.zeros_like(rays_o_np[..., 0])
 
-    print(grasp_vars.shape)
-
     # TODO: handle when rays miss.
     hit_points, ray_ids, face_ids = mesh.ray.intersects_location(
         rays_o_np, rays_d_np, multiple_hits=False
@@ -366,7 +364,16 @@ def correct_z_dists(mesh, rays_o, rays_d, mesh_config):
         rays_o_np + (dists - mesh_config.des_z_dist).reshape(3, 1) * rays_d_np
     )
 
+    rays_o_corrected[:, 1] = np.maximum(
+        rays_o_corrected[:, 1], grasp_utils.OBJ_BOUNDS[1][0]
+    )
+    dists_corrected = np.linalg.norm(
+        rays_o_corrected - hit_points, axis=-1, keepdims=True
+    )
+    rays_d_corrected = (hit_points - rays_o_corrected) / dists_corrected
+
     if isinstance(rays_o, torch.Tensor):
         rays_o_corrected = torch.from_numpy(rays_o_corrected).to(rays_o)
+        rays_d_corrected = torch.from_numpy(rays_d_corrected).to(rays_o)
 
-    return rays_o_corrected
+    return rays_o_corrected, rays_d_corrected

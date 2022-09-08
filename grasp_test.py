@@ -59,7 +59,8 @@ def double_reset(robot, obj, grasp_vars, viewer):
         )
         ftip_pos.append(np.array(state["pose"]["p"].tolist()))
         print("after reset", state["pose"]["p"])
-    ftip_pos = np.stack(ftip_pos)
+    ftip_pos = np.stack(ftip_pos).squeeze()
+    assert ftip_pos.shape == (3, 3), ftip_pos.shape
     print(f"Desired - Actual: {grasp_vars[0] - ftip_pos}")
 
 

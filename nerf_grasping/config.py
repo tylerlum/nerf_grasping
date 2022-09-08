@@ -134,7 +134,7 @@ class Nerf:
     grad_config: GradEst = grad_configs["grasp_opt"]
 
     # Desired z-distance for fingers.
-    des_z_dist: float = 0.04
+    des_z_dist: float = 0.05
 
     # Number of iterations for z_dist correction.
     num_z_dist_iters: int = 10

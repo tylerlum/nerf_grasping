@@ -323,6 +323,7 @@ class FingertipRobot:
             grasp_points, grasp_normals = grasp_vars
         gn = grasp_normals.clone()
         gn[:, 2] *= 0
+        gn = gn / gn.norm(dim=1, keepdim=True)
         ftip_start_pos = grasp_points - grasp_normals * self.norm_start_offset
         ftip_start_pos[:, 2] = np.clip(
             grasp_points[:, 2], self.sphere_radius * 1.15, np.inf

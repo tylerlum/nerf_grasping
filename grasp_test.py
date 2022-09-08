@@ -44,7 +44,9 @@ def reset_actors(robot, obj, grasp_vars, viewer):
         step_gym(robot.gym, robot.sim, viewer)
 
 
-def double_reset(robot, obj, grasp_vars, viewer):
+def double_reset(env, grasp_vars):
+    env.fail_count = 0
+    robot, obj, viewer = env.robot, env.obj, env.viewer
     # print(f"robot position before reset: {robot.position}")
     # reset_actor sets actor rigid body states
     for i in range(2):
@@ -207,7 +209,7 @@ def get_mode(timestep):
 
 def lifting_trajectory(env, grasp_vars):
     """Evaluates a lifting trajectory for a sampled grasp"""
-    double_reset(env.robot, env.obj, grasp_vars, env.viewer)
+    double_reset(env, grasp_vars)
     # full_reset(robot, obj, root_state_tensor, viewer, grasp_vars)
     # env.reset_actors(grasp_vars)
 

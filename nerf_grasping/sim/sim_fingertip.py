@@ -34,6 +34,7 @@ class FingertipEnv:
             self.viewer = None
         self.setup_robot_obj(exp_config)
         self.gym.prepare_sim(self.sim)
+        self.fail_count = 0
         self.image_idx = 0
 
     def setup_gym(self):
@@ -245,7 +246,8 @@ class FingertipEnv:
             len(actor_indices),
         ), "resetting actor_root_state_tensor failed"
         # step_gym calls gym.simulate, then refreshes tensors
-        self.step_gym()
+        for i in range(50):
+            self.step_gym()
 
         # optionally do a second reset?
         # self.robot.reset_actor(grasp_vars)
@@ -262,7 +264,7 @@ class FingertipEnv:
         )
         if mode == "reach":
             # position control to reach contact points
-            f = self.robot.position_control(grasp_points)
+            f = self.robot.position_control(closest_points)
             pos_err = grasp_points - self.robot.position
         elif mode == "grasp":
             # position + velocity control to grasp object
@@ -272,7 +274,7 @@ class FingertipEnv:
             # grasp force optimization
             mode = "lift"
             closest_points[:, 2] = self.obj.position[2] + 0.005
-            poos_err = closest_points - self.robot.position
+            pos_err = closest_points - self.robot.position
             contact_pts = self.robot.get_contact_points(grasp_normals)
             if self.mesh is None:
                 # get estimated normal once
@@ -286,7 +288,6 @@ class FingertipEnv:
                 )
                 ge = torch.tensor(ge, dtype=torch.float32)
             f, _, _, succ = self.robot.object_pos_control(
-                self.robot,
                 self.obj,
                 ge,
             )

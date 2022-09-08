@@ -10,7 +10,7 @@ import dcargs
 import time
 import torch
 import numpy as np
-
+import pdb
 import os
 
 root_dir = os.path.abspath("./")
@@ -47,15 +47,20 @@ def reset_actors(robot, obj, grasp_vars, viewer):
 def double_reset(robot, obj, grasp_vars, viewer):
     # print(f"robot position before reset: {robot.position}")
     # reset_actor sets actor rigid body states
-    reset_actors(robot, obj, grasp_vars, viewer)
+    for i in range(2):
+        reset_actors(robot, obj, grasp_vars, viewer)
+
+    # Computes drift from desired start pos
     start_pos = robot.get_ftip_start_pos(grasp_vars)
+    ftip_pos = []
     for pos, handle in zip(start_pos, robot.actors):
         state = robot.gym.get_actor_rigid_body_states(
             robot.env, handle, gymapi.STATE_POS
         )
+        ftip_pos.append(np.array(state["pose"]["p"].tolist()))
         print("after reset", state["pose"]["p"])
-
-    print(f"Desired - Actual: {grasp_vars[0] - start_pos}")
+    ftip_pos = np.stack(ftip_pos)
+    print(f"Desired - Actual: {grasp_vars[0] - ftip_pos}")
 
 
 def full_reset(robot, obj, root_state_tensor, viewer, grasp_vars):
@@ -191,7 +196,7 @@ def compute_potential(points, magnitude=0.01):
 
 
 def get_mode(timestep):
-    if timestep % 1000 < 100:
+    if timestep % 1000 < 50:
         return "reach"
     if timestep % 1000 < 200:
         return "grasp"
@@ -201,9 +206,11 @@ def get_mode(timestep):
 
 def lifting_trajectory(env, grasp_vars):
     """Evaluates a lifting trajectory for a sampled grasp"""
-    # double_reset(robot, obj, grasp_vars, viewer)
+    double_reset(env.robot, env.obj, grasp_vars, env.viewer)
     # full_reset(robot, obj, root_state_tensor, viewer, grasp_vars)
-    env.reset_actors(grasp_vars)
+    # env.reset_actors(grasp_vars)
+
+    # pdb.set_trace()
 
     print(
         "contact dist: ",
@@ -218,7 +225,6 @@ def lifting_trajectory(env, grasp_vars):
     grasp_points, grasp_normals = grasp_vars
 
     start_succ = 0
-    fail_count = 0
 
     for timestep in range(500):
         height_err = (
@@ -250,7 +256,7 @@ def lifting_trajectory(env, grasp_vars):
         if (env.robot.position[:, -1] >= 0.5).any():
             print("Finger too high!")
             return False
-        if fail_count > 50:
+        if env.fail_count > 50:
             print("Too many cvx failures!")
             return False
         # if number of timesteps of grasp success exceeds 3 seconds

@@ -12,6 +12,8 @@ import torch
 from nerf import renderer, utils
 from nerf_grasping import config, grasp_utils
 
+# GRAD_CONFIG = config.grad_configs["grasp_opt"]
+
 
 def load_nerf(opt):
     """
@@ -245,25 +247,41 @@ def sample_grasps(grasp_vars, num_grasps, model, nerf_config):
 
     # Generate distribution from which we'll sample grasp points.
     weights = torch.clip(weights, 0.0, 1.0)
-    grasp_dist = torch.distributions.Categorical(probs=weights + 1e-15)
 
     # Create mask for which rays are empty.
     grasp_mask = torch.sum(weights, -1) > 0.5  # [B, n_f]
 
-    # Sample num_grasps grasp from this distribution.
-    grasp_inds = grasp_dist.sample(sample_shape=[num_grasps])  # [num_grasps, B, n_f]
-    grasp_inds = grasp_inds.permute(2, 0, 1)  # [B, n_f, num_grasps]
-    grasp_inds = grasp_inds.reshape(B, n_f, num_grasps, 1).expand(B, n_f, num_grasps, 3)
+    # If using expected surface.
+    if nerf_config.expected_surface:
+        num_grasps = 1  # Override num_grasps since expectation is at a point.
 
-    # Collect grasp points.
-    grasp_points = torch.gather(
-        sample_points, -2, grasp_inds
-    )  # [B, n_f, num_grasps, 3]
+        grasp_points = torch.sum(sample_points * weights.unsqueeze(-1), dim=-2)
+        grasp_points = grasp_points.reshape(B, n_f, 1, 3)
+    else:
+        # Create categorical distribution object.
+        grasp_dist = torch.distributions.Categorical(probs=weights + 1e-15)
+
+        # Sample num_grasps grasp from this distribution.
+        grasp_inds = grasp_dist.sample(
+            sample_shape=[num_grasps]
+        )  # [num_grasps, B, n_f]
+        grasp_inds = grasp_inds.permute(2, 0, 1)  # [B, n_f, num_grasps]
+        grasp_inds = grasp_inds.reshape(B, n_f, num_grasps, 1).expand(
+            B, n_f, num_grasps, 3
+        )
+
+        # Collect grasp points.
+        grasp_points = torch.gather(
+            sample_points, -2, grasp_inds
+        )  # [B, n_f, num_grasps, 3]
 
     # Estimate densities at fingertips.
     density_ests, _ = est_grads_vals(
         model, rays_o.reshape(B, -1, 3), nerf_config.grad_config
     )
+    # density_ests, _ = est_grads_vals(
+    #     model, rays_o.reshape(B, -1, 3), GRAD_CONFIG
+    # )
     density_ests = density_ests.reshape(B, n_f)
 
     # Mask approach directions that will not collide with object
@@ -282,21 +300,34 @@ def sample_grasps(grasp_vars, num_grasps, model, nerf_config):
     # grasp_mask = torch.logical_and(grasp_mask, approach_mask)
 
     # Estimate gradients.
-    _, grad_ests = est_grads_vals(
-        model, grasp_points.reshape(B, -1, 3), nerf_config.grad_config
-    )
-    grad_ests = grad_ests.reshape(B, n_f, num_grasps, 3)
+    if nerf_config.expected_gradient:
+        expected_surface_points = torch.sum(
+            sample_points * weights.unsqueeze(-1), dim=-2
+        )
 
-    # normal_ests = grad_ests / torch.norm(grad_ests, dim=-1, keepdim=True)
+        _, grad_ests = est_grads_vals(
+            model, expected_surface_points, nerf_config.grad_config
+        )
+        # _, grad_ests = est_grads_vals(model, expected_surface_points, GRAD_CONFIG)
+        grad_ests = grad_ests.unsqueeze(-2).expand(B, n_f, num_grasps, 3)
+    else:
+
+        _, grad_ests = est_grads_vals(
+            model, grasp_points.reshape(B, -1, 3), nerf_config.grad_config
+        )
+        # _, grad_ests = est_grads_vals(
+        #     model, grasp_points.reshape(B, -1, 3), GRAD_CONFIG
+        # )
+        grad_ests = grad_ests.reshape(B, n_f, num_grasps, 3)
+
+    grad_ests = grad_ests / torch.norm(grad_ests, dim=-1, keepdim=True)
 
     # # Enforce constraint that expected normal is no more than 30 deg from approach dir.
     # grasp_mask = torch.logical_and(
     #     grasp_mask,
-    #     torch.median(torch.sum(normal_ests * rays_d.unsqueeze(-2), dim=-1), dim=-1)[0]
+    #     torch.median(torch.sum(grad_ests * rays_d.unsqueeze(-2), dim=-1), dim=-1)[0]
     #     >= 0.5,
     # )
-
-    # print(torch.sum(normal_ests * rays_d.unsqueeze(-2), dim=-1))
 
     # Permute dims to put batch dimensions together.
     grad_ests = grad_ests.permute(0, 2, 1, 3)

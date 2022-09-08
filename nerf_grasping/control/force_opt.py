@@ -69,8 +69,8 @@ def calculate_grip_forces(
         q = example_rotation_transform(norm)
         Q.append(q)
 
-        total_force += q @ f
-        total_torque += skew_matrix(pos) @ q @ f
+        total_force = total_force + q @ f
+        total_torque = total_torque + skew_matrix(pos) @ q @ f
 
     constraints.append(total_force == target_force)
     constraints.append(total_torque == target_torque)

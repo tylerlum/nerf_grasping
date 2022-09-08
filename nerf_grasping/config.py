@@ -69,10 +69,10 @@ class ControllerParams:
     target_normal: float = 3.0  # 1.0  # 0.5
 
     # Proportional position gain during lifting
-    kp_lift: float = 1.5  # 10.0
+    kp_lift: float = 10.0  # 10.0
 
-    # Derivative position gain during lifting
-    kd_lift: float = 1.0  # 0.1
+    # Derivative positi.on gain during lifting
+    kd_lift: float = 2.5  # 0.1
 
     # Proportional rotation gain during lifting
     kp_rot_lift: float = 0.3  # 0.04
@@ -130,8 +130,15 @@ class Nerf:
     # Flag to add noise to samples during rendering.
     render_perturb_samples: bool = True
 
+    # Commented due to possible bug in dcargs.
     # Config object for gradient estimation.
-    grad_config: GradEst = grad_configs["grasp_opt"]
+    grad_config: GradEst = grad_configs["sim"]
+
+    # Flag to use expected surface point.
+    expected_surface: bool = False
+
+    # Flag to use gradient at expected surface.
+    expected_gradient: bool = False
 
     # Desired z-distance for fingers.
     des_z_dist: float = 0.05
@@ -153,11 +160,11 @@ class Mesh:
 @dataclasses.dataclass(frozen=True)
 class Experiment:
 
-    # Which object is used in experiment.
-    object: ObjectType = ObjectType.BANANA
-
     # Configuration for object model; dispatch on Nerf vs. mesh.
     model_config: Union[Nerf, Mesh] = Nerf()
+
+    # Which object is used in experiment.
+    object: ObjectType = ObjectType.BANANA
 
     # Configuration for robot.
     robot_config: RobotConfig = RobotConfig()
@@ -177,9 +184,6 @@ class Experiment:
     # Elite fraction for CEM.
     cem_elite_frac: float = 0.1
 
-    # Number of grasp samples to draw to compute expectations.
-    num_grasp_samples: int = 10
-
     # Risk sensitivity value to use in cost.
     risk_sensitivity: Optional[float] = None
 
@@ -191,6 +195,9 @@ class Experiment:
 
     # Enable visualization to see grasping policy
     visualize: bool = False
+
+    # Number of grasp samples to draw to compute expectations.
+    num_grasp_samples: int = 10
 
 
 @dataclasses.dataclass(frozen=True)

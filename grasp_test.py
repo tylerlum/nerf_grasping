@@ -264,6 +264,7 @@ def lifting_trajectory(env, grasp_vars):
             return False
         # if number of timesteps of grasp success exceeds 3 seconds
         succ_timesteps = 180
+
         err_bound = 0.03
         if timestep - start_succ >= succ_timesteps:
             return True

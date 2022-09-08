@@ -160,5 +160,6 @@ def main(exp_config: config.Experiment):
     config.save(exp_config)
 
 
-exp_config = dcargs.cli(config.Experiment)
-main(exp_config)
+if __name__ == "__main__":
+    exp_config = dcargs.cli(config.Experiment)
+    main(exp_config)

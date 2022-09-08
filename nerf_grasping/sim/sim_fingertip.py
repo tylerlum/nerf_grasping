@@ -21,14 +21,18 @@ asset_dir = f"{root_dir}/assets"
 
 
 class FingertipEnv:
-    def __init__(self, exp_config: config.EvalExperiment):
+    def __init__(
+        self,
+        exp_config: config.EvalExperiment,
+        init_grasp_vars=Tuple[torch.Tensor, torch.Tensor],
+    ):
         self.args = ig_utils.parse_arguments(description="Trifinger test")
         self.setup_gym()
         if exp_config.visualize:
             self.setup_viewer()
         else:
             self.viewer = None
-        self.setup_envs(exp_config)
+        self.setup_robot_obj(exp_config)
         self.gym.prepare_sim(self.sim)
         self.image_idx = 0
 
@@ -39,7 +43,8 @@ class FingertipEnv:
         self.env = ig_utils.setup_env(self.gym, self.sim)
         return self.gym, self.sim, self.env
 
-    def setup_envs(self, exp_config, grasp_vars=None):
+    def setup_robot_obj(self, exp_config, grasp_vars=None):
+        # Creates robot
         self.robot = ig_robot.FingertipRobot(exp_config.robot_config)
         self.robot.setup_gym(self.gym, self.sim, self.env, grasp_vars)
 
@@ -49,6 +54,15 @@ class FingertipEnv:
         self.obj.load_trimesh()
         ig_utils.setup_stage(self.gym, self.sim, self.env)
 
+        # Loads mesh, checking if EvalExperiment using nerf grasps
+        if isinstance(exp_config.model_config, config.Nerf):
+            self.obj.load_nerf_model()
+            self.mesh = None
+        else:
+            mesh_path = config.mesh_file(exp_config)
+            self.mesh = trimesh.load(mesh_path)
+
+        # Create root state tensor for resetting env
         actor_root_state_tensor = self.gym.acquire_actor_root_state_tensor(self.sim)
         self.root_state_tensor = gymtorch.wrap_tensor(actor_root_state_tensor).view(
             -1, 13
@@ -64,6 +78,18 @@ class FingertipEnv:
         object_start_pose = self.gym.get_actor_rigid_body_states(
             self.env, self.obj.actor, gymapi.STATE_ALL
         )["pose"]
+
+        # Get actor indices to reset actor_root_tensor
+        actor_indices = []
+        for a_handle in self.robot.actors + [self.obj.actor]:
+            actor_indices.append(
+                self.gym.get_actor_index(self.env, a_handle, gymapi.DOMAIN_SIM)
+            )
+        self.actor_indices = torch_utils.to_torch(
+            actor_indices,
+            dtype=torch.long,
+            device="cpu",
+        )
         self.object_init_state = torch.tensor(
             [
                 object_start_pose["p"]["x"][0],
@@ -116,40 +142,6 @@ class FingertipEnv:
         cam_target = gymapi.Vec3(0, 0, 0.2)
         self.gym.viewer_camera_look_at(self.viewer, self.env, cam_pos, cam_target)
 
-    def setup_cameras(self, env):
-        camera_props = gymapi.CameraProperties()
-        camera_props.horizontal_fov = 35.0
-        camera_props.width = 400
-        camera_props.height = 400
-
-        # generates cameara positions along rings around object
-        heights = [0.6, 0.3, 0.9, 1.0]
-        distances = [0.25, 0.4, 0.5, 0.1]
-        counts = [56, 104, 96, 1]
-        target_z = [0.0, 0.1, 0.2, 0.1]
-
-        camera_positions = []
-        for h, d, c, z in zip(heights, distances, counts, target_z):
-            for alpha in np.linspace(0, 2 * np.pi, c, endpoint=False):
-                camera_positions.append(([d * np.sin(alpha), d * np.cos(alpha), h], z))
-
-        self.camera_handles = []
-        for pos, z in camera_positions:
-            camera_handle = self.gym.create_camera_sensor(env, camera_props)
-            self.gym.set_camera_location(
-                camera_handle, env, gymapi.Vec3(*pos), gymapi.Vec3(0, 0, z)
-            )
-
-            self.camera_handles.append(camera_handle)
-
-        self.overhead_camera_handle = self.gym.create_camera_sensor(env, camera_props)
-        self.gym.set_camera_location(
-            self.overhead_camera_handle,
-            env,
-            gymapi.Vec3(0, 0.001, 0.5),
-            gymapi.Vec3(0, 0, 0.01),
-        )
-
     def setup_save_dir(self, folder, overwrite=False):
         path = Path(folder)
 
@@ -192,8 +184,6 @@ class FingertipEnv:
     def debug_grasp_visualization(self):
         if len(self.marker_handles) == 0:
             tip_positions = self.obj.grasp_points.cuda().reshape(3, 3)
-            if not self.obj.nerf_loaded:
-                self.obj.load_nerf_model()
             # get grasp points into nerf frame
             tip_positions = tip_positions + self.obj.grasp_normals.cuda() * 0.01
             nerf_tip_pos = grasp_utils.ig_to_nerf(tip_positions)
@@ -224,7 +214,7 @@ class FingertipEnv:
             # )
             pos_offset = self.obj.rb_states[0, :3].cpu().numpy()
             rot_offset = None  # Quaternion.fromWLast(self.obj.rb_states[0, 3:7])
-            gp, gn = ig_utils.get_mesh_contacts(
+            gp, gn, _ = ig_utils.get_mesh_contacts(
                 self.obj.gt_mesh, tip_positions, pos_offset, rot_offset
             )
             if self.added_lines:
@@ -238,24 +228,16 @@ class FingertipEnv:
                 self.gym, self.env, self.sim, gp, colors
             )
 
-    def reset(self, grasp_vars=None):
-
+    def reset_actors(self, grasp_vars):
+        self.fail_count = 0
         # reset_actor sets actor rigid body states
         self.robot.reset_actor(grasp_vars)
         self.obj.reset_actor()
-        # reset object state tensor
-        object_idx = self.gym.get_actor_index(
-            self.env, self.obj.actor, gymapi.DOMAIN_SIM
-        )
+        # reset object and robot state tensor
+        object_idx = self.actor_indices[-1]
         self.root_state_tensor[object_idx] = self.object_init_state.clone()
-        actor_indices = []
-        for i, actor in enumerate(self.robot.actors):
-            actor_idx = self.gym.get_actor_index(self.env, actor, gymapi.DOMAIN_SIM)
-            actor_indices.append(actor_idx)
-        self.root_state_tensor[actor_indices] = self.robot_init_state.clone()
-        actor_indices = torch_utils.to_torch(
-            actor_indices + [object_idx], dtype=torch.long, device="cpu"
-        ).to(torch.int32)
+        self.root_state_tensor[self.actor_indices[:3]] = self.robot_init_state.clone()
+        actor_indices = self.actor_indices.to(torch.int32)
         assert self.gym.set_actor_root_state_tensor_indexed(
             self.sim,
             gymtorch.unwrap_tensor(self.root_state_tensor),
@@ -265,11 +247,66 @@ class FingertipEnv:
         # step_gym calls gym.simulate, then refreshes tensors
         self.step_gym()
 
-        self.robot.reset_actor(grasp_vars)
-        self.obj.reset_actor()
-        # step_gym calls gym.simulate, then refreshes tensors
+        # optionally do a second reset?
+        # self.robot.reset_actor(grasp_vars)
+        # self.obj.reset_actor()
+        # # step_gym calls gym.simulate, then refreshes tensors
+        # self.step_gym()
+        # self.image_idx = 0
+
+    def control(self, mode, grasp_vars):
+        grasp_points, grasp_normals = grasp_vars
+        succ = True
+        closest_points = ig_utils.closest_point(
+            grasp_points, grasp_points + grasp_normals, self.robot.position
+        )
+        if mode == "reach":
+            # position control to reach contact points
+            f = self.robot.position_control(grasp_points)
+            pos_err = grasp_points - self.robot.position
+        elif mode == "grasp":
+            # position + velocity control to grasp object
+            f = self.robot.grasping_control(closest_points, grasp_normals)
+            pos_err = closest_points - self.robot.position
+        elif mode == "lift":
+            # grasp force optimization
+            mode = "lift"
+            closest_points[:, 2] = self.obj.position[2] + 0.005
+            poos_err = closest_points - self.robot.position
+            contact_pts = self.robot.get_contact_points(grasp_normals)
+            if self.mesh is None:
+                # get estimated normal once
+                ge = self.robot.get_grad_ests(self.obj, contact_pts)
+            else:
+                gp, ge, _ = ig_utils.get_mesh_contacts(
+                    self.mesh,
+                    contact_pts,
+                    pos_offset=self.obj.position,
+                    rot_offset=self.obj.orientation,
+                )
+                ge = torch.tensor(ge, dtype=torch.float32)
+            f, _, _, succ = self.robot.object_pos_control(
+                self.robot,
+                self.obj,
+                ge,
+            )
+
+            if not succ:
+                self.fail_count += 1
+        self.robot.apply_fingertip_forces(f)
         self.step_gym()
-        self.image_idx = 0
+        net_obj_force = self.gym.get_rigid_contact_forces(self.sim)[self.obj.actor]
+
+        state = dict(
+            mode=mode,
+            pos_err=pos_err,
+            velocity=self.robot.velocity,
+            force=f,
+            force_mag=f.norm(dim=1),
+            net_obj_force=net_obj_force,
+            grasp_opt_success=succ,
+        )
+        return state
 
 
 def run_robot_control(exp_config, grasp_vars):

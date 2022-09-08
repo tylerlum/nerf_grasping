@@ -253,9 +253,7 @@ def closest_point(a, b, p):
     return torch.stack(res)
 
 
-def get_mesh_contacts(
-    gt_mesh, grasp_points, pos_offset=None, rot_offset=None, return_dist=False
-):
+def get_mesh_contacts(gt_mesh, grasp_points, pos_offset=None, rot_offset=None):
 
     rot_offset = Quaternion.fromWLast(rot_offset)
     if pos_offset is not None:
@@ -270,9 +268,4 @@ def get_mesh_contacts(
         # project back into world frame
         points += pos_offset.cpu().numpy()
         grasp_normals = np.stack([rot_offset.T.rotate(x) for x in grasp_normals])
-    retval = (
-        (points, grasp_normals)
-        if not return_dist
-        else (points, grasp_normals, distance)
-    )
-    return retval
+    return points, grasp_normals, distance

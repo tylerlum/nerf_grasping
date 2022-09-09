@@ -95,7 +95,7 @@ class RobotConfig:
     gt_normals: bool = False
 
     # Offset from object surface to start initial grasp trajectory from.
-    des_z_dist: float = 0.01
+    des_z_dist: float = 0.06
 
     # Fingertip friction coefficient.
     mu: float = 1.0

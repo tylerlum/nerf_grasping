@@ -79,10 +79,10 @@ def main(exp_config: config.Experiment):
 
     if isinstance(exp_config.model_config, config.Nerf):
         model = ig_objects.load_nerf(obj.workspace, obj.bound, obj.scale)
-        print(f"Estimated Centroid: {model.centroid}")
-        print(f"True Centroid: {obj.gt_mesh.centroid}")
+        print(f"Estimated Centroid: {model.ig_centroid}")
+        print(f"True Centroid: {obj.gt_mesh.ig_centroid}")
 
-        centroid = model.centroid
+        centroid = model.ig_centroid
 
     else:
 

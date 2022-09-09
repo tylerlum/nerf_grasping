@@ -17,6 +17,7 @@ class CostType(enum.Enum):
     PSV = enum.auto()
     MSV = enum.auto()
     FC = enum.auto()
+    POLY_AREA = enum.auto()
 
 
 class ObjectType(enum.Enum):
@@ -57,7 +58,7 @@ class ControllerParams:
     kd_reach: float = 0.003
 
     # Proportional gain during grasping
-    kp_grasp: float = 10.0
+    kp_grasp: float = 5.0
 
     # Derivative gain during grasping
     kd_grasp: float = 1.0  # 10. # 0.25
@@ -75,7 +76,7 @@ class ControllerParams:
     kd_lift: float = 2.5  # 0.4
 
     # Proportional rotation gain during lifting
-    kp_rot_lift: float = 0.2  # 0.04
+    kp_rot_lift: float = 0.3  # 0.04
 
     # Derivative rotation gain during lifting
     kd_rot_lift: float = 5e-3  # 0.001

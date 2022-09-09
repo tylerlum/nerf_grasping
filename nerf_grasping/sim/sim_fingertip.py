@@ -257,7 +257,7 @@ class FingertipEnv:
             pos_err = closest_points - self.robot.position
         elif mode == "lift":
             # grasp force optimization
-            closest_points[:, 2] = self.obj.position[2] + 0.005
+            closest_points[:, 2] = self.obj.position[2]  # + 0.005
             pos_err = closest_points - self.robot.position
             contact_pts = self.robot.get_contact_points(grasp_normals)
             if self.mesh is None or self.robot.use_true_normals:

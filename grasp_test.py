@@ -157,7 +157,7 @@ def lifting_trajectory(env, grasp_vars, step):
         # compute potential to closest points
         potential = compute_potential(grasp_points)
         state = env.run_control(mode, grasp_vars)
-        if state["success"]:
+        if state["grasp_opt_success"]:
             fail_count = 0
         else:
             fail_count += 1

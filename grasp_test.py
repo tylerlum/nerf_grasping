@@ -7,11 +7,13 @@ from nerf_grasping.sim import ig_utils
 from nerf_grasping.sim.sim_fingertip import FingertipEnv
 
 import dcargs
+import dataclasses
 import time
 import torch
 import numpy as np
 import pdb
 import os
+import wandb
 
 root_dir = os.path.abspath("./")
 asset_dir = f"{root_dir}/assets"
@@ -81,16 +83,6 @@ def random_forces(timestep):
     return f
 
 
-def closest_point(a, b, p):
-    ap = p - a
-    ab = b - a
-    res = []
-    for i in range(3):
-        result = a[i] + torch.dot(ap[i], ab[i]) / torch.dot(ab[i], ab[i]) * ab[i]
-        res.append(result)
-    return res
-
-
 def setup_viewer(gym, sim, env):
     viewer = gym.create_viewer(sim, gymapi.CameraProperties())
     # position outside stage
@@ -125,7 +117,7 @@ def get_mode(timestep):
         return "lift"
 
 
-def lifting_trajectory(env, grasp_vars):
+def lifting_trajectory(env, grasp_vars, step):
     """Evaluates a lifting trajectory for a sampled grasp"""
     # double_reset(env, grasp_vars)
     # full_reset(robot, obj, root_state_tensor, viewer, grasp_vars)
@@ -148,10 +140,13 @@ def lifting_trajectory(env, grasp_vars):
         grasp_points = grasp_points.detach().cpu()
         grasp_normals = grasp_normals.detach().cpu()
 
+    # records timestep where first success occured
     start_succ = 0
+    # counts consecutive failures from running cvx opt
+    fail_count = 0
 
     for timestep in range(500):
-        height_err = (
+        height_err = np.abs(
             env.robot.target_height
             - env.obj.position.cpu().numpy()[-1]
             + env.obj.translation[-1]
@@ -162,6 +157,11 @@ def lifting_trajectory(env, grasp_vars):
         # compute potential to closest points
         potential = compute_potential(grasp_points)
         state = env.run_control(mode, grasp_vars)
+        if state["success"]:
+            fail_count = 0
+        else:
+            fail_count += 1
+
         if timestep >= 100 and timestep % 50 == 0:
             print("MODE:", state["mode"])
             print("TIMESTEP:", timestep)
@@ -174,32 +174,59 @@ def lifting_trajectory(env, grasp_vars):
             if state["mode"] == "lift":
                 print("HEIGHT_ERR:", height_err)
             # print(f"NET CONTACT FORCE:", net_cf[obj.index,:])
+        # max_vel = env.robot.velocity.max(dim=1)
+        log = dict(
+            pos_err=state["pos_err"],
+            height_err=height_err,
+            force_mag=state["force_mag"],
+            final_timestep=timestep,
+            final_potentential=potential,
+            # max_velocity_1=max_vel[0],
+            # max_velocity_2=max_vel[1],
+            # max_velocity_3=max_vel[2],
+            min_ftip_height=env.robot.position[:, -1].min(),
+            max_ftip_height=env.robot.position[:, -1].max(),
+            fail_count=fail_count,
+        )
+
         if (env.robot.position[:, -1] <= 0.01).any():
             print("Finger too low!")
+            if wandb.run is not None:
+                wandb.log(log, step=step)
             return False
         if (env.robot.position[:, -1] >= 0.5).any():
             print("Finger too high!")
+            if wandb.run is not None:
+                wandb.log(log, step=step)
             return False
-        if env.fail_count > 50:
+        if fail_count > 50:
             print("TIMESTEP:", timestep)
             print("Too many cvx failures!")
+            if wandb.run is not None:
+                wandb.log(log, step=step)
             return False
         # if number of timesteps of grasp success exceeds 3 seconds
         succ_timesteps = 180
 
         err_bound = 0.03
         if timestep - start_succ >= succ_timesteps:
+            if wandb.run is not None:
+                wandb.log(log, step=step)
             return True
 
         # increment start_succ if height error outside err_bound
         if height_err > err_bound:
             start_succ = timestep
+    if wandb.run is not None:
+        wandb.log(log, step=step)
     return height_err <= err_bound
 
 
 def main():
     exp_config = dcargs.cli(config.EvalExperiment)
-
+    if exp_config.wandb:
+        # update config dict to include path to grasp_data
+        wandb.init(project="nerf_grasping", config=dataclasses.asdict(exp_config))
     # Loads grasp data
     if exp_config.grasp_data is None:
         grasp_data_path = f"{config.grasp_file(exp_config)}.npy"
@@ -233,14 +260,16 @@ def main():
         grasp_vars = (grasp_points, grasp_normals)
 
         print(f"EVALUATING GRASP from {grasp_data_path} {grasp_idx}: {grasp_points}")
-        success = lifting_trajectory(env, grasp_vars)
+        success = lifting_trajectory(env, grasp_vars, grasp_idx)
         successes += success
         if success:
             print(f"SUCCESS! grasp {grasp_idx}")
 
-    print(
-        f"Percent successes: {successes / len(grasp_ids) * 100}% out of {len(grasp_ids)}"
-    )
+    success_pct = successes / len(grasp_ids) * 100
+    if exp_config.wandb:
+        wandb.run.summary["success_pct"] = success_pct
+        wandb.finish()
+    print(f"Percent successes: {success_pct}% out of {len(grasp_ids)}")
 
 
 if __name__ == "__main__":

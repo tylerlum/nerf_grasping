@@ -34,7 +34,7 @@ class FingertipEnv:
             self.viewer = None
         self.setup_robot_obj(exp_config)
         self.gym.prepare_sim(self.sim)
-        self.fail_count = 0
+        self.added_lines = False
         self.image_idx = 0
 
     def setup_gym(self):
@@ -161,52 +161,17 @@ class FingertipEnv:
 
         self.refresh_tensors()
 
-    def debug_grasp_visualization(self):
-        if len(self.marker_handles) == 0:
-            tip_positions = self.obj.grasp_points.cuda().reshape(3, 3)
-            # get grasp points into nerf frame
-            tip_positions = tip_positions + self.obj.grasp_normals.cuda() * 0.01
-            nerf_tip_pos = grasp_utils.ig_to_nerf(tip_positions)
-            _, grad_ests = nerf_utils.est_grads_vals(
-                self.obj.model,
-                nerf_tip_pos.reshape(1, 3, 3),
-                sigma=5e-3,
-                method="gaussian",
-                num_samples=1000,
-            )
-            grad_ests = grad_ests.reshape(3, 3).float()
-            grad_ests /= grad_ests.norm(dim=1, keepdim=True)
-            # get normal estimates and gradient estimates back in IG world frame
-            grad_ests = grasp_utils.nerf_to_ig(grad_ests.cpu().detach().numpy())
-            self.grad_ests = grad_ests
-            # self.visualize_grasp_normals(tip_positions, -grad_ests)
-            # self.marker_handles += self.plot_circle(self.gym, self.env, self.sim, self.object)
-            # densities = nerf_utils.nerf_densities(
-            #     self.object.model, nerf_tip_pos.reshape(1, 3, 3)
-            # )
-            # densities = densities.cpu().detach().numpy() / 355
-            # densities = densities.flatten()
-        if len(self.marker_handles) == 0:
-            tip_positions = self.obj.grasp_points.cpu().numpy().reshape(3, 3)
-            colors = [[0, 1, 0]] * 3  # green colored markers
-            # self.marker_handles = ig_viz_utils.visualize_markers(
-            #     self.gym, self.env, self.sim, tip_positions, colors
-            # )
-            pos_offset = self.obj.rb_states[0, :3].cpu().numpy()
-            rot_offset = None  # Quaternion.fromWLast(self.obj.rb_states[0, 3:7])
-            gp, gn, _ = ig_utils.get_mesh_contacts(
-                self.obj.gt_mesh, tip_positions, pos_offset, rot_offset
-            )
-            if self.added_lines:
-                self.gym.clear_lines(self.viewer)
-            ig_viz_utils.visualize_grasp_normals(
-                self.gym, self.viewer, self.env, gp, -gn
-            )
-            self.added_lines = True
-            colors = [[1, 0, 0]] * 3  # red colored markers
-            self.marker_handles += ig_viz_utils.visualize_markers(
-                self.gym, self.env, self.sim, gp, colors
-            )
+    def debug_grasp_visualization(self, grasp_vars, net_obj_force):
+        tip_positions = self.robot.get_contact_points(grasp_vars)
+        gp, gn, _ = ig_utils.get_mesh_contacts(
+            self.obj.gt_mesh, tip_positions, self.obj.position, self.obj.orientation
+        )
+        if self.added_lines:
+            self.gym.clear_lines(self.viewer)
+        ig_viz_utils.visualize_grasp_normals(
+            self.gym, self.viewer, self.env, gp, -net_obj_force
+        )
+        self.added_lines = True
 
     def set_robot_init_state(self, grasp_vars):
         start_ftip_pos = self.robot.get_ftip_start_pos(grasp_vars)
@@ -241,7 +206,6 @@ class FingertipEnv:
         return
 
     def reset_actors(self, grasp_vars):
-        self.fail_count = 0
         # reset_actor sets actor rigid body states
         self.robot.reset_actor(grasp_vars)
         self.obj.reset_actor()

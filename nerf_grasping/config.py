@@ -72,10 +72,10 @@ class ControllerParams:
     kp_lift: float = 10.0  # 10.0
 
     # Derivative positi.on gain during lifting
-    kd_lift: float = 2.5  # 0.1
+    kd_lift: float = 1.0  # 0.1
 
     # Proportional rotation gain during lifting
-    kp_rot_lift: float = 0.3  # 0.04
+    kp_rot_lift: float = 0.2  # 0.04
 
     # Derivative rotation gain during lifting
     kd_rot_lift: float = 5e-3  # 0.001

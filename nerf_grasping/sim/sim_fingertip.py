@@ -60,8 +60,7 @@ class FingertipEnv:
             self.obj.load_nerf_model()
             self.mesh = None
         else:
-            mesh_path = config.mesh_file(exp_config)
-            self.mesh = trimesh.load(mesh_path)
+            self.mesh = self.obj.gt_mesh
 
         # Create root state tensor for resetting env
         actor_root_state_tensor = self.gym.acquire_actor_root_state_tensor(self.sim)
@@ -279,11 +278,11 @@ class FingertipEnv:
         # self.image_idx = 0
 
     def run_control(self, mode, grasp_vars):
-        grasp_points, grasp_normals = grasp_vars
+        grasp_points, grasp_normals = grasp_vars # IG frame.
         succ = True
         closest_points = ig_utils.closest_point(
             grasp_points, grasp_points + grasp_normals, self.robot.position
-        )
+        )  # IG frame.
         if mode == "reach":
             # position control to reach contact points
             f = self.robot.position_control(closest_points)
@@ -303,18 +302,21 @@ class FingertipEnv:
                 mesh = self.mesh
             if self.mesh is None and not self.robot.use_true_normals:
                 # get estimated normal once
-                ge = self.robot.get_grad_ests(self.obj, contact_pts).cpu().float()
+                ge_ig_frame = self.robot.get_grad_ests(self.obj, contact_pts).cpu().float()
             else:
-                gp, ge, _ = ig_utils.get_mesh_contacts(
+                gp, ge_ig_frame, _ = ig_utils.get_mesh_contacts(
                     mesh,
                     contact_pts,
                     pos_offset=self.obj.position,
                     rot_offset=self.obj.orientation,
-                )
-                ge = torch.tensor(ge, dtype=torch.float32)
+                )  # IG frame.
+                ge_ig_frame = torch.tensor(
+                    ge_ig_frame, dtype=torch.float32
+                )  # IG frame.
+
             f, _, _, succ = self.robot.object_pos_control(
                 self.obj,
-                ge,
+                ge_ig_frame,
             )
 
         self.robot.apply_fingertip_forces(f)

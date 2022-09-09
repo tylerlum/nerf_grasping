@@ -143,7 +143,10 @@ def lifting_trajectory(env, grasp_vars):
         )[2],
     )
 
-    grasp_points, grasp_normals = grasp_vars
+    grasp_points, grasp_normals = grasp_vars  # IG frame.
+    if isinstance(grasp_normals, torch.Tensor):
+        grasp_points = grasp_points.detach().cpu()
+        grasp_normals = grasp_normals.detach().cpu()
 
     start_succ = 0
 
@@ -213,6 +216,7 @@ def main():
 
     grasp_vars = (grasps[grasp_idx, :, :3], grasps[grasp_idx, :, 3:])
     env = FingertipEnv(exp_config, grasp_vars)
+    print("OBJECT MASS:", env.obj.mass)
 
     # Evaluates sampled grasps
     successes = 0

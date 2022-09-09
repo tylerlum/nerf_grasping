@@ -8,6 +8,7 @@ from isaacgym.gymutil import parse_device_str
 import numpy as np
 import torch
 import trimesh
+from nerf_grasping import grasp_utils
 from nerf_grasping.quaternions import Quaternion
 
 
@@ -258,14 +259,29 @@ def get_mesh_contacts(gt_mesh, grasp_points, pos_offset=None, rot_offset=None):
     rot_offset = Quaternion.fromWLast(rot_offset)
     if pos_offset is not None:
         # project grasp_points into object frame
-        grasp_points -= pos_offset.cpu().numpy()
-        grasp_points = np.stack([rot_offset.rotate(gp) for gp in grasp_points])
+        grasp_points -= pos_offset.cpu().numpy().reshape(1, 3)
+        grasp_points = np.stack([rot_offset.T.rotate(gp) for gp in grasp_points])
+
+    # Now, transform grasp_points into model frame.
+    grasp_points = grasp_utils.ig_to_nerf(grasp_points).cpu().numpy()
+
     points, distance, index = trimesh.proximity.closest_point(gt_mesh, grasp_points)
     # grasp normals follow convention that points into surface,
     # trimesh computes normals pointing out of surface
     grasp_normals = -gt_mesh.face_normals[index]
+
+    #     print('grasp normals, NeRF frame:', grasp_normals)
+    #     print('grasp points, NeRF frame:', points)
+    #     print('surface distances, NeRF frame:', distance)
+
+    # Put back into IG model frame.
+    points = grasp_utils.nerf_to_ig(points).cpu().numpy()
+    grasp_normals = grasp_utils.nerf_to_ig(grasp_normals).cpu().numpy()
+
     if pos_offset is not None:
         # project back into world frame
-        points += pos_offset.cpu().numpy()
-        grasp_normals = np.stack([rot_offset.T.rotate(x) for x in grasp_normals])
+        points = np.stack([rot_offset.rotate(gp) for gp in points])
+        points += pos_offset.cpu().numpy().reshape(1, 3)
+        grasp_normals = np.stack([rot_offset.rotate(x) for x in grasp_normals])
+
     return points, grasp_normals, distance

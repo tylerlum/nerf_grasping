@@ -85,7 +85,8 @@ class RigidObject:
     def get_CG(self):
         pos = self.rb_states[0, :3]
         quat = Quaternion.fromWLast(self.rb_states[0, 3:7])
-        return quat.rotate(self.CG) + pos
+        cg = self.CG.cpu().numpy()
+        return quat.rotate(cg) + pos
 
     def setup_tensors(self):
         _rb_states = self.gym.acquire_rigid_body_state_tensor(self.sim)
@@ -112,16 +113,22 @@ class RigidObject:
     def load_trimesh(self):
         mesh_path = os.path.join(asset_dir, self.mesh_file)
         self.gt_mesh = trimesh.load(mesh_path, force="mesh")
-        # R = scipy.spatial.transform.Rotation.from_euler("Y", [-np.pi / 2]).as_matrix()
-        # R = (
-        #     R
-        #     @ scipy.spatial.transform.Rotation.from_euler("X", [-np.pi / 2]).as_matrix()
-        # )
-        # T_rot = np.eye(4)
-        # T_rot[:3, :3] = R
-        # self.gt_mesh.apply_transform(T_rot)
+        R = scipy.spatial.transform.Rotation.from_euler("Y", [-np.pi / 2]).as_matrix()
+        R = (
+            R
+            @ scipy.spatial.transform.Rotation.from_euler("X", [-np.pi / 2]).as_matrix()
+        )
+        T_rot = np.eye(4)
+        T_rot[:3, :3] = R
         self.gt_mesh.apply_scale(self.obj_scale)
-        self.gt_mesh.apply_translation(self.translation)
+        # self.gt_mesh.apply_translation(self.translation)
+        self.gt_mesh.apply_transform(T_rot)
+        self.gt_mesh.ig_centroid = (
+            grasp_utils.ig_to_nerf(self.translation.reshape(1, 3))
+            .reshape(-1)
+            .cpu()
+            .numpy()
+        )
 
     def create_asset(self):
         asset_options = gymapi.AssetOptions()
@@ -132,10 +139,10 @@ class RigidObject:
         asset_options.override_inertia = False
         asset_options.override_com = False
 
-        asset_options.vhacd_params.mode = 0
+        asset_options.vhacd_params.mode = 1
         asset_options.vhacd_params.resolution = 3000000
         asset_options.vhacd_params.max_convex_hulls = 100
-        asset_options.vhacd_params.max_num_vertices_per_ch = 16
+        asset_options.vhacd_params.max_num_vertices_per_ch = 64
 
         asset = self.gym.load_asset(self.sim, asset_dir, self.asset_file, asset_options)
 

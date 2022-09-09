@@ -121,9 +121,10 @@ class FingertipRobot:
         return self.rb_states[:, 7:10]
 
     def get_contact_points(self, grasp_normals=None):
-        contact_pts = self.position
+        """Returns IG-frame contact points, given current position + grasp normals."""
+        contact_pts = self.position  # IG frame.
         if grasp_normals is not None:
-            contact_pts += self.sphere_radius * grasp_normals
+            contact_pts += self.sphere_radius * grasp_normals  # IG frame.
         return contact_pts
 
     def get_grad_ests(self, obj, tip_position):
@@ -213,7 +214,7 @@ class FingertipRobot:
     def object_pos_control(
         self,
         obj,
-        in_normal,
+        in_normals_ig_frame,
         target_position=None,
     ):
         """Object position control for lifting trajectory"""
@@ -225,95 +226,123 @@ class FingertipRobot:
         kd_rot = self.controller_params.kd_rot_lift
 
         if target_position is None:
-            target_position = np.array([0.0, 0.0, self.target_height])
-        vel = obj.velocity
-        angular_vel = obj.angular_velocity
-        quat = Quaternion.fromWLast(obj.orientation)
+            target_position = np.array([0.0, 0.0, self.target_height])  # IG frame.
+        vel = obj.velocity  # IG frame.
+        angular_vel = obj.angular_velocity  # IG frame.
+        quat = Quaternion.fromWLast(obj.orientation)  # obj to IG frame.
+
         target_quat = Quaternion.Identity()
-        cg_pos = obj.get_CG()  # thoughts it eliminates the pendulum effect? possibly?
+        cg_pos = obj.get_CG()  # IG frame.
+        # print('rot offset: ', (quat @ target_quat.T).to_tangent_space())
 
         pos_error = cg_pos - target_position
-        object_weight_comp = obj.mass * 9.8 * torch.tensor([0, 0, 1])
+        object_weight_comp = obj.mass * 9.81 * torch.tensor([0, 0, 1])
         # target_force = object_weight_comp - 0.9 * pos_error - 0.4 * vel
         # banana tuning
         target_force = object_weight_comp - kp * pos_error - kd * vel
         target_torque = (
             -kp_rot * (quat @ target_quat.T).to_tangent_space() - kd_rot * angular_vel
         )
-        # grasp points in object frame
-        grasp_points_of = self.get_contact_points(in_normal) - cg_pos
-        in_normal = torch.stack([quat.rotate(x) for x in in_normal], axis=0)
-        global_forces, success = force_opt.calculate_grip_forces(
-            grasp_points_of,
-            in_normal,
-            target_force,
-            target_torque,
+
+        # Transform inward normals to obj frame.
+        in_normals_obj_frame = torch.stack(
+            [quat.T.rotate(x) for x in in_normals_ig_frame]
+        )
+
+        # Get contact points in IG frame.
+        grasp_points_ig_frame = self.get_contact_points(in_normals_ig_frame)
+
+        # Transform them back to IG frame.
+        grasp_points_obj_frame = torch.stack(
+            [quat.T.rotate(x - obj.get_CG()) for x in grasp_points_ig_frame]
+        )
+
+        # print('grasp_points obj frame:', grasp_points_obj_frame)
+        # print('inward normals obj frame: ', in_normals_obj_frame)
+
+        # Transform desired force/torque to object frame.
+        target_force_obj_frame = quat.T.rotate(target_force)
+        target_torque_obj_frame = quat.T.rotate(target_torque)
+
+        force_opt.check_force_closure(
+            grasp_points_obj_frame, in_normals_obj_frame, obj.mu
+        )
+
+        global_forces_obj_frame, success = force_opt.calculate_grip_forces(
+            grasp_points_obj_frame,
+            in_normals_obj_frame,
+            target_force_obj_frame,
+            target_torque_obj_frame,
             target_normal,
             obj.mu,
         )
+
         if not success:
             logging.warning("solve failed, maintaining previous forces")
-            global_forces = (
+            global_forces_ig_frame = (
                 self.previous_global_forces
             )  # will fail if we failed solve on first iteration
-            assert global_forces is not None
+            assert global_forces_ig_frame is not None
         else:
-            self.previous_global_forces = global_forces
-
-        return global_forces, target_force, target_torque, success
-
-    def control(self, timestep, obj, grasp_vars):
-        grasp_points, grasp_normals = grasp_vars
-        closest_points = ig_utils.closest_point(
-            grasp_points, grasp_points + grasp_normals, self.position
-        )
-        # copy z-dim of object position for maintaining height
-        closest_points[:, 2] = obj.position[2]
-        height_err = 0.0
-        success = None
-        if timestep < 50:
-            mode = "reach"
-            f = self.position_control(grasp_points)
-            pos_err = self.position - grasp_points
-        elif timestep < 150:
-            mode = "grasp"
-            pos_err = closest_points - self.position
-            pos_control = pos_err * 3
-            vel_control = -0.25 * self.velocity
-            f = torch.tensor(grasp_normals * 0.1) + pos_control + vel_control
-        else:
-            mode = "lift"
-            closest_points[:, 2] += 0.005  # encourages lifting
-            pos_err = closest_points - self.position
-            height_err = self.target_height - obj.position[-1]
-            if not self.use_true_normals and timestep < 130:
-                ge = self.get_grad_ests(obj, closest_points).cpu().float()
-            else:
-                gp, ge, _ = ig_utils.get_mesh_contacts(obj.gt_mesh, closest_points)
-                ge = torch.tensor(ge, dtype=torch.float32)
-            f_lift, target_force, target_torque, success = self.object_pos_control(
-                obj, ge
+            global_forces_ig_frame = torch.stack(
+                [quat.rotate(x) for x in global_forces_obj_frame]
             )
-            f = f_lift
-        self.apply_fingertip_forces(f)
-        net_obj_force = self.gym.get_rigid_contact_forces(self.sim)[obj.actor]
-        if timestep % 50 == 0 and self.verbose:
-            print("MODE:", mode)
-            print("TIMESTEP:", timestep)
-            print("POSITION ERR:", pos_err)
-            print("VELOCITY:", self.velocity)
-            print("FORCE MAG:", f.norm())
-            print("OBJECT FORCES:", net_obj_force)
-            print("HEIGHT ERROR:", height_err)
-        state = dict(
-            mode=mode,
-            pos_err=pos_err,
-            velocity=self.velocity,
-            force_mag=f.norm(dim=1),
-            net_obj_force=net_obj_force,
-            grasp_opt_success=success,
-        )
-        return state
+            self.previous_global_forces = global_forces_ig_frame
+
+        return global_forces_ig_frame, target_force, target_torque, success
+
+    # def control(self, timestep, obj, grasp_vars):
+    #     grasp_points, grasp_normals = grasp_vars
+    #     closest_points = ig_utils.closest_point(
+    #         grasp_points, grasp_points + grasp_normals, self.position
+    #     )
+    #     # copy z-dim of object position for maintaining height
+    #     closest_points[:, 2] = obj.position[2]
+    #     height_err = 0.0
+    #     success = None
+    #     if timestep < 50:
+    #         mode = "reach"
+    #         f = self.position_control(grasp_points)
+    #         pos_err = self.position - grasp_points
+    #     elif timestep < 150:
+    #         mode = "grasp"
+    #         pos_err = closest_points - self.position
+    #         pos_control = pos_err * 3
+    #         vel_control = -0.25 * self.velocity
+    #         f = torch.tensor(grasp_normals * 0.1) + pos_control + vel_control
+    #     else:
+    #         mode = "lift"
+    #         closest_points[:, 2] += 0.005  # encourages lifting
+    #         pos_err = closest_points - self.position
+    #         height_err = self.target_height - obj.position[-1]
+    #         if not self.use_true_normals and timestep < 130:
+    #             ge = self.get_grad_ests(obj, closest_points).cpu().float()
+    #         else:
+    #             gp, ge, _ = ig_utils.get_mesh_contacts(obj.gt_mesh, closest_points)
+    #             ge = torch.tensor(ge, dtype=torch.float32)
+    #         f_lift, target_force, target_torque, success = self.object_pos_control(
+    #             obj, ge
+    #         )
+    #         f = f_lift
+    #     self.apply_fingertip_forces(f)
+    #     net_obj_force = self.gym.get_rigid_contact_forces(self.sim)[obj.actor]
+    #     if timestep % 50 == 0 and self.verbose:
+    #         print("MODE:", mode)
+    #         print("TIMESTEP:", timestep)
+    #         print("POSITION ERR:", pos_err)
+    #         print("VELOCITY:", self.velocity)
+    #         print("FORCE MAG:", f.norm())
+    #         print("OBJECT FORCES:", net_obj_force)
+    #         print("HEIGHT ERROR:", height_err)
+    #     state = dict(
+    #         mode=mode,
+    #         pos_err=pos_err,
+    #         velocity=self.velocity,
+    #         force_mag=f.norm(dim=1),
+    #         net_obj_force=net_obj_force,
+    #         grasp_opt_success=success,
+    #     )
+    #     return state
 
     def get_ftip_start_pos(self, grasp_vars=None):
         if grasp_vars is None:

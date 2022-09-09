@@ -511,7 +511,7 @@ def correct_z_dists(model, grasp_points, nerf_config):
         rays_o = rays_o - 0.1 * z_correction * rays_d
 
     # Project points to lie above floor.
-    rays_o[:, 1] = torch.max(rays_o[:, 1], grasp_utils.OBJ_BOUNDS[1][0])
+    rays_o[:, 1] = torch.clamp(rays_o[:, 1], min=grasp_utils.OBJ_BOUNDS[1][0])
 
     # Correct directions to keep surface points consistent.
     exp_dists = torch.norm(rays_o - exp_surf_points, dim=-1, keepdim=True)

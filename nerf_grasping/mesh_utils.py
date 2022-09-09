@@ -364,9 +364,9 @@ def correct_z_dists(mesh, rays_o, rays_d, mesh_config):
         rays_o_np + (dists - mesh_config.des_z_dist).reshape(3, 1) * rays_d_np
     )
 
-    rays_o_corrected[:, 1] = np.maximum(
-        rays_o_corrected[:, 1], grasp_utils.OBJ_BOUNDS[1][0]
-    )
+    # rays_o_corrected[:, 1] = np.maximum(
+    #     rays_o_corrected[:, 1], grasp_utils.OBJ_BOUNDS[1][0]
+    # )
     dists_corrected = np.linalg.norm(
         rays_o_corrected - hit_points, axis=-1, keepdims=True
     )

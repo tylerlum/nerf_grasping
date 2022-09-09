@@ -491,8 +491,8 @@ if __name__ == "__main__":
     # Obj = ig_objects.Box
     # Obj = ig_objects.TeddyBear
     # Obj = ig_objects.PowerDrill
-    # Obj = ig_objects.Box
-    Obj = ig_objects.BleachCleanser  # too big - put on side?
+    Obj = ig_objects.Box
+    # Obj = ig_objects.BleachCleanser  # too big - put on side?
     # Obj = ig_objects.Spatula
     # Obj = ig_objects.Mug
     get_nerf_training(Obj, viewer=False)

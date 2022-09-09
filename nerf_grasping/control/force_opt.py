@@ -83,7 +83,7 @@ def calculate_grip_forces(
     force_magnitudes = cp.norm(F - np.array([[0.0, 0.0, target_normal]]), axis=1)
     # friction_magnitudes = cp.norm(F[:,2], axis=1)
     prob = cp.Problem(cp.Minimize(cp.max(force_magnitudes)), constraints)
-    prob.solve(solver=cp.SCS)
+    prob.solve()
 
     if F.value is None:
         print("Failed to solve!")
@@ -141,7 +141,7 @@ def check_force_closure(positions, normals, mu=0.5):
             wrench_val[ii] = sign
             target_wrench.value = wrench_val
 
-            prob.solve(solver=cp.SCS)
+            prob.solve()
 
             if F.value is None:
                 print("Not in force closure!")

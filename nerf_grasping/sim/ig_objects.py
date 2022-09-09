@@ -140,8 +140,8 @@ class RigidObject:
         asset_options.override_com = False
 
         asset_options.vhacd_params.mode = 1
-        asset_options.vhacd_params.resolution = 300000
-        asset_options.vhacd_params.max_convex_hulls = 32
+        asset_options.vhacd_params.resolution = 600000
+        asset_options.vhacd_params.max_convex_hulls = 16
         asset_options.vhacd_params.max_num_vertices_per_ch = 128
 
         asset = self.gym.load_asset(self.sim, asset_dir, self.asset_file, asset_options)

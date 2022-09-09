@@ -70,12 +70,14 @@ class FingertipEnv:
         )
         self.robot.setup_tensors()
         self.obj.setup_tensors()
-        robot_start_poses = [
-            self.gym.get_actor_rigid_body_states(self.env, actor, gymapi.STATE_ALL)[
-                "pose"
-            ]
-            for actor in self.robot.actors
-        ]
+        self.actor_indices = None
+        if grasp_vars is None:
+            grasp_vars = (self.obj.grasp_points, self.obj.grasp_normals)
+
+        # resets object and actor, sets robot start pose
+        self.reset_actors(grasp_vars)
+
+        # set object start pose, which is always reset to the same position
         object_start_pose = self.gym.get_actor_rigid_body_states(
             self.env, self.obj.actor, gymapi.STATE_ALL
         )["pose"]
@@ -106,28 +108,6 @@ class FingertipEnv:
                 0,
                 0,
                 0,
-            ]
-        )
-        self.robot_init_state = torch.stack(
-            [
-                torch.tensor(
-                    [
-                        start_pose["p"]["x"][0],
-                        start_pose["p"]["y"][0],
-                        start_pose["p"]["z"][0],
-                        start_pose["r"]["x"][0],
-                        start_pose["r"]["y"][0],
-                        start_pose["r"]["z"][0],
-                        start_pose["r"]["w"][0],
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                    ]
-                )
-                for start_pose in robot_start_poses
             ]
         )
 
@@ -229,25 +209,67 @@ class FingertipEnv:
                 self.gym, self.env, self.sim, gp, colors
             )
 
+    def set_robot_init_state(self, grasp_vars):
+        start_ftip_pos = self.robot.get_ftip_start_pos(grasp_vars)
+        robot_start_poses = [
+            self.gym.get_actor_rigid_body_states(self.env, actor, gymapi.STATE_ALL)[
+                "pose"
+            ]
+            for actor in self.robot.actors
+        ]
+        self.robot_init_state = torch.stack(
+            [
+                torch.tensor(
+                    [
+                        grasp_pt[0],
+                        grasp_pt[1],
+                        grasp_pt[2],
+                        start_pose["r"]["x"][0],
+                        start_pose["r"]["y"][0],
+                        start_pose["r"]["z"][0],
+                        start_pose["r"]["w"][0],
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                    ]
+                )
+                for grasp_pt, start_pose in zip(start_ftip_pos, robot_start_poses)
+            ]
+        )
+        return
+
     def reset_actors(self, grasp_vars):
         self.fail_count = 0
         # reset_actor sets actor rigid body states
         self.robot.reset_actor(grasp_vars)
         self.obj.reset_actor()
-        # reset object and robot state tensor
-        object_idx = self.actor_indices[-1]
-        self.root_state_tensor[object_idx] = self.object_init_state.clone()
-        self.root_state_tensor[self.actor_indices[:3]] = self.robot_init_state.clone()
-        actor_indices = self.actor_indices.to(torch.int32)
-        assert self.gym.set_actor_root_state_tensor_indexed(
-            self.sim,
-            gymtorch.unwrap_tensor(self.root_state_tensor),
-            gymtorch.unwrap_tensor(actor_indices),
-            len(actor_indices),
-        ), "resetting actor_root_state_tensor failed"
-        # step_gym calls gym.simulate, then refreshes tensors
+
         for i in range(50):
             self.step_gym()
+
+        self.set_robot_init_state(grasp_vars)
+
+        if self.actor_indices is not None:
+            # reset object and robot state tensor
+            object_idx = self.actor_indices[-1]
+            self.root_state_tensor[object_idx] = self.object_init_state.clone()
+            self.root_state_tensor[
+                self.actor_indices[:3]
+            ] = self.robot_init_state.clone()
+            actor_indices = self.actor_indices.to(torch.int32)
+            assert self.gym.set_actor_root_state_tensor_indexed(
+                self.sim,
+                gymtorch.unwrap_tensor(self.root_state_tensor),
+                gymtorch.unwrap_tensor(actor_indices),
+                len(actor_indices),
+            ), "resetting actor_root_state_tensor failed"
+
+            # step_gym calls gym.simulate, then refreshes tensors
+            for i in range(50):
+                self.step_gym()
 
         # optionally do a second reset?
         # self.robot.reset_actor(grasp_vars)
@@ -256,7 +278,7 @@ class FingertipEnv:
         # self.step_gym()
         # self.image_idx = 0
 
-    def control(self, mode, grasp_vars):
+    def run_control(self, mode, grasp_vars):
         grasp_points, grasp_normals = grasp_vars
         succ = True
         closest_points = ig_utils.closest_point(
@@ -272,16 +294,19 @@ class FingertipEnv:
             pos_err = closest_points - self.robot.position
         elif mode == "lift":
             # grasp force optimization
-            mode = "lift"
             closest_points[:, 2] = self.obj.position[2] + 0.005
             pos_err = closest_points - self.robot.position
             contact_pts = self.robot.get_contact_points(grasp_normals)
-            if self.mesh is None:
+            if self.mesh is None or self.robot.use_true_normals:
+                mesh = self.obj.gt_mesh
+            else:
+                mesh = self.mesh
+            if self.mesh is None and not self.robot.use_true_normals:
                 # get estimated normal once
-                ge = self.robot.get_grad_ests(self.obj, contact_pts)
+                ge = self.robot.get_grad_ests(self.obj, contact_pts).cpu().float()
             else:
                 gp, ge, _ = ig_utils.get_mesh_contacts(
-                    self.mesh,
+                    mesh,
                     contact_pts,
                     pos_offset=self.obj.position,
                     rot_offset=self.obj.orientation,
@@ -292,8 +317,6 @@ class FingertipEnv:
                 ge,
             )
 
-            if not succ:
-                self.fail_count += 1
         self.robot.apply_fingertip_forces(f)
         self.step_gym()
         net_obj_force = self.gym.get_rigid_contact_forces(self.sim)[self.obj.actor]
@@ -310,14 +333,22 @@ class FingertipEnv:
         return state
 
 
-def run_robot_control(exp_config, grasp_vars):
+def get_mode(timestep):
+    if timestep % 1000 < 50:
+        return "reach"
+    if timestep % 1000 < 200:
+        return "grasp"
+    if timestep % 1000 < 1000:
+        return "lift"
+
+
+def run_robot_control(exp_config, grasp_vars=None):
     env = FingertipEnv(exp_config)
     count = 0
     while not env.gym.query_viewer_has_closed(env.viewer):
         try:
+            env.control(get_mode(count), grasp_vars)
             count += 1
-            env.step_gym()
-            env.robot.control(count, env.object, grasp_vars)
         finally:
             pass
     print("closed!")

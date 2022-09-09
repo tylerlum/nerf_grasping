@@ -78,7 +78,7 @@ class ControllerParams:
     kp_rot_lift: float = 0.3  # 0.04
 
     # Derivative rotation gain during lifting
-    kd_rot_lift: float = 1e-2  # 0.001
+    kd_rot_lift: float = 5e-3  # 0.001
 
 
 @dataclasses.dataclass(frozen=True)
@@ -95,7 +95,7 @@ class RobotConfig:
     gt_normals: bool = False
 
     # Offset from object surface to start initial grasp trajectory from.
-    des_z_dist: float = 0.01
+    des_z_dist: float = 0.06
 
     # Fingertip friction coefficient.
     mu: float = 1.0

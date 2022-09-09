@@ -140,9 +140,9 @@ class RigidObject:
         asset_options.override_com = False
 
         asset_options.vhacd_params.mode = 1
-        asset_options.vhacd_params.resolution = 3000000
-        asset_options.vhacd_params.max_convex_hulls = 100
-        asset_options.vhacd_params.max_num_vertices_per_ch = 64
+        asset_options.vhacd_params.resolution = 300000
+        asset_options.vhacd_params.max_convex_hulls = 32
+        asset_options.vhacd_params.max_num_vertices_per_ch = 128
 
         asset = self.gym.load_asset(self.sim, asset_dir, self.asset_file, asset_options)
 
@@ -152,6 +152,10 @@ class RigidObject:
             p.torsion_friction = self.mu
             p.restitution = 0.0
         self.gym.set_asset_rigid_shape_properties(asset, rs_props)
+
+        self.force_sensor_idx = self.gym.create_asset_force_sensor(
+            asset, 0, gymapi.Transform(gymapi.Vec3(0.0, 0.0, 0.0))
+        )
 
         return asset
 
@@ -164,6 +168,10 @@ class RigidObject:
             0,
             0,
             segmentationId=2,
+        )
+
+        self.force_sensor = self.gym.get_actor_force_sensor(
+            env, actor, self.force_sensor_idx
         )
 
         rigid_body_props = self.gym.get_actor_rigid_body_properties(self.env, actor)

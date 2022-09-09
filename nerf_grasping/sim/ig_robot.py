@@ -157,6 +157,7 @@ class FingertipRobot:
                 gymapi.Vec3(0.0, 0.0, 0.0),  # torque
                 gymapi.CoordinateSpace.ENV_SPACE,
             )
+
         return
 
     def reset_actor(self, grasp_vars):
@@ -240,6 +241,8 @@ class FingertipRobot:
         object_weight_comp = obj.mass * 9.81 * torch.tensor([0, 0, 1])
         # target_force = object_weight_comp - 0.9 * pos_error - 0.4 * vel
         # banana tuning
+        # print('pd force: ', -kp*pos_error -kd * vel)
+
         target_force = object_weight_comp - kp * pos_error - kd * vel
         target_torque = (
             -kp_rot * (quat @ target_quat.T).to_tangent_space() - kd_rot * angular_vel
@@ -278,8 +281,7 @@ class FingertipRobot:
                 target_normal,
                 obj.mu,
             )
-        except:
-            except cvxpy.error.SolverError:
+        except cvxpy.error.SolverError:
             global_forces_obj_frame, success = None, False
 
         if not success:
@@ -292,6 +294,7 @@ class FingertipRobot:
             global_forces_ig_frame = torch.stack(
                 [quat.rotate(x) for x in global_forces_obj_frame]
             )
+            # print('desired forces: ', torch.sum(global_forces_ig_frame, dim=0))
             self.previous_global_forces = global_forces_ig_frame
 
         return global_forces_ig_frame, target_force, target_torque, success

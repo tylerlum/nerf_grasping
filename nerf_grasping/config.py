@@ -57,7 +57,7 @@ class ControllerParams:
     kd_reach: float = 0.003
 
     # Proportional gain during grasping
-    kp_grasp: float = 5.0
+    kp_grasp: float = 10.0
 
     # Derivative gain during grasping
     kd_grasp: float = 1.0  # 10. # 0.25
@@ -71,8 +71,8 @@ class ControllerParams:
     # Proportional position gain during lifting
     kp_lift: float = 10.0  # 10.0
 
-    # Derivative positi.on gain during lifting
-    kd_lift: float = 1.0  # 0.1
+    # Derivative position gain during lifting
+    kd_lift: float = 2.5  # 0.1
 
     # Proportional rotation gain during lifting
     kp_rot_lift: float = 0.2  # 0.04

@@ -278,7 +278,7 @@ class FingertipEnv:
         # self.image_idx = 0
 
     def run_control(self, mode, grasp_vars):
-        grasp_points, grasp_normals = grasp_vars # IG frame.
+        grasp_points, grasp_normals = grasp_vars  # IG frame.
         succ = True
         closest_points = ig_utils.closest_point(
             grasp_points, grasp_points + grasp_normals, self.robot.position
@@ -302,7 +302,9 @@ class FingertipEnv:
                 mesh = self.mesh
             if self.mesh is None and not self.robot.use_true_normals:
                 # get estimated normal once
-                ge_ig_frame = self.robot.get_grad_ests(self.obj, contact_pts).cpu().float()
+                ge_ig_frame = (
+                    self.robot.get_grad_ests(self.obj, contact_pts).cpu().float()
+                )
             else:
                 gp, ge_ig_frame, _ = ig_utils.get_mesh_contacts(
                     mesh,
@@ -321,7 +323,14 @@ class FingertipEnv:
 
         self.robot.apply_fingertip_forces(f)
         self.step_gym()
+
+        # DEBUG PRINTS FOR CONTACT FORCES.
+        # obj_handle = self.gym.get_actor_rigid_body_handle(self.env, self.obj.actor, 0)
+        # self.gym.apply_body_forces(self.env, obj_handle, gymapi.Vec3(*torch.sum(f, dim=0).data))
         net_obj_force = self.gym.get_rigid_contact_forces(self.sim)[self.obj.actor]
+        # print('net contact forces: ', net_obj_force)
+        # self.gym.draw_env_rigid_contacts(self.viewer, self.env, gymapi.Vec3(0.,0.,0.), 1., True)
+        # print('asset forces:', self.obj.force_sensor.get_forces().force)
 
         state = dict(
             mode=mode,

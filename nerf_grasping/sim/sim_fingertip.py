@@ -260,6 +260,10 @@ class FingertipEnv:
             closest_points[:, 2] = self.obj.position[2]  # + 0.005
             pos_err = closest_points - self.robot.position
             contact_pts = self.robot.get_contact_points(grasp_normals)
+            quat = Quaternion.fromWLast(self.obj.orientation)
+            contact_pts_obj_frame = np.stack(
+                [quat.T.rotate(x - self.obj.position) for x in contact_pts]
+            )
             if self.mesh is None or self.robot.use_true_normals:
                 mesh = self.obj.gt_mesh
             else:
@@ -267,7 +271,9 @@ class FingertipEnv:
             if self.mesh is None and not self.robot.use_true_normals:
                 # get estimated normal once
                 ge_ig_frame = (
-                    self.robot.get_grad_ests(self.obj, contact_pts).cpu().float()
+                    self.robot.get_grad_ests(self.obj, contact_pts_obj_frame)
+                    .cpu()
+                    .float()
                 )
             else:
                 gp, ge_ig_frame, _ = ig_utils.get_mesh_contacts(

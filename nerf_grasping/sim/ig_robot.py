@@ -256,7 +256,7 @@ class FingertipRobot:
         # Get contact points in IG frame.
         grasp_points_ig_frame = self.get_contact_points(in_normals_ig_frame)
 
-        # Transform them back to IG frame.
+        # Transform them back to obj frame.
         grasp_points_obj_frame = torch.stack(
             [quat.T.rotate(x - obj.get_CG()) for x in grasp_points_ig_frame]
         )

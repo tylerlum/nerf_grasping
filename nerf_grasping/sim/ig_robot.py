@@ -269,9 +269,10 @@ class FingertipRobot:
         target_torque_obj_frame = quat.T.rotate(target_torque)
 
         try:
-            force_opt.check_force_closure(
-                grasp_points_obj_frame, in_normals_obj_frame, obj.mu
-            )
+            if self.verbose:
+                force_opt.check_force_closure(
+                    grasp_points_obj_frame, in_normals_obj_frame, obj.mu
+                )
 
             global_forces_obj_frame, success = force_opt.calculate_grip_forces(
                 grasp_points_obj_frame,

@@ -3,7 +3,7 @@ import dcargs
 import enum
 import pickle
 
-from typing import Optional, Union
+from typing import Optional, Union, Tuple
 
 
 class GradType(enum.Enum):
@@ -17,6 +17,7 @@ class CostType(enum.Enum):
     PSV = enum.auto()
     MSV = enum.auto()
     FC = enum.auto()
+    POLY_AREA = enum.auto()
 
 
 class ObjectType(enum.Enum):
@@ -50,20 +51,35 @@ grad_configs = {
 class ControllerParams:
     """Grasp and PD Object Position Controller parameters"""
 
+    # Proportional gain during reaching
+    kp_reach: float = 0.5
+
+    # Derivative gain during reaching
+    kd_reach: float = 0.003
+
+    # Proportional gain during grasping
+    kp_grasp: float = 5.0
+
+    # Derivative gain during grasping
+    kd_grasp: float = 1.0  # 10. # 0.25
+
+    # Grasp normal vector scaling applied during grasping
+    normal_scale_grasp: float = 0.1  # 1e-4  # 0.1 # 0.05
+
     # Grasp target normal force to apply with fingers
-    target_normal = 3.0  # 0.5
+    target_normal: float = 3.0  # 1.0  # 0.5
 
-    # Proportional position gain
-    kp = 1.5  # 10.0
+    # Proportional position gain during lifting
+    kp_lift: float = 10.0  # 0.9
 
-    # Derivative position gain
-    kd = 1.0  # 0.1
+    # Derivative position gain during lifting
+    kd_lift: float = 2.5  # 0.4
 
-    # Proportional rotation gain
-    kp_angle = 0.3  # 0.04
+    # Proportional rotation gain during lifting
+    kp_rot_lift: float = 0.3  # 0.04
 
-    # Derivative rotation gain
-    kd_angle = 1e-2  # 0.001
+    # Derivative rotation gain during lifting
+    kd_rot_lift: float = 5e-3  # 0.001
 
 
 @dataclasses.dataclass(frozen=True)
@@ -74,13 +90,13 @@ class RobotConfig:
     num_fingers: int = 3
 
     # Target height to lift to.
-    target_height: float = 0.7
+    target_height: float = 0.07
 
     # Use groundtruth mesh normals for contact surface normals.
     gt_normals: bool = False
 
     # Offset from object surface to start initial grasp trajectory from.
-    des_z_dist: float = 0.025
+    des_z_dist: float = 0.06
 
     # Fingertip friction coefficient.
     mu: float = 1.0
@@ -115,11 +131,18 @@ class Nerf:
     # Flag to add noise to samples during rendering.
     render_perturb_samples: bool = True
 
+    # Commented due to possible bug in dcargs.
     # Config object for gradient estimation.
-    grad_config: GradEst = grad_configs["grasp_opt"]
+    grad_config: GradEst = grad_configs["sim"]
+
+    # Flag to use expected surface point.
+    expected_surface: bool = False
+
+    # Flag to use gradient at expected surface.
+    expected_gradient: bool = False
 
     # Desired z-distance for fingers.
-    des_z_dist: float = 0.025
+    des_z_dist: float = 0.05
 
     # Number of iterations for z_dist correction.
     num_z_dist_iters: int = 10
@@ -138,11 +161,11 @@ class Mesh:
 @dataclasses.dataclass(frozen=True)
 class Experiment:
 
-    # Which object is used in experiment.
-    object: ObjectType = ObjectType.BANANA
-
     # Configuration for object model; dispatch on Nerf vs. mesh.
     model_config: Union[Nerf, Mesh] = Nerf()
+
+    # Which object is used in experiment.
+    object: ObjectType = ObjectType.BANANA
 
     # Configuration for robot.
     robot_config: RobotConfig = RobotConfig()
@@ -162,9 +185,6 @@ class Experiment:
     # Elite fraction for CEM.
     cem_elite_frac: float = 0.1
 
-    # Number of grasp samples to draw to compute expectations.
-    num_grasp_samples: int = 10
-
     # Risk sensitivity value to use in cost.
     risk_sensitivity: Optional[float] = None
 
@@ -173,9 +193,22 @@ class Experiment:
 
     # Rejection parameter for "dicing the grasp."
     dice_mu: float = 0.5
-    
+
     # Enable visualization to see grasping policy
     visualize: bool = False
+
+    # Number of grasp samples to draw to compute expectations.
+    num_grasp_samples: int = 10
+
+
+@dataclasses.dataclass(frozen=True)
+class EvalExperiment(Experiment):
+    # Optional, containing either a single index or tuple of (start, end) indices
+    grasp_idx: Union[None, int, Tuple[int, int]] = None
+    # Optional, defines a path to a specific grasp_data file
+    grasp_data: Optional[str] = None
+    # Optional, turns on wandb logging
+    wandb: bool = False
 
 
 def mesh_file(exp_config: Experiment):

@@ -56,6 +56,8 @@ def calculate_grip_forces(
     assert normals.shape == (n, 3)
     assert target_force.shape == (3,)
 
+    # print('object frame positions: ', positions)
+
     F = cp.Variable((n, 3))
     constraints = []
 
@@ -69,8 +71,8 @@ def calculate_grip_forces(
         q = example_rotation_transform(norm)
         Q.append(q)
 
-        total_force += q @ f
-        total_torque += skew_matrix(pos) @ q @ f
+        total_force = total_force + q @ f
+        total_torque = total_torque + skew_matrix(pos) @ q @ f
 
     constraints.append(total_force == target_force)
     constraints.append(total_torque == target_torque)
@@ -95,3 +97,53 @@ def calculate_grip_forces(
         global_forces = torch.tensor(global_forces).float()
 
     return global_forces, True
+
+
+def check_force_closure(positions, normals, mu=0.5):
+    torch_input = type(positions) == torch.Tensor
+    if torch_input:
+        assert type(normals) == torch.Tensor, "numpy vs torch needs to be consistant"
+        positions = positions.numpy()
+        normals = normals.numpy()
+
+    n, _ = positions.shape
+    assert normals.shape == (n, 3)
+
+    F = cp.Variable((n, 3))
+    constraints = []
+
+    normals = normals / np.linalg.norm(normals, axis=-1, keepdims=True)
+
+    target_wrench = cp.Parameter(6)
+    total_force = np.zeros((3))
+    total_torque = np.zeros((3))
+
+    Q = []
+    for pos, norm, f in zip(positions, normals, F):
+        q = example_rotation_transform(norm)
+        Q.append(q)
+
+        total_force = total_force + q @ f
+        total_torque = total_torque + skew_matrix(pos) @ q @ f
+
+    constraints.append(total_force == target_wrench[:3])
+    constraints.append(total_torque == target_wrench[3:])
+
+    friction_cone = cp.norm(F[:, :2], axis=1) <= mu * F[:, 2]
+    constraints.append(friction_cone)
+
+    force_magnitudes = cp.norm(F, axis=1)
+    # friction_magnitudes = cp.norm(F[:,2], axis=1)
+    prob = cp.Problem(cp.Minimize(cp.max(force_magnitudes)), constraints)
+    for ii in range(6):
+        for sign in [-1, 1]:
+            wrench_val = np.zeros((6))
+            wrench_val[ii] = sign
+            target_wrench.value = wrench_val
+
+            prob.solve()
+
+            if F.value is None:
+                print("Not in force closure!")
+                print("dim: ", ii, ", sign: ", sign)
+                return

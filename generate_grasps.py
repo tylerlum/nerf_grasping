@@ -12,18 +12,27 @@ import yaml
 
 
 def compute_sampled_grasps(model, grasp_points, centroid):
+    """Converts grasp vars to ray origins/directions; attempts to clip
+    grasp to lie above floor + be equidistant from the surface."""
+
+    # Unpack grasp vars.
     rays_o, rays_d = grasp_points[:, :3], grasp_points[:, 3:]
+
+    # Convert directions to "true" rather than residual.
     rays_d = grasp_utils.res_to_true_dirs(rays_o, rays_d, centroid)
     print("optimized vals: ", rays_o)
+
+    # Correct z-distances (use correct method for mesh/Nerf).
     if isinstance(model, trimesh.Trimesh):
-        rays_o = mesh_utils.correct_z_dists(
+        rays_o, rays_d = mesh_utils.correct_z_dists(
             model, rays_o, rays_d, exp_config.model_config
         )
     else:
-        rays_o = nerf_utils.correct_z_dists(
+        rays_o, rays_d = nerf_utils.correct_z_dists(
             model, grasp_points, exp_config.model_config
         )
-    print("corrected vals:", rays_o, centroid)
+
+    print("corrected vals:", rays_o, rays_d, centroid)
     rays_o, rays_d = grasp_utils.nerf_to_ig(rays_o), grasp_utils.nerf_to_ig(rays_d)
     return rays_o, rays_d
 
@@ -70,27 +79,27 @@ def main(exp_config: config.Experiment):
 
     if isinstance(exp_config.model_config, config.Nerf):
         model = ig_objects.load_nerf(obj.workspace, obj.bound, obj.scale)
-        print(f"Estimated Centroid: {model.centroid}")
-        print(f"True Centroid: {obj.gt_mesh.centroid}")
+        print(f"Estimated Centroid: {model.ig_centroid}")
+        print(f"True Centroid: {obj.gt_mesh.ig_centroid}")
 
-        centroid = model.centroid
+        centroid = model.ig_centroid
 
     else:
 
-        obj_mesh = get_mesh(exp_config, obj)
+        obj_mesh = obj.gt_mesh
 
-        # Transform triangle mesh to Nerf frame.
-        T = np.eye(4)
-        R = scipy.spatial.transform.Rotation.from_euler("Y", [-np.pi / 2]).as_matrix()
-        R = (
-            R
-            @ scipy.spatial.transform.Rotation.from_euler("X", [-np.pi / 2]).as_matrix()
-        )
-        T[:3, :3] = R
-        obj_mesh.apply_transform(T)
+        # # Transform triangle mesh to Nerf frame.
+        # T = np.eye(4)
+        # R = scipy.spatial.transform.Rotation.from_euler("Y", [-np.pi / 2]).as_matrix()
+        # R = (
+        #     R
+        #     @ scipy.spatial.transform.Rotation.from_euler("X", [-np.pi / 2]).as_matrix()
+        # )
+        # T[:3, :3] = R
+        # obj_mesh.apply_transform(T)
 
         model = obj_mesh
-        centroid = torch.from_numpy(obj_mesh.centroid).float()
+        centroid = torch.from_numpy(obj_mesh.ig_centroid).float()
 
     outfile = config.grasp_file(exp_config)
 
@@ -160,5 +169,6 @@ def main(exp_config: config.Experiment):
     config.save(exp_config)
 
 
-exp_config = dcargs.cli(config.Experiment)
-main(exp_config)
+if __name__ == "__main__":
+    exp_config = dcargs.cli(config.Experiment)
+    main(exp_config)

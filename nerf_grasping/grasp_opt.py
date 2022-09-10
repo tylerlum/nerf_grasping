@@ -79,7 +79,7 @@ def skew(v):
     return K
 
 
-def psv(grasp_points, normals, centroid=0.0):
+def psv(grasp_points, normals):
     """
     Evaluates the minimum-singular-value grasp metric proposed in Li and Sastry '88.
     Args:
@@ -87,12 +87,11 @@ def psv(grasp_points, normals, centroid=0.0):
              the grasp metric.
     Returns the product singular value of the grasp matrix formed by these points.
     """
-    grasp_points = grasp_points - centroid
     G = grasp_matrix(grasp_points, normals)
     return torch.prod(torch.linalg.svdvals(G), dim=-1)
 
 
-def msv(grasp_points, normals, centroid=0.0):
+def msv(grasp_points, normals):
     """
     Evaluates the minimum-singular-value grasp metric proposed in Li and Sastry '88.
     Args:
@@ -100,9 +99,27 @@ def msv(grasp_points, normals, centroid=0.0):
              the grasp metric.
     Returns the minimum singular value of the grasp matrix formed by these points.
     """
-    grasp_points = grasp_points - centroid
+    grasp_points = grasp_points
     G = grasp_matrix(grasp_points, normals)
     return torch.min(torch.linalg.svdvals(G), dim=-1)[0]
+
+
+def poly_area(grasp_points, normals):
+    """Computes the area of the triangle formed by the grasp points."""
+    v1 = grasp_points[:, 1] - grasp_points[:, 0]
+    v2 = grasp_points[:, 2] - grasp_points[:, 0]
+    d1 = torch.norm(v1, dim=-1)
+    d2 = torch.norm(v2, dim=-1)
+
+    # bad_inds = torch.argwhere(torch.all(grasp_points[:, 0] == grasp_points[:, 1], dim=-1))
+    # print('bad indices, inside_cost: ', bad_inds)
+
+    # bad_inds = torch.argwhere(d1 == 0)
+    # print(grasp_points[bad_inds, 1], grasp_points[bad_inds, 0])
+
+    angles = torch.sqrt(1 - torch.square(torch.sum(v1 * v2, dim=-1) / (d1 * d2)))
+    areas = 0.5 * d1 * d2 * torch.sin(angles)
+    return areas
 
 
 def ferrari_canny(grasp_points, normals):
@@ -293,10 +310,10 @@ def optimize_cem(
 def get_cost_function(exp_config, model):
     """Factory for grasp cost function; generates grasp cost for CEM using config/model."""
 
-    if isinstance(model.centroid, torch.Tensor):
-        cost_kwargs = {"centroid": model.centroid}
+    if isinstance(model.ig_centroid, torch.Tensor):
+        centroid = model.ig_centroid
     else:
-        cost_kwargs = {"centroid": torch.from_numpy(model.centroid)}
+        centroid = torch.from_numpy(model.ig_centroid)
 
     def cost_function(grasp_vars):
 
@@ -318,29 +335,54 @@ def get_cost_function(exp_config, model):
         # Otherwise, use fuzzy NeRF method for point/normals.
         else:
 
+            risk_sensitivity = exp_config.risk_sensitivity
+            if exp_config.model_config.expected_surface:
+                num_grasp_samples = 1
+            else:
+                num_grasp_samples = exp_config.num_grasp_samples
+
             grasp_points, grad_ests, grasp_mask = nerf_utils.sample_grasps(
-                gps, exp_config.num_grasp_samples, model, exp_config.model_config
+                gps, num_grasp_samples, model, exp_config.model_config
             )
 
-            risk_sensitivity = exp_config.risk_sensitivity
-            num_grasp_samples = exp_config.num_grasp_samples
+            # print('grasp_points [B, n_f, num_grasps, 3]: ', grasp_points.shape)
+            # print('grad_ests [B, n_f, num_grasps, 3]: ', grad_ests.shape)
 
         # Reshape grasp points and grads for cost evaluation.
-        grasp_points = grasp_points.reshape(-1, n_f, 3)
-        grad_ests = grad_ests.reshape(-1, n_f, 3)
+        grasp_points = grasp_points.reshape(-1, n_f, 3)  # [B * num_grasps, n_f, 3]
+        grad_ests = grad_ests.reshape(-1, n_f, 3)  # [B * num_grasps, n_f, 3]
+
+        #         bad_inds = torch.argwhere(torch.all(grasp_points[:, 0] == grasp_points[:, 1], dim=-1))
+        #         print('bad indices: ', bad_inds)
+        #         print(torch.all(gps[torch.floor(bad_inds/10).long(), 0] == gps[torch.floor(bad_inds/10).long(), 1], dim=-1))
+
+        #         print(grasp_points[bad_inds, 0]-grasp_points[bad_inds, 1])
+
+        #         print(grasp_points.shape, gps.shape)
+
+        # Center grasp_points around centroid.
+        grasp_points_centered = grasp_points - centroid.reshape(1, 1, 3)
+
+        # bad_inds = torch.argwhere(torch.all(grasp_points_centered[:, 0] == grasp_points_centered[:, 1], dim=-1))
+        # print('bad indices, centered: ', bad_inds)
 
         # Switch-case for cost function.
         if exp_config.cost_function == config.CostType.PSV:
-            grasp_metric = partial(psv, **cost_kwargs)
+            grasp_metric = partial(psv)
         elif exp_config.cost_function == config.CostType.MSV:
-            grasp_metric = partial(msv, **cost_kwargs)
+            grasp_metric = partial(msv)
+        elif exp_config.cost_function == config.CostType.POLY_AREA:
+            grasp_metric = poly_area
         elif exp_config.cost_function == config.CostType.FC:
             grasp_metric = ferrari_canny
         elif exp_config.cost_function == config.CostType.L1:
-            cost_kwargs["grasp_mask"] = grasp_mask.expand(B, num_grasp_samples)
-            grasp_metric = partial(l1_metric, **cost_kwargs)
+            grasp_metric = partial(
+                l1_metric, grasp_mask=grasp_mask.expand(B, num_grasp_samples)
+            )
 
-        raw_cost = grasp_metric(grasp_points, grad_ests).reshape(B, num_grasp_samples)
+        raw_cost = grasp_metric(grasp_points_centered, grad_ests).reshape(
+            B, num_grasp_samples
+        )
 
         # Exponentiate cost if using risk sensitivity.
         if risk_sensitivity:

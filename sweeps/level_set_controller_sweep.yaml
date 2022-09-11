@@ -21,7 +21,6 @@ command:
   - ${env}
   - ${interpreter}
   - ${program}
-  - ${args}
+  - ${args_no_boolean_flags}
   - --wandb
-  - model_config:mesh
-  - --model-config.level-set
+- model_config:mesh

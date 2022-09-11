@@ -39,6 +39,8 @@ def load_nerf(workspace, bound, scale):
 def load_object(exp_config: config.Experiment):
     if exp_config.object == config.ObjectType.BANANA:
         obj = Banana()
+    if exp_config.object == config.ObjectType.BIG_BANANA:
+        obj = BigBanana()
     elif exp_config.object == config.ObjectType.BOX:
         obj = Box()
     elif exp_config.object == config.ObjectType.TEDDY_BEAR:
@@ -62,14 +64,7 @@ class RigidObject:
     translation = np.zeros(3)
 
     def __init__(self, gym=None, sim=None, env=None):
-        self.gym = gym
-        self.sim = sim
-        self.env = env
-
-        if self.sim is not None:
-            self.asset = self.create_asset()
-            self.actor = self.configure_actor(gym, env)
-
+        self.setup_gym(gym, sim, env)
         self.nerf_loaded = False
         self.model = None
         self.load_trimesh()
@@ -81,6 +76,12 @@ class RigidObject:
         if self.sim is not None:
             self.asset = self.create_asset()
             self.actor = self.configure_actor(self.gym, self.env)
+
+    def set_obj_scale(self, scale=None):
+        scale = scale if scale is not None else self.obj_scale
+        assert self.gym.set_actor_scale(
+            self.env, self.actor, scale
+        ), "call to gym.set_actor_scale() failed"
 
     def get_CG(self):
         pos = self.rb_states[0, :3]
@@ -345,6 +346,35 @@ class Banana(RigidObject):
     name = "banana"
     mu = 1.0
     translation = np.array([-1.4408e-05, 3.8640e-06, 2.7102e-03])
+
+
+class BigBanana(RigidObject):
+    workspace = "big_banana"
+    grasp_points = torch.tensor(
+        [
+            [-0.00693, 0.085422, 0.013867],
+            [0.018317, -0.001611, 0.013867],
+            [-0.058538, -0.051027, 0.013867],
+        ]
+    )
+    obj_scale = 1.5
+    grasp_normals = torch.tensor([[1, -1.5, 0.0], [-2, 1.0, 0.0], [1, 0.0, 0.0]])
+    asset_file = "objects/urdf/banana.urdf"
+    mesh_file = "objects/meshes/banana/textured.obj"
+    name = "banana"
+    bound = 1.5
+    mu = 1.0
+    translation = np.array([-1.4408e-05, 3.8640e-06, 2.7102e-03])
+
+    def configure_actor(self, gym, env):
+        actor = super().configure_actor(gym, env)
+        self.mass *= 1.5
+        return actor
+
+    def setup_gym(self, gym, sim, env):
+        super().setup_gym(gym, sim, env)
+        if self.sim is not None:
+            self.set_obj_scale(1.5)
 
 
 class Spatula(RigidObject):

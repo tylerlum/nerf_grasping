@@ -21,6 +21,7 @@ Finally, install this package's dependencies by running
 ```
 pip install -r requirements.txt
 ```
+(If running on google cloud, install using `pip install -r gcloud-requirements.txt`)
 
 #### Data Setup
 
@@ -29,9 +30,7 @@ You can request access to both the training data and a trained model from him.
 
 Once you have access to the data, copy the following files:
 
-1. From the `trained_nerfs` folder on Google Drive, copy the directory
-`from_blender/teddy_bear` into the base directory, i.e., name this dir
-`nerf_grasping/teddy_bear`.
+1. Copy all of the checkpoint files in `nerf_checkpoints/*` to `torch-ngp/data/logs`.
 
 2. From the `nerf_training_data` folder on Google Drive, copy the directory
 `blender_datasets/teddy_bear_dataset/teddy_bear` into

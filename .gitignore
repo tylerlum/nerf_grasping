@@ -129,7 +129,7 @@ dmypy.json
 .pyre/
 
 # Teddy Bear model
-teddy_bear/
+# teddy_bear/
 
 # mac specific files
 .DS_Store

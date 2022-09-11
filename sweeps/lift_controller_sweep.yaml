@@ -1,4 +1,4 @@
-name: nerf_lift_controller_sweep
+name: banana_controller_sweep
 program: grasp_test.py
 method: grid
 metric:

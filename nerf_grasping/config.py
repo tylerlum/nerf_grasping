@@ -27,6 +27,7 @@ class ObjectType(enum.Enum):
     POWER_DRILL = enum.auto()
     MUG = enum.auto()
     BLEACH_CLEANSER = enum.auto()
+    BIG_BANANA = enum.auto()
 
 
 @dataclasses.dataclass(frozen=True)

@@ -144,8 +144,9 @@ deprecated/*
 notebooks-michal/**
 notebooks-krishnan/**
 
-grasp_data/**
+# grasp_data/**
 runs/**
 *.swp
+tags
 
 wandb/

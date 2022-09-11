@@ -260,7 +260,11 @@ def main():
         grasp_vars = (grasp_points, grasp_normals)
 
         print(f"EVALUATING GRASP from {grasp_data_path} {grasp_idx}: {grasp_points}")
-        success = lifting_trajectory(env, grasp_vars, grasp_idx)
+        try:
+            success = lifting_trajectory(env, grasp_vars, grasp_idx)
+        except KeyboardInterrupt:
+            success = False
+            pdb.set_trace()
         successes += success
         if success:
             print(f"SUCCESS! grasp {grasp_idx}")

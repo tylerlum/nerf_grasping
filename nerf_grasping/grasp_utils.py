@@ -86,7 +86,7 @@ def nerf_to_ig(points, translation=None, return_tensor=True):
 def ig_to_nerf(points, translation=None, return_tensor=True):
     """Goes from points in IG world frame to NeRF (blender) world frame"""
     if isinstance(points, torch.Tensor):
-        points = points.cpu().detach().numpy()
+        points = points.detach().cpu().numpy()
     T = np.eye(4)
     R = nerf_to_ig_R().inv().as_matrix()
     T[:3, :3] = R

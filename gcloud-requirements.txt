@@ -1,0 +1,21 @@
+# Note: these are only requirements that are in addition to nerf_shared, for simplicity.
+
+#### Unversioned Requirements from PyPi ####
+scikit-image
+trimesh>=3.14.0
+
+#### Packages from GitHub ####
+
+tensorboardX==2.5.1
+tqdm>=4.62.3
+wandb>=0.12.9
+opencv-python==4.5.5.64
+kornia
+torch_ema
+rich
+pyhull==2015.2.1
+cvxopt==1.3.0
+Cython
+rtree
+cvxpy==1.1.18
+wandb==0.13.2

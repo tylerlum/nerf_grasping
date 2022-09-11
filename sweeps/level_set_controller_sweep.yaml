@@ -1,4 +1,4 @@
-name: banana_controller_sweep
+name: level_set_controller_sweep
 program: grasp_test.py
 method: grid
 metric:
@@ -11,12 +11,7 @@ parameters:
     values: [0.1, 1., 2.5]
   robot-config.controller-params.target-normal:
     values: [0.5, 1., 5.]
-  object:
-    value: BANANA
-  grasp-data:
-    value: "deprecated/banana.npy"
-  grasp-index:
-    value: "0 10"
+
 early_terminate:
   type: hyperband
   s: 2
@@ -28,3 +23,4 @@ command:
   - ${program}
   - ${args_no_boolean_flags}
   - --wandb
+- model_config:mesh

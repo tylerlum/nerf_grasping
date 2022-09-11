@@ -27,6 +27,7 @@ class FingertipEnv:
         init_grasp_vars=Tuple[torch.Tensor, torch.Tensor],
     ):
         self.args = ig_utils.parse_arguments(description="Trifinger test")
+        self.added_lines = False
         self.setup_gym()
         if exp_config.visualize:
             self.setup_viewer()
@@ -34,7 +35,6 @@ class FingertipEnv:
             self.viewer = None
         self.setup_robot_obj(exp_config)
         self.gym.prepare_sim(self.sim)
-        self.added_lines = False
         self.image_idx = 0
 
     def setup_gym(self):
@@ -168,6 +168,7 @@ class FingertipEnv:
         )
         if self.added_lines:
             self.gym.clear_lines(self.viewer)
+            self.added_lines = False
         ig_viz_utils.visualize_grasp_normals(
             self.gym, self.viewer, self.env, gp, -net_obj_force
         )
@@ -209,6 +210,9 @@ class FingertipEnv:
         # reset_actor sets actor rigid body states
         self.robot.reset_actor(grasp_vars)
         self.obj.reset_actor()
+        if self.added_lines:
+            self.gym.clear_lines(self.viewer)
+            self.added_lines = False
 
         for i in range(50):
             self.step_gym()
@@ -260,15 +264,15 @@ class FingertipEnv:
             closest_points[:, 2] = self.obj.position[2]  # + 0.005
             pos_err = closest_points - self.robot.position
             contact_pts = self.robot.get_contact_points(grasp_normals)
-            quat = Quaternion.fromWLast(self.obj.orientation)
-            contact_pts_obj_frame = np.stack(
-                [quat.T.rotate(x - self.obj.position) for x in contact_pts]
-            )
             if self.mesh is None or self.robot.use_true_normals:
                 mesh = self.obj.gt_mesh
             else:
                 mesh = self.mesh
             if self.mesh is None and not self.robot.use_true_normals:
+                quat = Quaternion.fromWLast(self.obj.orientation)
+                contact_pts_obj_frame = np.stack(
+                    [quat.T.rotate(x - self.obj.position) for x in contact_pts]
+                )
                 # get estimated normal once
                 ge_ig_frame = (
                     self.robot.get_grad_ests(self.obj, contact_pts_obj_frame)
@@ -299,7 +303,10 @@ class FingertipEnv:
         # self.gym.apply_body_forces(self.env, obj_handle, gymapi.Vec3(*torch.sum(f, dim=0).data))
         net_obj_force = self.gym.get_rigid_contact_forces(self.sim)[self.obj.actor]
         # print('net contact forces: ', net_obj_force)
-        # self.gym.draw_env_rigid_contacts(self.viewer, self.env, gymapi.Vec3(0.,0.,0.), 1., True)
+        self.gym.clear_lines(self.viewer)
+        self.gym.draw_env_rigid_contacts(
+            self.viewer, self.env, gymapi.Vec3(0.0, 0.0, 0.0), 1.0, True
+        )
         # print('asset forces:', self.obj.force_sensor.get_forces().force)
 
         state = dict(

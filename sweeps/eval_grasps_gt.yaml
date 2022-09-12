@@ -1,0 +1,15 @@
+name: eval_grasps_50_mesh
+program: grasp_test.py
+method: grid
+parameters:
+    object:
+        values: ['BANANA', 'BOX', 'TEDDY_BEAR', 'POWER_DRILL', 'BLEACH_CLEANSER',
+         'BIG_BANANA']
+    cost-function:
+        value  : 'L1'
+commmand:
+    - ${env}
+    - ${interpreter}
+    - ${program}
+    - ${args_no_boolean_flags}
+    - model-config:mesh

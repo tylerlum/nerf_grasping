@@ -284,7 +284,7 @@ def main():
     if exp_config.wandb:
         wandb.run.summary["success_pct"] = success_pct
         wandb.finish()
-    print(f"Percent successes: {success_pct}% out of {len(grasp_ids)}")
+    print(f"Percent successes: {success_pct}% out of {n_grasps}")
 
 
 if __name__ == "__main__":

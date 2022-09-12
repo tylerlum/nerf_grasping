@@ -3,6 +3,7 @@ import logging
 from isaacgym import gymapi, gymtorch
 from pathlib import Path
 import os
+import pdb
 import numpy as np
 import torch
 import cvxpy
@@ -35,6 +36,7 @@ class FingertipRobot:
         self.mu = config.mu
         self.sphere_radius = config.sphere_radius
         self.verbose = config.verbose
+        self.debug = self.verbose
         self.grad_config = config.grad_config
         self.actors = []
         self.initialized_actors = False
@@ -147,6 +149,11 @@ class FingertipRobot:
             3,
         ), f"actualshape:{global_fingertip_forces.shape}"
         self.previous_global_forces = global_fingertip_forces
+        global_fingertip_forces = torch.clamp(global_fingertip_forces, -10, 10)
+        nan_indices = torch.isnan(global_fingertip_forces)
+        if nan_indices.any():
+            global_fingertip_forces[nan_indices] = 0.0
+            logging.warning(f"{global_fingertip_forces} contains nans!")
         for f, actor_handle in zip(global_fingertip_forces, self.actors):
             rb_handle = self.gym.get_actor_rigid_body_handle(self.env, actor_handle, 0)
             fx, fy, fz = f
@@ -273,7 +280,6 @@ class FingertipRobot:
                 force_opt.check_force_closure(
                     grasp_points_obj_frame, in_normals_obj_frame, obj.mu
                 )
-
             global_forces_obj_frame, success = force_opt.calculate_grip_forces(
                 grasp_points_obj_frame,
                 in_normals_obj_frame,
@@ -283,6 +289,8 @@ class FingertipRobot:
                 obj.mu,
             )
         except cvxpy.error.SolverError:
+            if self.debug:
+                pdb.set_trace()
             global_forces_obj_frame, success = None, False
 
         if not success:

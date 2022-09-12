@@ -237,6 +237,10 @@ def grasp_file(exp_config: Experiment):
         outfile += f"_{exp_config.cost_function.name.lower()}"
         if exp_config.risk_sensitivity:
             outfile += f"_rs{exp_config.risk_sensitivity}"
+        if exp_config.model_config.expected_surface:
+            outfile += f"_es"
+        if exp_config.model_config.expected_gradient:
+            outfile += f"_eg"
 
     else:
         if exp_config.model_config.level_set:

@@ -17,7 +17,7 @@ def main(exp_config: config.Experiment):
     object_nerf = ig_objects.load_nerf(obj.workspace, obj.bound, obj.scale)
 
     verts, faces, normals, _ = mesh_utils.marching_cubes(
-        object_nerf, level_set=exp_config.model_config.level_set
+        object_nerf, level_set=exp_config.level_set
     )
     approx_mesh = trimesh.Trimesh(verts, faces, vertex_normals=normals)
 
@@ -35,7 +35,7 @@ def main(exp_config: config.Experiment):
     approx_mesh = mesh_utils.poisson_mesh(approx_mesh)
     approx_mesh.export(outfile)
 
-    print(f'Saving mesh to: {outfile}')
+    print(f"Saving mesh to: {outfile}")
 
 
 if __name__ == "__main__":

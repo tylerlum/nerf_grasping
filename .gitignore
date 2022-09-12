@@ -150,3 +150,4 @@ runs/**
 tags
 
 wandb/
+nerf_checkpoints/*

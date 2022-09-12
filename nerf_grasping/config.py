@@ -201,6 +201,9 @@ class Experiment:
     # Number of grasp samples to draw to compute expectations.
     num_grasp_samples: int = 10
 
+    # Whether or not to regenerate grasps if file already exists.
+    regen: bool = False
+
 
 @dataclasses.dataclass(frozen=True)
 class EvalExperiment(Experiment):

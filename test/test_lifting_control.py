@@ -1,4 +1,5 @@
 import dcargs
+import dataclasses
 import wandb
 import numpy as np
 import os

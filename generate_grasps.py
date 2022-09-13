@@ -102,7 +102,7 @@ def main(exp_config: config.Experiment):
         centroid = torch.from_numpy(obj_mesh.ig_centroid).float()
 
     outfile = config.grasp_file(exp_config)
-    if os.path.exists(outfile) and not exp_config.regen:
+    if os.path.exists(f"{outfile}.npy") and not exp_config.regen:
         print(
             f"Exiting generate_grasps.py to not override existing {outfile} grasp data"
         )

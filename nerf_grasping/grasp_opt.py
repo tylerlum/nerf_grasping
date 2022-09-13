@@ -8,7 +8,6 @@ from functools import partial
 import cvxopt as cvx
 import numpy as np
 import torch
-import wandb
 from pyhull import convex_hull as cvh
 
 import trimesh
@@ -283,15 +282,6 @@ def optimize_cem(
             "mean cost_val:",
             torch.mean(cost_vals),
         )
-        if wandb.run is not None:
-            wandb.log(
-                {
-                    "min_cost": cost_vals.cpu().min(),
-                    "max_cost": cost_vals.cpu().max(),
-                    "accepted_grasp_frac": 1 - (cost_vals == 2).sum() / len(cost_vals),
-                }
-            )
-
         # Get elite indices.
         _, inds = torch.sort(cost_vals)
         elite_inds = inds[:num_elite]

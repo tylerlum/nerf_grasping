@@ -52,7 +52,6 @@ class FingertipEnv:
         # Creates object and loads nerf and object mesh
         self.obj = ig_objects.load_object(exp_config)
         self.obj.setup_gym(self.gym, self.sim, self.env)
-        self.obj.load_trimesh(config.mesh_file(exp_config))
         ig_utils.setup_stage(self.gym, self.sim, self.env)
 
         # Loads mesh, checking if EvalExperiment using nerf grasps
@@ -62,7 +61,11 @@ class FingertipEnv:
             self.obj.model.ig_centroid = self.obj.gt_mesh.ig_centroid
             self.mesh = None
         else:
-            self.mesh = self.obj.gt_mesh
+            print(f"LOADED MESH for estimating normals: {config.mesh_file(exp_config)}")
+            if exp_config.level_set is None:
+                self.mesh = self.obj.gt_mesh
+            else:
+                self.mesh = self.obj.load_trimesh(config.mesh_file(exp_config))
 
         # Create root state tensor for resetting env
         actor_root_state_tensor = self.gym.acquire_actor_root_state_tensor(self.sim)

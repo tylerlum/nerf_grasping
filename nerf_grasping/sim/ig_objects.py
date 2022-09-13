@@ -14,6 +14,7 @@ from nerf import utils
 
 root_dir = Path(os.path.abspath(__file__)).parents[2]
 asset_dir = f"{root_dir}/assets"
+gd_mesh_dir = f"{root_dir}/grasp_data/meshes"
 
 
 def load_nerf(workspace, bound, scale):
@@ -67,7 +68,7 @@ class RigidObject:
         self.setup_gym(gym, sim, env)
         self.nerf_loaded = False
         self.model = None
-        self.load_trimesh()
+        self.gt_mesh = self.load_trimesh()
 
     def setup_gym(self, gym, sim, env):
         self.gym = gym
@@ -113,8 +114,8 @@ class RigidObject:
 
     def load_trimesh(self, mesh_path=None):
         if mesh_path is None or not os.path.exists(mesh_path):
-            mesh_path = os.path.join(asset_dir, self.mesh_file)
-        self.gt_mesh = trimesh.load(mesh_path, force="mesh")
+            mesh_path = os.path.join(gd_mesh_dir, f"{self.name}.obj")
+        mesh = trimesh.load(mesh_path, force="mesh")
         R = scipy.spatial.transform.Rotation.from_euler("Y", [-np.pi / 2]).as_matrix()
         R = (
             R
@@ -122,15 +123,16 @@ class RigidObject:
         )
         T_rot = np.eye(4)
         T_rot[:3, :3] = R
-        self.gt_mesh.apply_scale(self.obj_scale)
-        # self.gt_mesh.apply_translation(self.translation)
-        self.gt_mesh.apply_transform(T_rot)
-        self.gt_mesh.ig_centroid = (
+        mesh.apply_scale(self.obj_scale)
+        # mesh.apply_translation(self.translation)
+        mesh.apply_transform(T_rot)
+        mesh.ig_centroid = (
             grasp_utils.ig_to_nerf(self.translation.reshape(1, 3))
             .reshape(-1)
             .cpu()
             .numpy()
         )
+        return mesh
 
     def create_asset(self):
         asset_options = gymapi.AssetOptions()
@@ -223,7 +225,6 @@ class RigidObject:
 
 class TeddyBear(RigidObject):
     asset_file = "objects/urdf/teddy_bear.urdf"
-    mesh_file = "objects/meshes/isaac_teddy/isaac_bear.obj"
     obj_scale = 1e-2
     name = "teddy_bear"
     workspace = "teddy_bear"
@@ -258,7 +259,6 @@ class Box(RigidObject):
 
     obj_scale = 0.075
     translation = np.array([1.6316e-07, -6.7600e-07, 3.9500e-02])
-    mesh_file = "objects/meshes/cube_multicolor.obj"
     asset_file = "objects/urdf/cube_multicolor.urdf"
 
 
@@ -325,7 +325,6 @@ class PowerDrill(RigidObject):
     bound = 3.0
 
     asset_file = "objects/urdf/power_drill.urdf"
-    mesh_file = "objects/meshes/power_drill/textured.obj"
     name = "power_drill"
     obj_scale = 1.0
     translation = np.array([-4.0196e-06, 2.4881e-05, 5.2011e-03])
@@ -343,7 +342,6 @@ class Banana(RigidObject):
     obj_scale = 1.0
     grasp_normals = torch.tensor([[1, -1.5, 0.0], [-2, 1.0, 0.0], [1, 0.0, 0.0]])
     asset_file = "objects/urdf/banana.urdf"
-    mesh_file = "objects/meshes/banana/textured.obj"
     name = "banana"
     mu = 1.0
     translation = np.array([-1.4408e-05, 3.8640e-06, 2.7102e-03])
@@ -361,7 +359,6 @@ class BigBanana(RigidObject):
     obj_scale = 1.5
     grasp_normals = torch.tensor([[1, -1.5, 0.0], [-2, 1.0, 0.0], [1, 0.0, 0.0]])
     asset_file = "objects/urdf/banana.urdf"
-    mesh_file = "objects/meshes/banana/textured.obj"
     name = "banana"
     bound = 1.5
     mu = 1.0
@@ -395,7 +392,6 @@ class BleachCleanser(RigidObject):
     data_dir = "./nerf_shared/data/bleach_cleanser"
     config_path = "./nerf_shared/configs/bleach_cleanser.txt"
     name = "bleach_cleanser"
-    mesh_file = "objects/meshes/bleach_cleanser/textured.obj"
     workspace = "bleach_cleanser"
     grasp_points = torch.tensor(
         [

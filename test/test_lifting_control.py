@@ -47,9 +47,7 @@ def lifting_trajectory(env, grasp_vars):
 
     for timestep in range(500):
         height_err = np.abs(
-            env.robot.target_height
-            - env.obj.position.cpu().numpy()[-1]
-            + env.obj.translation[-1]
+            env.robot.target_height - env.obj.position.cpu().numpy()[-1]
         )
 
         # finds the closest contact points to the original grasp normal + grasp_point ray
@@ -88,7 +86,7 @@ def lifting_trajectory(env, grasp_vars):
             print("Finger too low!")
             return False
         elif (env.robot.position[:, -1] >= 0.5).any():
-            print("Finger too high!")
+            print(f"Finger too high!: {env.robot.position[:,-1]}")
             return False
         elif torch.isnan(env.robot.position).any():
             print("Finger position is nan!")
@@ -145,6 +143,10 @@ def main():
         print(f"SUCCESS! grasp {grasp_idx}")
     if torch.isnan(env.robot.position).any():
         print("exiting early, robot position is nan, resets do not work")
+
+    if exp_config.wandb:
+        wandb.run.summary["success_pct"] = float(success)
+        wandb.finish()
 
     if exp_config.wandb:
         wandb.finish()

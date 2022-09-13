@@ -79,15 +79,13 @@ def lifting_trajectory(env, grasp_vars, step):
 
     for timestep in range(500):
         height_err = np.abs(
-            env.robot.target_height
-            - env.obj.position.cpu().numpy()[-1]
-            + env.obj.translation[-1]
+            env.robot.target_height - env.obj.position.cpu().numpy()[-1]
         )
 
         # finds the closest contact points to the original grasp normal + grasp_point ray
         mode = get_mode(timestep)
         # compute potential to closest points
-        potential = compute_potential(grasp_points)
+        potential = compute_potential(grasp_points).sum()
         state = env.run_control(mode, grasp_vars)
         if state["grasp_opt_success"]:
             fail_count = 0
@@ -97,29 +95,33 @@ def lifting_trajectory(env, grasp_vars, step):
         if timestep >= 100 and (timestep + 1) % 50 == 0:
             print("MODE:", state["mode"])
             print("TIMESTEP:", timestep)
-            print("POSITION ERR:", state["pos_err"])
+            # print("POSITION ERR:", state["ftip_pos_err"])
             print("POTENTIAL:", potential)
             print("VELOCITY:", env.robot.velocity)
             print("FORCE MAG:", state["force_mag"])
             # print("Z Force:", f[:, 2])
             # print("OBJECT FORCES:", gym.get_rigid_contact_forces(sim)[obj.actor])
             if state["mode"] == "lift":
-                print("HEIGHT_ERR:", height_err)
+                print("HEIGHT ERR:", height_err)
+                print("OBJECT VEL-Z": state["obj_vel-z"])
+                print("OBJ POSITION ERR-Z": state["obj_pos_err-z"])
+                print("MAX GRASP POS ERR [~slip]:", state['max_contact_pos_err'])
             # print(f"NET CONTACT FORCE:", net_cf[obj.index,:])
-        # max_vel = env.robot.velocity.max(dim=1)
-        log = dict(
-            pos_err=state["pos_err"],
+
+        for k, v in state.items():
+            if isinstance(v, [torch.Tensor, np.ndarray, np.float]) and np.prod(v.shape) == 1:
+                log[k] = float(v)
+
+        log.update(dict(
+            max_ftip_pos_err=state["max_ftip_pos_err"],
             height_err=height_err,
             force_mag=state["force_mag"],
             final_timestep=timestep,
             final_potentential=potential,
-            # max_velocity_1=max_vel[0],
-            # max_velocity_2=max_vel[1],
-            # max_velocity_3=max_vel[2],
             min_ftip_height=env.robot.position[:, -1].min(),
             max_ftip_height=env.robot.position[:, -1].max(),
             fail_count=fail_count,
-        )
+        ))
 
         if (env.robot.position[:, -1] <= 0.01).any():
             print("Finger too low!")
@@ -127,7 +129,7 @@ def lifting_trajectory(env, grasp_vars, step):
                 wandb.log(log, step=step)
             return False
         elif (env.robot.position[:, -1] >= 0.5).any():
-            print("Finger too high!")
+            print(f"Finger too high!: {env.robot.position[:,-1]}")
             if wandb.run is not None:
                 wandb.log(log, step=step)
             return False

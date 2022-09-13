@@ -313,7 +313,6 @@ class FingertipEnv:
             )
             state = {
                 "obj_pos_err-z": obj_pos_err[2],
-                # "net_force_err": target_force - net_obj_force,
                 "obj_vel-z": self.obj.velocity[2],
                 "max_contact_pos_err": contact_pos_err.max().item(),
             }

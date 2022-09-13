@@ -1,0 +1,19 @@
+name: generate_grasps_gt_mesh
+program: generate_grasps.py
+method: grid
+parameters:
+    object:
+        values: ['BANANA', 'BOX', 'TEDDY_BEAR']
+        #, 'POWER_DRILL', 'BLEACH_CLEANSER', "BIG_BANANA"]
+    cost-function:
+        # values: ['L1','PSV','MSV','FC','POLY_AREA']
+        value  : 'L1'
+    num-grasps:
+        value: 20
+command:
+    - ${env}
+    - ${interpreter}
+    - ${program}
+    - ${args_no_boolean_flags}
+    - model_config:nerf
+    - --model-config.expected-gradient

@@ -75,6 +75,7 @@ def lifting_trajectory(env, grasp_vars):
                 print("HEIGHT_ERR:", height_err)
             # print(f"NET CONTACT FORCE:", net_cf[obj.index,:])
         # max_vel = env.robot.velocity.max(dim=1)
+        # scalar values
         state["height_err"] = height_err
         state["min_ftip_height"] = env.robot.position[:, -1].min()
         state["max_ftip_height"] = env.robot.position[:, -1].max()

@@ -35,7 +35,6 @@ class FingertipEnv:
             self.viewer = None
         self.setup_robot_obj(exp_config)
         self.gym.prepare_sim(self.sim)
-        self.log = []
         self.image_idx = 0
 
     def setup_gym(self):
@@ -211,7 +210,6 @@ class FingertipEnv:
 
     def reset_actors(self, grasp_vars):
         # reset_actor sets actor rigid body states
-        self.log = []
         self.robot.reset_actor(grasp_vars)
         self.obj.reset_actor()
         if self.added_lines:
@@ -309,12 +307,15 @@ class FingertipEnv:
         # self.gym.apply_body_forces(self.env, obj_handle, gymapi.Vec3(*torch.sum(f, dim=0).data))
         net_obj_force = self.gym.get_rigid_contact_forces(self.sim)[self.obj.actor]
         if mode == "lift":
+            obj_pos_err = self.obj.position - target_obj_pos
+            contact_pos_err = np.linalg.norm(
+                contact_pts_obj_frame - closest_points.cpu().numpy(), axis=1
+            )
             state = {
-                "obj_pos_err": self.obj.position - target_obj_pos,
+                "obj_pos_err-z": obj_pos_err[2],
                 # "net_force_err": target_force - net_obj_force,
-                "obj_vel": self.obj.velocity,
-                "contact_pts_obj_frame": contact_pts_obj_frame,
-                "closest_pts": closest_points,
+                "obj_vel-z": self.obj.velocity[2],
+                "max_contact_pos_err": contact_pos_err.max().item(),
             }
 
         self.gym.clear_lines(self.viewer)

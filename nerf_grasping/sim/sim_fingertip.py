@@ -35,6 +35,7 @@ class FingertipEnv:
             self.viewer = None
         self.setup_robot_obj(exp_config)
         self.gym.prepare_sim(self.sim)
+        self.log = []
         self.image_idx = 0
 
     def setup_gym(self):
@@ -210,6 +211,7 @@ class FingertipEnv:
 
     def reset_actors(self, grasp_vars):
         # reset_actor sets actor rigid body states
+        self.log = []
         self.robot.reset_actor(grasp_vars)
         self.obj.reset_actor()
         if self.added_lines:
@@ -253,6 +255,8 @@ class FingertipEnv:
         closest_points = ig_utils.closest_point(
             grasp_points, grasp_points + grasp_normals, self.robot.position
         )  # IG frame.
+        target_obj_pos = np.array([0, 0, self.robot.target_height])  # IG frame.
+
         if mode == "reach":
             # position control to reach contact points
             f = self.robot.position_control(closest_points)
@@ -263,7 +267,7 @@ class FingertipEnv:
             pos_err = closest_points - self.robot.position
         elif mode == "lift":
             # grasp force optimization
-            closest_points[:, 2] = self.obj.position[2]  # + 0.005
+            closest_points[:, 2] = self.obj.position[2]
             pos_err = closest_points - self.robot.position
             contact_pts = self.robot.get_contact_points(grasp_normals)
             if self.mesh is None or self.robot.use_true_normals:
@@ -292,33 +296,43 @@ class FingertipEnv:
                     ge_ig_frame, dtype=torch.float32
                 )  # IG frame.
 
-            f, _, _, succ = self.robot.object_pos_control(
-                self.obj,
-                ge_ig_frame,
+            f, target_force, _, succ = self.robot.object_pos_control(
+                self.obj, ge_ig_frame, target_obj_pos
             )
 
         self.robot.apply_fingertip_forces(f)
         self.step_gym()
+        state = {}
 
         # DEBUG PRINTS FOR CONTACT FORCES.
         # obj_handle = self.gym.get_actor_rigid_body_handle(self.env, self.obj.actor, 0)
         # self.gym.apply_body_forces(self.env, obj_handle, gymapi.Vec3(*torch.sum(f, dim=0).data))
         net_obj_force = self.gym.get_rigid_contact_forces(self.sim)[self.obj.actor]
-        # print('net contact forces: ', net_obj_force)
+        if mode == "lift":
+            state = {
+                "obj_pos_err": obj.position - target_position,
+                "net_force_err": target_force - net_obj_force,
+                "obj_vel": obj.velocity,
+                "contact_pts_obj_frame": contact_pts_obj_frame,
+                "closest_pts": closest_pts,
+            }
+
         self.gym.clear_lines(self.viewer)
         self.gym.draw_env_rigid_contacts(
             self.viewer, self.env, gymapi.Vec3(0.0, 0.0, 0.0), 1.0, True
         )
         # print('asset forces:', self.obj.force_sensor.get_forces().force)
 
-        state = dict(
-            mode=mode,
-            pos_err=pos_err,
-            velocity=self.robot.velocity,
-            force=f,
-            force_mag=f.norm(dim=1),
-            net_obj_force=net_obj_force,
-            grasp_opt_success=succ,
+        state.update(
+            dict(
+                mode=mode,
+                ftip_pos_err=pos_err,
+                ftip_vel=self.robot.velocity,
+                ftip_forces=f,
+                force_mag=f.norm(dim=1),
+                net_obj_force=net_obj_force,
+                grasp_opt_success=succ,
+            )
         )
         return state
 

@@ -19,79 +19,11 @@ root_dir = os.path.abspath("./")
 asset_dir = f"{root_dir}/assets"
 
 
-def refresh_tensors(gym, sim):
-    gym.refresh_mass_matrix_tensors(sim)
-    gym.refresh_jacobian_tensors(sim)
-    gym.refresh_dof_state_tensor(sim)
-    gym.refresh_rigid_body_state_tensor(sim)
-    gym.refresh_actor_root_state_tensor(sim)
-
-
-def step_gym(gym, sim, viewer=None):
-    gym.simulate(sim)
-    gym.fetch_results(sim, True)
-
-    gym.step_graphics(sim)
-    if viewer is not None:
-        gym.draw_viewer(viewer, sim, True)
-        gym.sync_frame_time(sim)
-    refresh_tensors(gym, sim)
-
-
-def reset_actors(robot, obj, grasp_vars, viewer):
-    robot.reset_actor(grasp_vars)
-    obj.reset_actor()
-    # step_gym calls gym.simulate, then refreshes tensors
-    for i in range(1):
-        step_gym(robot.gym, robot.sim, viewer)
-
-
-def double_reset(env, grasp_vars):
-    env.fail_count = 0
-    robot, obj, viewer = env.robot, env.obj, env.viewer
-    # print(f"robot position before reset: {robot.position}")
-    # reset_actor sets actor rigid body states
-    for i in range(2):
-        reset_actors(robot, obj, grasp_vars, viewer)
-
-    # Computes drift from desired start pos
-    start_pos = robot.get_ftip_start_pos(grasp_vars)
-    ftip_pos = []
-    for pos, handle in zip(start_pos, robot.actors):
-        state = robot.gym.get_actor_rigid_body_states(
-            robot.env, handle, gymapi.STATE_POS
-        )
-        ftip_pos.append(np.array(state["pose"]["p"].tolist()))
-        print("after reset", state["pose"]["p"])
-    ftip_pos = np.stack(ftip_pos).squeeze()
-    assert ftip_pos.shape == (3, 3), ftip_pos.shape
-    print(f"Desired - Actual: {grasp_vars[0] - ftip_pos}")
-
-
-def setup_gym():
-    gym = gymapi.acquire_gym()
-
-    sim = ig_utils.setup_sim(gym)
-    env = ig_utils.setup_env(gym, sim)
-    return gym, sim, env
-
-
 def random_forces(timestep):
     fx = -np.sin(timestep * np.pi / 10) * 0.025 + 0.001
     fy = -np.sin(timestep * np.pi / 5) * 0.025 + 0.001
     f = np.array([[fx, fy, 0.0]] * 3)
     return f
-
-
-def setup_viewer(gym, sim, env):
-    viewer = gym.create_viewer(sim, gymapi.CameraProperties())
-    # position outside stage
-    cam_pos = gymapi.Vec3(0.7, 0.175, 0.6)
-    # position above banana
-    cam_pos = gymapi.Vec3(0.1, 0.02, 0.4)
-    cam_target = gymapi.Vec3(0, 0, 0.2)
-    gym.viewer_camera_look_at(viewer, env, cam_pos, cam_target)
-    return viewer
 
 
 def compute_potential(points, magnitude=0.01):
@@ -111,7 +43,7 @@ def compute_potential(points, magnitude=0.01):
 def get_mode(timestep):
     if timestep % 1000 < 50:
         return "reach"
-    if timestep % 1000 < 200:
+    if timestep % 1000 < 150:
         return "grasp"
     if timestep % 1000 < 1000:
         return "lift"
@@ -162,7 +94,7 @@ def lifting_trajectory(env, grasp_vars, step):
         else:
             fail_count += 1
 
-        if timestep >= 100 and timestep % 50 == 0:
+        if timestep >= 100 and (timestep + 1) % 50 == 0:
             print("MODE:", state["mode"])
             print("TIMESTEP:", timestep)
             print("POSITION ERR:", state["pos_err"])
@@ -211,10 +143,8 @@ def lifting_trajectory(env, grasp_vars, step):
                 wandb.log(log, step=step)
             return False
         # if number of timesteps of grasp success exceeds 3 seconds
-        succ_timesteps = 180
-
         err_bound = 0.03
-        if timestep - start_succ >= succ_timesteps:
+        if timestep - start_succ >= 180:
             if wandb.run is not None:
                 wandb.log(log, step=step)
             return True
@@ -241,10 +171,13 @@ def main():
         ), f"{exp_config.grasp_data} does not exist"
         grasp_data_path = exp_config.grasp_data
     grasps = np.load(f"{grasp_data_path}")
+
     grasp_idx = exp_config.grasp_idx if exp_config.grasp_idx else 0
     # if grasp_idx are start, end indices
     if isinstance(grasp_idx, tuple):
         grasp_idx = grasp_idx[0]
+    elif isinstance(exp_config.grasp_idx, str):
+        grasp_idx = tuple([int(x) for x in exp_config.grasp_idx.split(" ")])[0]
 
     grasp_vars = (grasps[grasp_idx, :, :3], grasps[grasp_idx, :, 3:])
     env = FingertipEnv(exp_config, grasp_vars)
@@ -256,6 +189,10 @@ def main():
         grasp_ids = range(len(grasps))
     elif isinstance(exp_config.grasp_idx, tuple):
         grasp_ids = np.arange(exp_config.grasp_idx[0], exp_config.grasp_idx[1])
+    elif isinstance(exp_config.grasp_idx, str):
+        idx_range = [int(x) for x in exp_config.grasp_idx.split(" ")]
+        assert len(idx_range) == 2, "grasp-idx can be at most 2 numbers"
+        grasp_ids = np.arange(idx_range[0], idx_range[1])
     else:
         grasp_ids = [exp_config.grasp_idx]
 

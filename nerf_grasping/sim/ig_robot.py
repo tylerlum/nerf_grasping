@@ -226,7 +226,7 @@ class FingertipRobot:
         self,
         obj,
         in_normals_ig_frame,
-        target_position=None,
+        target_position,
     ):
         """Object position control for lifting trajectory"""
         # Get controller params
@@ -236,26 +236,28 @@ class FingertipRobot:
         kp_rot = self.controller_params.kp_rot_lift
         kd_rot = self.controller_params.kd_rot_lift
 
-        if target_position is None:
-            target_position = np.array([0.0, 0.0, self.target_height])  # IG frame.
         vel = obj.velocity  # IG frame.
         angular_vel = obj.angular_velocity  # IG frame.
         quat = Quaternion.fromWLast(obj.orientation)  # obj to IG frame.
 
         target_quat = Quaternion.Identity()
-        cg_pos = obj.get_CG()  # IG frame.
+        # cg_pos = get_CG()  # IG frame.
         # print('rot offset: ', (quat @ target_quat.T).to_tangent_space())
 
-        pos_error = cg_pos - target_position
+        # pos_err = cg_pos - target_position
+        pos_err = obj.position - target_position
         object_weight_comp = obj.mass * 9.81 * torch.tensor([0, 0, 1])
-        # target_force = object_weight_comp - 0.9 * pos_error - 0.4 * vel
+        # target_force = object_weight_comp - 0.9 * pos_err- 0.4 * vel
         # banana tuning
-        # print('pd force: ', -kp*pos_error -kd * vel)
+        # print('pd force: ', -kp*pos_err-kd * vel)
 
-        target_force = object_weight_comp - kp * pos_error - kd * vel
+        target_force = object_weight_comp - kp * pos_err - kd * vel
         target_torque = (
             -kp_rot * (quat @ target_quat.T).to_tangent_space() - kd_rot * angular_vel
         )
+        # Transform desired force/torque to object frame.
+        target_force_obj_frame = quat.T.rotate(target_force)
+        target_torque_obj_frame = quat.T.rotate(target_torque)
 
         # Transform inward normals to obj frame.
         in_normals_obj_frame = torch.stack(
@@ -272,10 +274,6 @@ class FingertipRobot:
 
         # print('grasp_points obj frame:', grasp_points_obj_frame)
         # print('inward normals obj frame: ', in_normals_obj_frame)
-
-        # Transform desired force/torque to object frame.
-        target_force_obj_frame = quat.T.rotate(target_force)
-        target_torque_obj_frame = quat.T.rotate(target_torque)
 
         try:
             if self.verbose:

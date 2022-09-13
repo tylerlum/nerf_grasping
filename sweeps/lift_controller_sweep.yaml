@@ -1,22 +1,18 @@
-name: banana_controller_sweep
+name: nerf_lift_controller_sweep
 program: grasp_test.py
 method: grid
 metric:
   name: height_err
   goal: minimize
 parameters:
+  object:
+    values: ['BANANA', 'BIG_BANANA', 'BOX', 'TEDDY_BEAR', 'POWER_DRILL', 'BLEACH_CLEANSER']
   robot-config.controller-params.kp-lift:
     values: [0.1, 1., 2.5, 5., 10.]
   robot-config.controller-params.kd-lift:
     values: [0.1, 1., 2.5]
   robot-config.controller-params.target-normal:
     values: [0.5, 1., 5.]
-  object:
-    value: BANANA
-  grasp-data:
-    value: "deprecated/banana.npy"
-  grasp-index:
-    value: "0 10"
 early_terminate:
   type: hyperband
   s: 2

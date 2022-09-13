@@ -194,8 +194,13 @@ def lifting_trajectory(env, grasp_vars, step):
             if wandb.run is not None:
                 wandb.log(log, step=step)
             return False
-        if (env.robot.position[:, -1] >= 0.5).any():
+        elif (env.robot.position[:, -1] >= 0.5).any():
             print("Finger too high!")
+            if wandb.run is not None:
+                wandb.log(log, step=step)
+            return False
+        elif torch.isnan(env.robot.position).any():
+            print("Finger position is nan!")
             if wandb.run is not None:
                 wandb.log(log, step=step)
             return False
@@ -254,7 +259,8 @@ def main():
     else:
         grasp_ids = [exp_config.grasp_idx]
 
-    for grasp_idx in grasp_ids:
+    n_grasps = len(grasp_ids)
+    for i, grasp_idx in enumerate(grasp_ids):
         grasp_points = torch.tensor(grasps[grasp_idx, :, :3], dtype=torch.float32)
         grasp_normals = torch.tensor(grasps[grasp_idx, :, 3:], dtype=torch.float32)
         grasp_vars = (grasp_points, grasp_normals)
@@ -268,12 +274,17 @@ def main():
         successes += success
         if success:
             print(f"SUCCESS! grasp {grasp_idx}")
+        if torch.isnan(env.robot.position).any():
+            print("exiting early, robot position is nan, resets do not work")
+            # set n_grasps to be number of grasps evaluated so far
+            n_grasps = i + 1
+            break
 
-    success_pct = successes / len(grasp_ids) * 100
+    success_pct = successes / n_grasps * 100
     if exp_config.wandb:
         wandb.run.summary["success_pct"] = success_pct
         wandb.finish()
-    print(f"Percent successes: {success_pct}% out of {len(grasp_ids)}")
+    print(f"Percent successes: {success_pct}% out of {n_grasps}")
 
 
 if __name__ == "__main__":

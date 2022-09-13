@@ -58,6 +58,8 @@ class FingertipEnv:
         # Loads mesh, checking if EvalExperiment using nerf grasps
         if isinstance(exp_config.model_config, config.Nerf):
             self.obj.load_nerf_model()
+            # overwrite ig_centroid that gets loaded with nerf
+            self.obj.model.ig_centroid = self.obj.gt_mesh.ig_centroid
             self.mesh = None
         else:
             self.mesh = self.obj.gt_mesh

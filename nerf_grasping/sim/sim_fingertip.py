@@ -310,11 +310,11 @@ class FingertipEnv:
         net_obj_force = self.gym.get_rigid_contact_forces(self.sim)[self.obj.actor]
         if mode == "lift":
             state = {
-                "obj_pos_err": obj.position - target_position,
-                "net_force_err": target_force - net_obj_force,
-                "obj_vel": obj.velocity,
+                "obj_pos_err": self.obj.position - target_obj_pos,
+                # "net_force_err": target_force - net_obj_force,
+                "obj_vel": self.obj.velocity,
                 "contact_pts_obj_frame": contact_pts_obj_frame,
-                "closest_pts": closest_pts,
+                "closest_pts": closest_points,
             }
 
         self.gym.clear_lines(self.viewer)

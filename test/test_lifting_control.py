@@ -2,10 +2,11 @@ import dcargs
 import wandb
 import numpy as np
 import os
-import torch
 import pdb
-from nerf_grasping.sim.sim_fingertips import FingertipEnv
-from nerf_grasping.config import EvalExperiment
+from nerf_grasping.sim.sim_fingertip import FingertipEnv
+from nerf_grasping.sim import ig_utils
+from nerf_grasping import config
+import torch
 
 
 def get_mode(timestep):
@@ -63,8 +64,8 @@ def lifting_trajectory(env, grasp_vars):
         if timestep >= 100 and (timestep + 1) % 50 == 0:
             print("MODE:", state["mode"])
             print("TIMESTEP:", timestep)
-            print("POSITION ERR:", state["pos_err"])
-            print("POTENTIAL:", potential)
+            print("POSITION ERR:", state["ftip_pos_err"])
+            # print("POTENTIAL:", potential)
             print("VELOCITY:", env.robot.velocity)
             print("FORCE MAG:", state["force_mag"])
             # print("Z Force:", f[:, 2])
@@ -134,7 +135,7 @@ def main():
 
     print(f"EVALUATING GRASP from {grasp_data_path} {grasp_idx}: {grasp_points}")
     try:
-        success = lifting_trajectory(env, grasp_vars, grasp_idx)
+        success = lifting_trajectory(env, grasp_vars)
     except KeyboardInterrupt:
         success = False
         pdb.set_trace()
@@ -145,3 +146,7 @@ def main():
 
     if exp_config.wandb:
         wandb.finish()
+
+
+if __name__ == "__main__":
+    main()

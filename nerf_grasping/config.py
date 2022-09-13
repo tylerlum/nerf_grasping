@@ -152,9 +152,6 @@ class Nerf:
 @dataclasses.dataclass(frozen=True)
 class Mesh:
 
-    # What level set to extract with marching cubes; if None, uses gt mesh.
-    level_set: Optional[float] = None
-
     # How far fingers should be positioned from surface.
     des_z_dist: float = 0.025
 
@@ -201,6 +198,10 @@ class Experiment:
     # Number of grasp samples to draw to compute expectations.
     num_grasp_samples: int = 10
 
+    # What level set to extract with marching cubes; if None, uses gt mesh.
+    # NOTE: put this here so wandb plays nice with dcargs; should be in mesh.
+    level_set: Optional[float] = None
+
     # Whether or not to regenerate grasps if file already exists.
     regen: bool = False
 
@@ -221,10 +222,8 @@ def mesh_file(exp_config: Experiment):
     """Gets mesh filename from experiment config."""
     obj_name = exp_config.object.name.lower()
 
-    if exp_config.model_config.level_set:
-        return (
-            f"grasp_data/meshes/{obj_name}_{int(exp_config.model_config.level_set)}.obj"
-        )
+    if exp_config.level_set:
+        return f"grasp_data/meshes/{obj_name}_{int(exp_config.level_set)}.obj"
     else:
         return f"grasp_data/meshes/{obj_name}.obj"
 
@@ -240,13 +239,13 @@ def grasp_file(exp_config: Experiment):
         if exp_config.risk_sensitivity:
             outfile += f"_rs{exp_config.risk_sensitivity}"
         if exp_config.model_config.expected_surface:
-            outfile += f"_es"
+            outfile += "_es"
         if exp_config.model_config.expected_gradient:
-            outfile += f"_eg"
+            outfile += "_eg"
 
     else:
-        if exp_config.model_config.level_set:
-            outfile += f"_{int(exp_config.model_config.level_set)}"
+        if exp_config.level_set:
+            outfile += f"_{int(exp_config.level_set)}"
         if exp_config.dice_grasp:
             outfile += "_diced"
 

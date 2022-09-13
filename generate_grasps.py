@@ -47,7 +47,7 @@ def get_mesh(exp_config, obj):
         obj_mesh = trimesh.load(mesh_file, force="mesh")
         return obj_mesh
 
-    elif exp_config.model_config.level_set is None:
+    elif exp_config.level_set is None:
         # GT mesh not stored in grasp_data; make copy for simplicity.
         obj.gt_mesh.export(mesh_file)
         return obj.gt_mesh

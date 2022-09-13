@@ -103,25 +103,30 @@ def lifting_trajectory(env, grasp_vars, step):
             # print("OBJECT FORCES:", gym.get_rigid_contact_forces(sim)[obj.actor])
             if state["mode"] == "lift":
                 print("HEIGHT ERR:", height_err)
-                print("OBJECT VEL-Z": state["obj_vel-z"])
-                print("OBJ POSITION ERR-Z": state["obj_pos_err-z"])
-                print("MAX GRASP POS ERR [~slip]:", state['max_contact_pos_err'])
+                print("OBJECT VEL-Z:", state["obj_vel-z"])
+                print("OBJ POSITION ERR-Z:", state["obj_pos_err-z"])
+                print("MAX GRASP POS ERR [~slip]:", state["max_contact_pos_err"])
             # print(f"NET CONTACT FORCE:", net_cf[obj.index,:])
 
+        log = {}
         for k, v in state.items():
-            if isinstance(v, [torch.Tensor, np.ndarray, np.float]) and np.prod(v.shape) == 1:
+            if isinstance(v, float):
+                log[k] = v
+            elif isinstance(v, (torch.Tensor, np.ndarray)) and np.prod(v.shape) == 1:
                 log[k] = float(v)
 
-        log.update(dict(
-            max_ftip_pos_err=state["max_ftip_pos_err"],
-            height_err=height_err,
-            force_mag=state["force_mag"],
-            final_timestep=timestep,
-            final_potentential=potential,
-            min_ftip_height=env.robot.position[:, -1].min(),
-            max_ftip_height=env.robot.position[:, -1].max(),
-            fail_count=fail_count,
-        ))
+        log.update(
+            dict(
+                max_ftip_pos_err=state["max_ftip_pos_err"],
+                height_err=height_err,
+                force_mag=state["force_mag"],
+                final_timestep=timestep,
+                final_potentential=potential,
+                min_ftip_height=env.robot.position[:, -1].min(),
+                max_ftip_height=env.robot.position[:, -1].max(),
+                fail_count=fail_count,
+            )
+        )
 
         if (env.robot.position[:, -1] <= 0.01).any():
             print("Finger too low!")

@@ -327,6 +327,7 @@ class FingertipEnv:
             dict(
                 mode=mode,
                 ftip_pos_err=pos_err,
+                max_ftip_pos_err=pos_err.norm(dim=1).max(),
                 ftip_vel=self.robot.velocity,
                 ftip_forces=f,
                 force_mag=f.norm(dim=1),

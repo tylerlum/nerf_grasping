@@ -102,6 +102,11 @@ def main(exp_config: config.Experiment):
         centroid = torch.from_numpy(obj_mesh.ig_centroid).float()
 
     outfile = config.grasp_file(exp_config)
+    if os.path.exists(f"{outfile}.npy") and not exp_config.regen:
+        print(
+            f"Exiting generate_grasps.py to not override existing {outfile} grasp data"
+        )
+        return
 
     grasp_points = (
         torch.tensor([[0.09, 0.0, -0.045], [-0.09, 0.0, -0.045], [0, 0.0, 0.09]])

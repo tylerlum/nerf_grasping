@@ -68,13 +68,13 @@ class ControllerParams:
     normal_scale_grasp: float = 0.1  # 1e-4  # 0.1 # 0.05
 
     # Grasp target normal force to apply with fingers
-    target_normal: float = 3.0  # 1.0  # 0.5
+    target_normal: float = 1.0  # 1.0  # 0.5
 
     # Proportional position gain during lifting
-    kp_lift: float = 10.0  # 0.9
+    kp_lift: float = 2.5  # 0.9
 
     # Derivative position gain during lifting
-    kd_lift: float = 2.5  # 0.4
+    kd_lift: float = 1.0  # 0.4
 
     # Proportional rotation gain during lifting
     kp_rot_lift: float = 0.3  # 0.04
@@ -202,13 +202,18 @@ class Experiment:
     # NOTE: put this here so wandb plays nice with dcargs; should be in mesh.
     level_set: Optional[float] = None
 
+    # Whether or not to regenerate grasps if file already exists.
+    regen: bool = False
+
 
 @dataclasses.dataclass(frozen=True)
 class EvalExperiment(Experiment):
     # Optional, containing either a single index or tuple of (start, end) indices
-    grasp_idx: Union[None, int, Tuple[int, int]] = None
+    grasp_idx: Union[None, int, str, Tuple[int, int]] = None
+
     # Optional, defines a path to a specific grasp_data file
     grasp_data: Optional[str] = None
+
     # Optional, turns on wandb logging
     wandb: bool = False
 
@@ -233,6 +238,10 @@ def grasp_file(exp_config: Experiment):
         outfile += f"_{exp_config.cost_function.name.lower()}"
         if exp_config.risk_sensitivity:
             outfile += f"_rs{exp_config.risk_sensitivity}"
+        if exp_config.model_config.expected_surface:
+            outfile += "_es"
+        if exp_config.model_config.expected_gradient:
+            outfile += "_eg"
 
     else:
         if exp_config.level_set:

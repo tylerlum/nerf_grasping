@@ -286,7 +286,7 @@ class FingertipEnv:
                     .float()
                 )
             else:
-                gp, ge_ig_frame, _ = ig_utils.get_mesh_contacts(
+                contact_pts_obj_frame, ge_ig_frame, _ = ig_utils.get_mesh_contacts(
                     mesh,
                     contact_pts,
                     pos_offset=self.obj.position,

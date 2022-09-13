@@ -111,8 +111,9 @@ class RigidObject:
         self.model = load_nerf(self.workspace, self.bound, self.scale)
         self.nerf_loaded = True
 
-    def load_trimesh(self):
-        mesh_path = os.path.join(asset_dir, self.mesh_file)
+    def load_trimesh(self, mesh_path=None):
+        if mesh_path is None or not os.path.exists(mesh_path):
+            mesh_path = os.path.join(asset_dir, self.mesh_file)
         self.gt_mesh = trimesh.load(mesh_path, force="mesh")
         R = scipy.spatial.transform.Rotation.from_euler("Y", [-np.pi / 2]).as_matrix()
         R = (

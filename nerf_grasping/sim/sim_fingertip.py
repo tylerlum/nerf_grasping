@@ -52,7 +52,7 @@ class FingertipEnv:
         # Creates object and loads nerf and object mesh
         self.obj = ig_objects.load_object(exp_config)
         self.obj.setup_gym(self.gym, self.sim, self.env)
-        self.obj.load_trimesh()
+        self.obj.load_trimesh(config.mesh_file(exp_config))
         ig_utils.setup_stage(self.gym, self.sim, self.env)
 
         # Loads mesh, checking if EvalExperiment using nerf grasps

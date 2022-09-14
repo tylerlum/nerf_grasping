@@ -272,10 +272,6 @@ def save(exp_config: Experiment, outfile: str):
     with open(f"{outfile}.pkl", "wb") as f:
         pickle.dump(exp_config, f)
 
-    # Deprecated due to bug in dcargs
-    # with open(f"{outfile}.yaml", "w") as file:
-    #     file.write(dcargs.extras.to_yaml(exp_config))
-
 
 def load(infile):
     with open(infile, "rb") as f:

@@ -360,7 +360,7 @@ def get_cost_function(exp_config, model):
         #         print(grasp_points.shape, gps.shape)
 
         # Center grasp_points around centroid.
-        grasp_points_centered = grasp_points - centroid.reshape(1, 1, 3)
+        grasp_points_centered = grasp_points.to(centroid) - centroid.reshape(1, 1, 3)
 
         # bad_inds = torch.argwhere(torch.all(grasp_points_centered[:, 0] == grasp_points_centered[:, 1], dim=-1))
         # print('bad indices, centered: ', bad_inds)

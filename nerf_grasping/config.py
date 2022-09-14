@@ -3,6 +3,7 @@ import dcargs
 import enum
 import pickle
 
+import os
 from typing import Optional, Union, Tuple
 
 
@@ -217,6 +218,9 @@ class EvalExperiment(Experiment):
     # Optional, turns on wandb logging
     wandb: bool = False
 
+    # Regen set to true since not generating a new grasp file
+    regen: bool = True
+
 
 def mesh_file(exp_config: Experiment):
     """Gets mesh filename from experiment config."""
@@ -249,12 +253,22 @@ def grasp_file(exp_config: Experiment):
         if exp_config.dice_grasp:
             outfile += "_diced"
 
+    if isinstance(exp_config, EvalExperiment):
+        return outfile
+
+    if os.path.exists(f"{outfile}.npy") and not exp_config.regen:
+        raise FileExistsError(
+            f"Exiting generate_grasps.py to not override existing {outfile} grasp data"
+        )
+    elif exp_config.regen:
+        i = 0
+        while os.path.exists(f"{outfile}_{i}.npy") and i < 10:
+            i += 1
+        outfile += f"_{i}"
     return outfile
 
 
-def save(exp_config: Experiment):
-    outfile = grasp_file(exp_config)
-
+def save(exp_config: Experiment, outfile: str):
     with open(f"{outfile}.pkl", "wb") as f:
         pickle.dump(exp_config, f)
 

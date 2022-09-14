@@ -70,7 +70,10 @@ def lifting_trajectory(env, grasp_vars):
             # print("Z Force:", f[:, 2])
             # print("OBJECT FORCES:", gym.get_rigid_contact_forces(sim)[obj.actor])
             if state["mode"] == "lift":
-                print("HEIGHT_ERR:", height_err)
+                print("HEIGHT ERR:", height_err)
+                print("OBJECT VEL-Z:", state["obj_vel-z"])
+                print("OBJ POSITION ERR-Z:", state["obj_pos_err-z"])
+                print("MAX GRASP POS ERR [~slip]:", state["max_contact_pos_err"])
             # print(f"NET CONTACT FORCE:", net_cf[obj.index,:])
         # max_vel = env.robot.velocity.max(dim=1)
         # scalar values
@@ -78,6 +81,13 @@ def lifting_trajectory(env, grasp_vars):
         state["min_ftip_height"] = env.robot.position[:, -1].min()
         state["max_ftip_height"] = env.robot.position[:, -1].max()
         state["fail_count"] = fail_count
+
+        log = {}
+        for k, v in state.items():
+            if isinstance(v, float):
+                log[k] = v
+            elif isinstance(v, (torch.Tensor, np.ndarray)) and np.prod(v.shape) == 1:
+                log[k] = float(v)
 
         if wandb.run is not None:
             wandb.log(state, step=timestep)

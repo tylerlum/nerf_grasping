@@ -72,9 +72,62 @@ def get_mesh(exp_config, obj):
     return approx_mesh
 
 
+def sample_grasp(exp_config, model, centroid):
+
+    grasp_points = (
+        torch.tensor([[0.09, 0.0, -0.045], [-0.09, 0.0, -0.045], [0, 0.0, 0.09]])
+        .reshape(1, 3, 3)
+        .to(centroid)
+    )
+
+    grasp_points += centroid.reshape(1, 1, 3)
+    grasp_dirs = torch.zeros_like(grasp_points)
+
+    mu_0 = torch.cat([grasp_points, grasp_dirs], dim=-1).reshape(-1).to(centroid)
+    Sigma_0 = torch.diag(
+        torch.cat(
+            [torch.tensor([5e-2, 1e-3, 5e-2, 5e-3, 1e-3, 5e-3]) for _ in range(3)]
+        )
+    ).to(centroid)
+
+    projection_fn = partial(
+        grasp_utils.box_projection, object_bounds=grasp_utils.OBJ_BOUNDS
+    )
+    cost_function = grasp_opt.get_cost_function(exp_config, model)
+
+    grasp = np.zeros(3, 6)
+    if exp_config.dice_grasp:
+
+        assert isinstance(exp_config.model_config, config.Mesh)
+
+        rays_o, rays_d = grasp_opt.dice_the_grasp(
+            model, cost_function, exp_config, projection_fn
+        )
+
+        rays_o = grasp_utils.nerf_to_ig(torch.from_numpy(rays_o).float().cuda())
+        rays_d = grasp_utils.nerf_to_ig(torch.from_numpy(rays_d).float().cuda())
+
+    else:
+
+        mu_f, Sigma_f, cost_history, best_point = grasp_opt.optimize_cem(
+            cost_function,
+            mu_0,
+            Sigma_0,
+            num_iters=exp_config.cem_num_iters,
+            num_samples=exp_config.cem_num_samples,
+            elite_frac=exp_config.cem_elite_frac,
+            projection=projection_fn,
+        )
+
+        grasp_points = best_point.reshape(3, 6)
+        rays_o, rays_d = compute_sampled_grasps(model, grasp_points, centroid)
+
+    sampled_grasp = np.concatenate([rays_o.cpu().numpy(), rays_d.cpu().numpy()])
+    return sampled_grasp
+
+
 def main(exp_config: config.Experiment):
 
-    object_bounds = grasp_utils.OBJ_BOUNDS
     obj = ig_objects.load_object(exp_config)
 
     if isinstance(exp_config.model_config, config.Nerf):
@@ -101,24 +154,6 @@ def main(exp_config: config.Experiment):
         model = obj_mesh
         centroid = torch.from_numpy(obj_mesh.ig_centroid).float()
 
-    outfile = config.grasp_file(exp_config)
-
-    grasp_points = (
-        torch.tensor([[0.09, 0.0, -0.045], [-0.09, 0.0, -0.045], [0, 0.0, 0.09]])
-        .reshape(1, 3, 3)
-        .to(centroid)
-    )
-
-    grasp_points += centroid.reshape(1, 1, 3)
-    grasp_dirs = torch.zeros_like(grasp_points)
-
-    mu_0 = torch.cat([grasp_points, grasp_dirs], dim=-1).reshape(-1).to(centroid)
-    Sigma_0 = torch.diag(
-        torch.cat(
-            [torch.tensor([5e-2, 1e-3, 5e-2, 5e-3, 1e-3, 5e-3]) for _ in range(3)]
-        )
-    ).to(centroid)
-
     if isinstance(exp_config.model_config, config.Nerf):
         mu_0, Sigma_0 = mu_0.float().cuda(), Sigma_0.float().cuda()
         centroid = centroid.float().cuda()
@@ -126,43 +161,13 @@ def main(exp_config: config.Experiment):
     # centroid_npy = centroid.detach().cpu().numpy()
     sampled_grasps = np.zeros((exp_config.num_grasps, 3, 6))
     # max_sample_height = min(2 * centroid_npy[1] - 0.01, 0.05)
-    projection_fn = partial(grasp_utils.box_projection, object_bounds=object_bounds)
-
-    cost_function = grasp_opt.get_cost_function(exp_config, model)
 
     for ii in range(exp_config.num_grasps):
-        if exp_config.dice_grasp:
+        grasp_vars = sample_grasp(exp_config, model, centroid)
+        sampled_grasps[ii, :, :] = grasp_vars
 
-            assert isinstance(exp_config.model_config, config.Mesh)
-
-            rays_o, rays_d = grasp_opt.dice_the_grasp(
-                model, cost_function, exp_config, projection_fn
-            )
-
-            rays_o = grasp_utils.nerf_to_ig(torch.from_numpy(rays_o).float().cuda())
-            rays_d = grasp_utils.nerf_to_ig(torch.from_numpy(rays_d).float().cuda())
-
-            sampled_grasps[ii, :, :3] = rays_o.cpu()
-            sampled_grasps[ii, :, 3:] = rays_d.cpu()
-
-        else:
-
-            mu_f, Sigma_f, cost_history, best_point = grasp_opt.optimize_cem(
-                cost_function,
-                mu_0,
-                Sigma_0,
-                num_iters=exp_config.cem_num_iters,
-                num_samples=exp_config.cem_num_samples,
-                elite_frac=exp_config.cem_elite_frac,
-                projection=projection_fn,
-            )
-
-            grasp_points = best_point.reshape(3, 6)
-            rays_o, rays_d = compute_sampled_grasps(model, grasp_points, centroid)
-
-        sampled_grasps[ii, :, :3] = rays_o.cpu().numpy()
-        sampled_grasps[ii, :, 3:] = rays_d.cpu().numpy()
-
+    # saves grasps
+    outfile = config.grasp_file(exp_config)
     os.makedirs("grasp_data", exist_ok=True)
     print(f"saving to: {outfile}[.npy, .yaml]")
     np.save(f"{outfile}.npy", sampled_grasps)

@@ -5,6 +5,7 @@ from nerf_grasping import config
 from nerf_grasping.quaternions import Quaternion
 from nerf_grasping.sim import ig_utils
 from nerf_grasping.sim.sim_fingertip import FingertipEnv
+from generate_grasps import sample_grasp
 
 import dcargs
 import dataclasses

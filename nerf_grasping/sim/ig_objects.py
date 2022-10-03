@@ -22,7 +22,7 @@ def load_nerf(workspace, bound, scale):
     args = parser.parse_args(
         [
             "--workspace",
-            f"{root_dir}/torch-ngp/data/logs/{workspace}",
+            f"{root_dir}/nerf_checkpoints/{workspace}",
             "--test",
             "--bound",
             f"{bound}",

@@ -216,10 +216,10 @@ class TriFingerEnv:
         camera_props.height = 400
 
         # generates cameara positions along rings around object
-        heights = [0.6, 0.3, 0.9, 1.0]
-        distances = [0.25, 0.4, 0.5, 0.1]
+        heights = [0.1, 0.3, 0.25, 0.35]
+        distances = [0.05, 0.125, 0.3, 0.3]
         counts = [56, 104, 96, 1]
-        target_z = [0.0, 0.1, 0.2, 0.1]
+        target_z = [0.0, 0.1, 0.0, 0.1]
 
         camera_positions = []
         for h, d, c, z in zip(heights, distances, counts, target_z):

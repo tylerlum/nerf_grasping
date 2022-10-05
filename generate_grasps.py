@@ -90,12 +90,15 @@ def sample_grasp(exp_config, model, centroid):
         )
     ).to(centroid)
 
+    if isinstance(exp_config.model_config, config.Nerf):
+        mu_0, Sigma_0 = mu_0.float().cuda(), Sigma_0.float().cuda()
+        centroid = centroid.float().cuda()
+
     projection_fn = partial(
         grasp_utils.box_projection, object_bounds=grasp_utils.OBJ_BOUNDS
     )
     cost_function = grasp_opt.get_cost_function(exp_config, model)
 
-    grasp = np.zeros(3, 6)
     if exp_config.dice_grasp:
 
         assert isinstance(exp_config.model_config, config.Mesh)
@@ -122,7 +125,9 @@ def sample_grasp(exp_config, model, centroid):
         grasp_points = best_point.reshape(3, 6)
         rays_o, rays_d = compute_sampled_grasps(model, grasp_points, centroid)
 
-    sampled_grasp = np.concatenate([rays_o.cpu().numpy(), rays_d.cpu().numpy()])
+    sampled_grasp = np.concatenate(
+        [rays_o.cpu().numpy(), rays_d.cpu().numpy()], axis=-1
+    )
     return sampled_grasp
 
 
@@ -153,10 +158,6 @@ def main(exp_config: config.Experiment):
 
         model = obj_mesh
         centroid = torch.from_numpy(obj_mesh.ig_centroid).float()
-
-    if isinstance(exp_config.model_config, config.Nerf):
-        mu_0, Sigma_0 = mu_0.float().cuda(), Sigma_0.float().cuda()
-        centroid = centroid.float().cuda()
 
     # centroid_npy = centroid.detach().cpu().numpy()
     sampled_grasps = np.zeros((exp_config.num_grasps, 3, 6))

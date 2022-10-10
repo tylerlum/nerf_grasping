@@ -157,7 +157,7 @@ def main(exp_config: config.Experiment):
     os.makedirs("grasp_data", exist_ok=True)
     print(f"saving to: {outfile}[.npy, .yaml]")
     np.save(f"{outfile}.npy", sampled_grasps)
-    config.save(exp_config)
+    config.save(exp_config, outfile)
 
 
 exp_config = dcargs.cli(config.Experiment)

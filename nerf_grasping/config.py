@@ -3,7 +3,8 @@ import dcargs
 import enum
 import pickle
 
-from typing import Optional, Union
+import os
+from typing import Optional, Union, Tuple
 
 
 class GradType(enum.Enum):
@@ -17,6 +18,7 @@ class CostType(enum.Enum):
     PSV = enum.auto()
     MSV = enum.auto()
     FC = enum.auto()
+    POLY_AREA = enum.auto()
 
 
 class ObjectType(enum.Enum):
@@ -26,6 +28,7 @@ class ObjectType(enum.Enum):
     POWER_DRILL = enum.auto()
     MUG = enum.auto()
     BLEACH_CLEANSER = enum.auto()
+    BIG_BANANA = enum.auto()
 
 
 @dataclasses.dataclass(frozen=True)
@@ -60,25 +63,25 @@ class ControllerParams:
     kp_grasp: float = 5.0
 
     # Derivative gain during grasping
-    kd_grasp: float = 1.0  # 0.25
+    kd_grasp: float = 1.0  # 10. # 0.25
 
     # Grasp normal vector scaling applied during grasping
-    normal_scale_grasp: float = 0.05  # 0.1
+    normal_scale_grasp: float = 0.1  # 1e-4  # 0.1 # 0.05
 
     # Grasp target normal force to apply with fingers
-    target_normal: float = 3.0  # 0.5
+    target_normal: float = 1.95  # 1.0  # 0.5
 
     # Proportional position gain during lifting
-    kp_lift: float = 1.5  # 10.0
+    kp_lift: float = 0.5  # 0.9
 
     # Derivative position gain during lifting
-    kd_lift: float = 1.0  # 0.1
+    kd_lift: float = 1.0  # 0.4
 
     # Proportional rotation gain during lifting
-    kp_rot_lift: float = 0.3  # 0.04
+    kp_rot_lift: float = 0.1  # 0.04
 
     # Derivative rotation gain during lifting
-    kd_rot_lift: float = 1e-2  # 0.001
+    kd_rot_lift: float = 5e-3  # 0.001
 
 
 @dataclasses.dataclass(frozen=True)
@@ -95,7 +98,7 @@ class RobotConfig:
     gt_normals: bool = False
 
     # Offset from object surface to start initial grasp trajectory from.
-    des_z_dist: float = 0.025
+    des_z_dist: float = 0.06
 
     # Fingertip friction coefficient.
     mu: float = 1.0
@@ -130,11 +133,18 @@ class Nerf:
     # Flag to add noise to samples during rendering.
     render_perturb_samples: bool = True
 
+    # Commented due to possible bug in dcargs.
     # Config object for gradient estimation.
-    grad_config: GradEst = grad_configs["grasp_opt"]
+    grad_config: GradEst = grad_configs["sim"]
+
+    # Flag to use expected surface point.
+    expected_surface: bool = False
+
+    # Flag to use gradient at expected surface.
+    expected_gradient: bool = False
 
     # Desired z-distance for fingers.
-    des_z_dist: float = 0.025
+    des_z_dist: float = 0.05
 
     # Number of iterations for z_dist correction.
     num_z_dist_iters: int = 10
@@ -143,9 +153,6 @@ class Nerf:
 @dataclasses.dataclass(frozen=True)
 class Mesh:
 
-    # What level set to extract with marching cubes; if None, uses gt mesh.
-    level_set: Optional[float] = None
-
     # How far fingers should be positioned from surface.
     des_z_dist: float = 0.025
 
@@ -153,11 +160,11 @@ class Mesh:
 @dataclasses.dataclass(frozen=True)
 class Experiment:
 
-    # Which object is used in experiment.
-    object: ObjectType = ObjectType.BANANA
-
     # Configuration for object model; dispatch on Nerf vs. mesh.
     model_config: Union[Nerf, Mesh] = Nerf()
+
+    # Which object is used in experiment.
+    object: ObjectType = ObjectType.BANANA
 
     # Configuration for robot.
     robot_config: RobotConfig = RobotConfig()
@@ -177,9 +184,6 @@ class Experiment:
     # Elite fraction for CEM.
     cem_elite_frac: float = 0.1
 
-    # Number of grasp samples to draw to compute expectations.
-    num_grasp_samples: int = 10
-
     # Risk sensitivity value to use in cost.
     risk_sensitivity: Optional[float] = None
 
@@ -192,15 +196,38 @@ class Experiment:
     # Enable visualization to see grasping policy
     visualize: bool = False
 
+    # Number of grasp samples to draw to compute expectations.
+    num_grasp_samples: int = 10
+
+    # What level set to extract with marching cubes; if None, uses gt mesh.
+    # NOTE: put this here so wandb plays nice with dcargs; should be in mesh.
+    level_set: Optional[float] = None
+
+    # Whether or not to regenerate grasps if file already exists.
+    regen: bool = False
+
+
+@dataclasses.dataclass(frozen=True)
+class EvalExperiment(Experiment):
+    # Optional, containing either a single index or tuple of (start, end) indices
+    grasp_idx: Union[None, int, str, Tuple[int, int]] = None
+
+    # Optional, defines a path to a specific grasp_data file
+    grasp_data: Optional[str] = None
+
+    # Optional, turns on wandb logging
+    wandb: bool = False
+
+    # Regen set to true since not generating a new grasp file
+    regen: bool = True
+
 
 def mesh_file(exp_config: Experiment):
     """Gets mesh filename from experiment config."""
     obj_name = exp_config.object.name.lower()
 
-    if exp_config.model_config.level_set:
-        return (
-            f"grasp_data/meshes/{obj_name}_{int(exp_config.model_config.level_set)}.obj"
-        )
+    if exp_config.level_set:
+        return f"grasp_data/meshes/{obj_name}_{int(exp_config.level_set)}.obj"
     else:
         return f"grasp_data/meshes/{obj_name}.obj"
 
@@ -215,25 +242,35 @@ def grasp_file(exp_config: Experiment):
         outfile += f"_{exp_config.cost_function.name.lower()}"
         if exp_config.risk_sensitivity:
             outfile += f"_rs{exp_config.risk_sensitivity}"
+        if exp_config.model_config.expected_surface:
+            outfile += "_es"
+        if exp_config.model_config.expected_gradient:
+            outfile += "_eg"
 
     else:
-        if exp_config.model_config.level_set:
-            outfile += f"_{int(exp_config.model_config.level_set)}"
+        if exp_config.level_set:
+            outfile += f"_{int(exp_config.level_set)}"
         if exp_config.dice_grasp:
             outfile += "_diced"
 
+    if isinstance(exp_config, EvalExperiment):
+        return outfile
+
+    if os.path.exists(f"{outfile}.npy") and not exp_config.regen:
+        raise FileExistsError(
+            f"Exiting generate_grasps.py to not override existing {outfile} grasp data"
+        )
+    elif exp_config.regen:
+        i = 0
+        while os.path.exists(f"{outfile}_{i}.npy") and i < 10:
+            i += 1
+        outfile += f"_{i}"
     return outfile
 
 
-def save(exp_config: Experiment):
-    outfile = grasp_file(exp_config)
-
+def save(exp_config: Experiment, outfile: str):
     with open(f"{outfile}.pkl", "wb") as f:
         pickle.dump(exp_config, f)
-
-    # Deprecated due to bug in dcargs
-    # with open(f"{outfile}.yaml", "w") as file:
-    #     file.write(dcargs.extras.to_yaml(exp_config))
 
 
 def load(infile):

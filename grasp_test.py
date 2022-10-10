@@ -371,13 +371,13 @@ def main():
 
     # Loads grasp data
     if exp_config.grasp_data is None:
-        grasp_data_path = config.grasp_file(exp_config)
+        grasp_data_path = config.grasp_file(exp_config) + ".npy"
     else:
         assert os.path.exists(
             exp_config.grasp_data
         ), f"{exp_config.grasp_data} does not exist"
         grasp_data_path = exp_config.grasp_data
-    grasps = np.load(f"{grasp_data_path}.npy")
+    grasps = np.load(f"{grasp_data_path}")
 
     # Creates the robot
     robot = FingertipRobot(exp_config.robot_config)

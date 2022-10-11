@@ -38,7 +38,8 @@ def compute_sampled_grasps(model, grasp_points, centroid):
 
 
 def get_mesh(exp_config, obj):
-    """Extracts mesh with marching cubes + saves to file if not found."""
+    """Extracts mesh with marching cubes + saves to file if not found, storing
+    in Z-up (i.e. IG) frame"""
 
     # Load triangle mesh from file.
     mesh_file = config.mesh_file(exp_config)
@@ -72,7 +73,34 @@ def get_mesh(exp_config, obj):
     return approx_mesh
 
 
-def sample_grasp(exp_config, model, centroid):
+def main(exp_config: config.Experiment):
+
+    obj = ig_objects.load_object(exp_config)
+
+    if isinstance(exp_config.model_config, config.Nerf):
+        model = ig_objects.load_nerf(obj.workspace, obj.bound, obj.scale)
+        print(f"Estimated Centroid: {model.ig_centroid}")
+        print(f"True Centroid: {obj.gt_mesh.ig_centroid}")
+
+        centroid = model.centroid
+
+    else:
+
+        model = get_mesh(exp_config, obj)  # obj.gt_mesh
+
+        # Transform triangle mesh to Nerf frame.
+        T = np.eye(4)
+        R = scipy.spatial.transform.Rotation.from_euler("Y", [-np.pi / 2]).as_matrix()
+        R = (
+            R
+            @ scipy.spatial.transform.Rotation.from_euler("X", [-np.pi / 2]).as_matrix()
+        )
+        T[:3, :3] = R
+        model.apply_transform(T)
+
+        centroid = torch.from_numpy(model.centroid).float()
+
+    outfile = config.grasp_file(exp_config)
 
     grasp_points = (
         torch.tensor([[0.09, 0.0, -0.045], [-0.09, 0.0, -0.045], [0, 0.0, 0.09]])
@@ -94,81 +122,45 @@ def sample_grasp(exp_config, model, centroid):
         mu_0, Sigma_0 = mu_0.float().cuda(), Sigma_0.float().cuda()
         centroid = centroid.float().cuda()
 
-    projection_fn = partial(
-        grasp_utils.box_projection, object_bounds=grasp_utils.OBJ_BOUNDS
-    )
+    sampled_grasps = np.zeros((exp_config.num_grasps, 3, 6))
+    object_bounds = grasp_utils.OBJ_BOUNDS
+    projection_fn = partial(grasp_utils.box_projection, object_bounds=object_bounds)
+
     cost_function = grasp_opt.get_cost_function(exp_config, model)
 
-    if exp_config.dice_grasp:
-
-        assert isinstance(exp_config.model_config, config.Mesh)
-
-        rays_o, rays_d = grasp_opt.dice_the_grasp(
-            model, cost_function, exp_config, projection_fn
-        )
-
-        rays_o = grasp_utils.nerf_to_ig(torch.from_numpy(rays_o).float().cuda())
-        rays_d = grasp_utils.nerf_to_ig(torch.from_numpy(rays_d).float().cuda())
-
-    else:
-
-        mu_f, Sigma_f, cost_history, best_point = grasp_opt.optimize_cem(
-            cost_function,
-            mu_0,
-            Sigma_0,
-            num_iters=exp_config.cem_num_iters,
-            num_samples=exp_config.cem_num_samples,
-            elite_frac=exp_config.cem_elite_frac,
-            projection=projection_fn,
-        )
-
-        grasp_points = best_point.reshape(3, 6)
-        rays_o, rays_d = compute_sampled_grasps(model, grasp_points, centroid)
-
-    sampled_grasp = np.concatenate(
-        [rays_o.cpu().numpy(), rays_d.cpu().numpy()], axis=-1
-    )
-    return sampled_grasp
-
-
-def main(exp_config: config.Experiment):
-
-    obj = ig_objects.load_object(exp_config)
-
-    if isinstance(exp_config.model_config, config.Nerf):
-        model = ig_objects.load_nerf(obj.workspace, obj.bound, obj.scale)
-        print(f"Estimated Centroid: {model.ig_centroid}")
-        print(f"True Centroid: {obj.gt_mesh.ig_centroid}")
-
-        centroid = model.ig_centroid
-
-    else:
-
-        obj_mesh = obj.gt_mesh
-
-        # # Transform triangle mesh to Nerf frame.
-        # T = np.eye(4)
-        # R = scipy.spatial.transform.Rotation.from_euler("Y", [-np.pi / 2]).as_matrix()
-        # R = (
-        #     R
-        #     @ scipy.spatial.transform.Rotation.from_euler("X", [-np.pi / 2]).as_matrix()
-        # )
-        # T[:3, :3] = R
-        # obj_mesh.apply_transform(T)
-
-        model = obj_mesh
-        centroid = torch.from_numpy(obj_mesh.ig_centroid).float()
-
-    # centroid_npy = centroid.detach().cpu().numpy()
-    sampled_grasps = np.zeros((exp_config.num_grasps, 3, 6))
-    # max_sample_height = min(2 * centroid_npy[1] - 0.01, 0.05)
-
     for ii in range(exp_config.num_grasps):
-        grasp_vars = sample_grasp(exp_config, model, centroid)
-        sampled_grasps[ii, :, :] = grasp_vars
+        if exp_config.dice_grasp:
 
-    # saves grasps
-    outfile = config.grasp_file(exp_config)
+            assert isinstance(exp_config.model_config, config.Mesh)
+
+            rays_o, rays_d = grasp_opt.dice_the_grasp(
+                model, cost_function, exp_config, projection_fn
+            )
+
+            rays_o = grasp_utils.nerf_to_ig(torch.from_numpy(rays_o).float().cuda())
+            rays_d = grasp_utils.nerf_to_ig(torch.from_numpy(rays_d).float().cuda())
+
+            sampled_grasps[ii, :, :3] = rays_o.cpu()
+            sampled_grasps[ii, :, 3:] = rays_d.cpu()
+
+        else:
+
+            mu_f, Sigma_f, cost_history, best_point = grasp_opt.optimize_cem(
+                cost_function,
+                mu_0,
+                Sigma_0,
+                num_iters=exp_config.cem_num_iters,
+                num_samples=exp_config.cem_num_samples,
+                elite_frac=exp_config.cem_elite_frac,
+                projection=projection_fn,
+            )
+
+            grasp_points = best_point.reshape(3, 6)
+            rays_o, rays_d = compute_sampled_grasps(model, grasp_points, centroid)
+
+        sampled_grasps[ii, :, :3] = rays_o.cpu().numpy()
+        sampled_grasps[ii, :, 3:] = rays_d.cpu().numpy()
+
     os.makedirs("grasp_data", exist_ok=True)
     print(f"saving to: {outfile}[.npy, .yaml]")
     np.save(f"{outfile}.npy", sampled_grasps)

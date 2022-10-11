@@ -17,12 +17,12 @@ asset_dir = f"{root_dir}/assets"
 gd_mesh_dir = f"{root_dir}/grasp_data/meshes"
 
 
-def load_nerf(workspace, bound, scale):
+def load_nerf(workspace, bound, scale, obj_translation):
     parser = utils.get_config_parser()
     args = parser.parse_args(
         [
             "--workspace",
-            f"{root_dir}/torch-ngp/data/logs/{workspace}",
+            f"{root_dir}/nerf_checkpoints/{workspace}",
             "--test",
             "--bound",
             f"{bound}",
@@ -33,7 +33,7 @@ def load_nerf(workspace, bound, scale):
             f"{root_dir}/torch-ngp",
         ]
     )
-    model = nerf_utils.load_nerf(args)
+    model = nerf_utils.load_nerf(args, obj_translation)
     return model
 
 
@@ -109,13 +109,17 @@ class RigidObject:
     def load_nerf_model(self):
         if self.nerf_loaded:
             return
-        self.model = load_nerf(self.workspace, self.bound, self.scale)
+        # TODO: whether to use new_translation or translation?
+        self.model = load_nerf(
+            self.workspace, self.bound, self.scale, self.new_translation
+        )
         self.nerf_loaded = True
 
     def load_trimesh(self, mesh_path=None):
         if mesh_path is None or not os.path.exists(mesh_path):
             mesh_path = os.path.join(gd_mesh_dir, f"{self.name}.obj")
         mesh = trimesh.load(mesh_path, force="mesh")
+        # Rotation puts it in Y-up frame, from Z-up
         R = scipy.spatial.transform.Rotation.from_euler("Y", [-np.pi / 2]).as_matrix()
         R = (
             R
@@ -126,8 +130,9 @@ class RigidObject:
         mesh.apply_scale(self.obj_scale)
         # mesh.apply_translation(self.translation)
         mesh.apply_transform(T_rot)
-        mesh.ig_centroid = (
-            grasp_utils.ig_to_nerf(self.translation.reshape(1, 3))
+        # IG centroid (when object is loaded into sim) in Nerf frame
+        mesh.nerf_centroid = (
+            grasp_utils.ig_to_nerf(self.new_translation.reshape(1, 3))
             .reshape(-1)
             .cpu()
             .numpy()
@@ -234,6 +239,8 @@ class TeddyBear(RigidObject):
     centroid = np.array([-0.0001444, 0.00412231, 0.08663063])
     use_centroid = False
     translation = np.array([-1.2824e-05, 6.9302e-06, 2.2592e-03])
+    new_translation = np.array([1.7978e-08, -6.0033e-08, 2.7280e-03])
+    orientation = np.array([3.4469e-06, 4.8506e-06, 6.9347e-07, 1.0000e00])
 
     grasp_points = torch.tensor(
         [[0.0350, 0.0580, 0.1010], [0.0000, -0.0480, 0.0830], [-0.0390, 0.0580, 0.1010]]
@@ -259,6 +266,7 @@ class Box(RigidObject):
 
     obj_scale = 0.075
     translation = np.array([1.6316e-07, -6.7600e-07, 3.9500e-02])
+    new_translation = np.array([7.8142e-07, -1.5576e-06, 3.9500e-02])
     asset_file = "objects/urdf/cube_multicolor.urdf"
 
 
@@ -312,7 +320,7 @@ class Box(RigidObject):
 class PowerDrill(RigidObject):
     workspace = "power_drill"
     centroid = np.zeros(3)
-    translation = np.array([-0.00031597, 0.00020537, 0.00023557])
+    # old_translation = np.array([-0.00031597, 0.00020537, 0.00023557])
     grasp_points = torch.tensor(
         [
             [-0.038539, 0.115021, 0.023878],
@@ -328,6 +336,7 @@ class PowerDrill(RigidObject):
     name = "power_drill"
     obj_scale = 1.0
     translation = np.array([-4.0196e-06, 2.4881e-05, 5.2011e-03])
+    new_translation = np.array([-1.0431e-07, -1.6764e-08, 5.6809e-03])
 
 
 class Banana(RigidObject):
@@ -345,6 +354,7 @@ class Banana(RigidObject):
     name = "banana"
     mu = 1.0
     translation = np.array([-1.4408e-05, 3.8640e-06, 2.7102e-03])
+    new_translation = np.array([7.8349e-06, -2.5369e-06, 3.0588e-03])
 
 
 class BigBanana(RigidObject):
@@ -363,6 +373,8 @@ class BigBanana(RigidObject):
     bound = 1.5
     mu = 1.0
     translation = np.array([-1.4408e-05, 3.8640e-06, 2.7102e-03])
+    new_translation = np.array([2.3227e-05, -1.6251e-05, 3.5882e-03])
+    new_orientation = np.array([6.6045e-03, 1.0165e-02, 1.1789e-05, 9.9993e-01])
 
     def configure_actor(self, gym, env):
         actor = super().configure_actor(gym, env)
@@ -403,5 +415,6 @@ class BleachCleanser(RigidObject):
 
     grasp_normals = torch.tensor([[0, -1.0, 0.0], [-1, 0.0, 0.0], [1.0, 1.0, 0.0]])
     translation = np.array([1.2256e-05, -1.2865e-06, 1.3161e-03])
+    new_translation = np.array([1.2256e-05, -1.2865e-06, 1.3161e-03])
     obj_scale = 0.75
     mu = 1.0

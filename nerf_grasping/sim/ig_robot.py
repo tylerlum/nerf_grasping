@@ -141,7 +141,7 @@ class FingertipRobot:
         )
         grad_ests = grad_ests.reshape(3, 3).float()
         grad_ests /= grad_ests.norm(dim=1, keepdim=True)
-        grad_ests = grasp_utils.nerf_to_ig(grad_ests, -obj.model.ig_centroid)
+        grad_ests = grasp_utils.nerf_to_ig(grad_ests)
         return grad_ests
 
     def apply_fingertip_forces(self, global_fingertip_forces):

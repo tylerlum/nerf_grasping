@@ -309,10 +309,7 @@ def optimize_cem(
 def get_cost_function(exp_config, model):
     """Factory for grasp cost function; generates grasp cost for CEM using config/model."""
 
-    if isinstance(model.ig_centroid, torch.Tensor):
-        centroid = model.ig_centroid
-    else:
-        centroid = torch.from_numpy(model.ig_centroid)
+    centroid = torch.as_tensor(model.centroid)
 
     def cost_function(grasp_vars):
 

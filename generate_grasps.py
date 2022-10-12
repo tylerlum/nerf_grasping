@@ -15,15 +15,14 @@ def compute_sampled_grasps(model, grasp_points, centroid):
     """Converts grasp vars to ray origins/directions; attempts to clip
     grasp to lie above floor + be equidistant from the surface."""
 
-    # Unpack grasp vars.
-    rays_o, rays_d = grasp_points[:, :3], grasp_points[:, 3:]
-
-    # Convert directions to "true" rather than residual.
-    rays_d = grasp_utils.res_to_true_dirs(rays_o, rays_d, centroid)
-    print("optimized vals: ", rays_o)
-
+    print("optimized vals: ", grasp_points)
     # Correct z-distances (use correct method for mesh/Nerf).
     if isinstance(model, trimesh.Trimesh):
+        # Unpack grasp vars.
+        rays_o, rays_d = grasp_points[:, :3], grasp_points[:, 3:]
+
+        # Convert directions to "true" rather than residual.
+        rays_d = grasp_utils.res_to_true_dirs(rays_o, rays_d, centroid)
         rays_o, rays_d = mesh_utils.correct_z_dists(
             model, rays_o, rays_d, exp_config.model_config
         )
@@ -37,56 +36,22 @@ def compute_sampled_grasps(model, grasp_points, centroid):
     return rays_o, rays_d
 
 
-def get_mesh(exp_config, obj):
-    """Extracts mesh with marching cubes + saves to file if not found, storing
-    in Z-up (i.e. IG) frame"""
-
-    # Load triangle mesh from file.
-    mesh_file = config.mesh_file(exp_config)
-
-    if os.path.exists(mesh_file):
-        obj_mesh = trimesh.load(mesh_file, force="mesh")
-        return obj_mesh
-
-    elif exp_config.level_set is None:
-        # GT mesh not stored in grasp_data; make copy for simplicity.
-        obj.gt_mesh.export(mesh_file)
-        return obj.gt_mesh
-
-    # Marching cubes mesh not found; generate and save.
-    object_nerf = ig_objects.load_nerf(obj.workspace, obj.bound, obj.scale)
-
-    verts, faces, normals, _ = mesh_utils.marching_cubes(
-        object_nerf, level_set=exp_config.model_config.level_set
-    )
-
-    approx_mesh = trimesh.Trimesh(verts, faces, vertex_normals=normals)
-
-    T = np.eye(4)
-    R = scipy.spatial.transform.Rotation.from_euler("Y", [-np.pi / 2]).as_matrix()
-    R = R @ scipy.spatial.transform.Rotation.from_euler("X", [-np.pi / 2]).as_matrix()
-    # Apply inverse transform to map approximate mesh -> ig frame.
-    T[:3, :3] = R.reshape(3, 3).T
-    approx_mesh.apply_transform(T)
-    approx_mesh = mesh_utils.poisson_mesh(approx_mesh)
-    approx_mesh.export(mesh_file)
-    return approx_mesh
-
-
 def main(exp_config: config.Experiment):
 
     obj = ig_objects.load_object(exp_config)
 
     if isinstance(exp_config.model_config, config.Nerf):
-        model = ig_objects.load_nerf(obj.workspace, obj.bound, obj.scale)
-        print(f"Estimated Centroid: {model.ig_centroid}")
-        print(f"True Centroid: {obj.gt_mesh.ig_centroid}")
+        model = ig_objects.load_nerf(
+            obj.workspace, obj.bound, obj.scale, obj.new_translation
+        )
+        print(f"Estimated Centroid: {model.centroid}")
+        print(f"True Centroid: {obj.gt_mesh.nerf_centroid}")
 
         centroid = model.centroid
 
     else:
 
-        model = get_mesh(exp_config, obj)  # obj.gt_mesh
+        model = mesh_utils.get_mesh(exp_config, obj)  # obj.gt_mesh
 
         # Transform triangle mesh to Nerf frame.
         T = np.eye(4)

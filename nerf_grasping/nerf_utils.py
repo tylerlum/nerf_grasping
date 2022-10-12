@@ -25,10 +25,13 @@ class NeRFModel:
     def __getattr__(self, name):
         return getattr(self.base_model, name)
 
+    def __call__(self, *args, **kwargs):
+        return self.base_model(*args, **kwargs)
+
     @property
     def centroid(self):
         """Approximate NeRF model centroid"""
-        # TODO: decide whether to return centroid (from nerf_centroid), 
+        # TODO: decide whether to return centroid (from nerf_centroid),
         #       or obj translation centroid
         # never returns direct pointer to attribute, prevents overwriting
         # return self._centroid.clone()
@@ -44,6 +47,7 @@ class NeRFModel:
     def nerf_centroid(self):
         """IG centroid (when object is loaded into sim) in Nerf frame"""
         return grasp_utils.ig_to_nerf(self._obj_translation.reshape(1, 3)).reshape(-1)
+
 
 def load_nerf(opt, obj_translation):
     """
@@ -555,7 +559,7 @@ def correct_z_dists(model, grasp_points, nerf_config):
     # exp_dists = torch.norm(rays_o - exp_surf_points, dim=-1, keepdim=True)
     # rays_d = (exp_surf_points - rays_o) / exp_dists
 
-    return rays_o  # , rays_d
+    return rays_o, rays_d
 
 
 def intersect_grasp_dirs(grasp_vars, model, B, n_f, nerf_config):

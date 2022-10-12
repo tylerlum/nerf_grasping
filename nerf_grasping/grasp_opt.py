@@ -306,7 +306,7 @@ def optimize_cem(
     return mu, Sigma, cost_history, best_point
 
 
-def get_cost_function(exp_config, model):
+def get_cost_function(exp_config: config.Experiment, model: nerf_utils.NeRFModel):
     """Factory for grasp cost function; generates grasp cost for CEM using config/model."""
 
     centroid = torch.as_tensor(model.centroid)

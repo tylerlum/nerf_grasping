@@ -219,13 +219,8 @@ def l1_metric(
     device = normals_t.device
     grasp_points = grasp_points_t.detach().cpu().numpy().reshape(-1, 9)[valid_inds, :]
     normals = normals_t.detach().cpu().numpy().reshape(-1, 9)[valid_inds, :]
-    if centroid is None:
-        centroid = np.zeros((len(grasp_points), 3))
-    else:
-        centroid = centroid.cpu().detach().numpy()
-        centroid = np.stack([centroid for _ in range(len(grasp_points))]).astype(
-            "float64"
-        )
+    centroid = centroid.cpu().detach().numpy()
+    centroid = np.stack([centroid for _ in range(len(grasp_points))]).astype("float64")
     grasps = np.concatenate([grasp_points, normals, centroid], axis=1)
     result = np.zeros(len(grasps))
     _ = fg.getLowerBoundsPurgeQHull(grasps, mu, num_edges, result)

@@ -5,8 +5,10 @@ a wrapper for marching cubes and some IoU calculations.
 import numpy as np
 import os
 import pypoisson
+import os
 import torch
 import trimesh
+import scipy.spatial
 
 from nerf_grasping import grasp_utils, config
 from matplotlib import pyplot as plt
@@ -383,18 +385,15 @@ def correct_z_dists(mesh, rays_o, rays_d, mesh_config):
     dists_corrected = np.linalg.norm(
         rays_o_corrected - hit_points, axis=-1, keepdims=True
     )
-    rays_d_corrected = (hit_points - rays_o_corrected) / dists_corrected
 
     if isinstance(rays_o, torch.Tensor):
         rays_o_corrected = torch.from_numpy(rays_o_corrected).to(rays_o)
-        rays_d_corrected = torch.from_numpy(rays_d_corrected).to(rays_o)
 
-    return rays_o_corrected, rays_d_corrected
+    return rays_o_corrected
 
 
 def get_mesh(exp_config, obj):
-    """Extracts mesh with marching cubes + saves to file if not found, storing
-    in Z-up (i.e. IG) frame"""
+    """Extracts mesh with marching cubes + saves to file if not found."""
 
     # Load triangle mesh from file.
     mesh_file = config.mesh_file(exp_config)
@@ -403,15 +402,13 @@ def get_mesh(exp_config, obj):
         obj_mesh = trimesh.load(mesh_file, force="mesh")
         return obj_mesh
 
-    elif exp_config.level_set is None:
+    elif exp_config.model_config.level_set is None:
         # GT mesh not stored in grasp_data; make copy for simplicity.
         obj.gt_mesh.export(mesh_file)
         return obj.gt_mesh
 
     # Marching cubes mesh not found; generate and save.
-    object_nerf = ig_objects.load_nerf(
-        obj.workspace, obj.bound, obj.scale, obj.new_translation
-    )
+    object_nerf = ig_objects.load_nerf(obj.workspace, obj.bound, obj.scale)
 
     verts, faces, normals, _ = marching_cubes(
         object_nerf, level_set=exp_config.model_config.level_set
@@ -425,6 +422,6 @@ def get_mesh(exp_config, obj):
     # Apply inverse transform to map approximate mesh -> ig frame.
     T[:3, :3] = R.reshape(3, 3).T
     approx_mesh.apply_transform(T)
-    approx_mesh = mesh_utils.poisson_mesh(approx_mesh)
+    approx_mesh = poisson_mesh(approx_mesh)
     approx_mesh.export(mesh_file)
     return approx_mesh

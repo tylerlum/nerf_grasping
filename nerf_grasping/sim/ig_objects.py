@@ -243,6 +243,7 @@ class TeddyBear(RigidObject):
     new_translation = np.array([1.7978e-08, -6.0033e-08, 2.7280e-03])
     orientation = np.array([3.4469e-06, 4.8506e-06, 6.9347e-07, 1.0000e00])
 
+    # Grasp points are in XYZ (i.e. Z-up) frame
     grasp_points = torch.tensor(
         [[0.0350, 0.0580, 0.1010], [0.0000, -0.0480, 0.0830], [-0.0390, 0.0580, 0.1010]]
     )

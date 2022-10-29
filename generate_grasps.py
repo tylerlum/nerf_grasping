@@ -16,21 +16,16 @@ def compute_sampled_grasps(model, grasp_points, centroid):
     grasp to lie above floor + be equidistant from the surface."""
 
     print("optimized vals: ", grasp_points)
-    # Correct z-distances (use correct method for mesh/Nerf).
     if isinstance(model, trimesh.Trimesh):
-        # Unpack grasp vars.
         rays_o, rays_d = grasp_points[:, :3], grasp_points[:, 3:]
-
-        # Convert directions to "true" rather than residual.
         rays_d = grasp_utils.res_to_true_dirs(rays_o, rays_d, centroid)
-        rays_o, rays_d = mesh_utils.correct_z_dists(
+        rays_o = mesh_utils.correct_z_dists(
             model, rays_o, rays_d, exp_config.model_config
         )
     else:
         rays_o, rays_d = nerf_utils.correct_z_dists(
             model, grasp_points, exp_config.model_config
         )
-
     print("corrected vals:", rays_o, rays_d, centroid)
     rays_o, rays_d = grasp_utils.nerf_to_ig(rays_o), grasp_utils.nerf_to_ig(rays_d)
     return rays_o, rays_d
@@ -51,7 +46,7 @@ def main(exp_config: config.Experiment):
 
     else:
 
-        model = mesh_utils.get_mesh(exp_config, obj)  # obj.gt_mesh
+        model = mesh_utils.get_mesh(exp_config, obj)
 
         # Transform triangle mesh to Nerf frame.
         T = np.eye(4)
@@ -62,12 +57,6 @@ def main(exp_config: config.Experiment):
         )
         T[:3, :3] = R
         model.apply_transform(T)
-        model.ig_centroid = (
-            grasp_utils.ig_to_nerf(obj.new_translation.reshape(1, 3))
-            .reshape(-1)
-            .cpu()
-            .numpy()
-        )
         centroid = torch.from_numpy(model.centroid).float()
 
     grasp_points = (
@@ -76,7 +65,7 @@ def main(exp_config: config.Experiment):
         .to(centroid)
     )
 
-    grasp_points += centroid.reshape(1, 1, 3)
+    grasp_points += centroid.reshape(1, 1, 3)  # move grasp points in object frame
     grasp_dirs = torch.zeros_like(grasp_points)
 
     mu_0 = torch.cat([grasp_points, grasp_dirs], dim=-1).reshape(-1).to(centroid)

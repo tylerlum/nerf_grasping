@@ -15,6 +15,7 @@ from nerf import utils
 root_dir = Path(os.path.abspath(__file__)).parents[2]
 asset_dir = f"{root_dir}/assets"
 gd_mesh_dir = f"{root_dir}/grasp_data/meshes"
+print("root_dir", root_dir)
 
 
 def load_nerf(workspace, bound, scale, obj_translation):

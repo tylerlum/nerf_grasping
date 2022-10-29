@@ -62,10 +62,13 @@ def main(exp_config: config.Experiment):
         )
         T[:3, :3] = R
         model.apply_transform(T)
-
+        model.ig_centroid = (
+            grasp_utils.ig_to_nerf(obj.new_translation.reshape(1, 3))
+            .reshape(-1)
+            .cpu()
+            .numpy()
+        )
         centroid = torch.from_numpy(model.centroid).float()
-
-    outfile = config.grasp_file(exp_config)
 
     grasp_points = (
         torch.tensor([[0.09, 0.0, -0.045], [-0.09, 0.0, -0.045], [0, 0.0, 0.09]])
@@ -125,6 +128,8 @@ def main(exp_config: config.Experiment):
 
         sampled_grasps[ii, :, :3] = rays_o.cpu().numpy()
         sampled_grasps[ii, :, 3:] = rays_d.cpu().numpy()
+
+    outfile = config.grasp_file(exp_config)
 
     os.makedirs("grasp_data", exist_ok=True)
     print(f"saving to: {outfile}[.npy, .yaml]")

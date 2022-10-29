@@ -4,10 +4,12 @@ a wrapper for marching cubes and some IoU calculations.
 """
 import numpy as np
 import pypoisson
+import os
 import torch
 import trimesh
+import scipy.spatial
 
-from nerf_grasping import grasp_utils
+from nerf_grasping import grasp_utils, config
 from matplotlib import pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
@@ -368,3 +370,38 @@ def correct_z_dists(mesh, rays_o, rays_d, mesh_config):
         rays_o_corrected = torch.from_numpy(rays_o_corrected).to(rays_o)
 
     return rays_o_corrected
+
+
+def get_mesh(exp_config, obj):
+    """Extracts mesh with marching cubes + saves to file if not found."""
+
+    # Load triangle mesh from file.
+    mesh_file = config.mesh_file(exp_config)
+
+    if os.path.exists(mesh_file):
+        obj_mesh = trimesh.load(mesh_file, force="mesh")
+        return obj_mesh
+
+    elif exp_config.model_config.level_set is None:
+        # GT mesh not stored in grasp_data; make copy for simplicity.
+        obj.gt_mesh.export(mesh_file)
+        return obj.gt_mesh
+
+    # Marching cubes mesh not found; generate and save.
+    object_nerf = ig_objects.load_nerf(obj.workspace, obj.bound, obj.scale)
+
+    verts, faces, normals, _ = marching_cubes(
+        object_nerf, level_set=exp_config.model_config.level_set
+    )
+
+    approx_mesh = trimesh.Trimesh(verts, faces, vertex_normals=normals)
+
+    T = np.eye(4)
+    R = scipy.spatial.transform.Rotation.from_euler("Y", [-np.pi / 2]).as_matrix()
+    R = R @ scipy.spatial.transform.Rotation.from_euler("X", [-np.pi / 2]).as_matrix()
+    # Apply inverse transform to map approximate mesh -> ig frame.
+    T[:3, :3] = R.reshape(3, 3).T
+    approx_mesh.apply_transform(T)
+    approx_mesh = poisson_mesh(approx_mesh)
+    approx_mesh.export(mesh_file)
+    return approx_mesh

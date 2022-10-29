@@ -216,6 +216,7 @@ class TeddyBear(RigidObject):
     use_centroid = False
     translation = np.array([-1.2824e-05, 6.9302e-06, 2.2592e-03])
 
+    # Grasp points are in XYZ (i.e. Z-up) frame
     grasp_points = torch.tensor(
         [[0.0350, 0.0580, 0.1010], [0.0000, -0.0480, 0.0830], [-0.0390, 0.0580, 0.1010]]
     )

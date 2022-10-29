@@ -12,55 +12,21 @@ import yaml
 
 
 def compute_sampled_grasps(model, grasp_points, centroid):
-    rays_o, rays_d = grasp_points[:, :3], grasp_points[:, 3:]
-    rays_d = grasp_utils.res_to_true_dirs(rays_o, rays_d, centroid)
-    print("optimized vals: ", rays_o)
+    print("optimized vals: ", grasp_points)
     if isinstance(model, trimesh.Trimesh):
+        rays_o, rays_d = grasp_points[:, :3], grasp_points[:, 3:]
+        rays_d = grasp_utils.res_to_true_dirs(rays_o, rays_d, centroid)
         rays_o = mesh_utils.correct_z_dists(
             model, rays_o, rays_d, exp_config.model_config
         )
     else:
+        rays_d = grasp_points[:, 3:]
         rays_o = nerf_utils.correct_z_dists(
             model, grasp_points, exp_config.model_config
         )
-    print("corrected vals:", rays_o, centroid)
+    print("corrected vals:", rays_o, rays_d, centroid)
     rays_o, rays_d = grasp_utils.nerf_to_ig(rays_o), grasp_utils.nerf_to_ig(rays_d)
     return rays_o, rays_d
-
-
-def get_mesh(exp_config, obj):
-    """Extracts mesh with marching cubes + saves to file if not found."""
-
-    # Load triangle mesh from file.
-    mesh_file = config.mesh_file(exp_config)
-
-    if os.path.exists(mesh_file):
-        obj_mesh = trimesh.load(mesh_file, force="mesh")
-        return obj_mesh
-
-    elif exp_config.model_config.level_set is None:
-        # GT mesh not stored in grasp_data; make copy for simplicity.
-        obj.gt_mesh.export(mesh_file)
-        return obj.gt_mesh
-
-    # Marching cubes mesh not found; generate and save.
-    object_nerf = ig_objects.load_nerf(obj.workspace, obj.bound, obj.scale)
-
-    verts, faces, normals, _ = mesh_utils.marching_cubes(
-        object_nerf, level_set=exp_config.model_config.level_set
-    )
-
-    approx_mesh = trimesh.Trimesh(verts, faces, vertex_normals=normals)
-
-    T = np.eye(4)
-    R = scipy.spatial.transform.Rotation.from_euler("Y", [-np.pi / 2]).as_matrix()
-    R = R @ scipy.spatial.transform.Rotation.from_euler("X", [-np.pi / 2]).as_matrix()
-    # Apply inverse transform to map approximate mesh -> ig frame.
-    T[:3, :3] = R.reshape(3, 3).T
-    approx_mesh.apply_transform(T)
-    approx_mesh = mesh_utils.poisson_mesh(approx_mesh)
-    approx_mesh.export(mesh_file)
-    return approx_mesh
 
 
 def main(exp_config: config.Experiment):
@@ -77,7 +43,7 @@ def main(exp_config: config.Experiment):
 
     else:
 
-        obj_mesh = get_mesh(exp_config, obj)
+        model = mesh_utils.get_mesh(exp_config, obj)
 
         # Transform triangle mesh to Nerf frame.
         T = np.eye(4)
@@ -87,12 +53,8 @@ def main(exp_config: config.Experiment):
             @ scipy.spatial.transform.Rotation.from_euler("X", [-np.pi / 2]).as_matrix()
         )
         T[:3, :3] = R
-        obj_mesh.apply_transform(T)
-
-        model = obj_mesh
-        centroid = torch.from_numpy(obj_mesh.centroid).float()
-
-    outfile = config.grasp_file(exp_config)
+        model.apply_transform(T)
+        centroid = torch.from_numpy(model.centroid).float()
 
     grasp_points = (
         torch.tensor([[0.09, 0.0, -0.045], [-0.09, 0.0, -0.045], [0, 0.0, 0.09]])
@@ -100,7 +62,7 @@ def main(exp_config: config.Experiment):
         .to(centroid)
     )
 
-    grasp_points += centroid.reshape(1, 1, 3)
+    grasp_points += centroid.reshape(1, 1, 3)  # move grasp points in object frame
     grasp_dirs = torch.zeros_like(grasp_points)
 
     mu_0 = torch.cat([grasp_points, grasp_dirs], dim=-1).reshape(-1).to(centroid)
@@ -154,11 +116,14 @@ def main(exp_config: config.Experiment):
         sampled_grasps[ii, :, :3] = rays_o.cpu().numpy()
         sampled_grasps[ii, :, 3:] = rays_d.cpu().numpy()
 
+    outfile = config.grasp_file(exp_config)
+
     os.makedirs("grasp_data", exist_ok=True)
     print(f"saving to: {outfile}[.npy, .yaml]")
     np.save(f"{outfile}.npy", sampled_grasps)
     config.save(exp_config, outfile)
 
 
-exp_config = dcargs.cli(config.Experiment)
-main(exp_config)
+if __name__ == "__main__":
+    exp_config = dcargs.cli(config.Experiment)
+    main(exp_config)

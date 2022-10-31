@@ -219,8 +219,13 @@ def l1_metric(
     device = normals_t.device
     grasp_points = grasp_points_t.detach().cpu().numpy().reshape(-1, 9)[valid_inds, :]
     normals = normals_t.detach().cpu().numpy().reshape(-1, 9)[valid_inds, :]
-    centroid = centroid.cpu().detach().numpy()
-    centroid = np.stack([centroid for _ in range(len(grasp_points))]).astype("float64")
+    if centroid is not None:
+        centroid = centroid.cpu().detach().numpy()
+        centroid = np.stack([centroid for _ in range(len(grasp_points))]).astype(
+            "float64"
+        )
+    else:
+        centroid = np.zeros((len(grasp_points), 3), dtype="float64")
     grasps = np.concatenate([grasp_points, normals, centroid], axis=1)
     result = np.zeros(len(grasps))
     _ = fg.getLowerBoundsPurgeQHull(grasps, mu, num_edges, result)
@@ -343,19 +348,30 @@ def get_cost_function(exp_config: config.Experiment, model: nerf_utils.NeRFModel
         grasp_points = grasp_points.reshape(-1, n_f, 3)  # [B * num_grasps, n_f, 3]
         grad_ests = grad_ests.reshape(-1, n_f, 3)  # [B * num_grasps, n_f, 3]
 
-        #         bad_inds = torch.argwhere(torch.all(grasp_points[:, 0] == grasp_points[:, 1], dim=-1))
-        #         print('bad indices: ', bad_inds)
-        #         print(torch.all(gps[torch.floor(bad_inds/10).long(), 0] == gps[torch.floor(bad_inds/10).long(), 1], dim=-1))
+        bad_inds = torch.argwhere(
+            torch.all(grasp_points[:, 0] == grasp_points[:, 1], dim=-1)
+        )
+        print(
+            f"bad indices: {bad_inds.shape}, grasp_points: {grasp_points.shape}, gps: {gps.shape}"
+        )
+        # print(
+        #     torch.all(
+        #         gps[torch.floor(bad_inds / 10).long(), 0]
+        #         == gps[torch.floor(bad_inds / 10).long(), 1],
+        #         dim=-1,
+        #     )
+        # )
 
-        #         print(grasp_points[bad_inds, 0]-grasp_points[bad_inds, 1])
-
-        #         print(grasp_points.shape, gps.shape)
+        # print(grasp_points[bad_inds, 0] - grasp_points[bad_inds, 1])
 
         # Center grasp_points around centroid.
-        grasp_points_centered = grasp_points.to(centroid) - centroid.reshape(1, 1, 3)
+        # grasp_points_centered = grasp_points.to(centroid) - centroid.reshape(1, 1, 3)
+        cost_kwargs = {"centroid": centroid}
 
-        # bad_inds = torch.argwhere(torch.all(grasp_points_centered[:, 0] == grasp_points_centered[:, 1], dim=-1))
-        # print('bad indices, centered: ', bad_inds)
+        bad_inds = torch.argwhere(
+            torch.all(grasp_points[:, 0] == grasp_points[:, 1], dim=-1)
+        )
+        print("bad indices, centered: ", bad_inds)
 
         # Switch-case for cost function.
         if exp_config.cost_function == config.CostType.PSV:
@@ -368,12 +384,12 @@ def get_cost_function(exp_config: config.Experiment, model: nerf_utils.NeRFModel
             grasp_metric = ferrari_canny
         elif exp_config.cost_function == config.CostType.L1:
             grasp_metric = partial(
-                l1_metric, grasp_mask=grasp_mask.expand(B, num_grasp_samples)
+                l1_metric,
+                grasp_mask=grasp_mask.expand(B, num_grasp_samples),
+                **cost_kwargs,
             )
 
-        raw_cost = grasp_metric(grasp_points_centered, grad_ests).reshape(
-            B, num_grasp_samples
-        )
+        raw_cost = grasp_metric(grasp_points, grad_ests).reshape(B, num_grasp_samples)
 
         # Exponentiate cost if using risk sensitivity.
         if risk_sensitivity:

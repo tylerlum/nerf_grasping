@@ -322,7 +322,7 @@ def get_grasp_points(mesh, grasp_vars, residual_dirs=True):
     # Transform ray directions if using residual directions.
     if residual_dirs:
         rays_d = grasp_utils.res_to_true_dirs(
-            rays_o, rays_d, torch.from_numpy(mesh.ig_centroid).to(rays_o)
+            rays_o, rays_d, torch.from_numpy(mesh.centroid).to(rays_o)
         )
 
     rays_d = rays_d / torch.norm(rays_d, dim=-1, keepdim=True)
@@ -331,7 +331,7 @@ def get_grasp_points(mesh, grasp_vars, residual_dirs=True):
     rays_o_np, rays_d_np = rays_o.cpu().numpy(), rays_d.cpu().numpy()
 
     # Put ray origins into mesh frame.
-    rays_o_np = rays_o_np - mesh.ig_centroid.reshape(1, 3)
+    # rays_o_np = rays_o_np - mesh.centroid.reshape(1, 3)
 
     grasp_points, grasp_normals = np.zeros_like(rays_o_np), np.zeros_like(rays_d_np)
     grasp_mask = np.zeros_like(rays_o_np[..., 0])
@@ -346,8 +346,8 @@ def get_grasp_points(mesh, grasp_vars, residual_dirs=True):
     grasp_mask[ray_ids] = 1
 
     # Put rays back into world frame.
-    grasp_points = grasp_points + mesh.ig_centroid.reshape(1, 3)
-
+    # grasp_points = grasp_points + mesh.centroid.reshape(1, 3)
+    #
     grasp_points = torch.from_numpy(grasp_points).reshape(B, n_f, 3).to(rays_o)
     grasp_normals = torch.from_numpy(grasp_normals).reshape(B, n_f, 3).to(rays_d)
     grasp_mask = torch.from_numpy(grasp_mask).reshape(B, n_f).to(rays_o).bool()
@@ -365,7 +365,7 @@ def correct_z_dists(mesh, rays_o, rays_d, mesh_config):
     rays_o_np, rays_d_np = rays_o_np.reshape(-1, 3), rays_d_np.reshape(-1, 3)
 
     # Put rays into mesh frame.
-    rays_o_np = rays_o_np - mesh.ig_centroid.reshape(1, 3)
+    # rays_o_np = rays_o_np - mesh.ig_centroid.reshape(1, 3)
 
     hit_points, ray_ids, face_ids = mesh.ray.intersects_location(
         rays_o_np, rays_d_np, multiple_hits=False
@@ -377,7 +377,7 @@ def correct_z_dists(mesh, rays_o, rays_d, mesh_config):
     )
 
     # Put back into ig frame.
-    rays_o_corrected = rays_o_corrected + mesh.ig_centroid.reshape(1, 3)
+    # rays_o_corrected = rays_o_corrected + mesh.ig_centroid.reshape(1, 3)
 
     rays_o_corrected[:, 1] = np.maximum(
         rays_o_corrected[:, 1], grasp_utils.OBJ_BOUNDS[1][0]

@@ -58,6 +58,7 @@ def main(exp_config: config.Experiment):
         T[:3, :3] = R
         model.apply_transform(T)
         centroid = torch.from_numpy(model.centroid).float()
+        model.ig_centroid = model.centroid
 
     grasp_points = (
         torch.tensor([[0.09, 0.0, -0.045], [-0.09, 0.0, -0.045], [0, 0.0, 0.09]])

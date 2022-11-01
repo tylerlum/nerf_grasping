@@ -34,8 +34,8 @@ class NeRFModel:
         # TODO: decide whether to return centroid (from nerf_centroid),
         #       or obj translation centroid
         # never returns direct pointer to attribute, prevents overwriting
-        # return self._centroid.clone()
-        return self.nerf_centroid
+        return self._centroid.clone()
+        # return self.nerf_centroid
 
     @property
     def ig_centroid(self):

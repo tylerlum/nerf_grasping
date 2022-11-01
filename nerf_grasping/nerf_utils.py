@@ -475,7 +475,9 @@ def nerf_grads(nerf, grasp_points, ret_densities=False):
         return density_grads
 
 
-def check_gradients(nerf, face_centers, face_normals, grad_params, chunk=500):
+def check_gradients(
+    nerf, face_centers, face_normals, grad_params, nerf_config, chunk=500
+):
     """
     Checks gradients of NeRF against the true normals at the face centers.
     Args:
@@ -498,7 +500,7 @@ def check_gradients(nerf, face_centers, face_normals, grad_params, chunk=500):
         start, stop = chunk * ii, chunk * (ii + 1)
 
         _, gradients = est_grads_vals(
-            nerf, query_points[start:stop, :].reshape(1, -1, 3), **grad_params
+            nerf, query_points[start:stop, :].reshape(1, -1, 3), nerf_config.grad_config
         )
 
         gradients = gradients.reshape(-1, 3)

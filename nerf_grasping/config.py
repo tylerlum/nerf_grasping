@@ -69,16 +69,16 @@ class ControllerParams:
     normal_scale_grasp: float = 0.1  # 1e-4  # 0.1 # 0.05
 
     # Grasp target normal force to apply with fingers
-    target_normal: float = 1.0  # 1.0  # 0.5
+    target_normal: float = 1.95  # 1.0  # 0.5
 
     # Proportional position gain during lifting
-    kp_lift: float = 2.5  # 0.9
+    kp_lift: float = 0.5  # 0.9
 
     # Derivative position gain during lifting
     kd_lift: float = 1.0  # 0.4
 
     # Proportional rotation gain during lifting
-    kp_rot_lift: float = 0.3  # 0.04
+    kp_rot_lift: float = 0.1  # 0.04
 
     # Derivative rotation gain during lifting
     kd_rot_lift: float = 5e-3  # 0.001
@@ -235,7 +235,7 @@ def mesh_file(exp_config: Experiment):
 def grasp_file(exp_config: Experiment):
     """Generates grasp data filenames from experiment config."""
 
-    outfile = f"grasp_data/{exp_config.object.name.lower()}"
+    outfile = f"new_grasp_data/{exp_config.object.name.lower()}"
 
     if isinstance(exp_config.model_config, Nerf):
         outfile += "_nerf"

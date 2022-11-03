@@ -15,7 +15,41 @@ from nerf_grasping import config, grasp_utils
 # GRAD_CONFIG = config.grad_configs["grasp_opt"]
 
 
-def load_nerf(opt):
+class NeRFModel:
+    # https://stackoverflow.com/questions/68926132/creation-of-a-class-wrapper-in-python
+    def __init__(self, base_model, obj_translation):
+        self.base_model = base_model
+        self._centroid = get_centroid(base_model)
+        self._obj_translation = obj_translation
+
+    def __getattr__(self, name):
+        return getattr(self.base_model, name)
+
+    def __call__(self, *args, **kwargs):
+        return self.base_model(*args, **kwargs)
+
+    @property
+    def centroid(self):
+        """Approximate NeRF model centroid"""
+        # TODO: decide whether to return centroid (from nerf_centroid),
+        #       or obj translation centroid
+        # never returns direct pointer to attribute, prevents overwriting
+        return self._centroid.clone()
+        # return self.nerf_centroid
+
+    @property
+    def ig_centroid(self):
+        """IG centroid when object is loaded into simulator, in IG frame"""
+        # grasp_utils.nerf_to_ig(self.centroid.reshape(1, 3), return_tensor=False)
+        return self._obj_translation
+
+    @property
+    def nerf_centroid(self):
+        """IG centroid (when object is loaded into sim) in Nerf frame"""
+        return grasp_utils.ig_to_nerf(self._obj_translation.reshape(1, 3)).reshape(-1)
+
+
+def load_nerf(opt, obj_translation):
     """
     Utility function that loads a torch-ngp style NeRF using a config Dict.
 
@@ -54,12 +88,7 @@ def load_nerf(opt):
         use_checkpoint="latest",
     )
     assert len(trainer.stats["checkpoints"]) != 0, "failed to load checkpoint"
-    model = trainer.model
-
-    model.ig_centroid = get_centroid(
-        model
-    )  # Pretty ugly hack, mutating object to compute just once.
-
+    model = NeRFModel(trainer.model, obj_translation)
     return model
 
 
@@ -91,7 +120,7 @@ def get_grasp_distribution(grasp_vars, model, nerf_config):
 
     # Convert dirs from residual to NeRF frame.
     rays_d = grasp_utils.res_to_true_dirs(
-        rays_o, rays_d, model.ig_centroid
+        rays_o, rays_d, model.centroid
     )  # [B * n_f, 3]
 
     # Get near/far bounds for each ray.
@@ -302,7 +331,7 @@ def sample_grasps(grasp_vars, num_grasps, model, nerf_config):
 
     # Mask approach directions that will not collide with each other
     # approach_mask = grasp_utils.intersect_grasp_dirs(
-    #     grasp_vars, model, model.ig_centroid, B, n_f
+    #     grasp_vars, model, model.centroid, B, n_f
     # )
     # grasp_mask = torch.logical_and(grasp_mask, approach_mask)
 
@@ -446,7 +475,9 @@ def nerf_grads(nerf, grasp_points, ret_densities=False):
         return density_grads
 
 
-def check_gradients(nerf, face_centers, face_normals, grad_params, chunk=500):
+def check_gradients(
+    nerf, face_centers, face_normals, grad_params, nerf_config, chunk=500
+):
     """
     Checks gradients of NeRF against the true normals at the face centers.
     Args:
@@ -469,7 +500,7 @@ def check_gradients(nerf, face_centers, face_normals, grad_params, chunk=500):
         start, stop = chunk * ii, chunk * (ii + 1)
 
         _, gradients = est_grads_vals(
-            nerf, query_points[start:stop, :].reshape(1, -1, 3), **grad_params
+            nerf, query_points[start:stop, :].reshape(1, -1, 3), nerf_config.grad_config
         )
 
         gradients = gradients.reshape(-1, 3)
@@ -507,7 +538,7 @@ def get_centroid(model, num_samples=10000, thresh=None):
 def correct_z_dists(model, grasp_points, nerf_config):
     rays_o = grasp_points[:, :3]
     rays_d_raw = grasp_points[:, 3:]
-    rays_d = grasp_utils.res_to_true_dirs(rays_o, rays_d_raw, model.ig_centroid)
+    rays_d = grasp_utils.res_to_true_dirs(rays_o, rays_d_raw, model.centroid)
 
     exp_surf_points = None
 
@@ -524,11 +555,11 @@ def correct_z_dists(model, grasp_points, nerf_config):
         rays_o = rays_o - 0.1 * z_correction * rays_d
 
     # Project points to lie above floor.
-    rays_o[:, 1] = torch.clamp(rays_o[:, 1], min=grasp_utils.OBJ_BOUNDS[1][0])
+    # rays_o[:, 1] = torch.clamp(rays_o[:, 1], min=grasp_utils.OBJ_BOUNDS[1][0])
 
     # Correct directions to keep surface points consistent.
-    exp_dists = torch.norm(rays_o - exp_surf_points, dim=-1, keepdim=True)
-    rays_d = (exp_surf_points - rays_o) / exp_dists
+    # exp_dists = torch.norm(rays_o - exp_surf_points, dim=-1, keepdim=True)
+    # rays_d = (exp_surf_points - rays_o) / exp_dists
 
     return rays_o, rays_d
 
@@ -539,7 +570,7 @@ def intersect_grasp_dirs(grasp_vars, model, B, n_f, nerf_config):
     grasp_dirs = grasp_utils.res_to_true_dirs(
         grasp_starts.reshape(-1, 3),
         grasp_vars[:, :, 3:].reshape(-1, 3),
-        centroid=model.ig_centroid,
+        centroid=model.centroid,
     ).reshape(-1, n_f, 3)
     _, _, weights, z_vals = get_grasp_distribution(grasp_vars, model, nerf_config)
     z_dists = torch.sum(weights * z_vals, dim=-1)  # shape B x 3

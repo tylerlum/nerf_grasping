@@ -15,9 +15,10 @@ from nerf import utils
 root_dir = Path(os.path.abspath(__file__)).parents[2]
 asset_dir = f"{root_dir}/assets"
 gd_mesh_dir = f"{root_dir}/grasp_data/meshes"
+print("root_dir", root_dir)
 
 
-def load_nerf(workspace, bound, scale):
+def load_nerf(workspace, bound, scale, obj_translation):
     parser = utils.get_config_parser()
     args = parser.parse_args(
         [
@@ -33,7 +34,7 @@ def load_nerf(workspace, bound, scale):
             f"{root_dir}/torch-ngp",
         ]
     )
-    model = nerf_utils.load_nerf(args)
+    model = nerf_utils.load_nerf(args, obj_translation)
     return model
 
 
@@ -109,13 +110,17 @@ class RigidObject:
     def load_nerf_model(self):
         if self.nerf_loaded:
             return
-        self.model = load_nerf(self.workspace, self.bound, self.scale)
+        # TODO: whether to use new_translation or translation?
+        self.model = load_nerf(
+            self.workspace, self.bound, self.scale, self.new_translation
+        )
         self.nerf_loaded = True
 
     def load_trimesh(self, mesh_path=None):
         if mesh_path is None or not os.path.exists(mesh_path):
             mesh_path = os.path.join(gd_mesh_dir, f"{self.name}.obj")
         mesh = trimesh.load(mesh_path, force="mesh")
+        # Rotation puts it in Y-up frame, from Z-up
         R = scipy.spatial.transform.Rotation.from_euler("Y", [-np.pi / 2]).as_matrix()
         R = (
             R
@@ -126,7 +131,8 @@ class RigidObject:
         mesh.apply_scale(self.obj_scale)
         # mesh.apply_translation(self.translation)
         mesh.apply_transform(T_rot)
-        mesh.ig_centroid = (
+        # IG centroid (when object is loaded into sim) in Nerf frame
+        mesh.nerf_centroid = (
             grasp_utils.ig_to_nerf(self.new_translation.reshape(1, 3))
             .reshape(-1)
             .cpu()
@@ -237,6 +243,7 @@ class TeddyBear(RigidObject):
     new_translation = np.array([1.7978e-08, -6.0033e-08, 2.7280e-03])
     orientation = np.array([3.4469e-06, 4.8506e-06, 6.9347e-07, 1.0000e00])
 
+    # Grasp points are in XYZ (i.e. Z-up) frame
     grasp_points = torch.tensor(
         [[0.0350, 0.0580, 0.1010], [0.0000, -0.0480, 0.0830], [-0.0390, 0.0580, 0.1010]]
     )
@@ -410,5 +417,6 @@ class BleachCleanser(RigidObject):
 
     grasp_normals = torch.tensor([[0, -1.0, 0.0], [-1, 0.0, 0.0], [1.0, 1.0, 0.0]])
     translation = np.array([1.2256e-05, -1.2865e-06, 1.3161e-03])
+    new_translation = np.array([1.2256e-05, -1.2865e-06, 1.3161e-03])
     obj_scale = 0.75
     mu = 1.0

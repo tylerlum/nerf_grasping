@@ -3,11 +3,14 @@ Module implementing some mesh utilities for NeRFs, including
 a wrapper for marching cubes and some IoU calculations.
 """
 import numpy as np
+import os
 import pypoisson
+import os
 import torch
 import trimesh
+import scipy.spatial
 
-from nerf_grasping import grasp_utils
+from nerf_grasping import grasp_utils, config
 from matplotlib import pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
@@ -319,7 +322,7 @@ def get_grasp_points(mesh, grasp_vars, residual_dirs=True):
     # Transform ray directions if using residual directions.
     if residual_dirs:
         rays_d = grasp_utils.res_to_true_dirs(
-            rays_o, rays_d, torch.from_numpy(mesh.ig_centroid).to(rays_o)
+            rays_o, rays_d, torch.from_numpy(mesh.centroid).to(rays_o)
         )
 
     rays_d = rays_d / torch.norm(rays_d, dim=-1, keepdim=True)
@@ -328,7 +331,7 @@ def get_grasp_points(mesh, grasp_vars, residual_dirs=True):
     rays_o_np, rays_d_np = rays_o.cpu().numpy(), rays_d.cpu().numpy()
 
     # Put ray origins into mesh frame.
-    rays_o_np = rays_o_np - mesh.ig_centroid.reshape(1, 3)
+    # rays_o_np = rays_o_np - mesh.centroid.reshape(1, 3)
 
     grasp_points, grasp_normals = np.zeros_like(rays_o_np), np.zeros_like(rays_d_np)
     grasp_mask = np.zeros_like(rays_o_np[..., 0])
@@ -343,8 +346,8 @@ def get_grasp_points(mesh, grasp_vars, residual_dirs=True):
     grasp_mask[ray_ids] = 1
 
     # Put rays back into world frame.
-    grasp_points = grasp_points + mesh.ig_centroid.reshape(1, 3)
-
+    # grasp_points = grasp_points + mesh.centroid.reshape(1, 3)
+    #
     grasp_points = torch.from_numpy(grasp_points).reshape(B, n_f, 3).to(rays_o)
     grasp_normals = torch.from_numpy(grasp_normals).reshape(B, n_f, 3).to(rays_d)
     grasp_mask = torch.from_numpy(grasp_mask).reshape(B, n_f).to(rays_o).bool()
@@ -362,7 +365,7 @@ def correct_z_dists(mesh, rays_o, rays_d, mesh_config):
     rays_o_np, rays_d_np = rays_o_np.reshape(-1, 3), rays_d_np.reshape(-1, 3)
 
     # Put rays into mesh frame.
-    rays_o_np = rays_o_np - mesh.ig_centroid.reshape(1, 3)
+    # rays_o_np = rays_o_np - mesh.ig_centroid.reshape(1, 3)
 
     hit_points, ray_ids, face_ids = mesh.ray.intersects_location(
         rays_o_np, rays_d_np, multiple_hits=False
@@ -374,7 +377,7 @@ def correct_z_dists(mesh, rays_o, rays_d, mesh_config):
     )
 
     # Put back into ig frame.
-    rays_o_corrected = rays_o_corrected + mesh.ig_centroid.reshape(1, 3)
+    # rays_o_corrected = rays_o_corrected + mesh.ig_centroid.reshape(1, 3)
 
     rays_o_corrected[:, 1] = np.maximum(
         rays_o_corrected[:, 1], grasp_utils.OBJ_BOUNDS[1][0]
@@ -382,10 +385,43 @@ def correct_z_dists(mesh, rays_o, rays_d, mesh_config):
     dists_corrected = np.linalg.norm(
         rays_o_corrected - hit_points, axis=-1, keepdims=True
     )
-    rays_d_corrected = (hit_points - rays_o_corrected) / dists_corrected
 
     if isinstance(rays_o, torch.Tensor):
         rays_o_corrected = torch.from_numpy(rays_o_corrected).to(rays_o)
-        rays_d_corrected = torch.from_numpy(rays_d_corrected).to(rays_o)
 
-    return rays_o_corrected, rays_d_corrected
+    return rays_o_corrected
+
+
+def get_mesh(exp_config, obj):
+    """Extracts mesh with marching cubes + saves to file if not found."""
+
+    # Load triangle mesh from file.
+    mesh_file = config.mesh_file(exp_config)
+
+    if os.path.exists(mesh_file):
+        obj_mesh = trimesh.load(mesh_file, force="mesh")
+        return obj_mesh
+
+    elif exp_config.model_config.level_set is None:
+        # GT mesh not stored in grasp_data; make copy for simplicity.
+        obj.gt_mesh.export(mesh_file)
+        return obj.gt_mesh
+
+    # Marching cubes mesh not found; generate and save.
+    object_nerf = ig_objects.load_nerf(obj.workspace, obj.bound, obj.scale)
+
+    verts, faces, normals, _ = marching_cubes(
+        object_nerf, level_set=exp_config.model_config.level_set
+    )
+
+    approx_mesh = trimesh.Trimesh(verts, faces, vertex_normals=normals)
+
+    T = np.eye(4)
+    R = scipy.spatial.transform.Rotation.from_euler("Y", [-np.pi / 2]).as_matrix()
+    R = R @ scipy.spatial.transform.Rotation.from_euler("X", [-np.pi / 2]).as_matrix()
+    # Apply inverse transform to map approximate mesh -> ig frame.
+    T[:3, :3] = R.reshape(3, 3).T
+    approx_mesh.apply_transform(T)
+    approx_mesh = poisson_mesh(approx_mesh)
+    approx_mesh.export(mesh_file)
+    return approx_mesh

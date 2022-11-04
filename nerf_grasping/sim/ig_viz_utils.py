@@ -36,27 +36,6 @@ def visualize_grasp_normals(
     )
 
 
-def visualize_obj_com(gym, viewer, env, obj):
-    vertices = []
-    for ii in range(3):
-        vertices.append(obj.position.cpu().numpy())
-        obj_rot = quaternions.Quaternion.fromWLast(obj.orientation)
-        endpoint = np.zeros(3)
-        endpoint[ii] = 1
-        endpoint = obj.position + obj_rot.rotate(endpoint)
-        vertices.append(endpoint.cpu().numpy())
-
-    vertices = np.stack(vertices, axis=0)
-    colors = np.array([[0, 0, 1], [0, 1, 0], [1, 0, 0]], dtype="float32")
-    gym.add_lines(
-        viewer,
-        env,
-        3,
-        vertices,
-        colors,
-    )
-
-
 def visualize_circle_markers(gym, env, sim, obj, n_markers=16):
     rad = 0.05
     theta = np.arange(n_markers) * 2 * np.pi / 16

@@ -2,7 +2,7 @@ from isaacgym import gymapi, gymtorch, torch_utils
 from dataclasses import dataclass
 from pathlib import Path
 from unittest.mock import Mock
-from nerf_grasping import grasp_utils, nerf_utils, config
+from nerf_grasping import grasp_utils, mesh_utils, nerf_utils, config
 from nerf_grasping.sim import ig_utils, ig_objects, ig_robot, ig_viz_utils
 from nerf_grasping.quaternions import Quaternion
 from typing import Union, Tuple, Optional
@@ -322,6 +322,7 @@ class FingertipEnv:
         self.gym.draw_env_rigid_contacts(
             self.viewer, self.env, gymapi.Vec3(0.0, 0.0, 0.0), 1.0, True
         )
+        ig_viz_utils.visualize_obj_com(self.gym, self.viewer, self.env, self.obj)
         # print('asset forces:', self.obj.force_sensor.get_forces().force)
 
         state.update(

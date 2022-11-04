@@ -57,7 +57,6 @@ def load_object(exp_config: config.Experiment):
 
 class RigidObject:
 
-    obj_scale = 1e-2
     scale = 1.0
     bound = 2.0
     centroid = np.zeros((3, 1))
@@ -78,12 +77,6 @@ class RigidObject:
         if self.sim is not None:
             self.asset = self.create_asset()
             self.actor = self.configure_actor(self.gym, self.env)
-
-    def set_obj_scale(self, scale=None):
-        scale = scale if scale is not None else self.obj_scale
-        assert self.gym.set_actor_scale(
-            self.env, self.actor, scale
-        ), "call to gym.set_actor_scale() failed"
 
     def get_CG(self):
         pos = self.rb_states[0, :3]
@@ -128,7 +121,6 @@ class RigidObject:
         )
         T_rot = np.eye(4)
         T_rot[:3, :3] = R
-        mesh.apply_scale(self.obj_scale)
         # mesh.apply_translation(self.translation)
         mesh.apply_transform(T_rot)
         # IG centroid (when object is loaded into sim) in Nerf frame
@@ -231,7 +223,6 @@ class RigidObject:
 
 class TeddyBear(RigidObject):
     asset_file = "objects/urdf/teddy_bear.urdf"
-    obj_scale = 1e-2
     name = "teddy_bear"
     workspace = "teddy_bear"
 
@@ -266,10 +257,9 @@ class Box(RigidObject):
     )
     grasp_normals = torch.tensor([[0.0, -1.0, 0.0], [0.0, 1.0, 0.0], [0.0, 1.0, 0.0]])
 
-    obj_scale = 0.075
     translation = np.array([1.6316e-07, -6.7600e-07, 3.9500e-02])
     new_translation = np.array([7.8142e-07, -1.5576e-06, 3.9500e-02])
-    asset_file = "objects/urdf/cube_multicolor.urdf"
+    asset_file = "objects/urdf/box.urdf"
 
 
 #     def create_asset(self):
@@ -336,7 +326,6 @@ class PowerDrill(RigidObject):
 
     asset_file = "objects/urdf/power_drill.urdf"
     name = "power_drill"
-    obj_scale = 1.0
     translation = np.array([-4.0196e-06, 2.4881e-05, 5.2011e-03])
     new_translation = np.array([-1.0431e-07, -1.6764e-08, 5.6809e-03])
 
@@ -350,7 +339,6 @@ class Banana(RigidObject):
             [-0.058538, -0.051027, 0.013867],
         ]
     )
-    obj_scale = 1.0
     grasp_normals = torch.tensor([[1, -1.5, 0.0], [-2, 1.0, 0.0], [1, 0.0, 0.0]])
     asset_file = "objects/urdf/banana.urdf"
     name = "banana"
@@ -368,7 +356,6 @@ class BigBanana(RigidObject):
             [-0.058538, -0.051027, 0.013867],
         ]
     )
-    obj_scale = 1.5
     grasp_normals = torch.tensor([[1, -1.5, 0.0], [-2, 1.0, 0.0], [1, 0.0, 0.0]])
     asset_file = "objects/urdf/banana.urdf"
     name = "banana"
@@ -385,8 +372,6 @@ class BigBanana(RigidObject):
 
     def setup_gym(self, gym, sim, env):
         super().setup_gym(gym, sim, env)
-        if self.sim is not None:
-            self.set_obj_scale(1.5)
 
 
 class Spatula(RigidObject):
@@ -418,5 +403,4 @@ class BleachCleanser(RigidObject):
     grasp_normals = torch.tensor([[0, -1.0, 0.0], [-1, 0.0, 0.0], [1.0, 1.0, 0.0]])
     translation = np.array([1.2256e-05, -1.2865e-06, 1.3161e-03])
     new_translation = np.array([1.2256e-05, -1.2865e-06, 1.3161e-03])
-    obj_scale = 0.75
     mu = 1.0

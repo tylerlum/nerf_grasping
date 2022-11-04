@@ -19,7 +19,10 @@ class NeRFModel:
     # https://stackoverflow.com/questions/68926132/creation-of-a-class-wrapper-in-python
     def __init__(self, base_model, obj_translation):
         self.base_model = base_model
-        self._centroid = get_centroid(base_model)
+        # self._centroid = get_centroid(base_model)
+        self._centroid = grasp_utils.ig_to_nerf(obj_translation.reshape(1, 3)).reshape(
+            -1
+        )
         self._obj_translation = obj_translation
 
     def __getattr__(self, name):
@@ -558,8 +561,8 @@ def correct_z_dists(model, grasp_points, nerf_config):
     # rays_o[:, 1] = torch.clamp(rays_o[:, 1], min=grasp_utils.OBJ_BOUNDS[1][0])
 
     # Correct directions to keep surface points consistent.
-    # exp_dists = torch.norm(rays_o - exp_surf_points, dim=-1, keepdim=True)
-    # rays_d = (exp_surf_points - rays_o) / exp_dists
+    exp_dists = torch.norm(rays_o - exp_surf_points, dim=-1, keepdim=True)
+    rays_d = (exp_surf_points - rays_o) / exp_dists
 
     return rays_o, rays_d
 

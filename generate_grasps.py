@@ -72,7 +72,7 @@ def main(exp_config: config.Experiment):
     mu_0 = torch.cat([grasp_points, grasp_dirs], dim=-1).reshape(-1).to(centroid)
     Sigma_0 = torch.diag(
         torch.cat(
-            [torch.tensor([5e-2, 1e-3, 5e-2, 5e-3, 1e-3, 5e-3]) for _ in range(3)]
+            [torch.tensor([1e-2, 1e-2, 1e-2, 5e-3, 5e-3, 5e-3]) for _ in range(3)]
         )
     ).to(centroid)
 

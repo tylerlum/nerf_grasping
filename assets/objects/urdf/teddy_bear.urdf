@@ -4,18 +4,17 @@
     <visual>
       <origin xyz="0 0 0"/>
       <geometry>
-	      <mesh filename="meshes/teddy_bear/teddy_bear.obj" scale=".01 .01 .01"/>
+        <mesh filename="meshes/teddy_bear/textured.obj"/>
       </geometry>
     </visual>
     <collision>
       <origin xyz="0 0 0"/>
       <geometry>
-        <!-- <box size="0.05 0.05 0.05"/> -->
-	<mesh filename="meshes/teddy_bear/teddy_bear.obj" scale=".01 .01 .01"/>
+        <mesh filename="meshes/teddy_bear/textured.obj"/>
       </geometry>
     </collision>
     <inertial>
-      <density value="60.0"/>
+        <density value="600.0"/>
     </inertial>
   </link>
 </robot>

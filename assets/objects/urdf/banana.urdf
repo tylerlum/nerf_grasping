@@ -4,14 +4,13 @@
     <visual>
       <origin xyz="0 0 0"/>
       <geometry>
-	      <mesh filename="meshes/banana/textured.obj" scale="1.0 1.0 1.0"/>
+        <mesh filename="meshes/banana/textured.obj"/>
       </geometry>
     </visual>
     <collision>
       <origin xyz="0 0 0"/>
       <geometry>
-        <!-- <box size="0.05 0.05 0.05"/> -->
-	<mesh filename="meshes/banana/textured.obj" scale="1.0 1.0 1.0"/>
+        <mesh filename="meshes/banana/textured.obj"/>
       </geometry>
     </collision>
     <inertial>

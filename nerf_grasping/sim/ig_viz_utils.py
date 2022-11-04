@@ -4,7 +4,7 @@ import torch
 import os
 from isaacgym import gymapi
 
-from nerf_grasping import grasp_utils, nerf_utils
+from nerf_grasping import grasp_utils, nerf_utils, quaternions
 
 
 def visualize_grasp_normals(
@@ -29,6 +29,27 @@ def visualize_grasp_normals(
     if colors is None:
         colors = np.array([[0, 0, 1], [0, 1, 0], [1, 0, 0]], dtype="float32")
 
+    gym.add_lines(
+        viewer,
+        env,
+        3,
+        vertices,
+        colors,
+    )
+
+
+def visualize_obj_com(gym, viewer, env, obj):
+    vertices = []
+    for ii in range(3):
+        vertices.append(obj.position.cpu().numpy())
+        obj_rot = quaternions.Quaternion.fromWLast(obj.orientation)
+        endpoint = np.zeros(3)
+        endpoint[ii] = 1
+        endpoint = obj.position + obj_rot.rotate(endpoint)
+        vertices.append(endpoint.cpu().numpy())
+
+    vertices = np.stack(vertices, axis=0)
+    colors = np.array([[0, 0, 1], [0, 1, 0], [1, 0, 0]], dtype="float32")
     gym.add_lines(
         viewer,
         env,

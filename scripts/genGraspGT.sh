@@ -1,8 +1,8 @@
 #!/usr/bin/bash
-for OBJ in 'BANANA' 'BOX' 'TEDDY_BEAR' 'POWER_DRILL' 'BLEACH_CLEANSER'
+for OBJ in 'TEDDY_BEAR' 'POWER_DRILL'
 do
-    python generate_grasps.py --object ${OBJ} --num-grasps 5 \
-        model-config:nerf
+    python generate_grasps.py --object ${OBJ} --regen --num-grasps 10 \
+        model-config:mesh; echo "${OBJ} finished"
     if [[ $? != 0 ]]
     then
         break

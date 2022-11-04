@@ -1,10 +1,9 @@
-import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import os
 from isaacgym import gymapi
 
-from nerf_grasping import grasp_utils, nerf_utils, quaternions
+from nerf_grasping import grasp_utils, nerf_utils
 
 
 def visualize_grasp_normals(
@@ -38,27 +37,6 @@ def visualize_grasp_normals(
     )
 
 
-def visualize_obj_com(gym, viewer, env, obj):
-    vertices = []
-    for ii in range(3):
-        vertices.append(obj.position.cpu().numpy())
-        obj_rot = quaternions.Quaternion.fromWLast(obj.orientation)
-        endpoint = np.zeros(3)
-        endpoint[ii] = 1
-        endpoint = obj.position + obj_rot.rotate(endpoint)
-        vertices.append(endpoint.cpu().numpy())
-
-    vertices = np.stack(vertices, axis=0)
-    colors = np.array([[0, 0, 1], [0, 1, 0], [1, 0, 0]], dtype="float32")
-    gym.add_lines(
-        viewer,
-        env,
-        3,
-        vertices,
-        colors,
-    )
-
-
 def visualize_circle_markers(gym, env, sim, obj, n_markers=16):
     rad = 0.05
     theta = np.arange(n_markers) * 2 * np.pi / 16
@@ -76,10 +54,15 @@ def visualize_circle_markers(gym, env, sim, obj, n_markers=16):
 
 
 def visualize_markers(
-    gym, env, sim, positions, colors=[[0.0, 1.0, 0.0]] * 3, marker_handles=[]
+    gym,
+    env,
+    sim,
+    positions,
+    colors=[[0.0, 1.0, 0.0]] * 3,
+    marker_handles=[],
 ):
     if marker_handles:
-        return reset_marker_positions(gym, env, sim, positions, colors, marker_handles)
+        return reset_asset_positions(gym, env, sim, positions, colors, marker_handles)
     asset_options = gymapi.AssetOptions()
     asset_options.fix_base_link = True
     asset_options.angular_damping = 0.0
@@ -92,7 +75,6 @@ def visualize_markers(
         pose.p.x = pos[0]
         pose.p.y = pos[1]
         pose.p.z = pos[2]
-
         marker_asset = gym.create_sphere(sim, 0.005, asset_options)
         actor_handle = gym.create_actor(env, marker_asset, pose, f"marker_{i}", 1, 1)
         gym.set_rigid_body_color(
@@ -106,10 +88,53 @@ def visualize_markers(
     return marker_handles
 
 
-def reset_marker_positions(gym, env, sim, positions, colors, marker_handles=[]):
-    for pos, color, handle in zip(positions, colors, marker_handles):
+def visualize_mesh_bbox(gym, viewer, env, obj, colors=[0.0, 0.0, 1.0], box_handle=None):
+    # gym.clear_lines(viewer)
+    position, _ = obj.position, obj.orientation
+    w, d, h = obj.gt_mesh.extents  # X Z Y - Z is up
+    vertices = []
+    # Generate an array with 8 vertices
+    for i in range(2):
+        for j in range(2):
+            for k in range(2):
+                vertices.append(
+                    [
+                        position[0] + (-1) ** i * w / 2,
+                        position[1] + (-1) ** j * h / 2,
+                        position[2] + (-1) ** k * d / 2,
+                    ]
+                )
+    vertices = np.array(vertices)
+    # For 4 vertices on the back face, create an edge to the opposite face
+    edges = []
+    for i in range(4):
+        edges.append([vertices[i], vertices[i + 4]])
+    # Add an edge between adjacent vertices
+    for x in range(2):
+        for i in [0, 3]:
+            for j in [1, 2]:
+                edges.append([vertices[4 * x + i], vertices[4 * x + j]])
+    edges = np.array(edges)
+    # Plot the edges using matplotlib
+    colors = [[colors]] * 12
+    gym.add_lines(
+        viewer,
+        env,
+        3,
+        edges,
+        colors,
+    )
+
+def reset_asset_positions(
+    gym, env, sim, positions, colors, asset_handles=[], rotations=None
+):
+
+    for i, pos, color, handle in enumerate(zip(positions, colors, asset_handles)):
         state = gym.get_actor_rigid_body_states(env, handle, gymapi.STATE_POS)
         state["pose"]["p"].fill(tuple(pos))
+        if rotations is not None:
+            rot = rotations[i]
+            state["pose"]["r"].fill(tuple(rot))
         assert gym.set_actor_rigid_body_states(
             env, handle, state, gymapi.STATE_POS
         ), "gym.set_actor_rigid_body_states failed"
@@ -120,93 +145,7 @@ def reset_marker_positions(gym, env, sim, positions, colors, marker_handles=[]):
             gymapi.MESH_VISUAL,
             gymapi.Vec3(*color),
         )
-    return marker_handles
-
-
-def plot_grasp_distribution(
-    mu_f, coarse_model, fine_model, renderer, residual_dirs=False
-):
-    # Test grasp sampling
-
-    rays, weights, z_vals = nerf_utils.get_grasp_distribution(
-        mu_f.reshape(1, 3, 6),
-        coarse_model,
-        fine_model,
-        renderer,
-        residual_dirs=residual_dirs,
-    )
-    plt.close("all")
-    for ii in range(3):
-        plt.plot(
-            z_vals[0, ii, :].detach().cpu().numpy().T,
-            weights[0, ii, :].cpu().detach().numpy().T,
-            label="Finger " + str(ii + 1),
-        )
-    plt.ylim([0, 0.2])
-    plt.title("Grasp Point Distribution")
-    plt.xlabel("Distance to Surface [m]")
-    plt.ylabel("Probability Mass")
-    plt.legend()
-    plt.show()
-
-
-def plot_lines(start_points, lines, ax, color="C0"):
-    assert len(lines) == len(
-        start_points
-    ), "# of points: {}, # of lines: {}. Must be equal!".format(
-        len(start_points), len(lines)
-    )
-    for ii in range(len(start_points)):
-        ax.quiver(
-            start_points[ii, 0],
-            start_points[ii, 1],
-            start_points[ii, 2],
-            lines[ii, 0],
-            lines[ii, 1],
-            lines[ii, 2],
-            length=0.05,
-            normalize=True,
-            color=color,
-        )
-    return
-
-
-def plot_grasps(points, lines=None, est_lines=None, obj_mesh=None, ax=None, c="C1"):
-    """
-    Plots points and lines (using ax.quiver) if given. Assumes all points and meshes
-    are given in ig frame.
-    """
-    if ax is None:
-        fig = plt.figure()
-        ax = fig.add_subplot(projection="3d")
-    if obj_mesh is not None:
-        ax.scatter(*[obj_mesh[:, ii] for ii in range(3)], c="blue", alpha=0.025)
-    # plots grasp points
-    ax.scatter(points[:, 0], points[:, 1], points[:, 2], c=c)
-    if lines is not None:
-        plot_lines(points, lines, ax)
-    if est_lines is not None:
-        plot_lines(points, est_lines, ax, color="orange")
-
-    x_min, x_max = grasp_utils.OBJ_BOUNDS[0]
-    y_min, y_max = grasp_utils.OBJ_BOUNDS[1]
-    z_min, z_max = grasp_utils.OBJ_BOUNDS[2]
-    ax.set_xlim(x_min, x_max)
-    ax.set_ylim(y_min, y_max)
-    ax.set_zlim(z_min, z_max)
-    return ax
-
-
-def plot_cost_history(cost_hist, cost_fn):
-    """Plots CEM cost history min and mean"""
-    import torch
-
-    fig, ax = plt.subplots(ncols=2, figsize=(10, 4))
-    ax[0].plot([x[~torch.isinf(x)].min().cpu().numpy().item() for x in cost_hist])
-    ax[0].set_title("CEM cost_history (Min)")
-    ax[1].plot([x[~torch.isinf(x)].mean().cpu().numpy().item() for x in cost_hist])
-    ax[1].set_title("CEM cost_history (Mean)")
-    fig.suptitle("Grasp cost fn: {}".format(cost_fn))
+    return asset_handles
 
 
 def img_dir_to_vid(image_dir, name="test", cleanup=False):

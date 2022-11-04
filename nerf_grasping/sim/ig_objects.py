@@ -78,12 +78,6 @@ class RigidObject:
             self.asset = self.create_asset()
             self.actor = self.configure_actor(self.gym, self.env)
 
-    def get_CG(self):
-        pos = self.rb_states[0, :3]
-        quat = Quaternion.fromWLast(self.rb_states[0, 3:7])
-        cg = self.CG.cpu().numpy()
-        return quat.rotate(cg) + pos
-
     def setup_tensors(self):
         _rb_states = self.gym.acquire_rigid_body_state_tensor(self.sim)
         # (num_rigid_bodies, 13)
@@ -111,21 +105,19 @@ class RigidObject:
 
     def load_trimesh(self, mesh_path=None):
         if mesh_path is None or not os.path.exists(mesh_path):
-            mesh_path = os.path.join(gd_mesh_dir, f"{self.name}.obj")
+            mesh_path = os.path.join(
+                asset_dir, f"objects/meshes/{self.name}/textured.obj"
+            )
+
+        print("mesh path: ", mesh_path)
+        # Mesh loaded in Z-up, centered at object centroid.
         mesh = trimesh.load(mesh_path, force="mesh")
-        # Rotation puts it in Y-up frame, from Z-up
-        R = scipy.spatial.transform.Rotation.from_euler("Y", [-np.pi / 2]).as_matrix()
-        R = (
-            R
-            @ scipy.spatial.transform.Rotation.from_euler("X", [-np.pi / 2]).as_matrix()
-        )
-        T_rot = np.eye(4)
-        T_rot[:3, :3] = R
-        # mesh.apply_translation(self.translation)
-        mesh.apply_transform(T_rot)
+
+        print("mesh extents: ", mesh.extents)
+
         # IG centroid (when object is loaded into sim) in Nerf frame
         mesh.nerf_centroid = (
-            grasp_utils.ig_to_nerf(self.new_translation.reshape(1, 3))
+            grasp_utils.ig_to_nerf(self.translation.reshape(1, 3))
             .reshape(-1)
             .cpu()
             .numpy()
@@ -257,7 +249,7 @@ class Box(RigidObject):
     )
     grasp_normals = torch.tensor([[0.0, -1.0, 0.0], [0.0, 1.0, 0.0], [0.0, 1.0, 0.0]])
 
-    translation = np.array([1.6316e-07, -6.7600e-07, 3.9500e-02])
+    translation = np.array([-7.7818e-07, 1.5440e-06, 3.9500e-02])
     new_translation = np.array([7.8142e-07, -1.5576e-06, 3.9500e-02])
     asset_file = "objects/urdf/box.urdf"
 
@@ -343,8 +335,7 @@ class Banana(RigidObject):
     asset_file = "objects/urdf/banana.urdf"
     name = "banana"
     mu = 1.0
-    translation = np.array([-1.4408e-05, 3.8640e-06, 2.7102e-03])
-    new_translation = np.array([7.8349e-06, -2.5369e-06, 3.0588e-03])
+    translation = np.array([0.0003, -0.0002, 0.0197])
 
 
 class BigBanana(RigidObject):
@@ -401,6 +392,5 @@ class BleachCleanser(RigidObject):
     )
 
     grasp_normals = torch.tensor([[0, -1.0, 0.0], [-1, 0.0, 0.0], [1.0, 1.0, 0.0]])
-    translation = np.array([1.2256e-05, -1.2865e-06, 1.3161e-03])
-    new_translation = np.array([1.2256e-05, -1.2865e-06, 1.3161e-03])
+    translation = np.array([-5.7448e-07, -1.2433e-05, 8.1302e-02])
     mu = 1.0

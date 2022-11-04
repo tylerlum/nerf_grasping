@@ -203,9 +203,7 @@ def min_norm_vector_in_facet(facet, wrench_regularizer=1e-10):
     return abs(min_norm), v
 
 
-def l1_metric(
-    grasp_points_t, normals_t, centroid=None, mu=1.0, num_edges=10, grasp_mask=None
-):
+def l1_metric(grasp_points_t, normals_t, mu=1.0, num_edges=10, grasp_mask=None):
     """L1 Grasp quality metric using PyFastGrasp. Assumes object center of mass is at origin"""
     import fastgrasp as fg
 
@@ -219,13 +217,7 @@ def l1_metric(
     device = normals_t.device
     grasp_points = grasp_points_t.detach().cpu().numpy().reshape(-1, 9)[valid_inds, :]
     normals = normals_t.detach().cpu().numpy().reshape(-1, 9)[valid_inds, :]
-    if centroid is not None:
-        centroid = centroid.cpu().detach().numpy()
-        centroid = np.stack([centroid for _ in range(len(grasp_points))]).astype(
-            "float64"
-        )
-    else:
-        centroid = np.zeros((len(grasp_points), 3), dtype="float64")
+    centroid = np.zeros((len(grasp_points), 3), dtype="float64")
     grasps = np.concatenate([grasp_points, normals, centroid], axis=1)
     result = np.zeros(len(grasps))
     _ = fg.getLowerBoundsPurgeQHull(grasps, mu, num_edges, result)
@@ -369,8 +361,7 @@ def get_cost_function(exp_config, model):
         grad_ests = grad_ests.reshape(-1, n_f, 3)  # [B * num_grasps, n_f, 3]
 
         # Center grasp_points around centroid.
-        # grasp_points_centered = grasp_points.to(centroid) - centroid.reshape(1, 1, 3)
-        cost_kwargs = {"centroid": centroid}
+        grasp_points_centered = grasp_points.to(centroid) - centroid.reshape(1, 1, 3)
 
         # Switch-case for cost function.
         if exp_config.cost_function == config.CostType.PSV:
@@ -383,12 +374,12 @@ def get_cost_function(exp_config, model):
             grasp_metric = ferrari_canny
         elif exp_config.cost_function == config.CostType.L1:
             grasp_metric = partial(
-                l1_metric,
-                grasp_mask=grasp_mask.expand(B, num_grasp_samples),
-                **cost_kwargs,
+                l1_metric, grasp_mask=grasp_mask.expand(B, num_grasp_samples)
             )
 
-        raw_cost = grasp_metric(grasp_points, grad_ests).reshape(B, num_grasp_samples)
+        raw_cost = grasp_metric(grasp_points_centered, grad_ests).reshape(
+            B, num_grasp_samples
+        )
 
         # Exponentiate cost if using risk sensitivity.
         if risk_sensitivity:

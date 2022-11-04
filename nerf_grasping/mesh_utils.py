@@ -5,12 +5,12 @@ a wrapper for marching cubes and some IoU calculations.
 import numpy as np
 import os
 import pypoisson
-import os
 import torch
 import trimesh
 import scipy.spatial
 
 from nerf_grasping import grasp_utils, config
+from nerf_grasping.sim import ig_objects
 from matplotlib import pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
@@ -371,10 +371,15 @@ def correct_z_dists(mesh, rays_o, rays_d, mesh_config):
         rays_o_np, rays_d_np, multiple_hits=False
     )
 
+    print("mesh extents: ", mesh.extents)
+    print("hit points: ", hit_points)
+
     dists = np.linalg.norm(rays_o_np - hit_points, axis=-1)
     rays_o_corrected = (
         rays_o_np + (dists - mesh_config.des_z_dist).reshape(3, 1) * rays_d_np
     )
+
+    print("raw distances: ", dists)
 
     # Put back into ig frame.
     # rays_o_corrected = rays_o_corrected + mesh.ig_centroid.reshape(1, 3)
@@ -385,6 +390,8 @@ def correct_z_dists(mesh, rays_o, rays_d, mesh_config):
     dists_corrected = np.linalg.norm(
         rays_o_corrected - hit_points, axis=-1, keepdims=True
     )
+
+    print("correct_distances: ", dists_corrected)
 
     if isinstance(rays_o, torch.Tensor):
         rays_o_corrected = torch.from_numpy(rays_o_corrected).to(rays_o)
@@ -398,30 +405,36 @@ def get_mesh(exp_config, obj):
     # Load triangle mesh from file.
     mesh_file = config.mesh_file(exp_config)
 
-    if os.path.exists(mesh_file):
+    if exp_config.level_set is None:
+        return obj.gt_mesh
+
+    elif os.path.exists(mesh_file):
         obj_mesh = trimesh.load(mesh_file, force="mesh")
         return obj_mesh
 
-    elif exp_config.model_config.level_set is None:
-        # GT mesh not stored in grasp_data; make copy for simplicity.
-        obj.gt_mesh.export(mesh_file)
-        return obj.gt_mesh
-
     # Marching cubes mesh not found; generate and save.
-    object_nerf = ig_objects.load_nerf(obj.workspace, obj.bound, obj.scale)
-
-    verts, faces, normals, _ = marching_cubes(
-        object_nerf, level_set=exp_config.model_config.level_set
+    object_nerf = ig_objects.load_nerf(
+        obj.workspace, obj.bound, obj.scale, obj.translation
     )
 
+    verts, faces, normals, _ = marching_cubes(
+        object_nerf, level_set=exp_config.level_set
+    )
+
+    # Compute triangle mesh in same frame/position as NeRF object.
     approx_mesh = trimesh.Trimesh(verts, faces, vertex_normals=normals)
 
+    # Rotate and center mesh so it is Z-up, origin at centroid.
     T = np.eye(4)
     R = scipy.spatial.transform.Rotation.from_euler("Y", [-np.pi / 2]).as_matrix()
     R = R @ scipy.spatial.transform.Rotation.from_euler("X", [-np.pi / 2]).as_matrix()
     # Apply inverse transform to map approximate mesh -> ig frame.
     T[:3, :3] = R.reshape(3, 3).T
     approx_mesh.apply_transform(T)
+
+    approx_mesh.apply_translation(-obj.translation)
+
     approx_mesh = poisson_mesh(approx_mesh)
     approx_mesh.export(mesh_file)
+
     return approx_mesh

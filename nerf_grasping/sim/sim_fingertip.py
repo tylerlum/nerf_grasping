@@ -254,7 +254,9 @@ class FingertipEnv:
         closest_points = ig_utils.closest_point(
             grasp_points, grasp_points + grasp_normals, self.robot.position
         )  # IG frame.
-        target_obj_pos = np.array([0, 0, self.robot.target_height])  # IG frame.
+        target_obj_pos = np.array(
+            [0, 0, self.obj.translation[-1] + self.robot.target_height]
+        )  # IG frame.
 
         if mode == "reach":
             # position control to reach contact points
@@ -280,7 +282,7 @@ class FingertipEnv:
                 )
                 # get estimated normal once
                 ge_ig_frame = (
-                    self.robot.get_grad_ests(self.obj, contact_pts_obj_frame)
+                    self.robot.get_nerf_grad_ests(self.obj, contact_pts_obj_frame)
                     .cpu()
                     .float()
                 )

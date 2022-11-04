@@ -256,15 +256,14 @@ def closest_point(a, b, p):
 
 def get_mesh_contacts(gt_mesh, grasp_points, pos_offset=None, rot_offset=None):
 
+    # Transform query points into object frame (Z-up, centroid origin).
     rot_offset = Quaternion.fromWLast(rot_offset)
     if pos_offset is not None:
         # project grasp_points into object frame
         grasp_points -= pos_offset.cpu().numpy().reshape(1, 3)
         grasp_points = np.stack([rot_offset.T.rotate(gp) for gp in grasp_points])
 
-    # Now, transform grasp_points into model frame.
-    grasp_points = grasp_utils.ig_to_nerf(grasp_points).cpu().numpy()
-
+    # Query trimesh for closest point.
     points, distance, index = trimesh.proximity.closest_point(gt_mesh, grasp_points)
     # grasp normals follow convention that points into surface,
     # trimesh computes normals pointing out of surface
@@ -273,10 +272,6 @@ def get_mesh_contacts(gt_mesh, grasp_points, pos_offset=None, rot_offset=None):
     #     print('grasp normals, NeRF frame:', grasp_normals)
     #     print('grasp points, NeRF frame:', points)
     #     print('surface distances, NeRF frame:', distance)
-
-    # Put back into IG model frame.
-    points = grasp_utils.nerf_to_ig(points).cpu().numpy()
-    grasp_normals = grasp_utils.nerf_to_ig(grasp_normals).cpu().numpy()
 
     if pos_offset is not None:
         # project back into world frame

@@ -130,17 +130,23 @@ class FingertipRobot:
             contact_pts += self.sphere_radius * grasp_normals  # IG frame.
         return contact_pts
 
-    def get_grad_ests(self, obj, tip_position):
+    def get_nerf_grad_ests(self, obj, tip_position):
         if not obj.nerf_loaded:
             obj.load_nerf_model()
+
+        # Express tip position in nerf (Y-up, relative to world origin).
         nerf_tip_pos = grasp_utils.ig_to_nerf(
-            tip_position, obj.model.ig_centroid, return_tensor=True
-        )
+            tip_position, return_tensor=True
+        ) + torch.from_numpy(obj.translation)
+
+        # Query NeRF for gradient estimates
         _, grad_ests = nerf_utils.est_grads_vals(
             obj.model, nerf_tip_pos.view(1, -1, 3), self.grad_config
         )
         grad_ests = grad_ests.reshape(3, 3).float()
         grad_ests /= grad_ests.norm(dim=1, keepdim=True)
+
+        # Rotate back to IG frame.
         grad_ests = grasp_utils.nerf_to_ig(grad_ests)
         return grad_ests
 
@@ -155,7 +161,7 @@ class FingertipRobot:
         nan_indices = torch.isnan(global_fingertip_forces)
         if nan_indices.any():
             global_fingertip_forces[nan_indices] = 0.0
-            logging.warning(f"global_fingertip_forces contains nans!")
+            logging.warning("global_fingertip_forces contains nans!")
         for f, actor_handle in zip(global_fingertip_forces, self.actors):
             rb_handle = self.gym.get_actor_rigid_body_handle(self.env, actor_handle, 0)
             fx, fy, fz = f
@@ -241,10 +247,8 @@ class FingertipRobot:
         quat = Quaternion.fromWLast(obj.orientation)  # obj to IG frame.
 
         target_quat = Quaternion.Identity()
-        # cg_pos = get_CG()  # IG frame.
         # print('rot offset: ', (quat @ target_quat.T).to_tangent_space())
 
-        # pos_err = cg_pos - target_position
         pos_err = obj.position - target_position
         object_weight_comp = obj.mass * 9.81 * torch.tensor([0, 0, 1])
         # target_force = object_weight_comp - 0.9 * pos_err- 0.4 * vel
@@ -269,7 +273,7 @@ class FingertipRobot:
 
         # Transform them back to obj frame.
         grasp_points_obj_frame = torch.stack(
-            [quat.T.rotate(x - obj.get_CG()) for x in grasp_points_ig_frame]
+            [quat.T.rotate(x - obj.position) for x in grasp_points_ig_frame]
         )
 
         # print('grasp_points obj frame:', grasp_points_obj_frame)

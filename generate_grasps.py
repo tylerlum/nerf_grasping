@@ -46,9 +46,12 @@ def main(exp_config: config.Experiment):
 
     else:
 
+        # Load mesh, Z-up, centered at centroid.
         model = mesh_utils.get_mesh(exp_config, obj)
 
         # Transform triangle mesh to Nerf frame.
+        model.apply_translation(obj.translation)
+
         T = np.eye(4)
         R = scipy.spatial.transform.Rotation.from_euler("Y", [-np.pi / 2]).as_matrix()
         R = (

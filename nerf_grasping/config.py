@@ -235,7 +235,7 @@ def mesh_file(exp_config: Experiment):
 def grasp_file(exp_config: Experiment):
     """Generates grasp data filenames from experiment config."""
 
-    outfile = f"new_grasp_data/{exp_config.object.name.lower()}"
+    outfile = f"grasp_data/{exp_config.object.name.lower()}"
 
     if isinstance(exp_config.model_config, Nerf):
         outfile += "_nerf"

@@ -79,7 +79,9 @@ def lifting_trajectory(env, grasp_vars, step):
 
     for timestep in range(500):
         height_err = np.abs(
-            env.robot.target_height - env.obj.position.cpu().numpy()[-1]
+            env.robot.target_height
+            + env.obj.translation[-1]
+            - env.obj.position.cpu().numpy()[-1]
         )
 
         # finds the closest contact points to the original grasp normal + grasp_point ray

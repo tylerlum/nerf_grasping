@@ -99,7 +99,7 @@ class RigidObject:
             return
         # TODO: whether to use new_translation or translation?
         self.model = load_nerf(
-            self.workspace, self.bound, self.scale, self.new_translation
+            self.workspace, self.bound, self.scale, self.translation
         )
         self.nerf_loaded = True
 
@@ -318,8 +318,7 @@ class PowerDrill(RigidObject):
 
     asset_file = "objects/urdf/power_drill.urdf"
     name = "power_drill"
-    translation = np.array([-4.0196e-06, 2.4881e-05, 5.2011e-03])
-    new_translation = np.array([-1.0431e-07, -1.6764e-08, 5.6809e-03])
+    translation = np.array([-1.9098e-06, 1.6409e-06, 2.9233e-02])
 
 
 class Banana(RigidObject):

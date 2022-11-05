@@ -462,8 +462,8 @@ def get_nerf_training(Obj, viewer):
         if Obj is not None:
             print(tf.object.position)
 
-    name = "blank" if Obj is None else Obj.name
-    tf.save_images("./torch-ngp/data/isaac_" + name, overwrite=False)
+    # name = "blank" if Obj is None else Obj.name
+    # tf.save_images("./torch-ngp/data/isaac_" + name, overwrite=False)
 
 
 def run_robot_control(viewer, Obj, robot_type, **robot_kwargs):
@@ -488,13 +488,13 @@ def run_robot_control(viewer, Obj, robot_type, **robot_kwargs):
 
 
 if __name__ == "__main__":
-    Obj = ig_objects.Banana
+    # Obj = ig_objects.Banana
     # Obj = ig_objects.Box
     # Obj = ig_objects.TeddyBear
-    # Obj = ig_objects.PowerDrill
+    Obj = ig_objects.PowerDrill
     # Obj = ig_objects.Box
     # Obj = ig_objects.BleachCleanser  # too big - put on side?
-    print(Obj().gt_mesh.extents)
+    print("Obj", Obj.name, Obj().gt_mesh.extents)
     # Obj = ig_objects.Spatula
     # Obj = ig_objects.Mug
     get_nerf_training(Obj, viewer=False)

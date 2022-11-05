@@ -2,6 +2,7 @@ import numpy as np
 import torch
 import os
 from isaacgym import gymapi
+
 from nerf_grasping import grasp_utils, nerf_utils, quaternions
 
 
@@ -36,6 +37,27 @@ def visualize_grasp_normals(
     )
 
 
+def visualize_obj_com(gym, viewer, env, obj):
+    vertices = []
+    for ii in range(3):
+        vertices.append(obj.position.cpu().numpy())
+        obj_rot = quaternions.Quaternion.fromWLast(obj.orientation)
+        endpoint = np.zeros(3)
+        endpoint[ii] = 1
+        endpoint = obj.position + obj_rot.rotate(endpoint)
+        vertices.append(endpoint.cpu().numpy())
+
+    vertices = np.stack(vertices, axis=0)
+    colors = np.array([[0, 0, 1], [0, 1, 0], [1, 0, 0]], dtype="float32")
+    gym.add_lines(
+        viewer,
+        env,
+        3,
+        vertices,
+        colors,
+    )
+
+
 def visualize_circle_markers(gym, env, sim, obj, n_markers=16):
     rad = 0.05
     theta = np.arange(n_markers) * 2 * np.pi / 16
@@ -53,15 +75,10 @@ def visualize_circle_markers(gym, env, sim, obj, n_markers=16):
 
 
 def visualize_markers(
-    gym,
-    env,
-    sim,
-    positions,
-    colors=[[0.0, 1.0, 0.0]] * 3,
-    marker_handles=[],
+    gym, env, sim, positions, colors=[[0.0, 1.0, 0.0]] * 3, marker_handles=[]
 ):
     if marker_handles:
-        return reset_asset_positions(gym, env, sim, positions, colors, marker_handles)
+        return reset_marker_positions(gym, env, sim, positions, colors, marker_handles)
     asset_options = gymapi.AssetOptions()
     asset_options.fix_base_link = True
     asset_options.angular_damping = 0.0
@@ -74,6 +91,7 @@ def visualize_markers(
         pose.p.x = pos[0]
         pose.p.y = pos[1]
         pose.p.z = pos[2]
+
         marker_asset = gym.create_sphere(sim, 0.005, asset_options)
         actor_handle = gym.create_actor(env, marker_asset, pose, f"marker_{i}", 1, 1)
         gym.set_rigid_body_color(
@@ -84,6 +102,23 @@ def visualize_markers(
             gymapi.Vec3(*color),
         )
         marker_handles.append(actor_handle)
+    return marker_handles
+
+
+def reset_marker_positions(gym, env, sim, positions, colors, marker_handles=[]):
+    for pos, color, handle in zip(positions, colors, marker_handles):
+        state = gym.get_actor_rigid_body_states(env, handle, gymapi.STATE_POS)
+        state["pose"]["p"].fill(tuple(pos))
+        assert gym.set_actor_rigid_body_states(
+            env, handle, state, gymapi.STATE_POS
+        ), "gym.set_actor_rigid_body_states failed"
+        gym.set_rigid_body_color(
+            env,
+            handle,
+            0,
+            gymapi.MESH_VISUAL,
+            gymapi.Vec3(*color),
+        )
     return marker_handles
 
 
@@ -123,28 +158,6 @@ def visualize_mesh_bbox(gym, viewer, env, obj, colors=[0.0, 0.0, 1.0], box_handl
         edges,
         colors,
     )
-
-def reset_asset_positions(
-    gym, env, sim, positions, colors, asset_handles=[], rotations=None
-):
-
-    for i, pos, color, handle in enumerate(zip(positions, colors, asset_handles)):
-        state = gym.get_actor_rigid_body_states(env, handle, gymapi.STATE_POS)
-        state["pose"]["p"].fill(tuple(pos))
-        if rotations is not None:
-            rot = rotations[i]
-            state["pose"]["r"].fill(tuple(rot))
-        assert gym.set_actor_rigid_body_states(
-            env, handle, state, gymapi.STATE_POS
-        ), "gym.set_actor_rigid_body_states failed"
-        gym.set_rigid_body_color(
-            env,
-            handle,
-            0,
-            gymapi.MESH_VISUAL,
-            gymapi.Vec3(*color),
-        )
-    return asset_handles
 
 
 def img_dir_to_vid(image_dir, name="test", cleanup=False):

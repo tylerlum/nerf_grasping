@@ -88,13 +88,13 @@ def lifting_trajectory(env, grasp_vars, step):
         mode = get_mode(timestep)
         # compute potential to closest points
         potential = compute_potential(grasp_points).sum()
-        state = env.run_control(mode, grasp_vars)
+        state = env.run_control(mode, grasp_vars, timestep)
         if state["grasp_opt_success"]:
             fail_count = 0
         else:
             fail_count += 1
 
-        if timestep >= 100 and (timestep + 1) % 50 == 0:
+        if (timestep + 1) % 50 == 0:
             print("MODE:", state["mode"])
             print("TIMESTEP:", timestep)
             # print("POSITION ERR:", state["ftip_pos_err"])

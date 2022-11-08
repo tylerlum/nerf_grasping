@@ -16,7 +16,7 @@ import trimesh
 
 # https://github.com/NVIDIA-Omniverse/IsaacGymEnvs
 
-root_dir = os.path.dirname(os.path.abspath(__file__))
+root_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 asset_dir = f"{root_dir}/assets"
 
 
@@ -44,10 +44,10 @@ class FingertipEnv:
         self.env = ig_utils.setup_env(self.gym, self.sim)
         return self.gym, self.sim, self.env
 
-    def setup_robot_obj(self, exp_config, grasp_vars=None):
+    def setup_robot_obj(self, exp_config):
         # Creates robot
         self.robot = ig_robot.FingertipRobot(exp_config.robot_config)
-        self.robot.setup_gym(self.gym, self.sim, self.env, grasp_vars)
+        self.robot.setup_gym(self.gym, self.sim, self.env)
 
         # Creates object and loads nerf and object mesh
         self.obj = ig_objects.load_object(exp_config)
@@ -59,10 +59,21 @@ class FingertipEnv:
             self.obj.load_nerf_model()
             self.mesh = None
         else:
-            print(f"LOADED MESH for estimating normals: {config.mesh_file(exp_config)}")
             if exp_config.level_set is None:
+                mesh_path = f"{asset_dir}/objects/meshes/{self.obj.name}/textured.obj"
+                raw_mesh_path = (
+                    f"{asset_dir}/objects/raw_meshes/{self.obj.name}/textured.obj"
+                )
+
+                raw_mesh = trimesh.load(raw_mesh_path, force="mesh")
+                print("Raw mesh extents:", raw_mesh.extents)
+                print("GT mesh extents:", self.obj.gt_mesh.extents)
+                print(f"LOADED MESH for estimating normals: {mesh_path}")
                 self.mesh = self.obj.gt_mesh
             else:
+                print(
+                    f"LOADED MESH for estimating normals: {config.mesh_file(exp_config)}"
+                )
                 self.mesh = mesh_utils.get_mesh(exp_config, self.obj)
 
         # Create root state tensor for resetting env
@@ -73,8 +84,7 @@ class FingertipEnv:
         self.robot.setup_tensors()
         self.obj.setup_tensors()
         self.actor_indices = None
-        if grasp_vars is None:
-            grasp_vars = (self.obj.grasp_points, self.obj.grasp_normals)
+        grasp_vars = (self.obj.grasp_points, self.obj.grasp_normals)
 
         # resets object and actor, sets robot start pose
         self.reset_actors(grasp_vars)
@@ -248,7 +258,7 @@ class FingertipEnv:
         # self.step_gym()
         # self.image_idx = 0
 
-    def run_control(self, mode, grasp_vars):
+    def run_control(self, mode, grasp_vars, timestep):
         grasp_points, grasp_normals = grasp_vars  # IG frame.
         succ = True
         closest_points = ig_utils.closest_point(
@@ -300,6 +310,9 @@ class FingertipEnv:
             f, target_force, _, succ = self.robot.object_pos_control(
                 self.obj, ge_ig_frame, target_obj_pos
             )
+        else:
+            f = torch.zeros((3, 3))
+            pos_err = closest_points - self.robot.position
 
         self.robot.apply_fingertip_forces(f)
         self.step_gym()
@@ -325,6 +338,13 @@ class FingertipEnv:
             self.viewer, self.env, gymapi.Vec3(0.0, 0.0, 0.0), 1.0, True
         )
         ig_viz_utils.visualize_obj_com(self.gym, self.viewer, self.env, self.obj)
+        ig_viz_utils.visualize_mesh_bbox(
+            self.gym,
+            self.viewer,
+            self.env,
+            self.obj,
+            self.mesh,
+        )
         # print('asset forces:', self.obj.force_sensor.get_forces().force)
 
         state.update(

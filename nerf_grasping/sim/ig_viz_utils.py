@@ -122,22 +122,20 @@ def reset_marker_positions(gym, env, sim, positions, colors, marker_handles=[]):
     return marker_handles
 
 
-def visualize_mesh_bbox(gym, viewer, env, obj, colors=[0.0, 0.0, 1.0], box_handle=None):
+def visualize_mesh_bbox(gym, viewer, env, obj, mesh, colors=[1.0, 0.647, 0.0]):
     # gym.clear_lines(viewer)
-    position, _ = obj.position, obj.orientation
-    w, d, h = obj.gt_mesh.extents  # X Z Y - Z is up
+    position = obj.position
+    obj_rot = quaternions.Quaternion.fromWLast(obj.orientation)
+
+    w, h, d = mesh.extents  # X Z Y - Z is up
     vertices = []
     # Generate an array with 8 vertices
-    for i in range(2):
-        for j in range(2):
-            for k in range(2):
-                vertices.append(
-                    [
-                        position[0] + (-1) ** i * w / 2,
-                        position[1] + (-1) ** j * h / 2,
-                        position[2] + (-1) ** k * d / 2,
-                    ]
-                )
+    for i in [-0.5, 0.5]:
+        for j in [-0.5, 0.5]:
+            for k in [-0.5, 0.5]:
+                vertex = np.array([i * w, j * h, k * d])
+                vertex = position + obj_rot.rotate(vertex)
+                vertices.append(vertex.cpu().numpy())
     vertices = np.array(vertices)
     # For 4 vertices on the back face, create an edge to the opposite face
     edges = []
@@ -154,7 +152,7 @@ def visualize_mesh_bbox(gym, viewer, env, obj, colors=[0.0, 0.0, 1.0], box_handl
     gym.add_lines(
         viewer,
         env,
-        3,
+        12,
         edges,
         colors,
     )

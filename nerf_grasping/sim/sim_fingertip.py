@@ -338,12 +338,13 @@ class FingertipEnv:
             self.viewer, self.env, gymapi.Vec3(0.0, 0.0, 0.0), 1.0, True
         )
         ig_viz_utils.visualize_obj_com(self.gym, self.viewer, self.env, self.obj)
+        mesh = self.mesh or self.obj.gt_mesh
         ig_viz_utils.visualize_mesh_bbox(
             self.gym,
             self.viewer,
             self.env,
             self.obj,
-            self.mesh,
+            mesh,
         )
         # print('asset forces:', self.obj.force_sensor.get_forces().force)
 

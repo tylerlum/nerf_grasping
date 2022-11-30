@@ -81,8 +81,9 @@ def visualize_markers(
         return reset_marker_positions(gym, env, sim, positions, colors, marker_handles)
     asset_options = gymapi.AssetOptions()
     asset_options.fix_base_link = True
-    asset_options.angular_damping = 0.0
+    asset_options.angular_damping = 100.0
     asset_options.max_angular_velocity = 0.0
+    asset_options.max_linear_velocity = 0.0
     asset_options.slices_per_cylinder = 40
     marker_handles = []
     for i, pos in enumerate(positions):
@@ -93,7 +94,7 @@ def visualize_markers(
         pose.p.z = pos[2]
 
         marker_asset = gym.create_sphere(sim, 0.005, asset_options)
-        actor_handle = gym.create_actor(env, marker_asset, pose, f"marker_{i}", 1, 1)
+        actor_handle = gym.create_actor(env, marker_asset, pose, f"marker_{i}", 10, 0)
         gym.set_rigid_body_color(
             env,
             actor_handle,

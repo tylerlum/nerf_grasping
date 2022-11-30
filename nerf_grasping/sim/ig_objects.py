@@ -98,9 +98,7 @@ class RigidObject:
         if self.nerf_loaded:
             return
         # TODO: whether to use new_translation or translation?
-        self.model = load_nerf(
-            self.workspace, self.bound, self.scale, self.translation
-        )
+        self.model = load_nerf(self.workspace, self.bound, self.scale, self.translation)
         self.nerf_loaded = True
 
     def load_trimesh(self, mesh_path=None):
@@ -159,7 +157,7 @@ class RigidObject:
             self.asset,
             gymapi.Transform(p=gymapi.Vec3(0.0, 0.0, 0.1)),
             self.name,
-            0,
+            1,
             0,
             segmentationId=2,
         )
@@ -304,7 +302,6 @@ class Box(RigidObject):
 class PowerDrill(RigidObject):
     workspace = "power_drill"
     centroid = np.zeros(3)
-    # old_translation = np.array([-0.00031597, 0.00020537, 0.00023557])
     grasp_points = torch.tensor(
         [
             [-0.038539, 0.115021, 0.023878],

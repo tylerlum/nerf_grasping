@@ -80,10 +80,7 @@ class FingertipRobot:
             # )
             markers.append(marker_asset)
             actor_handle = self.gym.create_actor(
-                self.env,
-                marker_asset,
-                pose,
-                f"fingertip_{i}",
+                self.env, marker_asset, pose, f"fingertip_{i}", 1, 0
             )
             actors.append(actor_handle)
             self.gym.set_rigid_body_color(
@@ -330,11 +327,11 @@ class FingertipRobot:
 
     @property
     def position(self):
-        return self.get_position()
+        return self.get_position().clone()
 
     @property
     def velocity(self):
-        return self.get_velocity()
+        return self.get_velocity().clone()
 
     @property
     def mass(self):

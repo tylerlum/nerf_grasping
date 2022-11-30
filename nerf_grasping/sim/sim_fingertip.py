@@ -49,6 +49,15 @@ class FingertipEnv:
         self.robot = ig_robot.FingertipRobot(exp_config.robot_config)
         self.robot.setup_gym(self.gym, self.sim, self.env)
 
+        self.marker_handles = ig_viz_utils.visualize_markers(
+            self.gym,
+            self.env,
+            self.sim,
+            [np.zeros(3)] * 3,
+            colors=[[1.0, 0.5, 0.0]] * 3,
+            marker_handles=[],
+        )
+
         # Creates object and loads nerf and object mesh
         self.obj = ig_objects.load_object(exp_config)
         self.obj.setup_gym(self.gym, self.sim, self.env)
@@ -96,7 +105,7 @@ class FingertipEnv:
 
         # Get actor indices to reset actor_root_tensor
         actor_indices = []
-        for a_handle in self.robot.actors + [self.obj.actor]:
+        for a_handle in self.robot.actors + self.marker_handles + [self.obj.actor]:
             actor_indices.append(
                 self.gym.get_actor_index(self.env, a_handle, gymapi.DOMAIN_SIM)
             )
@@ -105,6 +114,9 @@ class FingertipEnv:
             dtype=torch.long,
             device="cpu",
         )
+        self.robot_idx = self.actor_indices[:3]
+        self.marker_idx = self.actor_indices[3:6]
+        self.object_idx = self.actor_indices[-1]
         self.object_init_state = torch.tensor(
             [
                 object_start_pose["p"]["x"][0],
@@ -234,11 +246,9 @@ class FingertipEnv:
 
         if self.actor_indices is not None:
             # reset object and robot state tensor
-            object_idx = self.actor_indices[-1]
-            self.root_state_tensor[object_idx] = self.object_init_state.clone()
-            self.root_state_tensor[
-                self.actor_indices[:3]
-            ] = self.robot_init_state.clone()
+            self.root_state_tensor[self.object_idx] = self.object_init_state.clone()
+            self.root_state_tensor[self.robot_idx] = self.robot_init_state.clone()
+            # self.root_state_tensor[self.marker_idx] = 0.0
             actor_indices = self.actor_indices.to(torch.int32)
             assert self.gym.set_actor_root_state_tensor_indexed(
                 self.sim,
@@ -267,6 +277,11 @@ class FingertipEnv:
         target_obj_pos = np.array(
             [0, 0, self.obj.translation[-1] + self.robot.target_height]
         )  # IG frame.
+        # get mesh
+        if self.mesh is None or self.robot.use_true_normals:
+            mesh = self.obj.gt_mesh
+        else:
+            mesh = self.mesh
 
         if mode == "reach":
             # position control to reach contact points
@@ -281,10 +296,7 @@ class FingertipEnv:
             closest_points[:, 2] = self.obj.position[2]
             pos_err = closest_points - self.robot.position
             contact_pts = self.robot.get_contact_points(grasp_normals)
-            if self.mesh is None or self.robot.use_true_normals:
-                mesh = self.obj.gt_mesh
-            else:
-                mesh = self.mesh
+
             if self.mesh is None and not self.robot.use_true_normals:
                 quat = Quaternion.fromWLast(self.obj.orientation)
                 contact_pts_obj_frame = np.stack(
@@ -295,6 +307,18 @@ class FingertipEnv:
                     self.robot.get_nerf_grad_ests(self.obj, contact_pts_obj_frame)
                     .cpu()
                     .float()
+                )
+                ig_viz_utils.visualize_grasp_normals(
+                    self.gym, self.viewer, self.env, contact_pts, ge_ig_frame
+                )
+                # add markers to robot actors to fix reset_actors
+                self.marker_handles = ig_viz_utils.visualize_markers(
+                    self.gym,
+                    self.env,
+                    self.sim,
+                    contact_pts,
+                    colors=[[1.0, 0.5, 0.0]] * 3,
+                    marker_handles=self.marker_handles,
                 )
             else:
                 contact_pts_obj_frame, ge_ig_frame, _ = ig_utils.get_mesh_contacts(
@@ -311,7 +335,7 @@ class FingertipEnv:
                 self.obj, ge_ig_frame, target_obj_pos
             )
         else:
-            f = torch.zeros((3, 3))
+            f = torch.zeros((3, 3))  # no-op
             pos_err = closest_points - self.robot.position
 
         self.robot.apply_fingertip_forces(f)

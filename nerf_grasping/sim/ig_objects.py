@@ -332,7 +332,7 @@ class Banana(RigidObject):
     name = "banana"
     mu = 1.0
     bound = 1.5
-    translation = np.array([0.0003, -0.0002, 0.0197])
+    translation = np.array([1.7978e-08, -6.0033e-08, 2.7280e-03])
 
 
 class BigBanana(RigidObject):

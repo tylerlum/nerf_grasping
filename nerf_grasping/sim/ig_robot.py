@@ -134,7 +134,7 @@ class FingertipRobot:
         # Express tip position in nerf (Y-up, relative to world origin).
         nerf_tip_pos = (
             grasp_utils.ig_to_nerf(tip_position, return_tensor=True)
-            + torch.from_numpy(obj.translation).float().cuda()
+            # + torch.from_numpy(obj.translation).float().cuda()
         )
 
         # Query NeRF for gradient estimates

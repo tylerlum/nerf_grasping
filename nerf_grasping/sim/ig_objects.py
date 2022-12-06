@@ -331,6 +331,7 @@ class Banana(RigidObject):
     asset_file = "objects/urdf/banana.urdf"
     name = "banana"
     mu = 1.0
+    bound = 1.5
     translation = np.array([0.0003, -0.0002, 0.0197])
 
 

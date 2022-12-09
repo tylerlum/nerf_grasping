@@ -34,6 +34,7 @@ def compute_sampled_grasps(model, grasp_points, centroid):
 def main(exp_config: config.Experiment):
 
     obj = ig_objects.load_object(exp_config)
+    outfile = config.grasp_file(exp_config)
 
     if isinstance(exp_config.model_config, config.Nerf):
         model = ig_objects.load_nerf(
@@ -121,8 +122,6 @@ def main(exp_config: config.Experiment):
 
         sampled_grasps[ii, :, :3] = rays_o.cpu().numpy()
         sampled_grasps[ii, :, 3:] = rays_d.cpu().numpy()
-
-    outfile = config.grasp_file(exp_config)
 
     os.makedirs("grasp_data", exist_ok=True)
     print(f"saving to: {outfile}[.npy, .yaml]")

@@ -381,6 +381,23 @@ def get_cost_function(exp_config, model):
             B, num_grasp_samples
         )
 
+        # Add cost term penalizing cosine distance between approach angle and normal.
+        rays_o, rays_d = gps[..., :3], gps[..., 3:]
+        rays_d = grasp_utils.res_to_true_dirs(
+            rays_o.reshape(-1, 3), rays_d.reshape(-1, 3), centroid
+        ).reshape(
+            -1, n_f, 3
+        )  # [B, n_f, 3]
+
+        rays_d = (
+            rays_d.unsqueeze(1)
+            .expand(-1, num_grasp_samples, -1, -1)
+            .reshape(-1, n_f, 3)
+        )
+        raw_cost -= 5e-2 * (
+            1 - torch.mean(grasp_utils.cos_similarity(rays_d, grad_ests), dim=-1)
+        ).reshape(B, num_grasp_samples)
+
         # Exponentiate cost if using risk sensitivity.
         if risk_sensitivity:
             g_cost = torch.exp(-risk_sensitivity * raw_cost)

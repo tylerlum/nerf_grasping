@@ -168,6 +168,8 @@ def get_grasp_distribution(grasp_vars, model, nerf_config):
 
     sigmas, rgbs = model(pts.reshape(-1, 3), dirs.reshape(-1, 3))
 
+    sigmas = sigmas
+
     rgbs = rgbs.reshape(N, nerf_config.num_steps, 3)  # [N, T, 3]
     sigmas = sigmas.reshape(N, nerf_config.num_steps)  # [N, T]
 
@@ -325,12 +327,6 @@ def sample_grasps(grasp_vars, num_grasps, model, nerf_config):
 
     # Mask approach directions that will not collide with object
     grasp_mask = torch.logical_and(grasp_mask, density_ests < 50)  # Shape [B, n_f]
-    grasp_mask = grasp_mask.all(-1, keepdim=True)  # Shape [B, 1]
-
-    print(
-        "Fraction of accepted grasps:",
-        torch.sum(grasp_mask) / torch.sum(torch.ones_like(grasp_mask)),
-    )
 
     # Mask approach directions that will not collide with each other
     # approach_mask = grasp_utils.intersect_grasp_dirs(
@@ -367,8 +363,15 @@ def sample_grasps(grasp_vars, num_grasps, model, nerf_config):
     # grasp_mask = torch.logical_and(
     #     grasp_mask,
     #     torch.median(torch.sum(grad_ests * rays_d.unsqueeze(-2), dim=-1), dim=-1)[0]
-    #     >= 0.5,
+    #     >= 0.65,
     # )
+
+    grasp_mask = grasp_mask.all(-1, keepdim=True)  # Shape [B, 1]
+
+    print(
+        "Fraction of accepted grasps:",
+        torch.sum(grasp_mask) / torch.sum(torch.ones_like(grasp_mask)),
+    )
 
     # NOTE: deprecated?
     # Permute dims to put batch dimensions together.

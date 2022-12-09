@@ -119,16 +119,16 @@ class RobotConfig:
 @dataclasses.dataclass(frozen=True)
 class Nerf:
     # Number of initial steps for finger rendering.
-    num_steps: int = 128
+    num_steps: int = 32
 
     # Number of importance samples to add for finger rendering.
-    upsample_steps: int = 256
+    upsample_steps: int = 64
 
     # Near bound for finger rendering.
-    render_near_bound: float = 0.0001
+    render_near_bound: float = 0.0
 
     # Far bound for finger rendering.
-    render_far_bound: float = 0.15
+    render_far_bound: float = 0.1
 
     # Flag to add noise to samples during rendering.
     render_perturb_samples: bool = True

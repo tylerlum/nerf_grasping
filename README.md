@@ -3,9 +3,9 @@
 This project focuses on performing grasping and manipulation using
 Neural Radiance Fields (NeRFs).
 
-# Pipeline
+# Grasping Pipeline
 
-## Standard Mesh Pipeline
+## Mesh FC Pipeline
 
 ```mermaid
 classDiagram
@@ -32,7 +32,7 @@ classDiagram
     }
 ```
 
-## Mesh Sampling + NeRF Normals Hybrid Pipeline
+## Mesh Sampling + NeRF Normals Hybrid FC Pipeline
 
 ```mermaid
 classDiagram
@@ -59,7 +59,7 @@ classDiagram
     }
 ```
 
-## NeRF Sampling + Mesh Normals Hybrid Pipeline
+## NeRF Sampling + Mesh Normals Hybrid FC Pipeline
 
 ```mermaid
 classDiagram
@@ -86,6 +86,111 @@ classDiagram
     }
 ```
 
+## NeRF FC Pipeline
+
+```mermaid
+classDiagram
+    Grasp_Optimizer <|-- Inputs: nerf
+    Analytical_Metric <|-- Inputs: nerf
+
+    Analytical_Metric <|-- Grasp_Optimizer: (rays_o, rays_d)
+
+    Grasp_Controller <|-- Grasp_Optimizer: (rays_o*, rays_d*)
+    Grasp_Optimizer <|-- Analytical_Metric: metric
+    Grasp_Controller <|-- Analytical_Metric: metric*
+
+    class Grasp_Controller{
+      + State-Machine PID Control
+    }
+    class Analytical_Metric{
+      + Ferrari-Canny
+    }
+    class Grasp_Optimizer{
+      + Dice the Grasp, CEM, etc.
+    }
+    class Inputs{
+      + Ground-Truth Mesh, NeRF
+    }
+```
+
+## NeRF + Learned Metric Pipeline
+
+```mermaid
+classDiagram
+    Grasp_Optimizer <|-- Inputs: nerf
+    Learned_Metric <|-- Inputs: nerf
+
+    Learned_Metric <|-- Grasp_Optimizer: (rays_o, rays_d)
+
+    Grasp_Controller <|-- Grasp_Optimizer: (rays_o*, rays_d*)
+    Grasp_Optimizer <|-- Learned_Metric: metric
+    Grasp_Controller <|-- Learned_Metric: metric*
+
+    class Grasp_Controller{
+      + State-Machine PID Control
+    }
+    class Learned_Metric{
+      + ACRONYM, DexGraspNet, etc.
+    }
+    class Grasp_Optimizer{
+      + Dice the Grasp, CEM, etc.
+    }
+    class Inputs{
+      + Ground-Truth Mesh, NeRF
+    }
+```
+
+# Learned Metric Training Pipeline
+
+```mermaid
+classDiagram
+    Grasp_Optimizer <|-- Inputs: nerf
+    Learned_Metric <|-- Inputs: nerf
+
+    Learned_Metric <|-- Grasp_Optimizer: (rays_o, rays_d)
+
+    Grasp_Controller <|-- Grasp_Optimizer: (rays_o*, rays_d*)
+    Grasp_Optimizer <|-- Learned_Metric: metric
+    Grasp_Controller <|-- Learned_Metric: metric*
+
+    class Grasp_Controller{
+      + State-Machine PID Control
+    }
+    class Learned_Metric{
+      + ACRONYM, DexGraspNet, etc.
+    }
+    class Grasp_Optimizer{
+      + Dice the Grasp, CEM, etc.
+    }
+    class Inputs{
+      + Ground-Truth Mesh, NeRF
+    }
+```
+
+# NeRF Training Pipeline
+
+```mermaid
+classDiagram
+    Img_Collection <|-- Inputs: mesh + material
+
+    NeRF_Trainer <|-- Img_Collection: imgs, camera_poses
+
+    NeRF <|-- NeRF_Trainer: model_weights
+
+    class NeRF{
+      + NeRF of Object
+    }
+    class NeRF_Trainer{
+      + torch-ngp
+    }
+    class Img_Collection{
+      + Isaac Gym Pics from Camera Poses
+    }
+    class Inputs{
+      + Ground-Truth Mesh
+      + Material for color & texture
+    }
+```
 
 ### Setup
 

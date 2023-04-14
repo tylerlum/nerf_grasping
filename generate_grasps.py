@@ -10,6 +10,8 @@ import trimesh
 import numpy as np
 import yaml
 
+NUM_FINGERS = 3
+NUM_XYZ = 3
 
 def compute_sampled_grasps(model, grasp_points, centroid):
     """Converts grasp vars to ray origins/directions; attempts to clip
@@ -32,10 +34,10 @@ def compute_sampled_grasps(model, grasp_points, centroid):
 
 
 def main(exp_config: config.Experiment):
-
     obj = ig_objects.load_object(exp_config)
     outfile = config.grasp_file(exp_config)
 
+    # Get object model and centroid
     if isinstance(exp_config.model_config, config.Nerf):
         model = ig_objects.load_nerf(
             obj.workspace, obj.bound, obj.scale, obj.translation
@@ -46,7 +48,6 @@ def main(exp_config: config.Experiment):
         centroid = model.centroid
 
     else:
-
         # Load mesh, Z-up, centered at centroid.
         model = mesh_utils.get_mesh(exp_config, obj)
 
@@ -64,35 +65,37 @@ def main(exp_config: config.Experiment):
         centroid = torch.from_numpy(model.centroid).float()
         model.ig_centroid = model.centroid
 
+    # Init grasp points
     grasp_points = (
-        torch.tensor([[0.09, 0.0, -0.045], [-0.09, 0.0, -0.045], [0, 0.0, 0.09]])
-        .reshape(1, 3, 3)
+        torch.tensor([[0.09, 0.0, -0.045],
+                      [-0.09, 0.0, -0.045],
+                      [0, 0.0, 0.09]])
+        .reshape(1, NUM_FINGERS, NUM_XYZ)
         .to(centroid)
     )
-
-    grasp_points += centroid.reshape(1, 1, 3)  # move grasp points in object frame
+    grasp_points += centroid.reshape(1, 1, NUM_XYZ)  # move grasp points in object frame
     grasp_dirs = torch.zeros_like(grasp_points)
 
+    # Init distribution
     mu_0 = torch.cat([grasp_points, grasp_dirs], dim=-1).reshape(-1).to(centroid)
     Sigma_0 = torch.diag(
         torch.cat(
-            [torch.tensor([1e-2, 1e-2, 1e-2, 5e-3, 5e-3, 5e-3]) for _ in range(3)]
+            [torch.tensor([1e-2, 1e-2, 1e-2, 5e-3, 5e-3, 5e-3]) for _ in range(NUM_FINGERS)]
         )
     ).to(centroid)
 
     if isinstance(exp_config.model_config, config.Nerf):
+        # Move to gpu
         mu_0, Sigma_0 = mu_0.float().cuda(), Sigma_0.float().cuda()
         centroid = centroid.float().cuda()
 
-    sampled_grasps = np.zeros((exp_config.num_grasps, 3, 6))
+    sampled_grasps = np.zeros((exp_config.num_grasps, NUM_FINGERS, NUM_XYZ * 2))
     object_bounds = grasp_utils.OBJ_BOUNDS
     projection_fn = partial(grasp_utils.box_projection, object_bounds=object_bounds)
-
     cost_function = grasp_opt.get_cost_function(exp_config, model)
 
     for ii in range(exp_config.num_grasps):
         if exp_config.dice_grasp:
-
             assert isinstance(exp_config.model_config, config.Mesh)
 
             rays_o, rays_d = grasp_opt.dice_the_grasp(
@@ -106,7 +109,6 @@ def main(exp_config: config.Experiment):
             sampled_grasps[ii, :, 3:] = rays_d.cpu()
 
         else:
-
             mu_f, Sigma_f, cost_history, best_point = grasp_opt.optimize_cem(
                 cost_function,
                 mu_0,
@@ -117,14 +119,15 @@ def main(exp_config: config.Experiment):
                 projection=projection_fn,
             )
 
-            grasp_points = best_point.reshape(3, 6)
+            grasp_points = best_point.reshape(NUM_FINGERS, NUM_XYZ * 2)
             rays_o, rays_d = compute_sampled_grasps(model, grasp_points, centroid)
 
         sampled_grasps[ii, :, :3] = rays_o.cpu().numpy()
         sampled_grasps[ii, :, 3:] = rays_d.cpu().numpy()
 
+    # Save to file
     os.makedirs("grasp_data", exist_ok=True)
-    print(f"saving to: {outfile}[.npy, .yaml]")
+    print(f"saving to: {outfile}[.npy, .pkl]")
     np.save(f"{outfile}.npy", sampled_grasps)
     config.save(exp_config, outfile)
 

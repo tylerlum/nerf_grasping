@@ -23,7 +23,9 @@ def load_nerf(workspace, bound, scale, obj_translation):
     args = parser.parse_args(
         [
             "--workspace",
-            f"{root_dir}/nerf_checkpoints/{workspace}",
+            # f"{root_dir}/nerf_checkpoints/{workspace}",
+            f"{root_dir}/torch-ngp/isaac_banana_nerf",
+            "--fp16",
             "--test",
             "--bound",
             f"{bound}",
@@ -331,7 +333,7 @@ class Banana(RigidObject):
     asset_file = "objects/urdf/banana.urdf"
     name = "banana"
     mu = 1.0
-    bound = 1.5
+    bound = 2
     translation = np.array([1.7978e-08, -6.0033e-08, 2.7280e-03])
 
 

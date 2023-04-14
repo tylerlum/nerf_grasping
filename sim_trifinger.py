@@ -157,7 +157,7 @@ class TriFingerEnv:
         self.envs = [env]
 
         if robot_type == "trifinger":
-            self.robot = ig_robot.Robot(self.gym, self.sim, self.env, **robot_kwargs)
+            self.robot = ig_robot.FingertipRobot(self.gym, self.sim, self.env, **robot_kwargs)
         elif robot_type == "spheres":
             self.robot = ig_robot.FingertipRobot(
                 self.gym, self.sim, self.env, **robot_kwargs
@@ -460,7 +460,7 @@ def get_nerf_training(Obj, viewer):
     for _ in range(500):
         tf.step_gym()
         if Obj is not None:
-            print(tf.object.position)
+            print(f"tf.object.position = {tf.object.position}")
 
     # name = "blank" if Obj is None else Obj.name
     # tf.save_images("./torch-ngp/data/isaac_" + name, overwrite=False)
@@ -494,17 +494,19 @@ if __name__ == "__main__":
     Obj = ig_objects.PowerDrill
     # Obj = ig_objects.Box
     # Obj = ig_objects.BleachCleanser  # too big - put on side?
-    print("Obj", Obj.name, Obj().gt_mesh.extents)
     # Obj = ig_objects.Spatula
     # Obj = ig_objects.Mug
-    get_nerf_training(Obj, viewer=False)
-    # run_robot_control(
-    #     viewer=True,
-    #     Obj=Obj,
-    #     robot_type="trifinger",
-    #     use_nerf_grasping=False,
-    #     use_residual_dirs=True,
-    #     use_true_normals=False,
-    #     use_grad_est=True,
-    #     metric="psv",
-    # )
+    print("Obj", Obj.name, Obj().gt_mesh.extents)
+
+    # get_nerf_training(Obj, viewer=False)
+    # get_nerf_training(Obj, viewer=True)
+    run_robot_control(
+        viewer=True,
+        Obj=Obj,
+        robot_type="trifinger",
+        use_nerf_grasping=False,
+        use_residual_dirs=True,
+        use_true_normals=False,
+        use_grad_est=True,
+        metric="psv",
+    )

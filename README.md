@@ -144,26 +144,24 @@ classDiagram
 
 ```mermaid
 classDiagram
-    Grasp_Optimizer <|-- Inputs: nerf
-    Learned_Metric <|-- Inputs: nerf
+    Density_Encoder <|-- Inputs: density cylinder
+    Metric_Predictor <|-- Density_Encoder: density embedding
+    Metric_Predictor <|-- Inputs: centroid
 
-    Learned_Metric <|-- Grasp_Optimizer: (rays_o, rays_d)
+    Learned_Metric <|-- Metric_Predictor: grasp success
 
-    Grasp_Controller <|-- Grasp_Optimizer: (rays_o*, rays_d*)
-    Grasp_Optimizer <|-- Learned_Metric: metric
-    Grasp_Controller <|-- Learned_Metric: metric*
-
-    class Grasp_Controller{
-      + State-Machine PID Control
-    }
     class Learned_Metric{
-      + ACRONYM, DexGraspNet, etc.
+      + Grasp success [0, 1]
     }
-    class Grasp_Optimizer{
-      + Dice the Grasp, CEM, etc.
+    class Metric_Predictor{
+      + MLP
+    }
+    class Density_Encoder{
+      + CNN
     }
     class Inputs{
-      + Ground-Truth Mesh, NeRF
+      + NeRF density cylinder along rays_o, rays_d
+      + NeRF centroid wrt these rays
     }
 ```
 

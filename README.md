@@ -32,60 +32,6 @@ classDiagram
     }
 ```
 
-## Mesh Sampling + NeRF Normals Hybrid FC Pipeline
-
-```mermaid
-classDiagram
-    Grasp_Optimizer <|-- Inputs: nerf
-    Analytical_Metric <|-- Inputs: mesh
-
-    Analytical_Metric <|-- Grasp_Optimizer: (rays_o, rays_d)
-
-    Grasp_Controller <|-- Grasp_Optimizer: (rays_o*, rays_d*)
-    Grasp_Optimizer <|-- Analytical_Metric: metric
-    Grasp_Controller <|-- Analytical_Metric: metric*
-
-    class Grasp_Controller{
-      + State-Machine PID Control
-    }
-    class Analytical_Metric{
-      + Ferrari-Canny
-    }
-    class Grasp_Optimizer{
-      + Dice the Grasp, CEM, etc.
-    }
-    class Inputs{
-      + Ground-Truth Mesh, NeRF
-    }
-```
-
-## NeRF Sampling + Mesh Normals Hybrid FC Pipeline
-
-```mermaid
-classDiagram
-    Grasp_Optimizer <|-- Inputs: mesh
-    Analytical_Metric <|-- Inputs: nerf
-
-    Analytical_Metric <|-- Grasp_Optimizer: (rays_o, rays_d)
-
-    Grasp_Controller <|-- Grasp_Optimizer: (rays_o*, rays_d*)
-    Grasp_Optimizer <|-- Analytical_Metric: metric
-    Grasp_Controller <|-- Analytical_Metric: metric*
-
-    class Grasp_Controller{
-      + State-Machine PID Control
-    }
-    class Analytical_Metric{
-      + Ferrari-Canny
-    }
-    class Grasp_Optimizer{
-      + Dice the Grasp, CEM, etc.
-    }
-    class Inputs{
-      + Ground-Truth Mesh, NeRF
-    }
-```
-
 ## NeRF FC Pipeline
 
 ```mermaid
@@ -106,10 +52,10 @@ classDiagram
       + Ferrari-Canny
     }
     class Grasp_Optimizer{
-      + Dice the Grasp, CEM, etc.
+      + CEM, etc.
     }
     class Inputs{
-      + Ground-Truth Mesh, NeRF
+      + NeRF
     }
 ```
 
@@ -133,12 +79,14 @@ classDiagram
       + ACRONYM, DexGraspNet, etc.
     }
     class Grasp_Optimizer{
-      + Dice the Grasp, CEM, etc.
+      + CEM, etc.
     }
     class Inputs{
-      + Ground-Truth Mesh, NeRF
+      + NeRF
     }
 ```
+
+Additional ablation studies: use ground-truth mesh and NeRF as inputs, use one of each for sampling or metric.
 
 # Learned Metric Training Pipeline
 

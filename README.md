@@ -9,11 +9,13 @@ Neural Radiance Fields (NeRFs).
 
 ```mermaid
 classDiagram
-    Grasp_Optimizer <|-- Inputs: Mesh
-    
+    Grasp_Optimizer <|-- Inputs: mesh
+    Analytical_Metric <|-- Inputs: mesh
+
     Analytical_Metric <|-- Grasp_Optimizer: (rays_o, rays_d)
-    Grasp_Optimizer <|-- Analytical_Metric: metric
+
     Grasp_Controller <|-- Grasp_Optimizer: (rays_o*, rays_d*)
+    Grasp_Optimizer <|-- Analytical_Metric: metric
     Grasp_Controller <|-- Analytical_Metric: metric*
 
     class Grasp_Controller{

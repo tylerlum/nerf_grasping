@@ -5,7 +5,7 @@ Neural Radiance Fields (NeRFs).
 
 # Grasping Pipeline
 
-## Mesh FC Pipeline
+## Mesh + Ferrari-Canny Pipeline
 
 ```mermaid
 classDiagram
@@ -24,7 +24,7 @@ classDiagram
     }
 ```
 
-## NeRF FC Pipeline
+## NeRF + Ferrari-Canny Pipeline
 
 ```mermaid
 classDiagram

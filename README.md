@@ -10,22 +10,14 @@ Neural Radiance Fields (NeRFs).
 ```mermaid
 classDiagram
     Grasp_Optimizer <|-- Inputs: mesh
-    Analytical_Metric <|-- Inputs: mesh
-
-    Analytical_Metric <|-- Grasp_Optimizer: (rays_o, rays_d)
-
     Grasp_Controller <|-- Grasp_Optimizer: (rays_o*, rays_d*)
-    Grasp_Optimizer <|-- Analytical_Metric: metric
-    Grasp_Controller <|-- Analytical_Metric: metric*
 
     class Grasp_Controller{
       + State-Machine PID Control
     }
-    class Analytical_Metric{
-      + Ferrari-Canny
-    }
     class Grasp_Optimizer{
-      + Dice the Grasp, CEM, etc.
+      + Optimizer: CEM, Dice the Grasp, etc.
+      + Metric: Ferrari-Canny
     }
     class Inputs{
       + Ground-Truth Mesh
@@ -37,22 +29,14 @@ classDiagram
 ```mermaid
 classDiagram
     Grasp_Optimizer <|-- Inputs: nerf
-    Analytical_Metric <|-- Inputs: nerf
-
-    Analytical_Metric <|-- Grasp_Optimizer: (rays_o, rays_d)
-
     Grasp_Controller <|-- Grasp_Optimizer: (rays_o*, rays_d*)
-    Grasp_Optimizer <|-- Analytical_Metric: metric
-    Grasp_Controller <|-- Analytical_Metric: metric*
 
     class Grasp_Controller{
       + State-Machine PID Control
     }
-    class Analytical_Metric{
-      + Ferrari-Canny
-    }
     class Grasp_Optimizer{
-      + CEM, etc.
+      + Optimizer: CEM, etc.
+      + Metric: Ferrari-Canny
     }
     class Inputs{
       + NeRF
@@ -64,22 +48,14 @@ classDiagram
 ```mermaid
 classDiagram
     Grasp_Optimizer <|-- Inputs: nerf
-    Learned_Metric <|-- Inputs: nerf
-
-    Learned_Metric <|-- Grasp_Optimizer: (rays_o, rays_d)
-
     Grasp_Controller <|-- Grasp_Optimizer: (rays_o*, rays_d*)
-    Grasp_Optimizer <|-- Learned_Metric: metric
-    Grasp_Controller <|-- Learned_Metric: metric*
 
     class Grasp_Controller{
       + State-Machine PID Control
     }
-    class Learned_Metric{
-      + ACRONYM, DexGraspNet, etc.
-    }
     class Grasp_Optimizer{
-      + CEM, etc.
+      + Optimizer: CEM, etc.
+      + Metric: Learned w/ ACRONYM
     }
     class Inputs{
       + NeRF

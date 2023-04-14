@@ -64,12 +64,12 @@ classDiagram
 
 Additional ablation studies: use ground-truth mesh and NeRF as inputs, use one of each for sampling or metric.
 
-# Learned Metric Training Pipeline
+# Learned Metric Network Architecture
 
 ```mermaid
 classDiagram
-    Density_Encoder <|-- Inputs: density cylinder
-    Metric_Predictor <|-- Density_Encoder: density embedding
+    Density_Encoder <|-- Inputs: density cylinders
+    Metric_Predictor <|-- Density_Encoder: density embeddings
     Metric_Predictor <|-- Inputs: centroid
 
     Learned_Metric <|-- Metric_Predictor: grasp success
@@ -78,13 +78,13 @@ classDiagram
       + Grasp success [0, 1]
     }
     class Metric_Predictor{
-      + MLP
+      + MLP/Transformer
     }
     class Density_Encoder{
       + CNN
     }
     class Inputs{
-      + NeRF density cylinder along rays_o, rays_d
+      + NeRF density cylinders along rays_o, rays_d
       + NeRF centroid wrt these rays
     }
 ```

@@ -3,6 +3,32 @@
 This project focuses on performing grasping and manipulation using
 Neural Radiance Fields (NeRFs).
 
+# Pipeline
+
+## Standard Mesh Pipeline
+
+```mermaid
+classDiagram
+    Grasp_Optimizer <|-- Inputs: Mesh
+    
+    Analytical_Metric <|-- Grasp_Optimizer: (rays_o, rays_d)
+    Grasp_Optimizer <|-- Analytical_Metric: metric
+    Grasp_Controller <|-- Grasp_Optimizer: (rays_o*, rays_d*)
+    Grasp_Controller <|-- Analytical_Metric: metric*
+
+    class Grasp_Controller{
+      + State-Machine PID Control
+    }
+    class Analytical_Metric{
+      + Ferrari-Canny
+    }
+    class Grasp_Optimizer{
+      + Dice the Grasp, CEM, etc.
+    }
+    class Inputs{
+      + Ground-Truth Mesh
+    }
+```
 
 ### Setup
 

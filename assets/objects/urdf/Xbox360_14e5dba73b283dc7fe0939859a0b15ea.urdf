@@ -4,13 +4,13 @@
     <visual>
       <origin xyz="0 0 0"/>
       <geometry>
-        <mesh filename="meshes/Xbox360/14e5dba73b283dc7fe0939859a0b15ea.obj" scale="0.001 0.001 0.001" />
+        <mesh filename="meshes/Xbox360/14e5dba73b283dc7fe0939859a0b15ea.obj" scale="0.01 0.01 0.01" />
       </geometry>
     </visual>
     <collision>
       <origin xyz="0 0 0"/>
       <geometry>
-        <mesh filename="meshes/Xbox360/14e5dba73b283dc7fe0939859a0b15ea.obj" scale="0.001 0.001 0.001" />
+        <mesh filename="meshes/Xbox360/14e5dba73b283dc7fe0939859a0b15ea.obj" scale="0.01 0.01 0.01" />
       </geometry>
     </collision>
     <inertial>

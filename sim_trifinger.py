@@ -548,5 +548,5 @@ if __name__ == "__main__":
 
     else:
         raise ValueError(
-            f"Must specify one of --get_nerf_training_data or --run_robot_control"
+            "Must specify one of --get_nerf_training_data or --run_robot_control"
         )

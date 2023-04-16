@@ -183,7 +183,7 @@ class RigidObject:
                 p=gymapi.Vec3(
                     assumed_object_center[0],
                     assumed_object_center[1],
-                    assumed_object_center[2] + 0.2,
+                    assumed_object_center[2] + 0.1,
                 )
             ),
             self.name,

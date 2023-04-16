@@ -4,17 +4,17 @@
     <visual>
       <origin xyz="0 0 0"/>
       <geometry>
-        <mesh filename="meshes/USBStick/f40a552853880bc71262e44515a2f289.obj" scale="0.01 0.01 0.01" />
+        <mesh filename="meshes/USBStick/f40a552853880bc71262e44515a2f289.obj"/>
       </geometry>
     </visual>
     <collision>
       <origin xyz="0 0 0"/>
       <geometry>
-        <mesh filename="meshes/USBStick/f40a552853880bc71262e44515a2f289.obj" scale="0.01 0.01 0.01" />
+        <mesh filename="meshes/USBStick/f40a552853880bc71262e44515a2f289.obj"/>
       </geometry>
     </collision>
     <inertial>
-        <density value="600.0"/>
+        <density value="150.0"/>  <!-- acronym density -->
     </inertial>
   </link>
 </robot>

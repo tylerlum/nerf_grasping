@@ -4,17 +4,17 @@
     <visual>
       <origin xyz="0 0 0"/>
       <geometry>
-        <mesh filename="meshes/Eraser/203ebd20b1546f318de5f815e8387cfc.obj" scale="0.01 0.01 0.01" />
+        <mesh filename="meshes/Eraser/203ebd20b1546f318de5f815e8387cfc.obj"/>
       </geometry>
     </visual>
     <collision>
       <origin xyz="0 0 0"/>
       <geometry>
-        <mesh filename="meshes/Eraser/203ebd20b1546f318de5f815e8387cfc.obj" scale="0.01 0.01 0.01" />
+        <mesh filename="meshes/Eraser/203ebd20b1546f318de5f815e8387cfc.obj"/>
       </geometry>
     </collision>
     <inertial>
-        <density value="600.0"/>
+        <density value="150.0"/>  <!-- acronym density -->
     </inertial>
   </link>
 </robot>

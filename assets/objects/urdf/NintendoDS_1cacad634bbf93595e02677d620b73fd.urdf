@@ -4,17 +4,17 @@
     <visual>
       <origin xyz="0 0 0"/>
       <geometry>
-        <mesh filename="meshes/NintendoDS/1cacad634bbf93595e02677d620b73fd.obj" scale="0.01 0.01 0.01" />
+        <mesh filename="meshes/NintendoDS/1cacad634bbf93595e02677d620b73fd.obj"/>
       </geometry>
     </visual>
     <collision>
       <origin xyz="0 0 0"/>
       <geometry>
-        <mesh filename="meshes/NintendoDS/1cacad634bbf93595e02677d620b73fd.obj" scale="0.01 0.01 0.01" />
+        <mesh filename="meshes/NintendoDS/1cacad634bbf93595e02677d620b73fd.obj"/>
       </geometry>
     </collision>
     <inertial>
-        <density value="600.0"/>
+        <density value="150.0"/>  <!-- acronym density -->
     </inertial>
   </link>
 </robot>

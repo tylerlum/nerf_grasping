@@ -4,17 +4,17 @@
     <visual>
       <origin xyz="0 0 0"/>
       <geometry>
-        <mesh filename="meshes/Nightstand/2af59465484a93c4b6c3a1b8389374f.obj" scale="0.01 0.01 0.01" />
+        <mesh filename="meshes/Nightstand/2af59465484a93c4b6c3a1b8389374f.obj"/>
       </geometry>
     </visual>
     <collision>
       <origin xyz="0 0 0"/>
       <geometry>
-        <mesh filename="meshes/Nightstand/2af59465484a93c4b6c3a1b8389374f.obj" scale="0.01 0.01 0.01" />
+        <mesh filename="meshes/Nightstand/2af59465484a93c4b6c3a1b8389374f.obj"/>
       </geometry>
     </collision>
     <inertial>
-        <density value="600.0"/>
+        <density value="150.0"/>  <!-- acronym density -->
     </inertial>
   </link>
 </robot>

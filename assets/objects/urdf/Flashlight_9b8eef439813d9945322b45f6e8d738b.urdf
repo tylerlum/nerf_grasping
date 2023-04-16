@@ -4,17 +4,17 @@
     <visual>
       <origin xyz="0 0 0"/>
       <geometry>
-        <mesh filename="meshes/Flashlight/9b8eef439813d9945322b45f6e8d738b.obj" scale="0.01 0.01 0.01" />
+        <mesh filename="meshes/Flashlight/9b8eef439813d9945322b45f6e8d738b.obj"/>
       </geometry>
     </visual>
     <collision>
       <origin xyz="0 0 0"/>
       <geometry>
-        <mesh filename="meshes/Flashlight/9b8eef439813d9945322b45f6e8d738b.obj" scale="0.01 0.01 0.01" />
+        <mesh filename="meshes/Flashlight/9b8eef439813d9945322b45f6e8d738b.obj"/>
       </geometry>
     </collision>
     <inertial>
-        <density value="600.0"/>
+        <density value="150.0"/>  <!-- acronym density -->
     </inertial>
   </link>
 </robot>

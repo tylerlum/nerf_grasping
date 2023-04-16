@@ -4,17 +4,17 @@
     <visual>
       <origin xyz="0 0 0"/>
       <geometry>
-        <mesh filename="meshes/Microwave/6d8a8628eeb8ae92de6fb7d70c413eb.obj" scale="0.01 0.01 0.01" />
+        <mesh filename="meshes/Microwave/6d8a8628eeb8ae92de6fb7d70c413eb.obj"/>
       </geometry>
     </visual>
     <collision>
       <origin xyz="0 0 0"/>
       <geometry>
-        <mesh filename="meshes/Microwave/6d8a8628eeb8ae92de6fb7d70c413eb.obj" scale="0.01 0.01 0.01" />
+        <mesh filename="meshes/Microwave/6d8a8628eeb8ae92de6fb7d70c413eb.obj"/>
       </geometry>
     </collision>
     <inertial>
-        <density value="600.0"/>
+        <density value="150.0"/>  <!-- acronym density -->
     </inertial>
   </link>
 </robot>

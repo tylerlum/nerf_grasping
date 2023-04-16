@@ -4,17 +4,17 @@
     <visual>
       <origin xyz="0 0 0"/>
       <geometry>
-        <mesh filename="meshes/CeilingLamp/8fb9aa05548d7f215c0da4cac04adaed.obj" scale="0.01 0.01 0.01" />
+        <mesh filename="meshes/CeilingLamp/8fb9aa05548d7f215c0da4cac04adaed.obj"/>
       </geometry>
     </visual>
     <collision>
       <origin xyz="0 0 0"/>
       <geometry>
-        <mesh filename="meshes/CeilingLamp/8fb9aa05548d7f215c0da4cac04adaed.obj" scale="0.01 0.01 0.01" />
+        <mesh filename="meshes/CeilingLamp/8fb9aa05548d7f215c0da4cac04adaed.obj"/>
       </geometry>
     </collision>
     <inertial>
-        <density value="600.0"/>
+        <density value="150.0"/>  <!-- acronym density -->
     </inertial>
   </link>
 </robot>

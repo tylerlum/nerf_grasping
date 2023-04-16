@@ -4,17 +4,17 @@
     <visual>
       <origin xyz="0 0 0"/>
       <geometry>
-        <mesh filename="meshes/PianoKeyboard/6ffd99ac6044dfe174d5a6a8a8e5a2e.obj" scale="0.01 0.01 0.01" />
+        <mesh filename="meshes/PianoKeyboard/6ffd99ac6044dfe174d5a6a8a8e5a2e.obj"/>
       </geometry>
     </visual>
     <collision>
       <origin xyz="0 0 0"/>
       <geometry>
-        <mesh filename="meshes/PianoKeyboard/6ffd99ac6044dfe174d5a6a8a8e5a2e.obj" scale="0.01 0.01 0.01" />
+        <mesh filename="meshes/PianoKeyboard/6ffd99ac6044dfe174d5a6a8a8e5a2e.obj"/>
       </geometry>
     </collision>
     <inertial>
-        <density value="600.0"/>
+        <density value="150.0"/>  <!-- acronym density -->
     </inertial>
   </link>
 </robot>

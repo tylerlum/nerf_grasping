@@ -4,17 +4,17 @@
     <visual>
       <origin xyz="0 0 0"/>
       <geometry>
-        <mesh filename="meshes/Recliner/f6420a3a3addd027f67be63aca8832dd.obj" scale="0.01 0.01 0.01" />
+        <mesh filename="meshes/Recliner/f6420a3a3addd027f67be63aca8832dd.obj"/>
       </geometry>
     </visual>
     <collision>
       <origin xyz="0 0 0"/>
       <geometry>
-        <mesh filename="meshes/Recliner/f6420a3a3addd027f67be63aca8832dd.obj" scale="0.01 0.01 0.01" />
+        <mesh filename="meshes/Recliner/f6420a3a3addd027f67be63aca8832dd.obj"/>
       </geometry>
     </collision>
     <inertial>
-        <density value="600.0"/>
+        <density value="150.0"/>  <!-- acronym density -->
     </inertial>
   </link>
 </robot>

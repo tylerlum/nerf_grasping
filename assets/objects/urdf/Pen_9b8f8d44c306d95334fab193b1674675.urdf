@@ -4,17 +4,17 @@
     <visual>
       <origin xyz="0 0 0"/>
       <geometry>
-        <mesh filename="meshes/Pen/9b8f8d44c306d95334fab193b1674675.obj" scale="0.01 0.01 0.01" />
+        <mesh filename="meshes/Pen/9b8f8d44c306d95334fab193b1674675.obj"/>
       </geometry>
     </visual>
     <collision>
       <origin xyz="0 0 0"/>
       <geometry>
-        <mesh filename="meshes/Pen/9b8f8d44c306d95334fab193b1674675.obj" scale="0.01 0.01 0.01" />
+        <mesh filename="meshes/Pen/9b8f8d44c306d95334fab193b1674675.obj"/>
       </geometry>
     </collision>
     <inertial>
-        <density value="600.0"/>
+        <density value="150.0"/>  <!-- acronym density -->
     </inertial>
   </link>
 </robot>

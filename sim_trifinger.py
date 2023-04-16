@@ -467,7 +467,7 @@ def get_nerf_training(Obj, viewer):
             print(f"tf.object.position = {tf.object.position}")
 
     # name = "blank" if Obj is None else Obj.name
-    tf.save_images("./torch-ngp/data/isaac_" + name, overwrite=False)
+    tf.save_images("./torch-ngp/data/isaac_" + Obj.name, overwrite=False)
 
 
 def run_robot_control(viewer, Obj, robot_type, **robot_kwargs):
@@ -504,7 +504,9 @@ if __name__ == "__main__":
     print("=" * 80)
 
     if args.get_nerf_training_data and args.run_robot_control:
-        raise ValueError(f"Must specify only one of --get_nerf_training_data or --run_robot_control")
+        raise ValueError(
+            f"Must specify only one of --get_nerf_training_data or --run_robot_control"
+        )
 
     # Object
     Obj = eval(f"ig_objects.{args.obj}")
@@ -526,4 +528,6 @@ if __name__ == "__main__":
         )
 
     else:
-        raise ValueError(f"Must specify one of --get_nerf_training_data or --run_robot_control")
+        raise ValueError(
+            f"Must specify one of --get_nerf_training_data or --run_robot_control"
+        )

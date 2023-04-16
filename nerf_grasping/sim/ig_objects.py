@@ -58,7 +58,6 @@ def load_object(exp_config: config.Experiment):
 
 
 class RigidObject:
-
     scale = 1.0
     bound = 2.0
     centroid = np.zeros((3, 1))
@@ -106,7 +105,9 @@ class RigidObject:
     def load_trimesh(self, mesh_path=None):
         if mesh_path is None or not os.path.exists(mesh_path):
             asset_path = os.path.join(asset_dir, self.asset_file)
-            mesh_path = os.path.join(asset_dir, "objects", self._get_mesh_path_from_urdf(asset_path))
+            mesh_path = os.path.join(
+                asset_dir, "objects", self._get_mesh_path_from_urdf(asset_path)
+            )
 
         print("mesh path: ", mesh_path)
         # Mesh loaded in Z-up, centered at object centroid.
@@ -143,7 +144,9 @@ class RigidObject:
         asset_options.override_inertia = False
         asset_options.override_com = False
 
-        asset_options.vhacd_params.mode = 0  # 0 = tetrahedron, 1 = voxel, was 1, but 0 fixed issue with xbox360
+        asset_options.vhacd_params.mode = (
+            0  # 0 = tetrahedron, 1 = voxel, was 1, but 0 fixed issue with xbox360
+        )
         asset_options.vhacd_params.resolution = 600000
         asset_options.vhacd_params.max_convex_hulls = 16
         asset_options.vhacd_params.max_num_vertices_per_ch = 128
@@ -404,6 +407,7 @@ class BleachCleanser(RigidObject):
     translation = np.array([-5.7448e-07, -1.2433e-05, 8.1302e-02])
     mu = 1.0
 
+
 class Xbox360(RigidObject):
     workspace = "xbox360"
     grasp_points = torch.tensor(
@@ -419,4 +423,3 @@ class Xbox360(RigidObject):
     mu = 1.0
     bound = 2
     translation = np.array([1.7978e-08, -6.0033e-08, 1.0])
-

@@ -127,9 +127,10 @@ with open(output_py_file, "w") as f:
             mesh_scale = float(acronym_data["object/scale"][()])
 
             # Create class
+            # Need :f to avoid scientific notation in class name
             urdf_text = "\n".join(
                 [
-                    f"class Obj_{urdf_name}_{mesh_scale}(RigidObject):".replace(
+                    f"class Obj_{urdf_name}_{mesh_scale:f}(RigidObject):".replace(
                         ".", "_"
                     ),
                     f'    workspace = "{urdf_name}_{mesh_scale}"',

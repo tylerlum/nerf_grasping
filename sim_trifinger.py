@@ -14,7 +14,13 @@ from PIL import Image
 import math
 
 from nerf_grasping import grasp_utils, nerf_utils
-from nerf_grasping.sim import ig_utils, ig_objects, ig_robot, ig_viz_utils, acronym_objects
+from nerf_grasping.sim import (
+    ig_utils,
+    ig_objects,
+    ig_robot,
+    ig_viz_utils,
+    acronym_objects,
+)
 import trimesh
 
 from nerf_grasping.quaternions import Quaternion
@@ -341,10 +347,12 @@ class TriFingerEnv:
 
         np.random.shuffle(img_range)
         train_range = img_range[:num_train]
-        test_range = img_range[num_train:(num_train + num_test)]
-        val_range = img_range[(num_train + num_test):]
+        test_range = img_range[num_train : (num_train + num_test)]
+        val_range = img_range[(num_train + num_test) :]
 
-        self._create_one_split(split_name="train", split_range=train_range, folder=folder)
+        self._create_one_split(
+            split_name="train", split_range=train_range, folder=folder
+        )
         self._create_one_split(split_name="val", split_range=val_range, folder=folder)
         self._create_one_split(split_name="test", split_range=test_range, folder=folder)
 
@@ -354,23 +362,27 @@ class TriFingerEnv:
         json_dict = {
             "camera_angle_x": math.radians(CAMERA_HORIZONTAL_FOV_DEG),
             "camera_angle_y": math.radians(CAMERA_VERTICAL_FOV_DEG),
-            "frames": []
+            "frames": [],
         }
         for ii in split_range:
             pose_file = os.path.join(folder, f"pos_xyz_quat_xyzw_{ii}.txt")
             with open(pose_file) as file:
                 raw_pose_str = file.readline()[1:-1]  # Remove brackets
-                pose = np.fromstring(raw_pose_str, sep=',')
+                pose = np.fromstring(raw_pose_str, sep=",")
 
                 transform_mat = np.eye(4)
                 pos, quat = pose[:3], pose[-4:]
                 R = scipy.spatial.transform.Rotation.from_quat(quat).as_matrix()
-                R = R @ scipy.spatial.transform.Rotation.from_euler(
-                    'YZ', [-np.pi / 2, -np.pi / 2]).as_matrix()
+                R = (
+                    R
+                    @ scipy.spatial.transform.Rotation.from_euler(
+                        "YZ", [-np.pi / 2, -np.pi / 2]
+                    ).as_matrix()
+                )
                 transform_mat[:3, :3] = R
                 transform_mat[:3, -1] = pos
 
-                source_img = 'col_' + str(ii)
+                source_img = "col_" + str(ii)
 
                 new_folder = os.path.join(folder, split_name)
                 os.makedirs(new_folder, exist_ok=True)
@@ -380,15 +392,23 @@ class TriFingerEnv:
                 shutil.copyfile(source_img, target_img)
 
                 # Remove the first part of the path
-                target_img_split = target_img.split('/')
-                target_img = os.path.join(*target_img_split[target_img_split.index(split_name):])
+                target_img_split = target_img.split("/")
+                target_img = os.path.join(
+                    *target_img_split[target_img_split.index(split_name) :]
+                )
 
-                json_dict['frames'].append({
-                    'transform_matrix': transform_mat.tolist(),
-                    'file_path': os.path.splitext(target_img)[0]  # Exclude ext because adds it in load
-                })
+                json_dict["frames"].append(
+                    {
+                        "transform_matrix": transform_mat.tolist(),
+                        "file_path": os.path.splitext(target_img)[
+                            0
+                        ],  # Exclude ext because adds it in load
+                    }
+                )
 
-        with open(os.path.join(folder, f'transforms_{split_name}.json'), 'w') as outfile:
+        with open(
+            os.path.join(folder, f"transforms_{split_name}.json"), "w"
+        ) as outfile:
             outfile.write(json.dumps(json_dict))
 
     def refresh_tensors(self):
@@ -476,9 +496,9 @@ class TriFingerEnv:
         self.image_idx = 0
 
 
-def get_nerf_training_data(Obj, viewer, overwrite):
+def get_nerf_training_data(Obj, num_steps_before_collecting, viewer, overwrite):
     tf = TriFingerEnv(viewer=viewer, robot_type="", Obj=Obj, save_cameras=True)
-    for _ in range(500):
+    for _ in range(num_steps_before_collecting):
         tf.step_gym()
         if Obj is not None:
             print(f"tf.object.position = {tf.object.position}")
@@ -516,6 +536,7 @@ if __name__ == "__main__":
     parser.add_argument("--get_nerf_training_data", action="store_true")
     parser.add_argument("--run_robot_control", action="store_true")
     parser.add_argument("--viewer", action="store_true")
+    parser.add_argument("--num_steps_before_collecting", type=int, default=100)
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()
 
@@ -540,7 +561,12 @@ if __name__ == "__main__":
     print("Obj", Obj.name, Obj().gt_mesh.extents)
 
     if args.get_nerf_training_data:
-        get_nerf_training_data(Obj, viewer=args.viewer, overwrite=args.overwrite)
+        get_nerf_training_data(
+            Obj,
+            num_steps_before_collecting=args.num_steps_before_collecting,
+            viewer=args.viewer,
+            overwrite=args.overwrite,
+        )
 
     elif args.run_robot_control:
         run_robot_control(

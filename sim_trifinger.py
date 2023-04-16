@@ -11,6 +11,7 @@ import torch
 
 # import mathutils
 from PIL import Image
+import math
 
 from nerf_grasping import grasp_utils, nerf_utils
 from nerf_grasping.sim import ig_utils, ig_objects, ig_robot, ig_viz_utils
@@ -24,6 +25,11 @@ import argparse
 
 root_dir = os.path.dirname(os.path.abspath(__file__))
 asset_dir = f"{root_dir}/assets"
+CAMERA_IMG_HEIGHT, CAMERA_IMG_WIDTH = 400, 400
+CAMERA_HORIZONTAL_FOV_DEG = 35.0
+CAMERA_VERTICAL_FOV_DEG = (
+    CAMERA_IMG_HEIGHT / CAMERA_IMG_WIDTH
+) * CAMERA_HORIZONTAL_FOV_DEG
 
 
 def get_mesh_contacts(gt_mesh, grasp_points, pos_offset=None, rot_offset=None):
@@ -215,9 +221,9 @@ class TriFingerEnv:
 
     def setup_cameras(self, env):
         camera_props = gymapi.CameraProperties()
-        camera_props.horizontal_fov = 35.0
-        camera_props.width = 400
-        camera_props.height = 400
+        camera_props.horizontal_fov = CAMERA_HORIZONTAL_FOV_DEG
+        camera_props.width = CAMERA_IMG_WIDTH
+        camera_props.height = CAMERA_IMG_HEIGHT
 
         # generates cameara positions along rings around object
         heights = [0.1, 0.3, 0.25, 0.35]
@@ -263,9 +269,8 @@ class TriFingerEnv:
     def save_viewer_frame(self, save_dir, save_freq=10):
         """Saves frame from viewer to"""
         self.gym.render_all_camera_sensors(self.sim)
-        path = Path(save_dir)
-        if not path.exists():
-            path = self.setup_save_dir(save_dir)
+
+        path = self.setup_save_dir(save_dir)
         if self.image_idx % save_freq == 0:
             self.gym.write_viewer_image_to_file(
                 self.viewer, str(path / f"img{self.image_idx}.png")
@@ -278,23 +283,23 @@ class TriFingerEnv:
         color_image = self.gym.get_camera_image(
             self.sim, self.env, camera_handle, gymapi.IMAGE_COLOR
         )
-        color_image = color_image.reshape(400, 400, -1)
+        color_image = color_image.reshape(CAMERA_IMG_HEIGHT, CAMERA_IMG_WIDTH, -1)
         Image.fromarray(color_image).save(path / f"col_{ii}.png")
 
         segmentation_image = self.gym.get_camera_image(
             self.sim, self.env, camera_handle, gymapi.IMAGE_SEGMENTATION
         )
         segmentation_image = segmentation_image == ig_objects.OBJ_SEGMENTATION_ID
-        segmentation_image = (segmentation_image.reshape(400, 400) * 255).astype(
-            np.uint8
-        )
+        segmentation_image = (
+            segmentation_image.reshape(CAMERA_IMG_HEIGHT, CAMERA_IMG_WIDTH) * 255
+        ).astype(np.uint8)
         Image.fromarray(segmentation_image).convert("L").save(path / f"seg_{ii}.png")
 
         depth_image = self.gym.get_camera_image(
             self.sim, self.env, camera_handle, gymapi.IMAGE_DEPTH
         )
         # distance in units I think
-        depth_image = -depth_image.reshape(400, 400)
+        depth_image = -depth_image.reshape(CAMERA_IMG_HEIGHT, CAMERA_IMG_WIDTH)
         if numpy_depth:
             np.save(path / f"dep_{ii}.npy", depth_image)
         else:
@@ -321,60 +326,70 @@ class TriFingerEnv:
             path, "overhead", self.overhead_camera_handle, numpy_depth=True
         )
 
-    def save_images_nerf_ready(self, folder, overwrite=False):
-        self.gym.render_all_camera_sensors(self.sim)
+    def create_train_val_test_split(self, folder, train_frac, val_frac):
+        num_imgs = len(self.camera_handles)
+        num_train = int(train_frac * num_imgs)
+        num_val = int(val_frac * num_imgs)
+        num_test = num_imgs - num_train - num_val
+        print(f"num_imgs = {num_imgs}")
+        print(f"num_train = {num_train}")
+        print(f"num_val = {num_val}")
+        print(f"num_test = {num_test}")
+        print()
 
-        path = Path(folder)
+        img_range = np.arange(num_imgs)
 
-        if path.exists():
-            print(path, "already exists!")
-            if overwrite:
-                shutil.rmtree(path)
-            elif input("Clear it before continuing? [y/N]:").lower() == "y":
-                shutil.rmtree(path)
+        np.random.shuffle(img_range)
+        train_range = img_range[:num_train]
+        test_range = img_range[num_train:(num_train + num_test)]
+        val_range = img_range[(num_train + num_test):]
 
-        path.mkdir()
-        (path / "train").mkdir()
-        (path / "test").mkdir()
-        (path / "val").mkdir()
+        self._create_one_split(split_name="train", split_range=train_range, folder=folder)
+        self._create_one_split(split_name="val", split_range=val_range, folder=folder)
+        self._create_one_split(split_name="test", split_range=test_range, folder=folder)
 
-        json_meta = {"camera_angle_x": np.radians(self.fov), "frames": []}
+    def _create_one_split(self, split_name, split_range, folder):
+        import scipy
 
-        for i, camera_handle in enumerate(self.camera_handles[:-1]):
-            print(f"saving camera {i}")
+        json_dict = {
+            "camera_angle_x": math.radians(CAMERA_HORIZONTAL_FOV_DEG),
+            "camera_angle_y": math.radians(CAMERA_VERTICAL_FOV_DEG),
+            "frames": []
+        }
+        for ii in split_range:
+            pose_file = os.path.join(folder, f"pos_xyz_quat_xyzw_{ii}.txt")
+            with open(pose_file) as file:
+                raw_pose_str = file.readline()[1:-1]  # Remove brackets
+                pose = np.fromstring(raw_pose_str, sep=',')
 
-            color_image = self.gym.get_camera_image(
-                self.sim, self.env, camera_handle, gymapi.IMAGE_COLOR
-            )
-            color_image = color_image.reshape(400, 400, -1)
-            Image.fromarray(color_image).save(path / "train" / f"col_{i}.png")
+                transform_mat = np.eye(4)
+                pos, quat = pose[:3], pose[-4:]
+                R = scipy.spatial.transform.Rotation.from_quat(quat).as_matrix()
+                R = R @ scipy.spatial.transform.Rotation.from_euler(
+                    'YZ', [-np.pi / 2, -np.pi / 2]).as_matrix()
+                transform_mat[:3, :3] = R
+                transform_mat[:3, -1] = pos
 
-            pos, quat = get_fixed_camera_transform(
-                self.gym, self.sim, self.env, camera_handle
-            )
+                source_img = 'col_' + str(ii)
 
-            rot_matrix = quat.get_matrix()
-            transform_matrix = torch.vstack(
-                [torch.hstack([rot_matrix, pos[:, None]]), torch.tensor([0, 0, 0, 1])]
-            )
+                new_folder = os.path.join(folder, split_name)
+                os.makedirs(new_folder, exist_ok=True)
 
-            image_data = {
-                "file_path": f"./train/col_{i}",  # note the lack of ".png" it gets added in the load script
-                "transform_matrix": transform_matrix.tolist(),
-            }
+                source_img = os.path.join(folder, f"col_{ii}.png")
+                target_img = os.path.join(new_folder, f"{ii}.png")
+                shutil.copyfile(source_img, target_img)
 
-            json_meta["frames"].append(image_data)
+                # Remove the first part of the path
+                target_img_split = target_img.split('/')
+                target_img = os.path.join(*target_img_split[target_img_split.index(split_name):])
 
-        with open(path / "transforms_train.json", "w+") as f:
-            json.dump(json_meta, f, indent=4)
+                json_dict['frames'].append({
+                    'transform_matrix': transform_mat.tolist(),
+                    'file_path': os.path.splitext(target_img)[0]  # Exclude ext because adds it in load
+                })
 
-        empty_meta = {"camera_angle_x": np.radians(self.fov), "frames": []}
-
-        with open(path / "transforms_test.json", "w+") as f:
-            json.dump(empty_meta, f)
-
-        with open(path / "transforms_val.json", "w+") as f:
-            json.dump(empty_meta, f)
+        with open(os.path.join(folder, f'transforms_{split_name}.json'), 'w') as outfile:
+            outfile.write(json.dumps(json_dict))
 
     def refresh_tensors(self):
         self.gym.refresh_mass_matrix_tensors(self.sim)
@@ -469,7 +484,9 @@ def get_nerf_training_data(Obj, viewer):
             print(f"tf.object.position = {tf.object.position}")
 
     # name = "blank" if Obj is None else Obj.name
-    tf.save_images_nerf_ready("./torch-ngp/data/isaac_" + Obj.name, overwrite=False)
+    save_folder = "./torch-ngp/data/isaac_" + Obj.name
+    tf.save_images(save_folder, overwrite=False)
+    tf.create_train_val_test_split(save_folder, train_frac=0.8, val_frac=0.1)
 
 
 def run_robot_control(viewer, Obj, robot_type, **robot_kwargs):
@@ -507,7 +524,7 @@ if __name__ == "__main__":
 
     if args.get_nerf_training_data and args.run_robot_control:
         raise ValueError(
-            f"Must specify only one of --get_nerf_training_data or --run_robot_control"
+            "Must specify only one of --get_nerf_training_data or --run_robot_control"
         )
 
     # Object

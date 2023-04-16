@@ -15,6 +15,7 @@ from nerf import utils
 root_dir = Path(os.path.abspath(__file__)).parents[2]
 asset_dir = f"{root_dir}/assets"
 gd_mesh_dir = f"{root_dir}/grasp_data/meshes"
+OBJ_SEGMENTATION_ID = 2
 print("root_dir", root_dir)
 
 
@@ -174,7 +175,7 @@ class RigidObject:
             self.name,
             1,
             0,
-            segmentationId=2,
+            segmentationId=OBJ_SEGMENTATION_ID,
         )
 
         self.force_sensor = self.gym.get_actor_force_sensor(
@@ -300,7 +301,7 @@ class Box(RigidObject):
 #             "box",
 #             0,
 #             0,
-#             segmentationId=2,
+#             segmentationId=OBJ_SEGMENTATION_ID,
 #         )
 #         self.gym.set_rigid_body_color(
 #             self.env, actor, 0, gymapi.MESH_VISUAL, gymapi.Vec3(0.8, 0.2, 0.3)

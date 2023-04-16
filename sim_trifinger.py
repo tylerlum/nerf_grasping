@@ -284,7 +284,7 @@ class TriFingerEnv:
         segmentation_image = self.gym.get_camera_image(
             self.sim, self.env, camera_handle, gymapi.IMAGE_SEGMENTATION
         )
-        segmentation_image = segmentation_image == 2
+        segmentation_image = segmentation_image == ig_objects.OBJ_SEGMENTATION_ID
         segmentation_image = (segmentation_image.reshape(400, 400) * 255).astype(
             np.uint8
         )
@@ -450,8 +450,10 @@ class TriFingerEnv:
     def reset(self, grasp_vars=None):
         # reset object after robot actor
         self.robot.reset_actor(grasp_vars=grasp_vars)
+
         # reset object actor
         self.object.reset_actor()
+
         self.refresh_tensors()
         self.gym.refresh_net_contact_force_tensor(self.sim)
         self.step_gym()
@@ -459,7 +461,7 @@ class TriFingerEnv:
         self.image_idx = 0
 
 
-def get_nerf_training(Obj, viewer):
+def get_nerf_training_data(Obj, viewer):
     tf = TriFingerEnv(viewer=viewer, robot_type="", Obj=Obj, save_cameras=True)
     for _ in range(500):
         tf.step_gym()
@@ -467,7 +469,7 @@ def get_nerf_training(Obj, viewer):
             print(f"tf.object.position = {tf.object.position}")
 
     # name = "blank" if Obj is None else Obj.name
-    tf.save_images("./torch-ngp/data/isaac_" + Obj.name, overwrite=False)
+    tf.save_images_nerf_ready("./torch-ngp/data/isaac_" + Obj.name, overwrite=False)
 
 
 def run_robot_control(viewer, Obj, robot_type, **robot_kwargs):
@@ -513,7 +515,7 @@ if __name__ == "__main__":
     print("Obj", Obj.name, Obj().gt_mesh.extents)
 
     if args.get_nerf_training_data:
-        get_nerf_training(Obj, viewer=args.viewer)
+        get_nerf_training_data(Obj, viewer=args.viewer)
 
     elif args.run_robot_control:
         run_robot_control(

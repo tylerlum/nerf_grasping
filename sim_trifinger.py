@@ -476,7 +476,7 @@ class TriFingerEnv:
         self.image_idx = 0
 
 
-def get_nerf_training_data(Obj, viewer):
+def get_nerf_training_data(Obj, viewer, overwrite):
     tf = TriFingerEnv(viewer=viewer, robot_type="", Obj=Obj, save_cameras=True)
     for _ in range(500):
         tf.step_gym()
@@ -485,7 +485,7 @@ def get_nerf_training_data(Obj, viewer):
 
     # name = "blank" if Obj is None else Obj.name
     save_folder = "./torch-ngp/data/isaac_" + Obj.name
-    tf.save_images(save_folder, overwrite=False)
+    tf.save_images(save_folder, overwrite=overwrite)
     tf.create_train_val_test_split(save_folder, train_frac=0.8, val_frac=0.1)
 
 
@@ -516,6 +516,7 @@ if __name__ == "__main__":
     parser.add_argument("--get_nerf_training_data", action="store_true")
     parser.add_argument("--run_robot_control", action="store_true")
     parser.add_argument("--viewer", action="store_true")
+    parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()
 
     print("=" * 80)
@@ -539,7 +540,7 @@ if __name__ == "__main__":
     print("Obj", Obj.name, Obj().gt_mesh.extents)
 
     if args.get_nerf_training_data:
-        get_nerf_training_data(Obj, viewer=args.viewer)
+        get_nerf_training_data(Obj, viewer=args.viewer, overwrite=args.overwrite)
 
     elif args.run_robot_control:
         run_robot_control(

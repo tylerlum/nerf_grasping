@@ -14,7 +14,7 @@ from PIL import Image
 import math
 
 from nerf_grasping import grasp_utils, nerf_utils
-from nerf_grasping.sim import ig_utils, ig_objects, ig_robot, ig_viz_utils
+from nerf_grasping.sim import ig_utils, ig_objects, ig_robot, ig_viz_utils, acronym_objects
 import trimesh
 
 from nerf_grasping.quaternions import Quaternion
@@ -528,7 +528,14 @@ if __name__ == "__main__":
         )
 
     # Object
-    Obj = eval(f"ig_objects.{args.obj}")
+    if hasattr(ig_objects, args.obj):
+        print(f"Found object {args.obj} in ig_objects")
+        Obj = getattr(ig_objects, args.obj)
+    elif hasattr(acronym_objects, args.obj):
+        print(f"Found object {args.obj} in acronym_objects")
+        Obj = getattr(acronym_objects, args.obj)
+    else:
+        raise ValueError(f"Object {args.obj} not found")
     print("Obj", Obj.name, Obj().gt_mesh.extents)
 
     if args.get_nerf_training_data:

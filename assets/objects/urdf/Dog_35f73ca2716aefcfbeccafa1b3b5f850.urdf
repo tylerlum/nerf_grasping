@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Dog_35f73ca2716aefcfbeccafa1b3b5f850">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Dog/35f73ca2716aefcfbeccafa1b3b5f850.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Dog/35f73ca2716aefcfbeccafa1b3b5f850.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

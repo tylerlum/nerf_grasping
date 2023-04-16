@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Calculator_52ffe1a907d8349bd48efd896a2846bc">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Calculator/52ffe1a907d8349bd48efd896a2846bc.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Calculator/52ffe1a907d8349bd48efd896a2846bc.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

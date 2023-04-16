@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Flashlight_7981d1894a5b3c371b92a1339af2f7ce">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Flashlight/7981d1894a5b3c371b92a1339af2f7ce.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Flashlight/7981d1894a5b3c371b92a1339af2f7ce.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

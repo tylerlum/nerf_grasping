@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Basket_40ff424bfe4cd555ae25f6fe802a8997">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Basket/40ff424bfe4cd555ae25f6fe802a8997.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Basket/40ff424bfe4cd555ae25f6fe802a8997.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

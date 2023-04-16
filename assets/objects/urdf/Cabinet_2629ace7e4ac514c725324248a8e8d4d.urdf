@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Cabinet_2629ace7e4ac514c725324248a8e8d4d">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Cabinet/2629ace7e4ac514c725324248a8e8d4d.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Cabinet/2629ace7e4ac514c725324248a8e8d4d.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

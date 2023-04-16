@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Xbox360_65fa6b739bf4ad8aa85cfef42aa9df43">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Xbox360/65fa6b739bf4ad8aa85cfef42aa9df43.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Xbox360/65fa6b739bf4ad8aa85cfef42aa9df43.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

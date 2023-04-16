@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="DresserWithMirror_92a1e771eb621c14c2a5a06bb7a05e87">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/DresserWithMirror/92a1e771eb621c14c2a5a06bb7a05e87.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/DresserWithMirror/92a1e771eb621c14c2a5a06bb7a05e87.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

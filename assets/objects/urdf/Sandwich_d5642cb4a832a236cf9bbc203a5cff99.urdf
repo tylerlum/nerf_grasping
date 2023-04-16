@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Sandwich_d5642cb4a832a236cf9bbc203a5cff99">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Sandwich/d5642cb4a832a236cf9bbc203a5cff99.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Sandwich/d5642cb4a832a236cf9bbc203a5cff99.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

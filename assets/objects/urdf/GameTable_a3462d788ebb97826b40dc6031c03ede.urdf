@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="GameTable_a3462d788ebb97826b40dc6031c03ede">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/GameTable/a3462d788ebb97826b40dc6031c03ede.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/GameTable/a3462d788ebb97826b40dc6031c03ede.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

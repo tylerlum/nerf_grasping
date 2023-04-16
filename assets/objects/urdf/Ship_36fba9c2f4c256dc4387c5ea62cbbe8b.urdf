@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Ship_36fba9c2f4c256dc4387c5ea62cbbe8b">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Ship/36fba9c2f4c256dc4387c5ea62cbbe8b.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Ship/36fba9c2f4c256dc4387c5ea62cbbe8b.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

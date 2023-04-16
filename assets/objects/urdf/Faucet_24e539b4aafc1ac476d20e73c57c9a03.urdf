@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Faucet_24e539b4aafc1ac476d20e73c57c9a03">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Faucet/24e539b4aafc1ac476d20e73c57c9a03.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Faucet/24e539b4aafc1ac476d20e73c57c9a03.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

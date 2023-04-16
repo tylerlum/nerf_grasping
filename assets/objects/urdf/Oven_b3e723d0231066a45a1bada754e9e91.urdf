@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Oven_b3e723d0231066a45a1bada754e9e91">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Oven/b3e723d0231066a45a1bada754e9e91.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Oven/b3e723d0231066a45a1bada754e9e91.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

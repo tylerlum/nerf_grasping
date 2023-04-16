@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Rug_40b3243af3e3ace6168790cc311ab871">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Rug/40b3243af3e3ace6168790cc311ab871.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Rug/40b3243af3e3ace6168790cc311ab871.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

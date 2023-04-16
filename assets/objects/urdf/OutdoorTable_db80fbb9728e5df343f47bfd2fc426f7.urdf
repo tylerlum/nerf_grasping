@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="OutdoorTable_db80fbb9728e5df343f47bfd2fc426f7">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/OutdoorTable/db80fbb9728e5df343f47bfd2fc426f7.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/OutdoorTable/db80fbb9728e5df343f47bfd2fc426f7.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

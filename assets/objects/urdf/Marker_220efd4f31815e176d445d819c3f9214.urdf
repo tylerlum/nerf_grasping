@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Marker_220efd4f31815e176d445d819c3f9214">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Marker/220efd4f31815e176d445d819c3f9214.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Marker/220efd4f31815e176d445d819c3f9214.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

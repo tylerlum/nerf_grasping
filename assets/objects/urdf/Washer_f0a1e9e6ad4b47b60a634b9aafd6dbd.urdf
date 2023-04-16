@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Washer_f0a1e9e6ad4b47b60a634b9aafd6dbd">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Washer/f0a1e9e6ad4b47b60a634b9aafd6dbd.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Washer/f0a1e9e6ad4b47b60a634b9aafd6dbd.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="TapeMeasure_d7ae45c05243250fb85d7b26e23c80bf">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/TapeMeasure/d7ae45c05243250fb85d7b26e23c80bf.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/TapeMeasure/d7ae45c05243250fb85d7b26e23c80bf.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

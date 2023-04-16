@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="ChestOfDrawers_cc309420887905dc5feab169d76d7a87">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/ChestOfDrawers/cc309420887905dc5feab169d76d7a87.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/ChestOfDrawers/cc309420887905dc5feab169d76d7a87.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

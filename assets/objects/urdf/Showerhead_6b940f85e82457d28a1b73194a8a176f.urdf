@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Showerhead_6b940f85e82457d28a1b73194a8a176f">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Showerhead/6b940f85e82457d28a1b73194a8a176f.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Showerhead/6b940f85e82457d28a1b73194a8a176f.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

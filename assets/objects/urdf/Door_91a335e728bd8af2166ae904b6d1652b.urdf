@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Door_91a335e728bd8af2166ae904b6d1652b">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Door/91a335e728bd8af2166ae904b6d1652b.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Door/91a335e728bd8af2166ae904b6d1652b.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

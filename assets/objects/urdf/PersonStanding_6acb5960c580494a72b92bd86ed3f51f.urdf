@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="PersonStanding_6acb5960c580494a72b92bd86ed3f51f">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/PersonStanding/6acb5960c580494a72b92bd86ed3f51f.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/PersonStanding/6acb5960c580494a72b92bd86ed3f51f.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

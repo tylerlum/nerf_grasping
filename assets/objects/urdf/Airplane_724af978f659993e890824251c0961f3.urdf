@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Airplane_724af978f659993e890824251c0961f3">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Airplane/724af978f659993e890824251c0961f3.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Airplane/724af978f659993e890824251c0961f3.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

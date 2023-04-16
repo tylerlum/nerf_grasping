@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Hanger_5aa1d74d04065fd98a7103092f8e8a33">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Hanger/5aa1d74d04065fd98a7103092f8e8a33.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Hanger/5aa1d74d04065fd98a7103092f8e8a33.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

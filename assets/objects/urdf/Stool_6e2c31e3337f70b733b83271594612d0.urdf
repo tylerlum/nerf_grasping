@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Stool_6e2c31e3337f70b733b83271594612d0">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Stool/6e2c31e3337f70b733b83271594612d0.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Stool/6e2c31e3337f70b733b83271594612d0.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

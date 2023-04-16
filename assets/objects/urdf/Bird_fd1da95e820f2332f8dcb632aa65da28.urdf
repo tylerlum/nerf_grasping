@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Bird_fd1da95e820f2332f8dcb632aa65da28">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Bird/fd1da95e820f2332f8dcb632aa65da28.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Bird/fd1da95e820f2332f8dcb632aa65da28.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

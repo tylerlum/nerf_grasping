@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="MousePad_760bb845e930b20d3627f4333c06e848">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/MousePad/760bb845e930b20d3627f4333c06e848.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/MousePad/760bb845e930b20d3627f4333c06e848.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

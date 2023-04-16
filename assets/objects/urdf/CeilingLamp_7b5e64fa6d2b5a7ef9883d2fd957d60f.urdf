@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="CeilingLamp_7b5e64fa6d2b5a7ef9883d2fd957d60f">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/CeilingLamp/7b5e64fa6d2b5a7ef9883d2fd957d60f.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/CeilingLamp/7b5e64fa6d2b5a7ef9883d2fd957d60f.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

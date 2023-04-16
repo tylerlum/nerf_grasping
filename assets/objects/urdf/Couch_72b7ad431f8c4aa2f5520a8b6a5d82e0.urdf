@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Couch_72b7ad431f8c4aa2f5520a8b6a5d82e0">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Couch/72b7ad431f8c4aa2f5520a8b6a5d82e0.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Couch/72b7ad431f8c4aa2f5520a8b6a5d82e0.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

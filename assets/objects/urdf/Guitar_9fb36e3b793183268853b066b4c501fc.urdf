@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Guitar_9fb36e3b793183268853b066b4c501fc">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Guitar/9fb36e3b793183268853b066b4c501fc.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Guitar/9fb36e3b793183268853b066b4c501fc.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

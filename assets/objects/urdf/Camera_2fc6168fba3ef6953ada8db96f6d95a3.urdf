@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Camera_2fc6168fba3ef6953ada8db96f6d95a3">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Camera/2fc6168fba3ef6953ada8db96f6d95a3.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Camera/2fc6168fba3ef6953ada8db96f6d95a3.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

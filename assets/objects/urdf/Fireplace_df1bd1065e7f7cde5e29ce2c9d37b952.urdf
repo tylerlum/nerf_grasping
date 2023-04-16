@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Fireplace_df1bd1065e7f7cde5e29ce2c9d37b952">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Fireplace/df1bd1065e7f7cde5e29ce2c9d37b952.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Fireplace/df1bd1065e7f7cde5e29ce2c9d37b952.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

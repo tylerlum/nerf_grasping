@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Wii_effdc659515ff747eb2c6725049f8f">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Wii/effdc659515ff747eb2c6725049f8f.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Wii/effdc659515ff747eb2c6725049f8f.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

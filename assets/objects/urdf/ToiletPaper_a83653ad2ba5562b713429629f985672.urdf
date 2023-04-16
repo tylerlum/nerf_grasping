@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="ToiletPaper_a83653ad2ba5562b713429629f985672">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/ToiletPaper/a83653ad2ba5562b713429629f985672.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/ToiletPaper/a83653ad2ba5562b713429629f985672.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

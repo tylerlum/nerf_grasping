@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Easel_84f36e38ea74c74f2f970e6d65803d5c">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Easel/84f36e38ea74c74f2f970e6d65803d5c.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Easel/84f36e38ea74c74f2f970e6d65803d5c.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

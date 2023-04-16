@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Eraser_15f3b5aaac0a62ddd81f0237e26901c3">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Eraser/15f3b5aaac0a62ddd81f0237e26901c3.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Eraser/15f3b5aaac0a62ddd81f0237e26901c3.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

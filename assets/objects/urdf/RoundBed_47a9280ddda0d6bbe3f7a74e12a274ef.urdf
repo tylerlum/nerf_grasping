@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="RoundBed_47a9280ddda0d6bbe3f7a74e12a274ef">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/RoundBed/47a9280ddda0d6bbe3f7a74e12a274ef.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/RoundBed/47a9280ddda0d6bbe3f7a74e12a274ef.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

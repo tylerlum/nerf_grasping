@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Armoire_76cbf19c43e23a97cadb8b99da46ea55">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Armoire/76cbf19c43e23a97cadb8b99da46ea55.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Armoire/76cbf19c43e23a97cadb8b99da46ea55.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

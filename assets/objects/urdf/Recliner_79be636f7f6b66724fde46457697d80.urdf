@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Recliner_79be636f7f6b66724fde46457697d80">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Recliner/79be636f7f6b66724fde46457697d80.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Recliner/79be636f7f6b66724fde46457697d80.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

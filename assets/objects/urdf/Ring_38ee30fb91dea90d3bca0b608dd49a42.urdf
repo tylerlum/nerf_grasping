@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Ring_38ee30fb91dea90d3bca0b608dd49a42">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Ring/38ee30fb91dea90d3bca0b608dd49a42.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Ring/38ee30fb91dea90d3bca0b608dd49a42.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

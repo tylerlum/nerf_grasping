@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="SideChair_a7465ba0d326f1da6b238c8e26eb35d8">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/SideChair/a7465ba0d326f1da6b238c8e26eb35d8.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/SideChair/a7465ba0d326f1da6b238c8e26eb35d8.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

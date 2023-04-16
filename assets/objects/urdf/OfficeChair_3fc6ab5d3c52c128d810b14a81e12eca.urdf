@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="OfficeChair_3fc6ab5d3c52c128d810b14a81e12eca">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/OfficeChair/3fc6ab5d3c52c128d810b14a81e12eca.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/OfficeChair/3fc6ab5d3c52c128d810b14a81e12eca.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

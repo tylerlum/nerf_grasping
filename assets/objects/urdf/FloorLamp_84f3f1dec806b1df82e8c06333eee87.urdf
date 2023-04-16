@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="FloorLamp_84f3f1dec806b1df82e8c06333eee87">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/FloorLamp/84f3f1dec806b1df82e8c06333eee87.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/FloorLamp/84f3f1dec806b1df82e8c06333eee87.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

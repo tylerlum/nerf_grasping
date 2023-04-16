@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="RoundTable_608ea98ce4a80a61aed393947b9cb125">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/RoundTable/608ea98ce4a80a61aed393947b9cb125.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/RoundTable/608ea98ce4a80a61aed393947b9cb125.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="TV_cff049660b4c926ae6f6277fe5af8a56">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/TV/cff049660b4c926ae6f6277fe5af8a56.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/TV/cff049660b4c926ae6f6277fe5af8a56.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

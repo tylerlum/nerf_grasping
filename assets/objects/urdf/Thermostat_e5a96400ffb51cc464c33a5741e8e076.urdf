@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Thermostat_e5a96400ffb51cc464c33a5741e8e076">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Thermostat/e5a96400ffb51cc464c33a5741e8e076.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Thermostat/e5a96400ffb51cc464c33a5741e8e076.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

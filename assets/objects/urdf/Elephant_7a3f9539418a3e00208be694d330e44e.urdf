@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Elephant_7a3f9539418a3e00208be694d330e44e">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Elephant/7a3f9539418a3e00208be694d330e44e.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Elephant/7a3f9539418a3e00208be694d330e44e.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

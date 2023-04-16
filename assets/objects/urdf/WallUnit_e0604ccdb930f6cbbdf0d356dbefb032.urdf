@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="WallUnit_e0604ccdb930f6cbbdf0d356dbefb032">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/WallUnit/e0604ccdb930f6cbbdf0d356dbefb032.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/WallUnit/e0604ccdb930f6cbbdf0d356dbefb032.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

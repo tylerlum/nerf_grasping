@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="MilkCarton_72110f88e2e51bf450e961cdc6fb5c30">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/MilkCarton/72110f88e2e51bf450e961cdc6fb5c30.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/MilkCarton/72110f88e2e51bf450e961cdc6fb5c30.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

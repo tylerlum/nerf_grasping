@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Helicopter_3b4cbd4fd5f6819bea4732296ea50647">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Helicopter/3b4cbd4fd5f6819bea4732296ea50647.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Helicopter/3b4cbd4fd5f6819bea4732296ea50647.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Fruit_f6e6117261dca163713c042b393cc65b">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Fruit/f6e6117261dca163713c042b393cc65b.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Fruit/f6e6117261dca163713c042b393cc65b.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

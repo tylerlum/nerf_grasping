@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Cage_8c363626208740b19c75eb4326997fae">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Cage/8c363626208740b19c75eb4326997fae.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Cage/8c363626208740b19c75eb4326997fae.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

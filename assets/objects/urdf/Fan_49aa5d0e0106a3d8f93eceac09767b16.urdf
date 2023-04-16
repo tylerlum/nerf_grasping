@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Fan_49aa5d0e0106a3d8f93eceac09767b16">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Fan/49aa5d0e0106a3d8f93eceac09767b16.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Fan/49aa5d0e0106a3d8f93eceac09767b16.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

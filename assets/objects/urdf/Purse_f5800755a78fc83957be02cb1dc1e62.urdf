@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Purse_f5800755a78fc83957be02cb1dc1e62">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Purse/f5800755a78fc83957be02cb1dc1e62.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Purse/f5800755a78fc83957be02cb1dc1e62.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

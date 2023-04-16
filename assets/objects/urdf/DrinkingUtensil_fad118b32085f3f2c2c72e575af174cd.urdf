@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="DrinkingUtensil_fad118b32085f3f2c2c72e575af174cd">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/DrinkingUtensil/fad118b32085f3f2c2c72e575af174cd.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/DrinkingUtensil/fad118b32085f3f2c2c72e575af174cd.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

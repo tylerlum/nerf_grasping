@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Shoes_2c2f99c7fc9e914d978eac5bf3137468">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Shoes/2c2f99c7fc9e914d978eac5bf3137468.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Shoes/2c2f99c7fc9e914d978eac5bf3137468.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

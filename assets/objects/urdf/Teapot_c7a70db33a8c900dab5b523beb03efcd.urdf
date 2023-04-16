@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Teapot_c7a70db33a8c900dab5b523beb03efcd">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Teapot/c7a70db33a8c900dab5b523beb03efcd.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Teapot/c7a70db33a8c900dab5b523beb03efcd.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

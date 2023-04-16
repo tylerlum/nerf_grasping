@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="EndTable_aead6a0a5e349c26588b4772be6316fb">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/EndTable/aead6a0a5e349c26588b4772be6316fb.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/EndTable/aead6a0a5e349c26588b4772be6316fb.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

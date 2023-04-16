@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Bench_ce663a6430eb9523cb2a965e75be701c">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Bench/ce663a6430eb9523cb2a965e75be701c.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Bench/ce663a6430eb9523cb2a965e75be701c.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

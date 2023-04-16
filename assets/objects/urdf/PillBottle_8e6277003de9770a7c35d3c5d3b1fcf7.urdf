@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="PillBottle_8e6277003de9770a7c35d3c5d3b1fcf7">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/PillBottle/8e6277003de9770a7c35d3c5d3b1fcf7.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/PillBottle/8e6277003de9770a7c35d3c5d3b1fcf7.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

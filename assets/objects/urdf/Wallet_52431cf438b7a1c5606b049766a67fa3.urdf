@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Wallet_52431cf438b7a1c5606b049766a67fa3">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Wallet/52431cf438b7a1c5606b049766a67fa3.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Wallet/52431cf438b7a1c5606b049766a67fa3.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

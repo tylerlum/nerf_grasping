@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Knife_27727353c4beb97b51470b0aae1d360c">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Knife/27727353c4beb97b51470b0aae1d360c.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Knife/27727353c4beb97b51470b0aae1d360c.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

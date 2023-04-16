@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Coin_c2817372ece2a8c4b746bebe89abd6b4">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Coin/c2817372ece2a8c4b746bebe89abd6b4.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Coin/c2817372ece2a8c4b746bebe89abd6b4.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

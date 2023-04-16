@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Truck_47f92f099bea6f2b2c75f7ae6d27015e">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Truck/47f92f099bea6f2b2c75f7ae6d27015e.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Truck/47f92f099bea6f2b2c75f7ae6d27015e.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="PottedPlant_ab499159f03dfb4951184e96a017458c">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/PottedPlant/ab499159f03dfb4951184e96a017458c.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/PottedPlant/ab499159f03dfb4951184e96a017458c.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Nightstand_2519505d0cee2edff08984f51debc075">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Nightstand/2519505d0cee2edff08984f51debc075.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Nightstand/2519505d0cee2edff08984f51debc075.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

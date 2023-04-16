@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Desk_b7528ab1a9a82b41ef9d1c9c82a57477">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Desk/b7528ab1a9a82b41ef9d1c9c82a57477.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Desk/b7528ab1a9a82b41ef9d1c9c82a57477.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

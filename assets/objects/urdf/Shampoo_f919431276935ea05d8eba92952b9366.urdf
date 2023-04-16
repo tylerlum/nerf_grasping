@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Shampoo_f919431276935ea05d8eba92952b9366">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Shampoo/f919431276935ea05d8eba92952b9366.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Shampoo/f919431276935ea05d8eba92952b9366.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

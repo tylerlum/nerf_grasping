@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Pen_f234b3f39edb7f1d8ef19a48ac4fcfdf">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Pen/f234b3f39edb7f1d8ef19a48ac4fcfdf.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Pen/f234b3f39edb7f1d8ef19a48ac4fcfdf.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

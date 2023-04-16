@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="PS3_8b59b07b341f4f8f5d2f6d904a2a0784">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/PS3/8b59b07b341f4f8f5d2f6d904a2a0784.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/PS3/8b59b07b341f4f8f5d2f6d904a2a0784.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

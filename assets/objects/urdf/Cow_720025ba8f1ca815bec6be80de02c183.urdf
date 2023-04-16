@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Cow_720025ba8f1ca815bec6be80de02c183">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Cow/720025ba8f1ca815bec6be80de02c183.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Cow/720025ba8f1ca815bec6be80de02c183.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

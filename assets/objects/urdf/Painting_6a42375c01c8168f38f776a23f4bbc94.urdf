@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Painting_6a42375c01c8168f38f776a23f4bbc94">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Painting/6a42375c01c8168f38f776a23f4bbc94.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Painting/6a42375c01c8168f38f776a23f4bbc94.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

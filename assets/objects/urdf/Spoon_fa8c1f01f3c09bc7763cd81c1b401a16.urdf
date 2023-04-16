@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Spoon_fa8c1f01f3c09bc7763cd81c1b401a16">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Spoon/fa8c1f01f3c09bc7763cd81c1b401a16.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Spoon/fa8c1f01f3c09bc7763cd81c1b401a16.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Tank_9037fb8643165a0f543fc9b228fa4afd">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Tank/9037fb8643165a0f543fc9b228fa4afd.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Tank/9037fb8643165a0f543fc9b228fa4afd.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

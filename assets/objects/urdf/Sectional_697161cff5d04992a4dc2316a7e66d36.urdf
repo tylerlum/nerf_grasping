@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Sectional_697161cff5d04992a4dc2316a7e66d36">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Sectional/697161cff5d04992a4dc2316a7e66d36.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Sectional/697161cff5d04992a4dc2316a7e66d36.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

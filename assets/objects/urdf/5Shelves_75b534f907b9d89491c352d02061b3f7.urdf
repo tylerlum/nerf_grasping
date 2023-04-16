@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="5Shelves_75b534f907b9d89491c352d02061b3f7">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/5Shelves/75b534f907b9d89491c352d02061b3f7.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/5Shelves/75b534f907b9d89491c352d02061b3f7.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

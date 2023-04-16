@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Radio_7d1f7561729128f41f8d5edb17ddb332">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Radio/7d1f7561729128f41f8d5edb17ddb332.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Radio/7d1f7561729128f41f8d5edb17ddb332.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

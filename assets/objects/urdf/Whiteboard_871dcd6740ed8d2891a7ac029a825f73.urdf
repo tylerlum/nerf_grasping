@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Whiteboard_871dcd6740ed8d2891a7ac029a825f73">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Whiteboard/871dcd6740ed8d2891a7ac029a825f73.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Whiteboard/871dcd6740ed8d2891a7ac029a825f73.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="PowerStrip_f2a8e0f4e3b69cb09a5da615e9db9948">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/PowerStrip/f2a8e0f4e3b69cb09a5da615e9db9948.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/PowerStrip/f2a8e0f4e3b69cb09a5da615e9db9948.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

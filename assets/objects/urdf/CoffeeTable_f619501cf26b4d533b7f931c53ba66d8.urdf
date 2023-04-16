@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="CoffeeTable_f619501cf26b4d533b7f931c53ba66d8">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/CoffeeTable/f619501cf26b4d533b7f931c53ba66d8.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/CoffeeTable/f619501cf26b4d533b7f931c53ba66d8.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

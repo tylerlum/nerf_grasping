@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Loveseat_ad274aa281d74c7d78e2b63e72b94e04">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Loveseat/ad274aa281d74c7d78e2b63e72b94e04.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Loveseat/ad274aa281d74c7d78e2b63e72b94e04.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

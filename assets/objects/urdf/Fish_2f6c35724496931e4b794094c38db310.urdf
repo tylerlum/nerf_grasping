@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Fish_2f6c35724496931e4b794094c38db310">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Fish/2f6c35724496931e4b794094c38db310.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Fish/2f6c35724496931e4b794094c38db310.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

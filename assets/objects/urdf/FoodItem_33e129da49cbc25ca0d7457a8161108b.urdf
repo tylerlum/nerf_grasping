@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="FoodItem_33e129da49cbc25ca0d7457a8161108b">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/FoodItem/33e129da49cbc25ca0d7457a8161108b.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/FoodItem/33e129da49cbc25ca0d7457a8161108b.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

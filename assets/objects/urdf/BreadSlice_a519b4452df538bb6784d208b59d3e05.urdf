@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="BreadSlice_a519b4452df538bb6784d208b59d3e05">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/BreadSlice/a519b4452df538bb6784d208b59d3e05.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/BreadSlice/a519b4452df538bb6784d208b59d3e05.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

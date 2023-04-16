@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Microwave_401d1543b0617914de2a9aaff52ac7">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Microwave/401d1543b0617914de2a9aaff52ac7.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Microwave/401d1543b0617914de2a9aaff52ac7.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

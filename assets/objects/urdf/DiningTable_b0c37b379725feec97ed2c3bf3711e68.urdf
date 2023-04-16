@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="DiningTable_b0c37b379725feec97ed2c3bf3711e68">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/DiningTable/b0c37b379725feec97ed2c3bf3711e68.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/DiningTable/b0c37b379725feec97ed2c3bf3711e68.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

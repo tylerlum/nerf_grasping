@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Keyboard_3f34b7f6ef1fd8e7891aaffa5a7c7cad">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Keyboard/3f34b7f6ef1fd8e7891aaffa5a7c7cad.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Keyboard/3f34b7f6ef1fd8e7891aaffa5a7c7cad.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="TrashBin_64393896dc4403c0e88c1d6fc3580355">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/TrashBin/64393896dc4403c0e88c1d6fc3580355.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/TrashBin/64393896dc4403c0e88c1d6fc3580355.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

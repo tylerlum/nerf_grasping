@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="LightSwitch_dbb05758f202af12675235547803abb0">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/LightSwitch/dbb05758f202af12675235547803abb0.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/LightSwitch/dbb05758f202af12675235547803abb0.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

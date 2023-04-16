@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Candle_e9150ed4676f9be08d1fe8cdc415f4c5">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Candle/e9150ed4676f9be08d1fe8cdc415f4c5.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Candle/e9150ed4676f9be08d1fe8cdc415f4c5.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

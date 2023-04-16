@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Canister_714320da4aafcb4a47be2353d2b2403b">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Canister/714320da4aafcb4a47be2353d2b2403b.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Canister/714320da4aafcb4a47be2353d2b2403b.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

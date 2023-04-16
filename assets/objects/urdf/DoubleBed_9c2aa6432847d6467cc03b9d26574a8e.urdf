@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="DoubleBed_9c2aa6432847d6467cc03b9d26574a8e">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/DoubleBed/9c2aa6432847d6467cc03b9d26574a8e.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/DoubleBed/9c2aa6432847d6467cc03b9d26574a8e.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

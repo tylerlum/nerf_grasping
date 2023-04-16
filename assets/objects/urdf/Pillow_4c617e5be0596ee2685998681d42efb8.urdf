@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Pillow_4c617e5be0596ee2685998681d42efb8">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Pillow/4c617e5be0596ee2685998681d42efb8.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Pillow/4c617e5be0596ee2685998681d42efb8.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Toilet_516ba60cc31138d6a14ceb6c31aad9bd">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Toilet/516ba60cc31138d6a14ceb6c31aad9bd.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Toilet/516ba60cc31138d6a14ceb6c31aad9bd.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Horse_d138f5915001b570f42ed1ed4f25c2a7">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Horse/d138f5915001b570f42ed1ed4f25c2a7.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Horse/d138f5915001b570f42ed1ed4f25c2a7.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Plotter_d92d3fe1e9174e3fe0db0b99552a07a3">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Plotter/d92d3fe1e9174e3fe0db0b99552a07a3.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Plotter/d92d3fe1e9174e3fe0db0b99552a07a3.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

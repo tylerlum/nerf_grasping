@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Watch_9f7be3718a4ce14fa9b896e91fe8701d">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Watch/9f7be3718a4ce14fa9b896e91fe8701d.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Watch/9f7be3718a4ce14fa9b896e91fe8701d.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

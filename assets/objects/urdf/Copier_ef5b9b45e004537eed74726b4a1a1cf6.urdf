@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Copier_ef5b9b45e004537eed74726b4a1a1cf6">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Copier/ef5b9b45e004537eed74726b4a1a1cf6.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Copier/ef5b9b45e004537eed74726b4a1a1cf6.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

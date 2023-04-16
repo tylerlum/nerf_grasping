@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Hammer_5540651fd87e87187338e05fdf1a8a93">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Hammer/5540651fd87e87187338e05fdf1a8a93.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Hammer/5540651fd87e87187338e05fdf1a8a93.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

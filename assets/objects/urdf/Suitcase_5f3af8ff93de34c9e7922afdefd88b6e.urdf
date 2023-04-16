@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Suitcase_5f3af8ff93de34c9e7922afdefd88b6e">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Suitcase/5f3af8ff93de34c9e7922afdefd88b6e.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Suitcase/5f3af8ff93de34c9e7922afdefd88b6e.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

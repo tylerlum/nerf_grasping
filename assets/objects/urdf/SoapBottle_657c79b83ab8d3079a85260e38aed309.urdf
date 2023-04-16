@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="SoapBottle_657c79b83ab8d3079a85260e38aed309">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/SoapBottle/657c79b83ab8d3079a85260e38aed309.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/SoapBottle/657c79b83ab8d3079a85260e38aed309.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

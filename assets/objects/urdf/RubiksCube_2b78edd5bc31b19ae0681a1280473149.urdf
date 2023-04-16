@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="RubiksCube_2b78edd5bc31b19ae0681a1280473149">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/RubiksCube/2b78edd5bc31b19ae0681a1280473149.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/RubiksCube/2b78edd5bc31b19ae0681a1280473149.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

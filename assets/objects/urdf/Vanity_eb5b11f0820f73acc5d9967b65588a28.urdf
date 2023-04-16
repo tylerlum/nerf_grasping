@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Vanity_eb5b11f0820f73acc5d9967b65588a28">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Vanity/eb5b11f0820f73acc5d9967b65588a28.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Vanity/eb5b11f0820f73acc5d9967b65588a28.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

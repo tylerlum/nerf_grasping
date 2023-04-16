@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Headphones_f3ee8236a6ea3dbd45f47151a4d2182a">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Headphones/f3ee8236a6ea3dbd45f47151a4d2182a.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Headphones/f3ee8236a6ea3dbd45f47151a4d2182a.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="TissueBox_ffb4e07d613b6a62bbfa57fc7493b378">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/TissueBox/ffb4e07d613b6a62bbfa57fc7493b378.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/TissueBox/ffb4e07d613b6a62bbfa57fc7493b378.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

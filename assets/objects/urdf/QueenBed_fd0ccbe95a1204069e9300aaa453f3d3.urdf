@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="QueenBed_fd0ccbe95a1204069e9300aaa453f3d3">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/QueenBed/fd0ccbe95a1204069e9300aaa453f3d3.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/QueenBed/fd0ccbe95a1204069e9300aaa453f3d3.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

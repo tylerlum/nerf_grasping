@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="CeilingFan_6d99ef5610efa11d5b7d8e48ecc58356">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/CeilingFan/6d99ef5610efa11d5b7d8e48ecc58356.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/CeilingFan/6d99ef5610efa11d5b7d8e48ecc58356.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

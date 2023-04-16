@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="MediaDiscs_a95825396f2896a369b92c1c3cd65bd9">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/MediaDiscs/a95825396f2896a369b92c1c3cd65bd9.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/MediaDiscs/a95825396f2896a369b92c1c3cd65bd9.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

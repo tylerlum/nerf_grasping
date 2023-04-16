@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Speaker_a4370b35519d93161ba7a7e54b0d6212">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Speaker/a4370b35519d93161ba7a7e54b0d6212.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Speaker/a4370b35519d93161ba7a7e54b0d6212.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

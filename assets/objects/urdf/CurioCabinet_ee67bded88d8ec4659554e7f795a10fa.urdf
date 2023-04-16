@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="CurioCabinet_ee67bded88d8ec4659554e7f795a10fa">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/CurioCabinet/ee67bded88d8ec4659554e7f795a10fa.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/CurioCabinet/ee67bded88d8ec4659554e7f795a10fa.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

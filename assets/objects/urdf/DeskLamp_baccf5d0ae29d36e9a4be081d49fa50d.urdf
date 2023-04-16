@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="DeskLamp_baccf5d0ae29d36e9a4be081d49fa50d">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/DeskLamp/baccf5d0ae29d36e9a4be081d49fa50d.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/DeskLamp/baccf5d0ae29d36e9a4be081d49fa50d.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

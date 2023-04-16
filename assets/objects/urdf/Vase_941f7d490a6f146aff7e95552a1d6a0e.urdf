@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Vase_941f7d490a6f146aff7e95552a1d6a0e">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Vase/941f7d490a6f146aff7e95552a1d6a0e.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Vase/941f7d490a6f146aff7e95552a1d6a0e.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

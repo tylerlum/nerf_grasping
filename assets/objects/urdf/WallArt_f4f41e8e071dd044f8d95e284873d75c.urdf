@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="WallArt_f4f41e8e071dd044f8d95e284873d75c">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/WallArt/f4f41e8e071dd044f8d95e284873d75c.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/WallArt/f4f41e8e071dd044f8d95e284873d75c.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

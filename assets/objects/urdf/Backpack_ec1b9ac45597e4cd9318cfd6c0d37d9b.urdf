@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Backpack_ec1b9ac45597e4cd9318cfd6c0d37d9b">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Backpack/ec1b9ac45597e4cd9318cfd6c0d37d9b.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Backpack/ec1b9ac45597e4cd9318cfd6c0d37d9b.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

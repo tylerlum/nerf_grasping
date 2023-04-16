@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="AccentTable_f4d0e1be9884f45cd2fc64a9331b7788">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/AccentTable/f4d0e1be9884f45cd2fc64a9331b7788.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/AccentTable/f4d0e1be9884f45cd2fc64a9331b7788.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

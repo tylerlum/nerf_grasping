@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="CoatRack_1bb8e7439a411cd234f718b37d8150d2">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/CoatRack/1bb8e7439a411cd234f718b37d8150d2.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/CoatRack/1bb8e7439a411cd234f718b37d8150d2.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

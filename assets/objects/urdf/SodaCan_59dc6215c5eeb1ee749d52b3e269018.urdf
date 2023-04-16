@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="SodaCan_59dc6215c5eeb1ee749d52b3e269018">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/SodaCan/59dc6215c5eeb1ee749d52b3e269018.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/SodaCan/59dc6215c5eeb1ee749d52b3e269018.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Barstool_f3ea5b0e6035e56d467c1480246c0abd">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Barstool/f3ea5b0e6035e56d467c1480246c0abd.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Barstool/f3ea5b0e6035e56d467c1480246c0abd.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

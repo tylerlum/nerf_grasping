@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Mirror_de444f5117dde4fa20bf9756ac49fafa">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Mirror/de444f5117dde4fa20bf9756ac49fafa.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Mirror/de444f5117dde4fa20bf9756ac49fafa.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

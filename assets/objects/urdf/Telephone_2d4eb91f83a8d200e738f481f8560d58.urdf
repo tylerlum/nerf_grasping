@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Telephone_2d4eb91f83a8d200e738f481f8560d58">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Telephone/2d4eb91f83a8d200e738f481f8560d58.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Telephone/2d4eb91f83a8d200e738f481f8560d58.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

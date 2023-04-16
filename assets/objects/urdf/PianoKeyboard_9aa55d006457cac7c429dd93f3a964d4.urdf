@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="PianoKeyboard_9aa55d006457cac7c429dd93f3a964d4">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/PianoKeyboard/9aa55d006457cac7c429dd93f3a964d4.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/PianoKeyboard/9aa55d006457cac7c429dd93f3a964d4.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

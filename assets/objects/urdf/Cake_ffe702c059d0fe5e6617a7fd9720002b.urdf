@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Cake_ffe702c059d0fe5e6617a7fd9720002b">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Cake/ffe702c059d0fe5e6617a7fd9720002b.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Cake/ffe702c059d0fe5e6617a7fd9720002b.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

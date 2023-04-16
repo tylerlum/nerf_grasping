@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Chocolate_c79da9bcb5c6f6a5a544d74fd0364407">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Chocolate/c79da9bcb5c6f6a5a544d74fd0364407.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Chocolate/c79da9bcb5c6f6a5a544d74fd0364407.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

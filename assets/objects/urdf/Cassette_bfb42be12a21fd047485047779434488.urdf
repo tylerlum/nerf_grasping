@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Cassette_bfb42be12a21fd047485047779434488">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Cassette/bfb42be12a21fd047485047779434488.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Cassette/bfb42be12a21fd047485047779434488.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Ottoman_4627681e2a24a54ce6d580bdf97c264">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Ottoman/4627681e2a24a54ce6d580bdf97c264.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Ottoman/4627681e2a24a54ce6d580bdf97c264.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

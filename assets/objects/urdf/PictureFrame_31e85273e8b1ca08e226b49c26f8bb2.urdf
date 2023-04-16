@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="PictureFrame_31e85273e8b1ca08e226b49c26f8bb2">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/PictureFrame/31e85273e8b1ca08e226b49c26f8bb2.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/PictureFrame/31e85273e8b1ca08e226b49c26f8bb2.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

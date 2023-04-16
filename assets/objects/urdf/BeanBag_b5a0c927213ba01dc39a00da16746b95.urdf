@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="BeanBag_b5a0c927213ba01dc39a00da16746b95">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/BeanBag/b5a0c927213ba01dc39a00da16746b95.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/BeanBag/b5a0c927213ba01dc39a00da16746b95.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

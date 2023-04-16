@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="TableClock_bdb0902d42779686c6f86fd24d6c8740">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/TableClock/bdb0902d42779686c6f86fd24d6c8740.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/TableClock/bdb0902d42779686c6f86fd24d6c8740.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

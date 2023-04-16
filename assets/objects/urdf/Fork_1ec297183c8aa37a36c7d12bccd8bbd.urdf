@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Fork_1ec297183c8aa37a36c7d12bccd8bbd">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Fork/1ec297183c8aa37a36c7d12bccd8bbd.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Fork/1ec297183c8aa37a36c7d12bccd8bbd.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

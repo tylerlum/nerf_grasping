@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Pizza_b3a8ebcf6e9ca5852721058c5c629b05">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Pizza/b3a8ebcf6e9ca5852721058c5c629b05.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Pizza/b3a8ebcf6e9ca5852721058c5c629b05.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

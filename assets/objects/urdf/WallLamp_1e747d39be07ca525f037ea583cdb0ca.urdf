@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="WallLamp_1e747d39be07ca525f037ea583cdb0ca">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/WallLamp/1e747d39be07ca525f037ea583cdb0ca.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/WallLamp/1e747d39be07ca525f037ea583cdb0ca.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

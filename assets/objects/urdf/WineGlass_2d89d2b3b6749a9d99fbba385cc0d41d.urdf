@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="WineGlass_2d89d2b3b6749a9d99fbba385cc0d41d">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/WineGlass/2d89d2b3b6749a9d99fbba385cc0d41d.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/WineGlass/2d89d2b3b6749a9d99fbba385cc0d41d.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

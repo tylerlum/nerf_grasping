@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="DecorativeAccessory_b3a10a84b50a5096d0c3b60b0d244df3">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/DecorativeAccessory/b3a10a84b50a5096d0c3b60b0d244df3.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/DecorativeAccessory/b3a10a84b50a5096d0c3b60b0d244df3.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

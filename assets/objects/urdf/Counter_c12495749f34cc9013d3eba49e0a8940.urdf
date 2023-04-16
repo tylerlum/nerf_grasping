@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Counter_c12495749f34cc9013d3eba49e0a8940">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Counter/c12495749f34cc9013d3eba49e0a8940.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Counter/c12495749f34cc9013d3eba49e0a8940.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

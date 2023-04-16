@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="WineRack_2312a8d887e8db59a193550461f84122">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/WineRack/2312a8d887e8db59a193550461f84122.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/WineRack/2312a8d887e8db59a193550461f84122.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

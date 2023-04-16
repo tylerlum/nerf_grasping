@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Pan_6bd3a97fa483fdf74aacbadccb7a240a">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Pan/6bd3a97fa483fdf74aacbadccb7a240a.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Pan/6bd3a97fa483fdf74aacbadccb7a240a.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

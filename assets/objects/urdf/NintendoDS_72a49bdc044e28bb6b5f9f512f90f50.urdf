@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="NintendoDS_72a49bdc044e28bb6b5f9f512f90f50">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/NintendoDS/72a49bdc044e28bb6b5f9f512f90f50.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/NintendoDS/72a49bdc044e28bb6b5f9f512f90f50.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

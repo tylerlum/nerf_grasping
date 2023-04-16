@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="USBStick_e2e75212fefa0ecf30e9a79a761377a4">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/USBStick/e2e75212fefa0ecf30e9a79a761377a4.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/USBStick/e2e75212fefa0ecf30e9a79a761377a4.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

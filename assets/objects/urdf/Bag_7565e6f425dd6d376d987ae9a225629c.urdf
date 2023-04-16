@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Bag_7565e6f425dd6d376d987ae9a225629c">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Bag/7565e6f425dd6d376d987ae9a225629c.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Bag/7565e6f425dd6d376d987ae9a225629c.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

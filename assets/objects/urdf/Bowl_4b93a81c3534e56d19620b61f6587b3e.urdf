@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Bowl_4b93a81c3534e56d19620b61f6587b3e">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Bowl/4b93a81c3534e56d19620b61f6587b3e.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Bowl/4b93a81c3534e56d19620b61f6587b3e.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

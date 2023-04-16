@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Credenza_54d448fa2fa022274d724d9ce5af6d8e">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Credenza/54d448fa2fa022274d724d9ce5af6d8e.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Credenza/54d448fa2fa022274d724d9ce5af6d8e.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

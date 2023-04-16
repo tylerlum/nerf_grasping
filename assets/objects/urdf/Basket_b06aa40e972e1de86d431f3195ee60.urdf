@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Basket_b06aa40e972e1de86d431f3195ee60">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Basket/b06aa40e972e1de86d431f3195ee60.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Basket/b06aa40e972e1de86d431f3195ee60.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

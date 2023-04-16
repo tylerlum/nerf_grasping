@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="PowerSocket_c423fae01d1524d9388a3b2bafcebb0f">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/PowerSocket/c423fae01d1524d9388a3b2bafcebb0f.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/PowerSocket/c423fae01d1524d9388a3b2bafcebb0f.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

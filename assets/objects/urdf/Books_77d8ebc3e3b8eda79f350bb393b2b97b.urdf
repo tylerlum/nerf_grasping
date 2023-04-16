@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Books_77d8ebc3e3b8eda79f350bb393b2b97b">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Books/77d8ebc3e3b8eda79f350bb393b2b97b.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Books/77d8ebc3e3b8eda79f350bb393b2b97b.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

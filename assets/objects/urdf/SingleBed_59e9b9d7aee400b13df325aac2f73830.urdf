@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="SingleBed_59e9b9d7aee400b13df325aac2f73830">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/SingleBed/59e9b9d7aee400b13df325aac2f73830.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/SingleBed/59e9b9d7aee400b13df325aac2f73830.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

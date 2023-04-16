@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="WallClock_772f1ed7779459e8d835a15bbfa33167">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/WallClock/772f1ed7779459e8d835a15bbfa33167.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/WallClock/772f1ed7779459e8d835a15bbfa33167.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

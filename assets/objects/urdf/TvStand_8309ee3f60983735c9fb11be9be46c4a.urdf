@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="TvStand_8309ee3f60983735c9fb11be9be46c4a">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/TvStand/8309ee3f60983735c9fb11be9be46c4a.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/TvStand/8309ee3f60983735c9fb11be9be46c4a.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

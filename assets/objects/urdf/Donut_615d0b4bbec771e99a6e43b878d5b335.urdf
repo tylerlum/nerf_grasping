@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Donut_615d0b4bbec771e99a6e43b878d5b335">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Donut/615d0b4bbec771e99a6e43b878d5b335.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Donut/615d0b4bbec771e99a6e43b878d5b335.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

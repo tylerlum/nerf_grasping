@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="BeerBottle_5566f264a6fa08cd2a68e506fbd6eecf">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/BeerBottle/5566f264a6fa08cd2a68e506fbd6eecf.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/BeerBottle/5566f264a6fa08cd2a68e506fbd6eecf.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

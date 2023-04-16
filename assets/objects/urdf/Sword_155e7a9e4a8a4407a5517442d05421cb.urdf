@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Sword_155e7a9e4a8a4407a5517442d05421cb">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Sword/155e7a9e4a8a4407a5517442d05421cb.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Sword/155e7a9e4a8a4407a5517442d05421cb.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

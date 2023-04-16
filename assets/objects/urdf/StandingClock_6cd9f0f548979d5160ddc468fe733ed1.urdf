@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="StandingClock_6cd9f0f548979d5160ddc468fe733ed1">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/StandingClock/6cd9f0f548979d5160ddc468fe733ed1.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/StandingClock/6cd9f0f548979d5160ddc468fe733ed1.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

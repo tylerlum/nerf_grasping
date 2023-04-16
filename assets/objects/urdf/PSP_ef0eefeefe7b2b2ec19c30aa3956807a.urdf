@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="PSP_ef0eefeefe7b2b2ec19c30aa3956807a">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/PSP/ef0eefeefe7b2b2ec19c30aa3956807a.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/PSP/ef0eefeefe7b2b2ec19c30aa3956807a.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

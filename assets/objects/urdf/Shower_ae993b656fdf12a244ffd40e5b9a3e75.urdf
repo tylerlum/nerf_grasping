@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Shower_ae993b656fdf12a244ffd40e5b9a3e75">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Shower/ae993b656fdf12a244ffd40e5b9a3e75.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Shower/ae993b656fdf12a244ffd40e5b9a3e75.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

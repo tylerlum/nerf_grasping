@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="AccentChair_2663256233c27aca881796c365ec5f7e">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/AccentChair/2663256233c27aca881796c365ec5f7e.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/AccentChair/2663256233c27aca881796c365ec5f7e.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Sink_b5c707edd377fb4a5c6eb4e85d341904">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Sink/b5c707edd377fb4a5c6eb4e85d341904.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Sink/b5c707edd377fb4a5c6eb4e85d341904.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

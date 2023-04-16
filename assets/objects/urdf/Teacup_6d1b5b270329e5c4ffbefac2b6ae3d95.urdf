@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Teacup_6d1b5b270329e5c4ffbefac2b6ae3d95">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Teacup/6d1b5b270329e5c4ffbefac2b6ae3d95.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Teacup/6d1b5b270329e5c4ffbefac2b6ae3d95.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

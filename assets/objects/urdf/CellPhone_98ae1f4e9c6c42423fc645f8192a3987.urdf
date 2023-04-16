@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="CellPhone_98ae1f4e9c6c42423fc645f8192a3987">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/CellPhone/98ae1f4e9c6c42423fc645f8192a3987.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/CellPhone/98ae1f4e9c6c42423fc645f8192a3987.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Rack_279430474957c013b9d7c2fc41e80228">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Rack/279430474957c013b9d7c2fc41e80228.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Rack/279430474957c013b9d7c2fc41e80228.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

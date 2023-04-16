@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Mug_5b0c679eb8a2156c4314179664d18101">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Mug/5b0c679eb8a2156c4314179664d18101.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Mug/5b0c679eb8a2156c4314179664d18101.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

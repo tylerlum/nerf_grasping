@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Refrigerator_e33b8fbee3d9b8975eead856a4605937">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Refrigerator/e33b8fbee3d9b8975eead856a4605937.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Refrigerator/e33b8fbee3d9b8975eead856a4605937.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

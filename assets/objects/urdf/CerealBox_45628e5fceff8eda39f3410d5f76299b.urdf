@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="CerealBox_45628e5fceff8eda39f3410d5f76299b">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/CerealBox/45628e5fceff8eda39f3410d5f76299b.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/CerealBox/45628e5fceff8eda39f3410d5f76299b.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

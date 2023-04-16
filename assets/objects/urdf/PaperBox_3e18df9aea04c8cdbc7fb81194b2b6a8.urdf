@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="PaperBox_3e18df9aea04c8cdbc7fb81194b2b6a8">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/PaperBox/3e18df9aea04c8cdbc7fb81194b2b6a8.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/PaperBox/3e18df9aea04c8cdbc7fb81194b2b6a8.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Stapler_eb6646d3590c467f1cf3fe6240494178">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Stapler/eb6646d3590c467f1cf3fe6240494178.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Stapler/eb6646d3590c467f1cf3fe6240494178.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

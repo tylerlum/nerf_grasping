@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Gun_206bb4f7102d4dfb1ed2fa3d3d4463bf">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Gun/206bb4f7102d4dfb1ed2fa3d3d4463bf.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Gun/206bb4f7102d4dfb1ed2fa3d3d4463bf.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

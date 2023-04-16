@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Plate_49675b82efc7dd0536c38c6865b8d471">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Plate/49675b82efc7dd0536c38c6865b8d471.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Plate/49675b82efc7dd0536c38c6865b8d471.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

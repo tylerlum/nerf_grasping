@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="VideoGameConsole_c0fe7631c31547b31dd4e193654d2ee5">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/VideoGameConsole/c0fe7631c31547b31dd4e193654d2ee5.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/VideoGameConsole/c0fe7631c31547b31dd4e193654d2ee5.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

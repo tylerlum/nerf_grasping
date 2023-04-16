@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Dresser_a400686f52c79178d7fdc6ba5795a162">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Dresser/a400686f52c79178d7fdc6ba5795a162.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Dresser/a400686f52c79178d7fdc6ba5795a162.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

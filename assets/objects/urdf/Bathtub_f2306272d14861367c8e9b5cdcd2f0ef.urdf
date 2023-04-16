@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Bathtub_f2306272d14861367c8e9b5cdcd2f0ef">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Bathtub/f2306272d14861367c8e9b5cdcd2f0ef.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Bathtub/f2306272d14861367c8e9b5cdcd2f0ef.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

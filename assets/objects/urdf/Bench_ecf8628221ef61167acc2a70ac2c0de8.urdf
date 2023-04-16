@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Bench_ecf8628221ef61167acc2a70ac2c0de8">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Bench/ecf8628221ef61167acc2a70ac2c0de8.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Bench/ecf8628221ef61167acc2a70ac2c0de8.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

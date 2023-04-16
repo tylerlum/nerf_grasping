@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Bucket_997f1218df2b1909ce0e7190fd762087">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Bucket/997f1218df2b1909ce0e7190fd762087.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Bucket/997f1218df2b1909ce0e7190fd762087.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

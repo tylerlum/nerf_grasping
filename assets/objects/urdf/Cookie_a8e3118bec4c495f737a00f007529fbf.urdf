@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Cookie_a8e3118bec4c495f737a00f007529fbf">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Cookie/a8e3118bec4c495f737a00f007529fbf.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Cookie/a8e3118bec4c495f737a00f007529fbf.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

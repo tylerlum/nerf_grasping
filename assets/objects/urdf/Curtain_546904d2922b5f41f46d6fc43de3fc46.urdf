@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Curtain_546904d2922b5f41f46d6fc43de3fc46">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Curtain/546904d2922b5f41f46d6fc43de3fc46.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Curtain/546904d2922b5f41f46d6fc43de3fc46.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

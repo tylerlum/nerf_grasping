@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Pedestal_8e77f144dc5480ee79e40cecd90ba7b5">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Pedestal/8e77f144dc5480ee79e40cecd90ba7b5.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Pedestal/8e77f144dc5480ee79e40cecd90ba7b5.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

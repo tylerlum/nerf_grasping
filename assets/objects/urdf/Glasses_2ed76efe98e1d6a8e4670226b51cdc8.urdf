@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Glasses_2ed76efe98e1d6a8e4670226b51cdc8">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Glasses/2ed76efe98e1d6a8e4670226b51cdc8.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Glasses/2ed76efe98e1d6a8e4670226b51cdc8.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

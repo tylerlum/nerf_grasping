@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="PotRack_22f3456d18843c51a3d3cfcc7a42cc66">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/PotRack/22f3456d18843c51a3d3cfcc7a42cc66.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/PotRack/22f3456d18843c51a3d3cfcc7a42cc66.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Hat_ada0226531f7affd45b86923d8b21783">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Hat/ada0226531f7affd45b86923d8b21783.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Hat/ada0226531f7affd45b86923d8b21783.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

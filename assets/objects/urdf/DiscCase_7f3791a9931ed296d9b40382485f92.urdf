@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="DiscCase_7f3791a9931ed296d9b40382485f92">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/DiscCase/7f3791a9931ed296d9b40382485f92.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/DiscCase/7f3791a9931ed296d9b40382485f92.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

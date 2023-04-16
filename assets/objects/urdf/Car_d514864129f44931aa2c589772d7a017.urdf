@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Car_d514864129f44931aa2c589772d7a017">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Car/d514864129f44931aa2c589772d7a017.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Car/d514864129f44931aa2c589772d7a017.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

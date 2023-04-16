@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Shirt_e382a760529244811085a6d70c973b41">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Shirt/e382a760529244811085a6d70c973b41.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Shirt/e382a760529244811085a6d70c973b41.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

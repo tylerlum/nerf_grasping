@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="LoftBed_9725ec5429b19ba05ac28d2931a0cac6">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/LoftBed/9725ec5429b19ba05ac28d2931a0cac6.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/LoftBed/9725ec5429b19ba05ac28d2931a0cac6.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

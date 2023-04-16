@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Scissors_f4897c9b20e811f1309c3ff4f31971fa">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Scissors/f4897c9b20e811f1309c3ff4f31971fa.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Scissors/f4897c9b20e811f1309c3ff4f31971fa.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

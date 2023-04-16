@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Notepad_78efdbc359aea694f4ce6a9aa07faa7">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Notepad/78efdbc359aea694f4ce6a9aa07faa7.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Notepad/78efdbc359aea694f4ce6a9aa07faa7.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

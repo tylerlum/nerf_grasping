@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="Battery_55bd81649a4685ebca46627d6e5395f5">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Battery/55bd81649a4685ebca46627d6e5395f5.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="meshes/Battery/55bd81649a4685ebca46627d6e5395f5.obj" scale="0.01 0.01 0.01" />
+      </geometry>
+    </collision>
+    <inertial>
+        <density value="600.0"/>
+    </inertial>
+  </link>
+</robot>

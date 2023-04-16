@@ -17,6 +17,8 @@ from nerf_grasping.sim import ig_utils, ig_objects, ig_robot, ig_viz_utils
 import trimesh
 
 from nerf_grasping.quaternions import Quaternion
+import argparse
+
 
 # https://github.com/NVIDIA-Omniverse/IsaacGymEnvs
 
@@ -157,7 +159,9 @@ class TriFingerEnv:
         self.envs = [env]
 
         if robot_type == "trifinger":
-            self.robot = ig_robot.FingertipRobot(self.gym, self.sim, self.env, **robot_kwargs)
+            self.robot = ig_robot.FingertipRobot(
+                self.gym, self.sim, self.env, **robot_kwargs
+            )
         elif robot_type == "spheres":
             self.robot = ig_robot.FingertipRobot(
                 self.gym, self.sim, self.env, **robot_kwargs
@@ -463,7 +467,7 @@ def get_nerf_training(Obj, viewer):
             print(f"tf.object.position = {tf.object.position}")
 
     # name = "blank" if Obj is None else Obj.name
-    # tf.save_images("./torch-ngp/data/isaac_" + name, overwrite=False)
+    tf.save_images("./torch-ngp/data/isaac_" + name, overwrite=False)
 
 
 def run_robot_control(viewer, Obj, robot_type, **robot_kwargs):
@@ -488,25 +492,38 @@ def run_robot_control(viewer, Obj, robot_type, **robot_kwargs):
 
 
 if __name__ == "__main__":
-    # Obj = ig_objects.Banana
-    # Obj = ig_objects.Box
-    # Obj = ig_objects.TeddyBear
-    Obj = ig_objects.PowerDrill
-    # Obj = ig_objects.Box
-    # Obj = ig_objects.BleachCleanser  # too big - put on side?
-    # Obj = ig_objects.Spatula
-    # Obj = ig_objects.Mug
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--obj", type=str, default="Banana")
+    parser.add_argument("--get_nerf_training_data", action="store_true")
+    parser.add_argument("--run_robot_control", action="store_true")
+    parser.add_argument("--viewer", action="store_true")
+    args = parser.parse_args()
+
+    print("=" * 80)
+    print(f"args = {args}")
+    print("=" * 80)
+
+    if args.get_nerf_training_data and args.run_robot_control:
+        raise ValueError(f"Must specify only one of --get_nerf_training_data or --run_robot_control")
+
+    # Object
+    Obj = eval(f"ig_objects.{args.obj}")
     print("Obj", Obj.name, Obj().gt_mesh.extents)
 
-    # get_nerf_training(Obj, viewer=False)
-    # get_nerf_training(Obj, viewer=True)
-    run_robot_control(
-        viewer=True,
-        Obj=Obj,
-        robot_type="trifinger",
-        use_nerf_grasping=False,
-        use_residual_dirs=True,
-        use_true_normals=False,
-        use_grad_est=True,
-        metric="psv",
-    )
+    if args.get_nerf_training_data:
+        get_nerf_training(Obj, viewer=args.viewer)
+
+    elif args.run_robot_control:
+        run_robot_control(
+            viewer=args.viewer,
+            Obj=Obj,
+            robot_type="trifinger",
+            use_nerf_grasping=False,
+            use_residual_dirs=True,
+            use_true_normals=False,
+            use_grad_est=True,
+            metric="psv",
+        )
+
+    else:
+        raise ValueError(f"Must specify one of --get_nerf_training_data or --run_robot_control")

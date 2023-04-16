@@ -151,3 +151,6 @@ tags
 
 wandb/
 nerf_checkpoints/*
+
+# shapenet meshes
+assets/objects

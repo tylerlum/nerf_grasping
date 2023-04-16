@@ -326,7 +326,6 @@ def get_cost_function(exp_config, model):
     centroid = torch.as_tensor(model.centroid)
 
     def cost_function(grasp_vars):
-
         # Reshape grasp vars into something useful, get dims.
         n_f = exp_config.robot_config.num_fingers
         gps = grasp_vars.reshape(-1, n_f, 6)
@@ -344,7 +343,6 @@ def get_cost_function(exp_config, model):
 
         # Otherwise, use fuzzy NeRF method for point/normals.
         elif isinstance(model, nerf_utils.NeRFModel):
-
             risk_sensitivity = exp_config.risk_sensitivity
             if exp_config.model_config.expected_surface:
                 num_grasp_samples = 1

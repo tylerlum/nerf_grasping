@@ -105,9 +105,8 @@ class RigidObject:
 
     def load_trimesh(self, mesh_path=None):
         if mesh_path is None or not os.path.exists(mesh_path):
-            mesh_path = os.path.join(
-                asset_dir, f"objects/meshes/{self.name}/textured.obj"
-            )
+            asset_path = os.path.join(asset_dir, self.asset_file)
+            mesh_path = os.path.join(asset_dir, "objects", self._get_mesh_path_from_urdf(asset_path))
 
         print("mesh path: ", mesh_path)
         # Mesh loaded in Z-up, centered at object centroid.
@@ -124,6 +123,17 @@ class RigidObject:
         )
         return mesh
 
+    def _get_mesh_path_from_urdf(self, urdf_path):
+        import xml.etree.ElementTree as ET
+
+        # Load the URDF file
+        tree = ET.parse(urdf_path)
+        root = tree.getroot()
+
+        # Find the mesh filename inside the URDF file
+        mesh_path = root.find(".//geometry/mesh").get("filename")
+        return mesh_path
+
     def create_asset(self):
         asset_options = gymapi.AssetOptions()
 
@@ -133,7 +143,7 @@ class RigidObject:
         asset_options.override_inertia = False
         asset_options.override_com = False
 
-        asset_options.vhacd_params.mode = 1
+        asset_options.vhacd_params.mode = 0  # 0 = tetrahedron, 1 = voxel, was 1, but 0 fixed issue with xbox360
         asset_options.vhacd_params.resolution = 600000
         asset_options.vhacd_params.max_convex_hulls = 16
         asset_options.vhacd_params.max_num_vertices_per_ch = 128
@@ -393,3 +403,20 @@ class BleachCleanser(RigidObject):
     grasp_normals = torch.tensor([[0, -1.0, 0.0], [-1, 0.0, 0.0], [1.0, 1.0, 0.0]])
     translation = np.array([-5.7448e-07, -1.2433e-05, 8.1302e-02])
     mu = 1.0
+
+class Xbox360(RigidObject):
+    workspace = "xbox360"
+    grasp_points = torch.tensor(
+        [
+            [-0.00693, 0.085422, 0.013867],
+            [0.018317, -0.001611, 0.013867],
+            [-0.058538, -0.051027, 0.013867],
+        ]
+    )
+    grasp_normals = torch.tensor([[1, -1.5, 0.0], [-2, 1.0, 0.0], [1, 0.0, 0.0]])
+    asset_file = "objects/urdf/Xbox360_14e5dba73b283dc7fe0939859a0b15ea.urdf"
+    name = "xbox360"
+    mu = 1.0
+    bound = 2
+    translation = np.array([1.7978e-08, -6.0033e-08, 1.0])
+

@@ -15,7 +15,14 @@ acronym_object_classes = [k for k in acronym_objects.__dict__.keys() if k.starts
 print(f"Found {len(acronym_object_classes)} objects in the acronym dataset")
 print(f"First 10: {acronym_object_classes[:10]}")
 
-for acronym_object_class in tqdm(acronym_object_classes):
-    command = f"python sim_trifinger.py --get_nerf_training_data --obj {acronym_object_class} --num_steps_before_collecting 50 --overwrite"
-    print(f"Running command: {command}")
-    subprocess.run(command, shell=True, check=True)
+num_failed = 0
+for acronym_object_class in (pbar := tqdm(acronym_object_classes)):
+    pbar.set_description(f"num_failed = {num_failed}")
+    try:
+        command = f"python sim_trifinger.py --get_nerf_training_data --obj {acronym_object_class} --num_steps_before_collecting 50 --overwrite"
+        print(f"Running command: {command}")
+        subprocess.run(command, shell=True, check=True)
+    except Exception as e:
+        print(f"e = {e}")
+        num_failed += 1
+        print("Continuing")

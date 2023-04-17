@@ -464,6 +464,15 @@ class TriFingerEnv:
         RED = (1, 0, 0)
         GREEN = (0, 1, 0)
 
+
+        # Get transformation matrix from object frame to world frame
+        import scipy
+        object_to_world_transform = np.eye(4)
+        pos, quat = self.object.position, self.object.orientation
+        R = scipy.spatial.transform.Rotation.from_quat(quat).as_matrix()
+        object_to_world_transform[:3, :3] = R
+        object_to_world_transform[:3, -1] = pos
+
         print(f"Drawing {num_grasps} successful and failed grasps")
         for grasp_tranforms, color in [
             (successful_grasp_transforms, GREEN),
@@ -476,25 +485,22 @@ class TriFingerEnv:
                 # Get left and right tip positions from transform (in object frame)
                 raw_left_tip = [4.10000000e-02, -7.27595772e-12, 1.12169998e-01]
                 raw_right_tip = [-4.10000000e-02, -7.27595772e-12, 1.12169998e-01]
+                raw_left_knuckle = [4.10000000e-02, -7.27595772e-12, 6.59999996e-02]
+                raw_right_knuckle = [-4.10000000e-02, -7.27595772e-12, 6.59999996e-02]
                 raw_hand_origin = [0.0, 0.0, 0.0]
 
                 left_tip = (grasp_transform @ np.array([*raw_left_tip, 1.0]))[:3]
                 right_tip = (grasp_transform @ np.array([*raw_right_tip, 1.0]))[:3]
+                left_knuckle = (grasp_transform @ np.array([*raw_left_knuckle, 1.0]))[:3]
+                right_knuckle = (grasp_transform @ np.array([*raw_right_knuckle, 1.0]))[:3]
                 hand_origin = (grasp_transform @ np.array([*raw_hand_origin, 1.0]))[:3]
-                print(f"grasp_transform: {grasp_transform}, left_tip: {left_tip}, right_tip: {right_tip}")
 
-                # Convert to world frame
-                import scipy
-                transform_mat = np.eye(4)
-                pos, quat = self.object.position, self.object.orientation
-                R = scipy.spatial.transform.Rotation.from_quat(quat).as_matrix()
-                transform_mat[:3, :3] = R
-                transform_mat[:3, -1] = pos
-                left_tip = (transform_mat @ np.array([*left_tip, 1.0]))[:3]
-                right_tip = (transform_mat @ np.array([*right_tip, 1.0]))[:3]
-                hand_origin = (transform_mat @ np.array([*hand_origin, 1.0]))[:3]
-                print(f"transform_mat: {transform_mat}, left_tip: {left_tip}, right_tip: {right_tip}")
-                print()
+                # Transform to world frame
+                left_tip = (object_to_world_transform @ np.array([*left_tip, 1.0]))[:3]
+                right_tip = (object_to_world_transform @ np.array([*right_tip, 1.0]))[:3]
+                left_knuckle = (object_to_world_transform @ np.array([*left_knuckle, 1.0]))[:3]
+                right_knuckle = (object_to_world_transform @ np.array([*right_knuckle, 1.0]))[:3]
+                hand_origin = (object_to_world_transform @ np.array([*hand_origin, 1.0]))[:3]
 
                 # Draw spheres at tips and lines between them
                 left_tip_pose = gymapi.Transform(gymapi.Vec3(*left_tip), r=None)
@@ -515,15 +521,31 @@ class TriFingerEnv:
                 )
                 gymutil.draw_line(
                     p1=gymapi.Vec3(*left_tip),
-                    p2=gymapi.Vec3(*right_tip),
+                    p2=gymapi.Vec3(*left_knuckle),
                     color=gymapi.Vec3(*color),
                     gym=self.gym,
                     viewer=self.viewer,
                     env=self.env,
                 )
-                btwn_tips = (left_tip + right_tip) / 2
                 gymutil.draw_line(
-                    p1=gymapi.Vec3(*btwn_tips),
+                    p1=gymapi.Vec3(*right_tip),
+                    p2=gymapi.Vec3(*right_knuckle),
+                    color=gymapi.Vec3(*color),
+                    gym=self.gym,
+                    viewer=self.viewer,
+                    env=self.env,
+                )
+                gymutil.draw_line(
+                    p1=gymapi.Vec3(*left_knuckle),
+                    p2=gymapi.Vec3(*right_knuckle),
+                    color=gymapi.Vec3(*color),
+                    gym=self.gym,
+                    viewer=self.viewer,
+                    env=self.env,
+                )
+                btwn_knuckles = (left_knuckle + right_knuckle) / 2
+                gymutil.draw_line(
+                    p1=gymapi.Vec3(*btwn_knuckles),
                     p2=gymapi.Vec3(*hand_origin),
                     color=gymapi.Vec3(*color),
                     gym=self.gym,

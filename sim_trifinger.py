@@ -4,7 +4,7 @@ import shutil
 from pathlib import Path
 from unittest.mock import Mock
 
-from isaacgym import gymapi
+from isaacgym import gymapi, gymutil
 import os
 import numpy as np
 import torch
@@ -433,6 +433,79 @@ class TriFingerEnv:
         # if isinstance(self.robot, Mock):
         #     self.debug_grasp_visualization()
 
+    def draw_acronym_grasps(self):
+        if hasattr(self.object, "acronym_file"):
+            # Clear previous lines
+            self.gym.clear_lines(self.viewer)
+
+            # Read in grasp transforms and successes
+            import h5py
+
+            assumed_acronym_root = "/juno/u/tylerlum/github_repos/acronym/data/grasps"
+            acronym_filepath = os.path.join(
+                assumed_acronym_root, self.object.acronym_file
+            )
+            acronym_data = h5py.File(acronym_filepath, "r")
+            grasp_transforms = np.array(acronym_data["grasps/transforms"])
+            grasp_successes = np.array(
+                acronym_data["grasps/qualities/flex/object_in_gripper"]
+            )
+
+            num_grasps = 50
+            successful_grasp_transforms = grasp_transforms[grasp_successes == 1][
+                :num_grasps
+            ]
+            failed_grasp_transforms = grasp_transforms[grasp_successes == 0][
+                :num_grasps
+            ]
+
+            RED = (1, 0, 0)
+            GREEN = (0, 1, 0)
+
+            print(f"Drawing {num_grasps} successful and failed grasps")
+            for grasp_tranforms, color in [
+                (successful_grasp_transforms, GREEN),
+                (failed_grasp_transforms, RED),
+            ]:
+                sphere = gymutil.WireframeSphereGeometry(
+                    radius=0.002, num_lats=10, num_lons=10, color=color
+                )
+                for grasp_transform in grasp_tranforms:
+                    # Get left and right tip positions from transform
+                    raw_left_tip = [4.10000000e-02, -7.27595772e-12, 1.12169998e-01]
+                    raw_right_tip = [-4.10000000e-02, -7.27595772e-12, 1.12169998e-01]
+
+                    object_center = -self.object.gt_mesh.centroid * self.object.mesh_scale
+
+                    left_tip = (grasp_transform @ np.array([*raw_left_tip, 1.0]))[:3] + object_center
+                    right_tip = (grasp_transform @ np.array([*raw_right_tip, 1.0]))[:3] + object_center
+
+                    # Draw spheres at tips and lines between them
+                    left_tip_pose = gymapi.Transform(gymapi.Vec3(*left_tip), r=None)
+                    right_tip_pose = gymapi.Transform(gymapi.Vec3(*right_tip), r=None)
+                    gymutil.draw_lines(
+                        geom=sphere,
+                        gym=self.gym,
+                        viewer=self.viewer,
+                        env=self.env,
+                        pose=left_tip_pose,
+                    )
+                    gymutil.draw_lines(
+                        geom=sphere,
+                        gym=self.gym,
+                        viewer=self.viewer,
+                        env=self.env,
+                        pose=right_tip_pose,
+                    )
+                    gymutil.draw_line(
+                        p1=gymapi.Vec3(*left_tip),
+                        p2=gymapi.Vec3(*right_tip),
+                        color=gymapi.Vec3(*color),
+                        gym=self.gym,
+                        viewer=self.viewer,
+                        env=self.env,
+                    )
+
     def debug_grasp_visualization(self):
         if len(self.marker_handles) == 0:
             tip_positions = self.object.grasp_points.cuda().reshape(3, 3)
@@ -509,6 +582,13 @@ def get_nerf_training_data(Obj, num_steps_before_collecting, viewer, overwrite):
     tf.create_train_val_test_split(save_folder, train_frac=0.8, val_frac=0.1)
 
 
+def visualize_acronym_grasps(Obj):
+    tf = TriFingerEnv(viewer=True, robot_type="", Obj=Obj, save_cameras=True)
+    for _ in range(500):
+        tf.step_gym()
+        tf.draw_acronym_grasps()
+
+
 def run_robot_control(viewer, Obj, robot_type, **robot_kwargs):
     tf = TriFingerEnv(viewer=viewer, robot_type=robot_type, Obj=Obj, **robot_kwargs)
     count = 0
@@ -535,6 +615,7 @@ if __name__ == "__main__":
     parser.add_argument("--obj", type=str, default="Banana")
     parser.add_argument("--get_nerf_training_data", action="store_true")
     parser.add_argument("--run_robot_control", action="store_true")
+    parser.add_argument("--visualize_acronym_grasps", action="store_true")
     parser.add_argument("--viewer", action="store_true")
     parser.add_argument("--num_steps_before_collecting", type=int, default=100)
     parser.add_argument("--overwrite", action="store_true")
@@ -544,9 +625,9 @@ if __name__ == "__main__":
     print(f"args = {args}")
     print("=" * 80)
 
-    if args.get_nerf_training_data and args.run_robot_control:
+    if sum([args.get_nerf_training_data, args.run_robot_control, args.visualize_acronym_grasps]) != 1:
         raise ValueError(
-            "Must specify only one of --get_nerf_training_data or --run_robot_control"
+            "Must specify only one of --get_nerf_training_data, --run_robot_control, --visualize_acronym_grasps"
         )
 
     # Object
@@ -578,6 +659,11 @@ if __name__ == "__main__":
             use_true_normals=False,
             use_grad_est=True,
             metric="psv",
+        )
+
+    elif args.visualize_acronym_grasps:
+        visualize_acronym_grasps(
+            Obj=Obj,
         )
 
     else:

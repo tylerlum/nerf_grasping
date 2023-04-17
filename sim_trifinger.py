@@ -434,77 +434,102 @@ class TriFingerEnv:
         #     self.debug_grasp_visualization()
 
     def draw_acronym_grasps(self):
-        if hasattr(self.object, "acronym_file"):
-            # Clear previous lines
-            self.gym.clear_lines(self.viewer)
+        if not hasattr(self.object, "acronym_file"):
+            return
 
-            # Read in grasp transforms and successes
-            import h5py
+        # Clear previous lines
+        self.gym.clear_lines(self.viewer)
 
-            assumed_acronym_root = "/juno/u/tylerlum/github_repos/acronym/data/grasps"
-            acronym_filepath = os.path.join(
-                assumed_acronym_root, self.object.acronym_file
+        # Read in grasp transforms and successes
+        import h5py
+
+        assumed_acronym_root = "/juno/u/tylerlum/github_repos/acronym/data/grasps"
+        acronym_filepath = os.path.join(
+            assumed_acronym_root, self.object.acronym_file
+        )
+        acronym_data = h5py.File(acronym_filepath, "r")
+        grasp_transforms = np.array(acronym_data["grasps/transforms"])
+        grasp_successes = np.array(
+            acronym_data["grasps/qualities/flex/object_in_gripper"]
+        )
+
+        num_grasps = 3
+        successful_grasp_transforms = grasp_transforms[grasp_successes == 1][
+            :num_grasps
+        ]
+        failed_grasp_transforms = grasp_transforms[grasp_successes == 0][
+            :num_grasps
+        ]
+
+        RED = (1, 0, 0)
+        GREEN = (0, 1, 0)
+
+        print(f"Drawing {num_grasps} successful and failed grasps")
+        for grasp_tranforms, color in [
+            (successful_grasp_transforms, GREEN),
+            (failed_grasp_transforms, RED),
+        ]:
+            sphere = gymutil.WireframeSphereGeometry(
+                radius=0.002, num_lats=10, num_lons=10, color=color
             )
-            acronym_data = h5py.File(acronym_filepath, "r")
-            grasp_transforms = np.array(acronym_data["grasps/transforms"])
-            grasp_successes = np.array(
-                acronym_data["grasps/qualities/flex/object_in_gripper"]
-            )
+            for grasp_transform in grasp_tranforms:
+                # Get left and right tip positions from transform (in object frame)
+                raw_left_tip = [4.10000000e-02, -7.27595772e-12, 1.12169998e-01]
+                raw_right_tip = [-4.10000000e-02, -7.27595772e-12, 1.12169998e-01]
+                raw_hand_origin = [0.0, 0.0, 0.0]
 
-            num_grasps = 50
-            successful_grasp_transforms = grasp_transforms[grasp_successes == 1][
-                :num_grasps
-            ]
-            failed_grasp_transforms = grasp_transforms[grasp_successes == 0][
-                :num_grasps
-            ]
+                left_tip = (grasp_transform @ np.array([*raw_left_tip, 1.0]))[:3]
+                right_tip = (grasp_transform @ np.array([*raw_right_tip, 1.0]))[:3]
+                hand_origin = (grasp_transform @ np.array([*raw_hand_origin, 1.0]))[:3]
+                print(f"grasp_transform: {grasp_transform}, left_tip: {left_tip}, right_tip: {right_tip}")
 
-            RED = (1, 0, 0)
-            GREEN = (0, 1, 0)
+                # Convert to world frame
+                import scipy
+                transform_mat = np.eye(4)
+                pos, quat = self.object.position, self.object.orientation
+                R = scipy.spatial.transform.Rotation.from_quat(quat).as_matrix()
+                transform_mat[:3, :3] = R
+                transform_mat[:3, -1] = pos
+                left_tip = (transform_mat @ np.array([*left_tip, 1.0]))[:3]
+                right_tip = (transform_mat @ np.array([*right_tip, 1.0]))[:3]
+                hand_origin = (transform_mat @ np.array([*hand_origin, 1.0]))[:3]
+                print(f"transform_mat: {transform_mat}, left_tip: {left_tip}, right_tip: {right_tip}")
+                print()
 
-            print(f"Drawing {num_grasps} successful and failed grasps")
-            for grasp_tranforms, color in [
-                (successful_grasp_transforms, GREEN),
-                (failed_grasp_transforms, RED),
-            ]:
-                sphere = gymutil.WireframeSphereGeometry(
-                    radius=0.002, num_lats=10, num_lons=10, color=color
+                # Draw spheres at tips and lines between them
+                left_tip_pose = gymapi.Transform(gymapi.Vec3(*left_tip), r=None)
+                right_tip_pose = gymapi.Transform(gymapi.Vec3(*right_tip), r=None)
+                gymutil.draw_lines(
+                    geom=sphere,
+                    gym=self.gym,
+                    viewer=self.viewer,
+                    env=self.env,
+                    pose=left_tip_pose,
                 )
-                for grasp_transform in grasp_tranforms:
-                    # Get left and right tip positions from transform
-                    raw_left_tip = [4.10000000e-02, -7.27595772e-12, 1.12169998e-01]
-                    raw_right_tip = [-4.10000000e-02, -7.27595772e-12, 1.12169998e-01]
-
-                    object_center = -self.object.gt_mesh.centroid * self.object.mesh_scale
-
-                    left_tip = (grasp_transform @ np.array([*raw_left_tip, 1.0]))[:3] + object_center
-                    right_tip = (grasp_transform @ np.array([*raw_right_tip, 1.0]))[:3] + object_center
-
-                    # Draw spheres at tips and lines between them
-                    left_tip_pose = gymapi.Transform(gymapi.Vec3(*left_tip), r=None)
-                    right_tip_pose = gymapi.Transform(gymapi.Vec3(*right_tip), r=None)
-                    gymutil.draw_lines(
-                        geom=sphere,
-                        gym=self.gym,
-                        viewer=self.viewer,
-                        env=self.env,
-                        pose=left_tip_pose,
-                    )
-                    gymutil.draw_lines(
-                        geom=sphere,
-                        gym=self.gym,
-                        viewer=self.viewer,
-                        env=self.env,
-                        pose=right_tip_pose,
-                    )
-                    gymutil.draw_line(
-                        p1=gymapi.Vec3(*left_tip),
-                        p2=gymapi.Vec3(*right_tip),
-                        color=gymapi.Vec3(*color),
-                        gym=self.gym,
-                        viewer=self.viewer,
-                        env=self.env,
-                    )
+                gymutil.draw_lines(
+                    geom=sphere,
+                    gym=self.gym,
+                    viewer=self.viewer,
+                    env=self.env,
+                    pose=right_tip_pose,
+                )
+                gymutil.draw_line(
+                    p1=gymapi.Vec3(*left_tip),
+                    p2=gymapi.Vec3(*right_tip),
+                    color=gymapi.Vec3(*color),
+                    gym=self.gym,
+                    viewer=self.viewer,
+                    env=self.env,
+                )
+                btwn_tips = (left_tip + right_tip) / 2
+                gymutil.draw_line(
+                    p1=gymapi.Vec3(*btwn_tips),
+                    p2=gymapi.Vec3(*hand_origin),
+                    color=gymapi.Vec3(*color),
+                    gym=self.gym,
+                    viewer=self.viewer,
+                    env=self.env,
+                )
 
     def debug_grasp_visualization(self):
         if len(self.marker_handles) == 0:

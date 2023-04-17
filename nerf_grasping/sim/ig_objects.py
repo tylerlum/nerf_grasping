@@ -169,8 +169,8 @@ class RigidObject:
         return asset
 
     def configure_actor(self, gym, env):
-        # spawn object in the right place
-        object_center = -self.gt_mesh.centroid
+        # spawn object so that centroid is at world origin
+        object_center = np.array(self.gt_mesh.centroid)
         if hasattr(self, "mesh_scale"):
             object_center *=  self.mesh_scale
 
@@ -179,9 +179,9 @@ class RigidObject:
             self.asset,
             gymapi.Transform(
                 p=gymapi.Vec3(
-                    object_center[0],
-                    object_center[1],
-                    object_center[2] + 0.1,
+                    -object_center[0],
+                    -object_center[1],
+                    -object_center[2] + 0.2,
                 )
             ),
             self.name,

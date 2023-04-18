@@ -24,7 +24,7 @@ def visualize_grasp_normals(
     for i in range(3):
         vertices.append(ro[i])
         vertices.append(ro[i] + rd[i] * des_z_dist[i])
-    vertices = np.stack(vertices, axis=0)
+    vertices = np.stack(vertices, axis=0, dtype="float32")
     if colors is None:
         colors = np.array([[0, 0, 1], [0, 1, 0], [1, 0, 0]], dtype="float32")
 
@@ -47,7 +47,7 @@ def visualize_obj_com(gym, viewer, env, obj):
         endpoint = obj.position + obj_rot.rotate(endpoint)
         vertices.append(endpoint.cpu().numpy())
 
-    vertices = np.stack(vertices, axis=0)
+    vertices = np.stack(vertices, axis=0, dtype="float32")
     colors = np.array([[0, 0, 1], [0, 1, 0], [1, 0, 0]], dtype="float32")
     gym.add_lines(
         viewer,

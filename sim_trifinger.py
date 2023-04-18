@@ -37,11 +37,19 @@ CAMERA_VERTICAL_FOV_DEG = (
     CAMERA_IMG_HEIGHT / CAMERA_IMG_WIDTH
 ) * CAMERA_HORIZONTAL_FOV_DEG
 
+RED = (1, 0, 0)
+GREEN = (0, 1, 0)
+BLUE = (0, 0, 1)
+
+NUM_FINGERS = 3
+NUM_XYZ = 3
+
 
 def get_mesh_contacts(gt_mesh, grasp_points, pos_offset=None, rot_offset=None):
     if pos_offset is not None:
         # project grasp_points into object frame
         grasp_points -= pos_offset
+    if rot_offset is not None:
         grasp_points = np.stack([rot_offset.rotate(gp) for gp in grasp_points])
     points, _, index = trimesh.proximity.closest_point(gt_mesh, grasp_points)
     # grasp normals follow convention that points into surface,
@@ -50,6 +58,7 @@ def get_mesh_contacts(gt_mesh, grasp_points, pos_offset=None, rot_offset=None):
     if pos_offset is not None:
         # project back into world frame
         points += pos_offset
+    if rot_offset is not None:
         grasp_normals = np.stack([rot_offset.T.rotate(x) for x in grasp_normals])
     return points, grasp_normals
 
@@ -430,9 +439,6 @@ class TriFingerEnv:
         if self.object.gt_mesh is None:
             self.object.load_trimesh()
 
-        # if isinstance(self.robot, Mock):
-        #     self.debug_grasp_visualization()
-
     def draw_acronym_grasps(self):
         if not hasattr(self.object, "acronym_file"):
             return
@@ -444,9 +450,7 @@ class TriFingerEnv:
         import h5py
 
         assumed_acronym_root = "/juno/u/tylerlum/github_repos/acronym/data/grasps"
-        acronym_filepath = os.path.join(
-            assumed_acronym_root, self.object.acronym_file
-        )
+        acronym_filepath = os.path.join(assumed_acronym_root, self.object.acronym_file)
         acronym_data = h5py.File(acronym_filepath, "r")
         grasp_transforms = np.array(acronym_data["grasps/transforms"])
         grasp_successes = np.array(
@@ -457,16 +461,11 @@ class TriFingerEnv:
         successful_grasp_transforms = grasp_transforms[grasp_successes == 1][
             :num_grasps
         ]
-        failed_grasp_transforms = grasp_transforms[grasp_successes == 0][
-            :num_grasps
-        ]
-
-        RED = (1, 0, 0)
-        GREEN = (0, 1, 0)
-
+        failed_grasp_transforms = grasp_transforms[grasp_successes == 0][:num_grasps]
 
         # Get transformation matrix from object frame to world frame
         import scipy
+
         object_to_world_transform = np.eye(4)
         pos, quat = self.object.position, self.object.orientation
         R = scipy.spatial.transform.Rotation.from_quat(quat).as_matrix()
@@ -491,18 +490,31 @@ class TriFingerEnv:
 
                 left_tip = (grasp_transform @ np.array([*raw_left_tip, 1.0]))[:3]
                 right_tip = (grasp_transform @ np.array([*raw_right_tip, 1.0]))[:3]
-                left_knuckle = (grasp_transform @ np.array([*raw_left_knuckle, 1.0]))[:3]
-                right_knuckle = (grasp_transform @ np.array([*raw_right_knuckle, 1.0]))[:3]
+                left_knuckle = (grasp_transform @ np.array([*raw_left_knuckle, 1.0]))[
+                    :3
+                ]
+                right_knuckle = (grasp_transform @ np.array([*raw_right_knuckle, 1.0]))[
+                    :3
+                ]
                 hand_origin = (grasp_transform @ np.array([*raw_hand_origin, 1.0]))[:3]
 
                 # Transform to world frame
                 left_tip = (object_to_world_transform @ np.array([*left_tip, 1.0]))[:3]
-                right_tip = (object_to_world_transform @ np.array([*right_tip, 1.0]))[:3]
-                left_knuckle = (object_to_world_transform @ np.array([*left_knuckle, 1.0]))[:3]
-                right_knuckle = (object_to_world_transform @ np.array([*right_knuckle, 1.0]))[:3]
-                hand_origin = (object_to_world_transform @ np.array([*hand_origin, 1.0]))[:3]
+                right_tip = (object_to_world_transform @ np.array([*right_tip, 1.0]))[
+                    :3
+                ]
+                left_knuckle = (
+                    object_to_world_transform @ np.array([*left_knuckle, 1.0])
+                )[:3]
+                right_knuckle = (
+                    object_to_world_transform @ np.array([*right_knuckle, 1.0])
+                )[:3]
+                hand_origin = (
+                    object_to_world_transform @ np.array([*hand_origin, 1.0])
+                )[:3]
 
-                # Draw spheres at tips and lines between them
+                # Draw spheres at tips
+                # Draw lines from tips to knuckles, knuckles to knuckles, and between knuckles to hand origin
                 left_tip_pose = gymapi.Transform(gymapi.Vec3(*left_tip), r=None)
                 right_tip_pose = gymapi.Transform(gymapi.Vec3(*right_tip), r=None)
                 gymutil.draw_lines(
@@ -553,54 +565,75 @@ class TriFingerEnv:
                     env=self.env,
                 )
 
-    def debug_grasp_visualization(self):
-        if len(self.marker_handles) == 0:
-            tip_positions = self.object.grasp_points.cuda().reshape(3, 3)
-            if not self.object.nerf_loaded:
-                self.object.load_nerf_model()
-            # get grasp points into nerf frame
-            tip_positions = tip_positions + self.object.grasp_normals.cuda() * 0.01
-            nerf_tip_pos = grasp_utils.ig_to_nerf(tip_positions)
-            _, grad_ests = nerf_utils.est_grads_vals(
-                self.object.model,
-                nerf_tip_pos.reshape(1, 3, 3),
-                sigma=5e-3,
-                method="gaussian",
-                num_samples=1000,
-            )
-            grad_ests = grad_ests.reshape(3, 3).float()
-            grad_ests /= grad_ests.norm(dim=1, keepdim=True)
-            # get normal estimates and gradient estimates back in IG world frame
-            grad_ests = grasp_utils.nerf_to_ig(grad_ests.cpu().detach().numpy())
-            self.grad_ests = grad_ests
-            # self.visualize_grasp_normals(tip_positions, -grad_ests)
-            # self.marker_handles += self.plot_circle(self.gym, self.env, self.sim, self.object)
-            # densities = nerf_utils.nerf_densities(
-            #     self.object.model, nerf_tip_pos.reshape(1, 3, 3)
-            # )
-            # densities = densities.cpu().detach().numpy() / 355
-            # densities = densities.flatten()
-        if len(self.marker_handles) == 0:
-            tip_positions = self.object.grasp_points.cpu().numpy().reshape(3, 3)
-            colors = [[0, 1, 0]] * 3  # green colored markers
-            # self.marker_handles = ig_viz_utils.visualize_markers(
-            #     self.gym, self.env, self.sim, tip_positions, colors
-            # )
-            pos_offset = self.object.rb_states[0, :3].cpu().numpy()
-            rot_offset = None  # Quaternion.fromWLast(self.object.rb_states[0, 3:7])
-            gp, gn = get_mesh_contacts(
-                self.object.gt_mesh, tip_positions, pos_offset, rot_offset
-            )
-            if self.added_lines:
-                self.gym.clear_lines(self.viewer)
-            ig_viz_utils.visualize_grasp_normals(
-                self.gym, self.viewer, self.env, gp, -gn
-            )
-            self.added_lines = True
-            colors = [[1, 0, 0]] * 3  # red colored markers
-            self.marker_handles += ig_viz_utils.visualize_markers(
-                self.gym, self.env, self.sim, gp, colors
-            )
+    def visualize_example_grasp(self):
+        # if self.added_lines:
+            # self.gym.clear_lines(self.viewer)
+        # self._visualize_grasp_normals()
+        breakpoint()
+        self._visualize_grasp_points()
+
+    def _visualize_grasp_normals(self):
+        # Already visualized
+        if len(self.marker_handles) > 0:
+            return
+
+        # Load nerf model if not already loaded
+        if not self.object.nerf_loaded:
+            self.object.load_nerf_model()
+
+        # Get example grasp positions in nerf frame (slightly move in normal dir)
+        tip_positions = self.object.grasp_points.cuda().reshape(NUM_FINGERS, NUM_XYZ)
+        tip_positions = tip_positions + self.object.grasp_normals.cuda() * 0.01
+        nerf_tip_pos = grasp_utils.ig_to_nerf(tip_positions)
+
+        # Visualize grasp normals
+        from nerf_grasping import config
+
+        GRAD_CONFIG = config.grad_configs["sim"]
+        _, grad_ests = nerf_utils.est_grads_vals(
+            nerf=self.object.model,
+            grasp_points=nerf_tip_pos.reshape(1, NUM_FINGERS, NUM_XYZ),
+            grad_config=GRAD_CONFIG,
+        )
+        grad_ests = grad_ests.reshape(NUM_FINGERS, NUM_XYZ).float()
+        grad_ests /= grad_ests.norm(dim=1, keepdim=True)
+
+        # get normal estimates and gradient estimates back in IG world frame
+        grad_ests = grasp_utils.nerf_to_ig(grad_ests.cpu().detach().numpy())
+
+        self.grad_ests = grad_ests
+
+        ig_viz_utils.visualize_grasp_normals(self.gym, self.viewer, self.env, tip_positions, -grad_ests)
+        self.marker_handles += ig_viz_utils.visualize_markers(self.gym, self.env, self.sim, tip_positions, [GREEN] * NUM_FINGERS)
+        densities = nerf_utils.nerf_densities(
+            self.object.model, nerf_tip_pos.reshape(1, NUM_FINGERS, NUM_XYZ)
+        )
+        densities = densities.cpu().detach().numpy() / 355
+        densities = densities.flatten()
+
+    def _visualize_grasp_points(self):
+        # Already visualized
+        if len(self.marker_handles) > 0:
+            return
+
+        tip_positions = (
+            self.object.grasp_points.cpu().numpy().reshape(NUM_FINGERS, NUM_XYZ)
+        )
+        colors = [GREEN] * NUM_FINGERS
+        self.marker_handles = ig_viz_utils.visualize_markers(
+            self.gym, self.env, self.sim, tip_positions, colors
+        )
+
+        pos_offset = self.object.position.cpu().numpy()
+        rot_offset = None  # Quaternion.fromWLast(self.object.orientation)
+        gp, gn = get_mesh_contacts(
+            self.object.gt_mesh, tip_positions, pos_offset, rot_offset
+        )
+        ig_viz_utils.visualize_grasp_normals(self.gym, self.viewer, self.env, gp, -gn)
+        colors = [RED] * NUM_FINGERS
+        self.marker_handles += ig_viz_utils.visualize_markers(
+            self.gym, self.env, self.sim, gp, colors
+        )
 
     def reset(self, grasp_vars=None):
         # reset object after robot actor
@@ -636,6 +669,13 @@ def visualize_acronym_grasps(Obj):
         tf.draw_acronym_grasps()
 
 
+def visualize_example_grasp(Obj):
+    tf = TriFingerEnv(viewer=True, robot_type="", Obj=Obj, save_cameras=True)
+    for _ in range(500):
+        tf.step_gym()
+        tf.visualize_example_grasp()
+
+
 def run_robot_control(viewer, Obj, robot_type, **robot_kwargs):
     tf = TriFingerEnv(viewer=viewer, robot_type=robot_type, Obj=Obj, **robot_kwargs)
     count = 0
@@ -663,6 +703,7 @@ if __name__ == "__main__":
     parser.add_argument("--get_nerf_training_data", action="store_true")
     parser.add_argument("--run_robot_control", action="store_true")
     parser.add_argument("--visualize_acronym_grasps", action="store_true")
+    parser.add_argument("--visualize_example_grasp", action="store_true")
     parser.add_argument("--viewer", action="store_true")
     parser.add_argument("--num_steps_before_collecting", type=int, default=100)
     parser.add_argument("--overwrite", action="store_true")
@@ -672,9 +713,19 @@ if __name__ == "__main__":
     print(f"args = {args}")
     print("=" * 80)
 
-    if sum([args.get_nerf_training_data, args.run_robot_control, args.visualize_acronym_grasps]) != 1:
+    if (
+        sum(
+            [
+                args.get_nerf_training_data,
+                args.run_robot_control,
+                args.visualize_acronym_grasps,
+                args.visualize_example_grasp,
+            ]
+        )
+        != 1
+    ):
         raise ValueError(
-            "Must specify only one of --get_nerf_training_data, --run_robot_control, --visualize_acronym_grasps"
+            "Must specify only one of --get_nerf_training_data, --run_robot_control, --visualize_acronym_grasps, --visualize_example_grasp"
         )
 
     # Object
@@ -710,6 +761,11 @@ if __name__ == "__main__":
 
     elif args.visualize_acronym_grasps:
         visualize_acronym_grasps(
+            Obj=Obj,
+        )
+
+    elif args.visualize_example_grasp:
+        visualize_example_grasp(
             Obj=Obj,
         )
 

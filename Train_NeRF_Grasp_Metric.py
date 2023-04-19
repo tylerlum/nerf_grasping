@@ -41,6 +41,7 @@ import time
 import random
 import torch
 import plotly.graph_objects as go
+import trimesh
 
 
 # %% [markdown]
@@ -231,7 +232,8 @@ def plot_obj(obj_filepath, scale=1.0):
 
     # Create the layout
     layout = go.Layout(
-        scene=dict(xaxis=dict(title="X"), yaxis=dict(title="Y"), zaxis=dict(title="Z"))
+        scene=dict(xaxis=dict(title="X"), yaxis=dict(title="Y"), zaxis=dict(title="Z")),
+        showlegend=True,
     )
 
     # Create the figure
@@ -243,6 +245,61 @@ def plot_obj(obj_filepath, scale=1.0):
 
 # %%
 fig = plot_obj(obj_filepath, scale=mesh_scale)
+fig.show()
+
+
+# %%
+def get_mesh_centroid_scatter(obj_filepath, scale=1.0):
+    mesh = trimesh.load(obj_filepath, force="mesh")
+    mesh_centroid = np.array(mesh.centroid) * scale
+    scatter = go.Scatter3d(
+        x=[mesh_centroid[0]],
+        y=[mesh_centroid[1]],
+        z=[mesh_centroid[2]],
+        mode="markers",
+        marker=dict(size=10, color="black"),
+        name="Mesh Centroid",
+    )
+    return scatter
+
+
+def get_mesh_origin_lines():
+    lines = [
+        go.Scatter3d(
+            x=[0.0, 0.1],
+            y=[0.0, 0.0],
+            z=[0.0, 0.0],
+            mode="lines",
+            line=dict(width=2, color="red"),
+            name="Mesh Origin X Axis",
+        ),
+        go.Scatter3d(
+            x=[0.0, 0.0],
+            y=[0.0, 0.1],
+            z=[0.0, 0.0],
+            mode="lines",
+            line=dict(width=2, color="green"),
+            name="Mesh Origin Y Axis",
+        ),
+        go.Scatter3d(
+            x=[0.0, 0.0],
+            y=[0.0, 0.0],
+            z=[0.0, 0.1],
+            mode="lines",
+            line=dict(width=2, color="blue"),
+            name="Mesh Origin Z Axis",
+        ),
+    ]
+    return lines
+
+
+# %%
+fig = plot_obj(obj_filepath, scale=mesh_scale)
+mesh_centroid_scatter = get_mesh_centroid_scatter(obj_filepath, scale=mesh_scale)
+mesh_origin_lines = get_mesh_origin_lines()
+fig.add_trace(mesh_centroid_scatter)
+for mesh_origin_line in mesh_origin_lines:
+    fig.add_trace(mesh_origin_line)
 fig.show()
 
 
@@ -286,14 +343,16 @@ def get_grasp_gripper_lines(grasp_transforms, grasp_successes):
         right_knuckle,
         hand_origin,
         grasp_success,
-    ) in enumerate(zip(
-        left_tips,
-        right_tips,
-        left_knuckles,
-        right_knuckles,
-        hand_origins,
-        grasp_successes,
-    )):
+    ) in enumerate(
+        zip(
+            left_tips,
+            right_tips,
+            left_knuckles,
+            right_knuckles,
+            hand_origins,
+            grasp_successes,
+        )
+    ):
         assert grasp_success in [0, 1]
         color = "green" if grasp_success == 1 else "red"
 
@@ -327,10 +386,12 @@ def get_grasp_gripper_lines(grasp_transforms, grasp_successes):
 
 
 # %%
+fig = plot_obj(obj_filepath, scale=mesh_scale)
 grasp_lines = get_grasp_gripper_lines(grasp_transforms[:6], grasp_successes[:6])
 for grasp_line in grasp_lines:
     fig.add_trace(grasp_line)
 fig.show()
+
 
 # %%
 def get_grasp_ray_lines(grasp_transforms, grasp_successes):
@@ -343,22 +404,20 @@ def get_grasp_ray_lines(grasp_transforms, grasp_successes):
         position=raw_right_tip, transforms=grasp_transforms
     )
 
-    assert (
-        left_tips.shape
-        == right_tips.shape
-        == (len(grasp_successes), 3)
-    )
+    assert left_tips.shape == right_tips.shape == (len(grasp_successes), 3)
 
     grasp_lines = []
     for i, (
         left_tip,
         right_tip,
         grasp_success,
-    ) in enumerate(zip(
-        left_tips,
-        right_tips,
-        grasp_successes,
-    )):
+    ) in enumerate(
+        zip(
+            left_tips,
+            right_tips,
+            grasp_successes,
+        )
+    ):
         assert grasp_success in [0, 1]
         color = "green" if grasp_success == 1 else "red"
 
@@ -383,8 +442,6 @@ def get_grasp_ray_lines(grasp_transforms, grasp_successes):
         )
         grasp_lines.append(grasp_line)
     return grasp_lines
-
-
 
 
 # %%

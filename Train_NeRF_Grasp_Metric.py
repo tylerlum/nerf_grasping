@@ -701,11 +701,44 @@ fig.show()
 @localscope.mfc
 def get_mesh_bounds(mesh, scale=1):
     min_points, max_points = mesh.bounds
-    return min_points * scale, max_points * scale
+    return np.array(min_points) * scale, np.array(max_points) * scale
 
 min_points, max_points = get_mesh_bounds(mesh, scale=mesh_scale)
 print(min_points, max_points)
 
+
+# %%
+@localscope.mfc
+def get_query_points_mesh_region(min_points, max_points, n_pts_per_dim=10):
+    """
+    Returns a batch of query points in the mesh region.
+    """
+    x = np.linspace(min_points[0], max_points[0], n_pts_per_dim)
+    y = np.linspace(min_points[1], max_points[1], n_pts_per_dim)
+    z = np.linspace(min_points[2], max_points[2], n_pts_per_dim)
+    xv, yv, zv = np.meshgrid(x, y, z)
+    return np.stack([xv, yv, zv], axis=-1).reshape(-1, 3)
+
+query_points_mesh_region = get_query_points_mesh_region(min_points, max_points, n_pts_per_dim=10)
+
+# %%
+nerf_densities_torch = get_nerf_densities(nerf_model, torch.from_numpy(grasp_query_points_object_frame).reshape(1, -1, 3).float().cuda()).reshape(grasp_query_points_object_frame.shape[:-1])
+nerf_densities = nerf_densities_torch.detach().cpu().numpy()
+
+# %%
+colored_points_scatter = get_colored_points_scatter(points=query_points_mesh_region.reshape(-1, 3),
+                                                    colors=nerf_densities.reshape(-1))
+
+# Add the scatter plot to a figure and display it
+fig = plot_obj(obj_filepath, scale=mesh_scale)
+fig.add_trace(colored_points_scatter)
+# fig.update_layout(width=800, height=600, coloraxis_colorbar=dict(len=0.2, yanchor='middle', y=0.1))
+# fig.update_layout(coloraxis_colorbar=dict(yanchor="top", y=1, x=0,
+#                                           ticks="outside",
+#                                           ticksuffix=" bills"))
+fig.update_layout(legend_orientation="h")
+
+fig.show()
 
 
 # %% [markdown]

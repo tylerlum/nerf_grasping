@@ -43,7 +43,6 @@ def main(exp_config: config.Experiment):
             obj.workspace, obj.bound, obj.scale, obj.translation
         )
         print(f"Estimated Centroid: {model.centroid}")
-        print(f"True Centroid: {obj.gt_mesh.nerf_centroid}")
 
         centroid = model.centroid
 

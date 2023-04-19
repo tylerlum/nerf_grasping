@@ -569,17 +569,18 @@ class TriFingerEnv:
         # if self.added_lines:
             # self.gym.clear_lines(self.viewer)
         # self._visualize_grasp_normals()
-        breakpoint()
         self._visualize_grasp_points()
 
     def _visualize_grasp_normals(self):
         # Already visualized
-        if len(self.marker_handles) > 0:
-            return
+        #  if len(self.marker_handles) > 0:
+        #      return
 
         # Load nerf model if not already loaded
+        print("Loading nerf model...")
         if not self.object.nerf_loaded:
             self.object.load_nerf_model()
+        print("Done loading nerf model...")
 
         # Get example grasp positions in nerf frame (slightly move in normal dir)
         tip_positions = self.object.grasp_points.cuda().reshape(NUM_FINGERS, NUM_XYZ)
@@ -613,8 +614,8 @@ class TriFingerEnv:
 
     def _visualize_grasp_points(self):
         # Already visualized
-        if len(self.marker_handles) > 0:
-            return
+        # if len(self.marker_handles) > 0:
+        #     return
 
         tip_positions = (
             self.object.grasp_points.cpu().numpy().reshape(NUM_FINGERS, NUM_XYZ)

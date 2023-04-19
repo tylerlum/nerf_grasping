@@ -117,13 +117,6 @@ class RigidObject:
 
         print("mesh extents: ", mesh.extents)
 
-        # IG centroid (when object is loaded into sim) in Nerf frame
-        mesh.nerf_centroid = (
-            grasp_utils.ig_to_nerf(self.translation.reshape(1, 3))
-            .reshape(-1)
-            .cpu()
-            .numpy()
-        )
         return mesh
 
     def _get_mesh_path_from_urdf(self, urdf_path):

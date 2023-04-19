@@ -40,6 +40,7 @@ import time
 
 import random
 import torch
+import plotly.graph_objects as go
 
 
 # %% [markdown]
@@ -115,8 +116,12 @@ nerf_model_workspace = (
 )
 acronym_filepath = "/juno/u/tylerlum/github_repos/acronym/data/grasps/Mug_10f6e09036350e92b3f21f1137c3c347_0.0002682457830986903.h5"
 assets_filepath = "/juno/u/tylerlum/github_repos/nerf_grasping/assets/objects"
-urdf_filepath = os.path.join(assets_filepath, "urdf", "Mug_10f6e09036350e92b3f21f1137c3c347.urdf")
-obj_filepath = os.path.join(assets_filepath, "meshes", "Mug", "10f6e09036350e92b3f21f1137c3c347.obj")
+urdf_filepath = os.path.join(
+    assets_filepath, "urdf", "Mug_10f6e09036350e92b3f21f1137c3c347.urdf"
+)
+obj_filepath = os.path.join(
+    assets_filepath, "meshes", "Mug", "10f6e09036350e92b3f21f1137c3c347.obj"
+)
 
 # %%
 acronym_data = h5py.File(acronym_filepath, "r")
@@ -164,6 +169,7 @@ def position_to_transformed_positions_unvectorized(position, transforms):
     transformed_positions = np.stack(transformed_positions)
     return transformed_positions
 
+
 @localscope.mfc
 def run_sanity_check(position, transforms):
     # Non-vectorized
@@ -179,7 +185,7 @@ def run_sanity_check(position, transforms):
         position=position, transforms=transforms
     )
     print(f"Vectorized took {1000 * (time.time() - start):.2f} ms")
-    
+
     assert np.max(np.abs(positions_object_frame - positions_object_frame_2)) < 1e-5
     print("Passed the test, they match!")
     return
@@ -190,20 +196,20 @@ run_sanity_check(position=LEFT_TIP_POSITION_GRASP_FRAME, transforms=grasp_transf
 
 
 # %%
-def plot_obj(filepath, scale=1.0):
+def plot_obj(obj_filepath, scale=1.0):
     # Read in the OBJ file
-    with open(filepath, 'r') as f:
+    with open(obj_filepath, "r") as f:
         lines = f.readlines()
 
     # Extract the vertex coordinates and faces from the OBJ file
     vertices = []
     faces = []
     for line in lines:
-        if line.startswith('v '):
-            vertex = [float(i)*scale for i in line.split()[1:4]]
+        if line.startswith("v "):
+            vertex = [float(i) * scale for i in line.split()[1:4]]
             vertices.append(vertex)
-        elif line.startswith('f '):
-            face = [int(i.split('/')[0])-1 for i in line.split()[1:4]]
+        elif line.startswith("f "):
+            face = [int(i.split("/")[0]) - 1 for i in line.split()[1:4]]
             faces.append(face)
 
     # Convert the vertex coordinates and faces to numpy arrays
@@ -212,23 +218,20 @@ def plot_obj(filepath, scale=1.0):
 
     # Create the mesh3d trace
     mesh = go.Mesh3d(
-        x=vertices[:,0],
-        y=vertices[:,1],
-        z=vertices[:,2],
-        i=faces[:,0],
-        j=faces[:,1],
-        k=faces[:,2],
-        color='lightpink',
-        opacity=0.5
+        x=vertices[:, 0],
+        y=vertices[:, 1],
+        z=vertices[:, 2],
+        i=faces[:, 0],
+        j=faces[:, 1],
+        k=faces[:, 2],
+        color="lightpink",
+        opacity=0.5,
+        name=f"Mesh: {os.path.basename(obj_filepath)}",
     )
 
     # Create the layout
     layout = go.Layout(
-        scene=dict(
-            xaxis=dict(title='X'),
-            yaxis=dict(title='Y'),
-            zaxis=dict(title='Z')
-        )
+        scene=dict(xaxis=dict(title="X"), yaxis=dict(title="Y"), zaxis=dict(title="Z"))
     )
 
     # Create the figure
@@ -239,7 +242,174 @@ def plot_obj(filepath, scale=1.0):
 
 
 # %%
-fig = plot_obj(obj_filepath, scale=0.1)
+fig = plot_obj(obj_filepath, scale=mesh_scale)
+fig.show()
+
+
+# %%
+def get_grasp_lines(grasp_transforms, grasp_successes):
+    raw_left_tip = np.array([4.10000000e-02, -7.27595772e-12, 1.12169998e-01])
+    raw_right_tip = np.array([-4.10000000e-02, -7.27595772e-12, 1.12169998e-01])
+    raw_left_knuckle = np.array([4.10000000e-02, -7.27595772e-12, 6.59999996e-02])
+    raw_right_knuckle = np.array([-4.10000000e-02, -7.27595772e-12, 6.59999996e-02])
+    raw_hand_origin = np.array([0.0, 0.0, 0.0])
+    left_tips = position_to_transformed_positions(
+        position=raw_left_tip, transforms=grasp_transforms
+    )
+    right_tips = position_to_transformed_positions(
+        position=raw_right_tip, transforms=grasp_transforms
+    )
+    left_knuckles = position_to_transformed_positions(
+        position=raw_left_knuckle, transforms=grasp_transforms
+    )
+    right_knuckles = position_to_transformed_positions(
+        position=raw_right_knuckle, transforms=grasp_transforms
+    )
+    hand_origins = position_to_transformed_positions(
+        position=raw_hand_origin, transforms=grasp_transforms
+    )
+
+    assert (
+        left_tips.shape
+        == right_tips.shape
+        == left_knuckles.shape
+        == right_knuckles.shape
+        == hand_origins.shape
+        == (len(grasp_successes), 3)
+    )
+
+    grasp_lines = []
+    for i, (
+        left_tip,
+        right_tip,
+        left_knuckle,
+        right_knuckle,
+        hand_origin,
+        grasp_success,
+    ) in enumerate(zip(
+        left_tips,
+        right_tips,
+        left_knuckles,
+        right_knuckles,
+        hand_origins,
+        grasp_successes,
+    )):
+        assert grasp_success in [0, 1]
+        color = "green" if grasp_success == 1 else "red"
+
+        # left tip => left knuckle => right knuckle => right tip => right_knuckle => btwn knuckles => hand_origin
+        btwn_knuckles = (left_knuckle + right_knuckle) / 2
+
+        points = np.stack(
+            [
+                left_tip,
+                left_knuckle,
+                right_knuckle,
+                right_tip,
+                btwn_knuckles,
+                hand_origin,
+            ],
+            axis=0,
+        )
+        assert points.shape == (6, 3)
+
+        # Create 1 continous line per grasp
+        grasp_line = go.Scatter3d(
+            x=points[:, 0],
+            y=points[:, 1],
+            z=points[:, 2],
+            mode="lines",
+            line=dict(color=color, width=5),
+            name=f"Grasp {i}",
+        )
+        grasp_lines.append(grasp_line)
+    return grasp_lines
+
+
+# %%
+grasp_lines = get_grasp_lines(grasp_transforms[:6], grasp_successes[:6])
+for grasp_line in grasp_lines:
+    fig.add_trace(grasp_line)
+fig.show()
+
+# %%
+
+
+# %%
+
+# %%
+
+
+# %%
+def plot_obj(filepath, scale=1.0, grasp_positions=None):
+    # Read in the OBJ file
+    with open(filepath, "r") as f:
+        lines = f.readlines()
+
+    # Extract the vertex coordinates and faces from the OBJ file
+    vertices = []
+    faces = []
+    for line in lines:
+        if line.startswith("v "):
+            vertex = [float(i) * scale for i in line.split()[1:4]]
+            vertices.append(vertex)
+        elif line.startswith("f "):
+            face = [int(i.split("/")[0]) - 1 for i in line.split()[1:4]]
+            faces.append(face)
+
+    # Convert the vertex coordinates and faces to numpy arrays
+    vertices = np.array(vertices)
+    faces = np.array(faces)
+
+    # Create the mesh3d trace
+    mesh = go.Mesh3d(
+        x=vertices[:, 0],
+        y=vertices[:, 1],
+        z=vertices[:, 2],
+        i=faces[:, 0],
+        j=faces[:, 1],
+        k=faces[:, 2],
+        color="lightpink",
+        opacity=0.5,
+    )
+
+    # Create the lines trace for the grasps, if provided
+    lines = None
+    if grasp_positions is not None:
+        x_lines = [p[0] for p in grasp_positions]
+        y_lines = [p[1] for p in grasp_positions]
+        z_lines = [p[2] for p in grasp_positions]
+        lines = go.Scatter3d(
+            x=x_lines,
+            y=y_lines,
+            z=z_lines,
+            mode="lines",
+            line=dict(color="red", width=5),
+        )
+
+    # Create the layout
+    layout = go.Layout(
+        scene=dict(xaxis=dict(title="X"), yaxis=dict(title="Y"), zaxis=dict(title="Z"))
+    )
+
+    # Create the figure
+    fig = go.Figure(data=[mesh])
+    if lines is not None:
+        fig.add_trace(lines)
+    fig.update_layout(layout)
+
+    # Return the figure
+    return fig
+
+
+# %%
+fig = plot_obj(
+    obj_filepath,
+    scale=1.0,
+    grasp_positions=[[100, 0, 550], [-100, 0, 550], [100, 100, 550]],
+)
+
+# %%
 fig.show()
 
 # %% [markdown]

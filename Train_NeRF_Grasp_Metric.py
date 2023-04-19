@@ -112,9 +112,7 @@ def set_seed(seed):
 
 # %%
 # TODO: Need way to connect an acronym file to a nerf model nicely
-nerf_model_workspace = (
-    "isaac_Mug_10f6e09036350e92b3f21f1137c3c347_0.0002682458/"
-)
+nerf_model_workspace = "isaac_Mug_10f6e09036350e92b3f21f1137c3c347_0.0002682458/"
 acronym_filepath = "/juno/u/tylerlum/github_repos/acronym/data/grasps/Mug_10f6e09036350e92b3f21f1137c3c347_0.0002682457830986903.h5"
 assets_filepath = "/juno/u/tylerlum/github_repos/nerf_grasping/assets/objects"
 urdf_filepath = os.path.join(
@@ -197,6 +195,7 @@ run_sanity_check(position=LEFT_TIP_POSITION_GRASP_FRAME, transforms=grasp_transf
 
 
 # %%
+@localscope.mfc
 def plot_obj(obj_filepath, scale=1.0):
     # Read in the OBJ file
     with open(obj_filepath, "r") as f:
@@ -249,8 +248,10 @@ fig.show()
 
 
 # %%
-def get_mesh_centroid_scatter(obj_filepath, scale=1.0):
-    mesh = trimesh.load(obj_filepath, force="mesh")
+mesh = trimesh.load(obj_filepath, force="mesh")
+
+@localscope.mfc
+def get_mesh_centroid_scatter(mesh, scale=1.0):
     mesh_centroid = np.array(mesh.centroid) * scale
     scatter = go.Scatter3d(
         x=[mesh_centroid[0]],
@@ -263,6 +264,7 @@ def get_mesh_centroid_scatter(obj_filepath, scale=1.0):
     return scatter
 
 
+@localscope.mfc
 def get_mesh_origin_lines():
     lines = [
         go.Scatter3d(
@@ -295,7 +297,7 @@ def get_mesh_origin_lines():
 
 # %%
 fig = plot_obj(obj_filepath, scale=mesh_scale)
-mesh_centroid_scatter = get_mesh_centroid_scatter(obj_filepath, scale=mesh_scale)
+mesh_centroid_scatter = get_mesh_centroid_scatter(mesh, scale=mesh_scale)
 mesh_origin_lines = get_mesh_origin_lines()
 fig.add_trace(mesh_centroid_scatter)
 for mesh_origin_line in mesh_origin_lines:
@@ -304,6 +306,7 @@ fig.show()
 
 
 # %%
+@localscope.mfc
 def get_grasp_gripper_lines(grasp_transforms, grasp_successes):
     raw_left_tip = np.array([4.10000000e-02, -7.27595772e-12, 1.12169998e-01])
     raw_right_tip = np.array([-4.10000000e-02, -7.27595772e-12, 1.12169998e-01])
@@ -394,6 +397,7 @@ fig.show()
 
 
 # %%
+@localscope.mfc
 def get_grasp_ray_lines(grasp_transforms, grasp_successes):
     raw_left_tip = np.array([4.10000000e-02, -7.27595772e-12, 1.12169998e-01])
     raw_right_tip = np.array([-4.10000000e-02, -7.27595772e-12, 1.12169998e-01])
@@ -455,9 +459,111 @@ fig.show()
 # ## TEMP: Visualize NeRF
 
 # %%
+@localscope.mfc(allowed=["LEFT_TIP_POSITION_GRASP_FRAME", "RIGHT_TIP_POSITION_GRASP_FRAME"])
+def get_grasp_query_points_grasp_frame():
+    # Grid of points in grasp frame (x, y, z)
+    GRIPPER_WIDTH_MM = 82.0
+    GRIPPER_FINGER_WIDTH_MM = 20.0
+    GRIPPER_FINGER_HEIGHT_MM = 35.0
+
+    # Want points equally spread out in space
+    DIST_BTWN_PTS_MM = 1.0
+
+    GRIPPER_WIDTH_M = GRIPPER_WIDTH_MM / 1000.0
+    GRIPPER_FINGER_WIDTH_M = GRIPPER_FINGER_WIDTH_MM / 1000.0
+    GRIPPER_FINGER_HEIGHT_M = GRIPPER_FINGER_HEIGHT_MM / 1000.0
+    DIST_BTWN_PTS_M = DIST_BTWN_PTS_MM / 1000.0
+
+    NUM_PTS_X = int(GRIPPER_WIDTH_M / DIST_BTWN_PTS_M)
+    NUM_PTS_Y = int(GRIPPER_FINGER_WIDTH_M / DIST_BTWN_PTS_M)
+    NUM_PTS_Z = int(GRIPPER_FINGER_HEIGHT_M / DIST_BTWN_PTS_M)
+
+    assert NUM_PTS_X * DIST_BTWN_PTS_M == GRIPPER_WIDTH_M
+    assert NUM_PTS_Y * DIST_BTWN_PTS_M == GRIPPER_FINGER_WIDTH_M
+    assert NUM_PTS_Z * DIST_BTWN_PTS_M == GRIPPER_FINGER_HEIGHT_M
+    num_pts = (NUM_PTS_X + 1) * (NUM_PTS_Y + 1) * (NUM_PTS_Z + 1)
+    print(f"num_pts: {num_pts}")
+
+    # Create grid of points in grasp frame with shape (NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z, 3)
+    # So that grid_of_points[2, 3, 5] = [x, y, z], where x, y, z are the coordinates of the point
+    x_coords = np.linspace(-GRIPPER_WIDTH_M / 2, GRIPPER_WIDTH_M / 2, NUM_PTS_X + 1)
+    y_coords = np.linspace(
+        -GRIPPER_FINGER_WIDTH_M / 2, GRIPPER_FINGER_WIDTH_M / 2, NUM_PTS_Y + 1
+    )
+    z_coords = np.linspace(0, GRIPPER_FINGER_HEIGHT_M, NUM_PTS_Z + 1)
+
+    # Offset so centered between LEFT_TIP_POSITION_GRASP_FRAME and RIGHT_TIP_POSITION_GRASP_FRAME
+    center_point = (LEFT_TIP_POSITION_GRASP_FRAME + RIGHT_TIP_POSITION_GRASP_FRAME) / 2
+    x_coords += center_point[0]
+    y_coords += center_point[1]
+    z_coords += center_point[2]
+
+    xx, yy, zz = np.meshgrid(x_coords, y_coords, z_coords, indexing="ij")
+    assert (
+        xx.shape
+        == yy.shape
+        == zz.shape
+        == (NUM_PTS_X + 1, NUM_PTS_Y + 1, NUM_PTS_Z + 1)
+    )
+    grid_of_points = np.stack([xx, yy, zz], axis=-1)
+    assert grid_of_points.shape == (NUM_PTS_X + 1, NUM_PTS_Y + 1, NUM_PTS_Z + 1, 3)
+    return grid_of_points
+
+
+grasp_query_points_grasp_frame = get_grasp_query_points_grasp_frame()
+
+
+# %%
+# Transform query points to object frame
+
+@localscope.mfc
+def get_trasformed_points(points, transform):
+    assert len(points.shape) == 2 and points.shape[1] == 3
+    assert transform.shape == (4, 4)
+
+    points_homogeneous = np.concatenate([points, np.ones((points.shape[0], 1))], axis=1)
+
+    # First (4, 4) @ (4, N) = (4, N)
+    # Then transpose to get (N, 4)
+    transformed_points = np.matmul(transform, points_homogeneous.T).T
+
+    return transformed_points[:, :3]
+
+
+transform = grasp_transforms[4]
+grasp_query_points_object_frame = get_trasformed_points(grasp_query_points_grasp_frame.reshape(-1, 3), transform).reshape(grasp_query_points_grasp_frame.shape)
+
+# %%
+# Visualize points
+@localscope.mfc
+def get_points_scatter(points):
+    assert len(points.shape) == 2 and points.shape[1] == 3
+
+    # Use plotly to make scatter3d plot
+    scatter = go.Scatter3d(
+        x=points[:, 0],
+        y=points[:, 1],
+        z=points[:, 2],
+        mode="markers",
+        marker=dict(size=5, color="blue"),
+        name="Query Points"
+    )
+
+    return scatter
+
+# %%
+scatter = get_points_scatter(grasp_query_points_object_frame.reshape(-1, 3))
+
+# Add the scatter plot to a figure and display it
+fig = plot_obj(obj_filepath, scale=mesh_scale)
+fig.add_trace(scatter)
+fig.show()
+
+# %%
 from pathlib import Path
 from nerf_grasping import nerf_utils
 from nerf import utils
+
 
 def get_root_dir():
     root_dir = None
@@ -466,18 +572,20 @@ def get_root_dir():
     except:
         pass
     try:
-        root_dir = Path(os.path.abspath('.'))
+        root_dir = Path(os.path.abspath("."))
     except:
         pass
     if root_dir is None:
         raise ValueError("Can't get path to this file")
     return root_dir
 
+
 root_dir = get_root_dir()
 print(root_dir)
 
 
 # %%
+@localscope.mfc(allowed=["root_dir"])
 def load_nerf(workspace, bound, scale):
     parser = utils.get_config_parser()
     opt = parser.parse_args(
@@ -530,7 +638,75 @@ nerf_model = load_nerf(workspace=nerf_model_workspace, bound=2, scale=1)
 
 
 # %%
-__notebook__
+nerf_model
+
+
+# %%
+@localscope.mfc
+def get_nerf_densities(nerf_model, query_points):
+    """
+    Evaluates density of a batch of grasp points, shape [B, n_f, 3].
+    """
+    B, n_f, _ = query_points.shape
+    query_points = query_points.reshape(1, -1, 3)
+
+    return nerf_model.density(query_points).reshape(B, n_f)
+
+nerf_densities_torch = get_nerf_densities(nerf_model, torch.from_numpy(grasp_query_points_object_frame).reshape(1, -1, 3).float().cuda()).reshape(grasp_query_points_object_frame.shape[:-1])
+
+# %%
+nerf_densities = nerf_densities_torch.detach().cpu().numpy()
+
+print(f"np.max(nerf_densities) = {np.max(nerf_densities)}")
+print(f"np.min(nerf_densities) = {np.min(nerf_densities)}")
+
+
+# %%
+# Visualize points
+@localscope.mfc
+def get_colored_points_scatter(points, colors):
+    assert len(points.shape) == 2 and points.shape[1] == 3
+
+    # Use plotly to make scatter3d plot
+    scatter = go.Scatter3d(
+        x=points[:, 0],
+        y=points[:, 1],
+        z=points[:, 2],
+        mode="markers",
+        marker=dict(size=5, color=colors, colorscale='viridis', colorbar=dict(title="Density Scale"),),
+        name="Query Points Densities",
+    )
+
+    return scatter
+
+
+# %%
+colored_points_scatter = get_colored_points_scatter(points=grasp_query_points_object_frame.reshape(-1, 3),
+                                                   colors=nerf_densities.reshape(-1))
+
+# Add the scatter plot to a figure and display it
+fig = plot_obj(obj_filepath, scale=mesh_scale)
+fig.add_trace(colored_points_scatter)
+# fig.update_layout(width=800, height=600, coloraxis_colorbar=dict(len=0.2, yanchor='middle', y=0.1))
+# fig.update_layout(coloraxis_colorbar=dict(yanchor="top", y=1, x=0,
+#                                           ticks="outside",
+#                                           ticksuffix=" bills"))
+fig.update_layout(legend_orientation="h")
+
+fig.show()
+
+
+# %%
+# Get bounds of mesh
+@localscope.mfc
+def get_mesh_bounds(mesh, scale=1):
+    min_points, max_points = mesh.bounds
+    return min_points * scale, max_points * scale
+
+min_points, max_points = get_mesh_bounds(mesh, scale=mesh_scale)
+print(min_points, max_points)
+
+
 
 # %% [markdown]
 # # Create Dataset

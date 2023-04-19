@@ -113,7 +113,7 @@ def set_seed(seed):
 # %%
 # TODO: Need way to connect an acronym file to a nerf model nicely
 nerf_model_workspace = (
-    "torch-ngp/isaac_Mug_10f6e09036350e92b3f21f1137c3c347_0.0002682458/"
+    "isaac_Mug_10f6e09036350e92b3f21f1137c3c347_0.0002682458/"
 )
 acronym_filepath = "/juno/u/tylerlum/github_repos/acronym/data/grasps/Mug_10f6e09036350e92b3f21f1137c3c347_0.0002682457830986903.h5"
 assets_filepath = "/juno/u/tylerlum/github_repos/nerf_grasping/assets/objects"
@@ -450,6 +450,87 @@ grasp_lines = get_grasp_ray_lines(grasp_transforms[:6], grasp_successes[:6])
 for grasp_line in grasp_lines:
     fig.add_trace(grasp_line)
 fig.show()
+
+# %% [markdown]
+# ## TEMP: Visualize NeRF
+
+# %%
+from pathlib import Path
+from nerf_grasping import nerf_utils
+from nerf import utils
+
+def get_root_dir():
+    root_dir = None
+    try:
+        root_dir = Path(os.path.abspath(__file__)).parents[0]
+    except:
+        pass
+    try:
+        root_dir = Path(os.path.abspath('.'))
+    except:
+        pass
+    if root_dir is None:
+        raise ValueError("Can't get path to this file")
+    return root_dir
+
+root_dir = get_root_dir()
+print(root_dir)
+
+
+# %%
+def load_nerf(workspace, bound, scale):
+    parser = utils.get_config_parser()
+    opt = parser.parse_args(
+        [
+            "--workspace",
+            f"{root_dir}/nerf_checkpoints/{workspace}",
+            "--fp16",
+            "--test",
+            "--bound",
+            f"{bound}",
+            "--scale",
+            f"{scale}",
+            "--mode",
+            "blender",
+            f"{root_dir}/torch-ngp",
+        ]
+    )
+    # Use options to determine proper network structure.
+    if opt.ff:
+        assert opt.fp16, "fully-fused mode must be used with fp16 mode"
+        from nerf.network_ff import NeRFNetwork
+    elif opt.tcnn:
+        assert opt.fp16, "tcnn mode must be used with fp16 mode"
+        from nerf.network_tcnn import NeRFNetwork
+    else:
+        from nerf.network import NeRFNetwork
+
+    # Create uninitialized network.
+    model = NeRFNetwork(
+        bound=opt.bound,
+        cuda_ray=opt.cuda_ray,
+    )
+
+    # Create trainer with NeRF; use its constructor to load network weights from file.
+    trainer = utils.Trainer(
+        "ngp",
+        vars(opt),
+        model,
+        workspace=opt.workspace,
+        criterion=None,
+        fp16=opt.fp16,
+        metrics=[None],
+        use_checkpoint="latest",
+    )
+    assert len(trainer.stats["checkpoints"]) != 0, "failed to load checkpoint"
+    return trainer.model
+
+
+nerf_model = load_nerf(workspace=nerf_model_workspace, bound=2, scale=1)
+
+
+# %%
+__notebook__
 
 # %% [markdown]
 # # Create Dataset

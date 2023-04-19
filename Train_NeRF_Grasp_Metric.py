@@ -188,62 +188,58 @@ def run_sanity_check(position, transforms):
 # %%
 run_sanity_check(position=LEFT_TIP_POSITION_GRASP_FRAME, transforms=grasp_transforms)
 
-# %%
-from urdfpy import URDF
-object_urdf = URDF.load(urdf_filepath)
 
 # %%
-object_urdf.show()
+def plot_obj(filepath, scale=1.0):
+    # Read in the OBJ file
+    with open(filepath, 'r') as f:
+        lines = f.readlines()
 
-# %%
-# ChatGPT: how to read in a obj file and plot it with mesh3d in plotly?
-import plotly.graph_objs as go
-import numpy as np
+    # Extract the vertex coordinates and faces from the OBJ file
+    vertices = []
+    faces = []
+    for line in lines:
+        if line.startswith('v '):
+            vertex = [float(i)*scale for i in line.split()[1:4]]
+            vertices.append(vertex)
+        elif line.startswith('f '):
+            face = [int(i.split('/')[0])-1 for i in line.split()[1:4]]
+            faces.append(face)
 
-# Read in the OBJ file
-with open(obj_filepath, 'r') as f:
-    lines = f.readlines()
+    # Convert the vertex coordinates and faces to numpy arrays
+    vertices = np.array(vertices)
+    faces = np.array(faces)
 
-# Extract the vertex coordinates and faces from the OBJ file
-vertices = []
-faces = []
-for line in lines:
-    if line.startswith('v '):
-        vertex = [float(i) for i in line.split()[1:4]]
-        vertices.append(vertex)
-    elif line.startswith('f '):
-        face = [int(i.split('/')[0])-1 for i in line.split()[1:4]]
-        faces.append(face)
-
-# Convert the vertex coordinates and faces to numpy arrays
-vertices = np.array(vertices)
-faces = np.array(faces)
-
-# Create the mesh3d trace
-mesh = go.Mesh3d(
-    x=vertices[:,0],
-    y=vertices[:,1],
-    z=vertices[:,2],
-    i=faces[:,0],
-    j=faces[:,1],
-    k=faces[:,2],
-    color='lightpink',
-    opacity=0.5
-)
-
-# Create the layout
-layout = go.Layout(
-    scene=dict(
-        xaxis=dict(title='X'),
-        yaxis=dict(title='Y'),
-        zaxis=dict(title='Z')
+    # Create the mesh3d trace
+    mesh = go.Mesh3d(
+        x=vertices[:,0],
+        y=vertices[:,1],
+        z=vertices[:,2],
+        i=faces[:,0],
+        j=faces[:,1],
+        k=faces[:,2],
+        color='lightpink',
+        opacity=0.5
     )
-)
 
-# Create the figure
-fig = go.Figure(data=[mesh], layout=layout)
+    # Create the layout
+    layout = go.Layout(
+        scene=dict(
+            xaxis=dict(title='X'),
+            yaxis=dict(title='Y'),
+            zaxis=dict(title='Z')
+        )
+    )
 
-# Display the figure
+    # Create the figure
+    fig = go.Figure(data=[mesh], layout=layout)
+
+    # Return the figure
+    return fig
+
+
+# %%
+fig = plot_obj(obj_filepath, scale=0.1)
 fig.show()
 
 # %% [markdown]

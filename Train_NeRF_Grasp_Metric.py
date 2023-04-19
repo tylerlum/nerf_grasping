@@ -247,7 +247,7 @@ fig.show()
 
 
 # %%
-def get_grasp_lines(grasp_transforms, grasp_successes):
+def get_grasp_gripper_lines(grasp_transforms, grasp_successes):
     raw_left_tip = np.array([4.10000000e-02, -7.27595772e-12, 1.12169998e-01])
     raw_right_tip = np.array([-4.10000000e-02, -7.27595772e-12, 1.12169998e-01])
     raw_left_knuckle = np.array([4.10000000e-02, -7.27595772e-12, 6.59999996e-02])
@@ -327,89 +327,71 @@ def get_grasp_lines(grasp_transforms, grasp_successes):
 
 
 # %%
-grasp_lines = get_grasp_lines(grasp_transforms[:6], grasp_successes[:6])
+grasp_lines = get_grasp_gripper_lines(grasp_transforms[:6], grasp_successes[:6])
 for grasp_line in grasp_lines:
     fig.add_trace(grasp_line)
 fig.show()
 
 # %%
-
-
-# %%
-
-# %%
-
-
-# %%
-def plot_obj(filepath, scale=1.0, grasp_positions=None):
-    # Read in the OBJ file
-    with open(filepath, "r") as f:
-        lines = f.readlines()
-
-    # Extract the vertex coordinates and faces from the OBJ file
-    vertices = []
-    faces = []
-    for line in lines:
-        if line.startswith("v "):
-            vertex = [float(i) * scale for i in line.split()[1:4]]
-            vertices.append(vertex)
-        elif line.startswith("f "):
-            face = [int(i.split("/")[0]) - 1 for i in line.split()[1:4]]
-            faces.append(face)
-
-    # Convert the vertex coordinates and faces to numpy arrays
-    vertices = np.array(vertices)
-    faces = np.array(faces)
-
-    # Create the mesh3d trace
-    mesh = go.Mesh3d(
-        x=vertices[:, 0],
-        y=vertices[:, 1],
-        z=vertices[:, 2],
-        i=faces[:, 0],
-        j=faces[:, 1],
-        k=faces[:, 2],
-        color="lightpink",
-        opacity=0.5,
+def get_grasp_ray_lines(grasp_transforms, grasp_successes):
+    raw_left_tip = np.array([4.10000000e-02, -7.27595772e-12, 1.12169998e-01])
+    raw_right_tip = np.array([-4.10000000e-02, -7.27595772e-12, 1.12169998e-01])
+    left_tips = position_to_transformed_positions(
+        position=raw_left_tip, transforms=grasp_transforms
+    )
+    right_tips = position_to_transformed_positions(
+        position=raw_right_tip, transforms=grasp_transforms
     )
 
-    # Create the lines trace for the grasps, if provided
-    lines = None
-    if grasp_positions is not None:
-        x_lines = [p[0] for p in grasp_positions]
-        y_lines = [p[1] for p in grasp_positions]
-        z_lines = [p[2] for p in grasp_positions]
-        lines = go.Scatter3d(
-            x=x_lines,
-            y=y_lines,
-            z=z_lines,
-            mode="lines",
-            line=dict(color="red", width=5),
+    assert (
+        left_tips.shape
+        == right_tips.shape
+        == (len(grasp_successes), 3)
+    )
+
+    grasp_lines = []
+    for i, (
+        left_tip,
+        right_tip,
+        grasp_success,
+    ) in enumerate(zip(
+        left_tips,
+        right_tips,
+        grasp_successes,
+    )):
+        assert grasp_success in [0, 1]
+        color = "green" if grasp_success == 1 else "red"
+
+        # left tip => right_tip
+        points = np.stack(
+            [
+                left_tip,
+                right_tip,
+            ],
+            axis=0,
         )
+        assert points.shape == (2, 3)
 
-    # Create the layout
-    layout = go.Layout(
-        scene=dict(xaxis=dict(title="X"), yaxis=dict(title="Y"), zaxis=dict(title="Z"))
-    )
-
-    # Create the figure
-    fig = go.Figure(data=[mesh])
-    if lines is not None:
-        fig.add_trace(lines)
-    fig.update_layout(layout)
-
-    # Return the figure
-    return fig
+        # Create 1 continous line per grasp
+        grasp_line = go.Scatter3d(
+            x=points[:, 0],
+            y=points[:, 1],
+            z=points[:, 2],
+            mode="lines",
+            line=dict(color=color, width=5),
+            name=f"Grasp {i}",
+        )
+        grasp_lines.append(grasp_line)
+    return grasp_lines
 
 
-# %%
-fig = plot_obj(
-    obj_filepath,
-    scale=1.0,
-    grasp_positions=[[100, 0, 550], [-100, 0, 550], [100, 100, 550]],
-)
+
 
 # %%
+fig = plot_obj(obj_filepath, scale=mesh_scale)
+grasp_lines = get_grasp_ray_lines(grasp_transforms[:6], grasp_successes[:6])
+for grasp_line in grasp_lines:
+    fig.add_trace(grasp_line)
 fig.show()
 
 # %% [markdown]

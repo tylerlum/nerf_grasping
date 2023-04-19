@@ -32,6 +32,7 @@
 
 # %%
 import wandb
+import os
 import h5py
 import numpy as np
 from localscope import localscope
@@ -113,6 +114,9 @@ nerf_model_workspace = (
     "torch-ngp/isaac_Mug_10f6e09036350e92b3f21f1137c3c347_0.0002682458/"
 )
 acronym_filepath = "/juno/u/tylerlum/github_repos/acronym/data/grasps/Mug_10f6e09036350e92b3f21f1137c3c347_0.0002682457830986903.h5"
+assets_filepath = "/juno/u/tylerlum/github_repos/nerf_grasping/assets/objects"
+urdf_filepath = os.path.join(assets_filepath, "urdf", "Mug_10f6e09036350e92b3f21f1137c3c347.urdf")
+obj_filepath = os.path.join(assets_filepath, "meshes", "Mug", "10f6e09036350e92b3f21f1137c3c347.obj")
 
 # %%
 acronym_data = h5py.File(acronym_filepath, "r")
@@ -160,31 +164,87 @@ def position_to_transformed_positions_unvectorized(position, transforms):
     transformed_positions = np.stack(transformed_positions)
     return transformed_positions
 
+@localscope.mfc
+def run_sanity_check(position, transforms):
+    # Non-vectorized
+    start = time.time()
+    positions_object_frame = position_to_transformed_positions_unvectorized(
+        position=position, transforms=transforms
+    )
+    print(f"Non-vectorized took {1000 * (time.time() - start):.2f} ms")
+
+    # Vectorized version
+    start = time.time()
+    positions_object_frame_2 = position_to_transformed_positions(
+        position=position, transforms=transforms
+    )
+    print(f"Vectorized took {1000 * (time.time() - start):.2f} ms")
+    
+    assert np.max(np.abs(positions_object_frame - positions_object_frame_2)) < 1e-5
+    print("Passed the test, they match!")
+    return
+
 
 # %%
-# Non-vectorized
-start = time.time()
-left_tip_positions_object_frame = position_to_transformed_positions_unvectorized(
-    position=LEFT_TIP_POSITION_GRASP_FRAME, transforms=grasp_transforms
+run_sanity_check(position=LEFT_TIP_POSITION_GRASP_FRAME, transforms=grasp_transforms)
+
+# %%
+from urdfpy import URDF
+object_urdf = URDF.load(urdf_filepath)
+
+# %%
+object_urdf.show()
+
+# %%
+# ChatGPT: how to read in a obj file and plot it with mesh3d in plotly?
+import plotly.graph_objs as go
+import numpy as np
+
+# Read in the OBJ file
+with open(obj_filepath, 'r') as f:
+    lines = f.readlines()
+
+# Extract the vertex coordinates and faces from the OBJ file
+vertices = []
+faces = []
+for line in lines:
+    if line.startswith('v '):
+        vertex = [float(i) for i in line.split()[1:4]]
+        vertices.append(vertex)
+    elif line.startswith('f '):
+        face = [int(i.split('/')[0])-1 for i in line.split()[1:4]]
+        faces.append(face)
+
+# Convert the vertex coordinates and faces to numpy arrays
+vertices = np.array(vertices)
+faces = np.array(faces)
+
+# Create the mesh3d trace
+mesh = go.Mesh3d(
+    x=vertices[:,0],
+    y=vertices[:,1],
+    z=vertices[:,2],
+    i=faces[:,0],
+    j=faces[:,1],
+    k=faces[:,2],
+    color='lightpink',
+    opacity=0.5
 )
-print(f"In ms, took {1000 * (time.time() - start):.2f}")
 
-# %%
-left_tip_positions_object_frame.shape
-
-# %%
-# Vectorized version
-start = time.time()
-left_tip_positions_object_frame_2 = position_to_transformed_positions(
-    position=LEFT_TIP_POSITION_GRASP_FRAME, transforms=grasp_transforms
+# Create the layout
+layout = go.Layout(
+    scene=dict(
+        xaxis=dict(title='X'),
+        yaxis=dict(title='Y'),
+        zaxis=dict(title='Z')
+    )
 )
-print(f"In ms, took {1000 * (time.time() - start):.2f}")
 
-# %%
-left_tip_positions_object_frame_2.shape
+# Create the figure
+fig = go.Figure(data=[mesh], layout=layout)
 
-# %%
-np.max(np.abs(left_tip_positions_object_frame_2 - left_tip_positions_object_frame))
+# Display the figure
+fig.show()
 
 # %% [markdown]
 # # Create Dataset

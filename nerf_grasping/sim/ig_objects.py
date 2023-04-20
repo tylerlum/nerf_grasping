@@ -111,11 +111,11 @@ class RigidObject:
                 asset_dir, "objects", self._get_mesh_path_from_urdf(asset_path)
             )
 
-        print("mesh path: ", mesh_path)
+        # print("mesh path: ", mesh_path)
         # Mesh loaded in Z-up, centered at object centroid.
         mesh = trimesh.load(mesh_path, force="mesh")
 
-        print("mesh extents: ", mesh.extents)
+        # print("mesh extents: ", mesh.extents)
 
         return mesh
 
@@ -164,18 +164,23 @@ class RigidObject:
     def configure_actor(self, gym, env):
         # spawn object so that centroid is at world origin
         object_center = np.array(self.gt_mesh.centroid)
+        min_points, _ = self.gt_mesh.bounds
+        min_points = np.array(min_points)
         if hasattr(self, "mesh_scale"):
             object_center *=  self.mesh_scale
+            min_points *= self.mesh_scale
+
+        # Centered in xy, just touching the ground in z
+        object_start_pos = gymapi.Vec3(
+            -object_center[0], -object_center[1], -min_points[2]
+        )
+        print(f"object_start_pos = {object_start_pos}")
 
         actor = self.gym.create_actor(
             env,
             self.asset,
             gymapi.Transform(
-                p=gymapi.Vec3(
-                    -object_center[0],
-                    -object_center[1],
-                    -object_center[2] + 0.2,
-                )
+                p=object_start_pos,
             ),
             self.name,
             1,

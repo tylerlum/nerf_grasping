@@ -656,6 +656,8 @@ def get_nerf_training_data(Obj, num_steps_before_collecting, viewer, overwrite):
         tf.step_gym()
         if Obj is not None:
             print(f"tf.object.position = {tf.object.position}")
+            print(f"tf.object.orientation = {tf.object.orientation}")
+            print()
 
     # name = "blank" if Obj is None else Obj.name
     save_folder = "./torch-ngp/data/isaac_" + Obj.name

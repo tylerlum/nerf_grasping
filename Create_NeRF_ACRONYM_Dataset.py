@@ -803,10 +803,10 @@ for selected_obj in tqdm(objs):
 
     for grasp_idx in range(grasp_transforms.shape[0]):
         # TODO: REMOVE
-        if grasp_idx < 4:
+        if grasp_idx < 3:
             continue
         # Create plot of mesh
-        fig = plot_obj(obj_filepath, scale=mesh_scale, offset=obj_offset)
+        fig = plot_obj(obj_filepath, scale=mesh_scale, offset=obj_offset, rotation_offset=np.array([-5.3844e-07,  5.3964e-06, -3.2661e-02,  9.9947e-01]))
         mesh_centroid_scatter = get_mesh_centroid_scatter(
             mesh_centroid_obj_frame, offset=obj_offset
         )

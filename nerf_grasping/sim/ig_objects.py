@@ -173,7 +173,7 @@ class RigidObject:
 
         # Centered in xy, just touching the ground in z
         self.object_start_pos = gymapi.Vec3(
-            -object_center[0], -object_center[1], -min_points[2] + 0.01
+            -object_center[0], -object_center[1], -min_points[2] + 0.005
         )
 
         actor = self.gym.create_actor(

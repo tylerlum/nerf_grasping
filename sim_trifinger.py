@@ -136,7 +136,7 @@ class TriFingerEnv:
 
         sim_params.physx.solver_type = 1
         sim_params.physx.num_position_iterations = 6
-        sim_params.physx.num_velocity_iterations = 2
+        sim_params.physx.num_velocity_iterations = 0
         sim_params.physx.num_threads = self.args.num_threads
         sim_params.physx.use_gpu = self.args.use_gpu
         # sim_params.physx.use_gpu = True

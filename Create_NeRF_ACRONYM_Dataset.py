@@ -16,7 +16,7 @@
 # %% [markdown]
 # # Create NeRF ACRONYM Dataset
 #
-# ## Summary (April 19, 2023)
+# ## Summary (April 21, 2023)
 #
 # The purpose of this script is to create a dataset for predicting the quality of grasps from NeRF representations of objects.
 #
@@ -25,11 +25,18 @@
 # ## Dataset
 # ```
 # {output_dataset_dir}
-# ├── 0.pkl
-# ├── 1.pkl
-# ├── 2.pkl
-# ├── 3.pkl
-# ├── 4.pkl
+# ├── isaac_3Shelves_ea3807911b86d7e7b53aed25092632f_0.0046205018
+# │   ├── 0.pkl
+# │   ├── 1.pkl
+# │   ├── 2.pkl
+# │   ├── ...
+# │   ├── 1999.pkl
+# ├── isaac_5Shelves_fc45d911f8b87b1aca32354d178e0245_0.0023979975
+# │   ├── 0.pkl
+# │   ├── 1.pkl
+# │   ├── 2.pkl
+# │   ├── ...
+# │   ├── 1999.pkl
 # ```
 #
 # where `<x>.pkl` is a `dict` with the following keys:
@@ -40,8 +47,8 @@
 #   "grasp_success": 0 or 1,
 #   "mesh_centroid_isaac_frame": np.array w/ shape (3,),
 #   "acronym_data_filename": hdf5 filename
-#   "grasp_idx": idx of this grasp within acronym_data_filename
-#   <may add other helpful meta-data like the acronym filepath and grasp idx>
+#   "grasp_idx": idx of this grasp within acronym_data_filename (should be same as filename)
+#   <may add other helpful meta-data>
 # }
 # ```
 # where the first channel of `nerf_grid_input` is the NeRF density at this point
@@ -98,11 +105,15 @@ print(f"Found {len(objs)} objs")
 print(f"First 10 are {objs[:10]}")
 
 # %%
+found_invalid_workspace = False
 for obj in objs:
     workspace_path = os.path.join(nerf_checkpoints_path, "isaac_" + obj.workspace)
     checkpoints_path = os.path.join(workspace_path, "checkpoints")
     if not os.path.exists(workspace_path) or not os.path.exists(checkpoints_path) or len(os.listdir(checkpoints_path)) == 0:
         print(f"workspace_path = {workspace_path} missing files")
+        found_invalid_workspace = True
+if not found_invalid_workspace:
+    print("All workspaces are valid")
 
 # %%
 # useful constants
@@ -744,7 +755,7 @@ acronym_dir_filepath = "/juno/u/tylerlum/github_repos/acronym/data/grasps"
 
 
 for selected_obj in tqdm(objs):
-    # TODO: REMOVE
+    # TODO HACK
     if "Mug_10f" not in selected_obj.workspace:
         continue
 
@@ -764,49 +775,42 @@ for selected_obj in tqdm(objs):
 
     grasp_transforms = np.array(acronym_data["grasps/transforms"])
     grasp_successes = np.array(acronym_data["grasps/qualities/flex/object_in_gripper"])
-
-    # print(f"{grasp_transforms.shape = }")
-    # print(f"{grasp_successes.shape = }")
-
+    assert(grasp_transforms.shape == (2000, 4, 4))
+    assert(grasp_successes.shape == (2000,))
+    
     # Get mesh info
     mesh = trimesh.load(obj_filepath, force="mesh")
     min_points_obj_frame, max_points_obj_frame = get_mesh_bounds(mesh, scale=mesh_scale)
-    # print(min_points_obj_frame, max_points_obj_frame)
+
     # Use this offset for all plots so that the plot is in isaac coordinates
     bound_min_z_obj_frame = min_points_obj_frame[2]
     mesh_centroid_obj_frame = get_mesh_centroid(mesh, scale=mesh_scale)
 
     # Compute offset
-    USE_ISAAC_COORDINATES = True
-    if USE_ISAAC_COORDINATES:
-        obj_offset = np.array(
-            [
-                -mesh_centroid_obj_frame[0],
-                -mesh_centroid_obj_frame[1],
-                -bound_min_z_obj_frame,
-            ]
-        )
-    else:
-        obj_offset = np.zeros(3)
-    # print(f"USE_ISAAC_COORDINATES: {USE_ISAAC_COORDINATES}")
-    # print(f"Offset: {obj_offset}")
-
-    # TODO: REMOVE
-    obj_offset = np.array([ 0.0035,  0.0020, -0.0502])
+    obj_offset = np.array(
+        [
+            -mesh_centroid_obj_frame[0],
+            -mesh_centroid_obj_frame[1],
+            -bound_min_z_obj_frame,
+        ]
+    )
     
     # Load nerf
+    print("Loading NeRF...")
     nerf_model = load_nerf(workspace=nerf_model_workspace, bound=2, scale=1)
+    print("Done loading NeRF")
 
     # Make plot for each grasp
     num_grasps = grasp_transforms.shape[0]
     assert(num_grasps == grasp_successes.shape[0])
 
     for grasp_idx in range(grasp_transforms.shape[0]):
-        # TODO: REMOVE
+        # TODO REMOVE
         if grasp_idx < 3:
             continue
+
         # Create plot of mesh
-        fig = plot_obj(obj_filepath, scale=mesh_scale, offset=obj_offset, rotation_offset=np.array([-5.3844e-07,  5.3964e-06, -3.2661e-02,  9.9947e-01]))
+        fig = plot_obj(obj_filepath, scale=mesh_scale, offset=obj_offset)
         mesh_centroid_scatter = get_mesh_centroid_scatter(
             mesh_centroid_obj_frame, offset=obj_offset
         )
@@ -836,13 +840,6 @@ for selected_obj in tqdm(objs):
             grasp_query_points_grasp_frame.reshape(-1, 3), grasp_transforms[grasp_idx]
         ).reshape(grasp_query_points_grasp_frame.shape)
 
-        # Don't need to plot boring same color points
-        # scatter = get_points_scatter(
-        #     grasp_query_points_object_frame.reshape(-1, 3), offset=obj_offset
-        # )
-        # Add the scatter plot to a figure and display it
-        # fig.add_trace(scatter)
-
         grasp_query_points_isaac_frame = np.copy(grasp_query_points_object_frame).reshape(
             -1, 3
         ) + obj_offset.reshape(1, 3)
@@ -857,9 +854,6 @@ for selected_obj in tqdm(objs):
 
         nerf_densities = nerf_densities_torch.detach().cpu().numpy()
 
-        # print(f"np.max(nerf_densities) = {np.max(nerf_densities)}")
-        # print(f"np.min(nerf_densities) = {np.min(nerf_densities)}")
-
         colored_points_scatter = get_colored_points_scatter(
             points=grasp_query_points_object_frame.reshape(-1, 3),
             colors=nerf_densities.reshape(-1),
@@ -872,60 +866,41 @@ for selected_obj in tqdm(objs):
         # Avoid legend overlap
         fig.update_layout(legend_orientation="h")
 
-        # fig.show()
+        PLOT_ALL_HIGH_DENSITY_POINTS = True
+        if PLOT_ALL_HIGH_DENSITY_POINTS:
+            ## Only for fancy plot of whole nerf
+            query_points_mesh_region_obj_frame = get_query_points_mesh_region(
+                min_points_obj_frame, max_points_obj_frame, n_pts_per_dim=50
+            )
 
+            query_points_mesh_region_obj_frame.shape
 
+            query_points_mesh_region_isaac_frame = np.copy(
+                query_points_mesh_region_obj_frame
+            ).reshape(-1, 3) + obj_offset.reshape(1, 3)
+            query_points_mesh_region_nerf_frame = ig_to_nerf(
+                query_points_mesh_region_isaac_frame.reshape(-1, 3), return_tensor=True
+            )
 
-        ## Only for fancy plot of whole nerf
-        query_points_mesh_region_obj_frame = get_query_points_mesh_region(
-            min_points_obj_frame, max_points_obj_frame, n_pts_per_dim=100
-        )
+            # Compute nerf densities
+            nerf_densities_torch = get_nerf_densities(
+                nerf_model, query_points_mesh_region_nerf_frame.reshape(1, -1, 3).float().cuda()
+            ).reshape(query_points_mesh_region_nerf_frame.shape[:-1])
+            nerf_densities = nerf_densities_torch.detach().cpu().numpy()
 
-        query_points_mesh_region_obj_frame.shape
+            points = query_points_mesh_region_obj_frame.reshape(-1, 3)
+            densities = nerf_densities.reshape(-1)
 
-        query_points_mesh_region_isaac_frame = np.copy(
-            query_points_mesh_region_obj_frame
-        ).reshape(-1, 3) + obj_offset.reshape(1, 3)
-        query_points_mesh_region_nerf_frame = ig_to_nerf(
-            query_points_mesh_region_isaac_frame.reshape(-1, 3), return_tensor=True
-        )
+            threshold = 100
+            filtered_points = points[densities > threshold]
+            filtered_densities = densities[densities > threshold]
+            colored_points_scatter = get_colored_points_scatter(
+                points=filtered_points, colors=filtered_densities, offset=obj_offset
+            )
 
-        # Compute nerf densities
-        nerf_densities_torch = get_nerf_densities(
-            nerf_model, query_points_mesh_region_nerf_frame.reshape(1, -1, 3).float().cuda()
-        ).reshape(query_points_mesh_region_nerf_frame.shape[:-1])
-        nerf_densities = nerf_densities_torch.detach().cpu().numpy()
-
-        points = query_points_mesh_region_obj_frame.reshape(-1, 3)
-        densities = nerf_densities.reshape(-1)
-
-#         USE_PLOTLY = True
-#         if USE_PLOTLY:
-#             import plotly.express as px
-
-#             fig = px.histogram(
-#                 x=densities,
-#                 log_y=True,
-#                 title="Densities",
-#                 labels={"x": "Values", "y": "Frequency"},
-#             )
-
-#             fig.show()
-#         else:
-#             plt.hist(densities, log=True)
-#             plt.title("Densities")
-#             plt.show()
-
-        threshold = 100
-        filtered_points = points[densities > threshold]
-        filtered_densities = densities[densities > threshold]
-        colored_points_scatter = get_colored_points_scatter(
-            points=filtered_points, colors=filtered_densities, offset=obj_offset
-        )
-
-        # Add the scatter plot to a figure and display it
-        fig.add_trace(colored_points_scatter)
-        fig.update_layout(legend_orientation="h")
+            # Add the scatter plot to a figure and display it
+            fig.add_trace(colored_points_scatter)
+            fig.update_layout(legend_orientation="h")
 
         fig.show()
         break

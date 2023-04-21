@@ -146,12 +146,14 @@ class TriFingerEnv:
         )
         assert self.sim is not None
 
-        if args.get_nerf_training_data:
-            intensity = 0.01 # for nerf generation
-            ambient = 0.21 / intensity
-        else:
-            intensity = 0.5
-            ambient = 0.10 / intensity
+        # if args.get_nerf_training_data:
+        #     intensity = 0.01 # for nerf generation
+        #     ambient = 0.21 / intensity
+        # else:
+        #     intensity = 0.5
+        #     ambient = 0.10 / intensity
+        intensity = 0.5
+        ambient = 0.10 / intensity
 
         intensity = gymapi.Vec3(intensity, intensity, intensity)
         ambient = gymapi.Vec3(ambient, ambient, ambient)
@@ -241,8 +243,8 @@ class TriFingerEnv:
 
         # generates cameara positions along rings around object
         heights = [0.1, 0.3, 0.25, 0.35]
-        distances = [0.15, 0.2, 0.3, 0.3]
-        counts = [56, 104, 96, 1]
+        distances = [0.2, 0.2, 0.3, 0.3]
+        counts = [64, 64, 64, 64]
         target_z = [0.0, 0.1, 0.0, 0.1]
 
         camera_positions = []

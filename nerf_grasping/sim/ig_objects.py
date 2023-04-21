@@ -93,7 +93,8 @@ class RigidObject:
         self.index = rb_start_index
 
         # NOTE: simple indexing will return a view of the data but advanced indexing will return a copy breaking the updateing
-        self.rb_states = gymtorch.wrap_tensor(_rb_states)[
+        self.rb_states_all = gymtorch.wrap_tensor(_rb_states)
+        self.rb_states = self.rb_states_all[
             rb_start_index : rb_start_index + rb_count, :
         ]
 
@@ -171,16 +172,18 @@ class RigidObject:
             min_points *= self.mesh_scale
 
         # Centered in xy, just touching the ground in z
-        object_start_pos = gymapi.Vec3(
-            -object_center[0], -object_center[1], -min_points[2]
+        print(f"object_center = {object_center}")
+        print(f"min_points = {min_points}")
+        self.object_start_pos = gymapi.Vec3(
+            -object_center[0], -object_center[1], -min_points[2] + 0.001
         )
-        print(f"object_start_pos = {object_start_pos}")
+        print(f"self.object_start_pos = {self.object_start_pos}")
 
         actor = self.gym.create_actor(
             env,
             self.asset,
             gymapi.Transform(
-                p=object_start_pos,
+                p=self.object_start_pos,
             ),
             self.name,
             1,

@@ -4,7 +4,7 @@ import shutil
 from pathlib import Path
 from unittest.mock import Mock
 
-from isaacgym import gymapi, gymutil
+from isaacgym import gymapi, gymutil, gymtorch
 import os
 import numpy as np
 import torch
@@ -125,7 +125,7 @@ class TriFingerEnv:
 
         # configure sim
         sim_params = gymapi.SimParams()
-        sim_params.dt = 1.0 / 60.0
+        sim_params.dt = 1.0 / 6000.0  # HACK TODO
 
         sim_params.up_axis = gymapi.UP_AXIS_Z
         sim_params.gravity = (
@@ -432,6 +432,19 @@ class TriFingerEnv:
         self.gym.refresh_rigid_body_state_tensor(self.sim)
 
     def step_gym(self):
+        print("Forcing object to be in place")
+        print(f"self.object.rb_states.shape = {self.object.rb_states.shape}")
+        self.object.rb_states[0, 0] = self.object.object_start_pos.x
+        self.object.rb_states[0, 1] = self.object.object_start_pos.y
+        self.object.rb_states[0, 2] = self.object.object_start_pos.z
+
+        for i in range(3, 13):
+            if i == 6:
+                self.object.rb_states[0, i] = 1.0
+            else:
+                self.object.rb_states[0, i] = 0.0
+        self.gym.set_rigid_body_state_tensor(self.sim, gymtorch.unwrap_tensor(self.object.rb_states_all))
+
         self.gym.simulate(self.sim)
         self.gym.fetch_results(self.sim, True)
 

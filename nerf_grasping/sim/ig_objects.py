@@ -93,8 +93,8 @@ class RigidObject:
         self.index = rb_start_index
 
         # NOTE: simple indexing will return a view of the data but advanced indexing will return a copy breaking the updateing
-        self.rb_states_all = gymtorch.wrap_tensor(_rb_states)
-        self.rb_states = self.rb_states_all[
+        rb_states_all = gymtorch.wrap_tensor(_rb_states)
+        self.rb_states = rb_states_all[
             rb_start_index : rb_start_index + rb_count, :
         ]
 
@@ -139,6 +139,7 @@ class RigidObject:
         asset_options.density = self.density
         asset_options.override_inertia = False
         asset_options.override_com = False
+        asset_options.fix_base_link = True
 
         asset_options.vhacd_params.mode = (
             0  # 0 = tetrahedron, 1 = voxel, was 1, but 0 fixed issue with xbox360
@@ -173,7 +174,7 @@ class RigidObject:
 
         # Centered in xy, just touching the ground in z
         self.object_start_pos = gymapi.Vec3(
-            -object_center[0], -object_center[1], -min_points[2] + 0.005
+            -object_center[0], -object_center[1], -min_points[2]
         )
 
         actor = self.gym.create_actor(

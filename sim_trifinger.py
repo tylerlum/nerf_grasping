@@ -94,7 +94,6 @@ class TriFingerEnv:
         viewer=True,
         robot_type="trifinger",
         Obj=None,
-        disable_gravity=False,
         save_cameras=False,
         **robot_kwargs,
     ):
@@ -102,7 +101,7 @@ class TriFingerEnv:
         self.gym = gymapi.acquire_gym()
         self.robot_type = robot_type
 
-        self.setup_sim(disable_gravity)
+        self.setup_sim()
         self.setup_envs(robot_type=robot_type, Obj=Obj, **robot_kwargs)
 
         if viewer:
@@ -119,7 +118,7 @@ class TriFingerEnv:
         self.gym.prepare_sim(self.sim)
         self.image_idx = 0
 
-    def setup_sim(self, disable_gravity):
+    def setup_sim(self):
         # only tested with this one
         assert self.args.physics_engine == gymapi.SIM_PHYSX
 
@@ -128,11 +127,7 @@ class TriFingerEnv:
         sim_params.dt = 1.0 / 60  # HACK TODO
 
         sim_params.up_axis = gymapi.UP_AXIS_Z
-        sim_params.gravity = (
-            gymapi.Vec3(0.0, 0.0, -9.8)
-            if not disable_gravity
-            else gymapi.Vec3(0.0, 0.0, 0.0)
-        )
+        sim_params.gravity = gymapi.Vec3(0.0, 0.0, -9.8)
 
         sim_params.physx.solver_type = 1
         sim_params.physx.num_position_iterations = 6
@@ -432,22 +427,6 @@ class TriFingerEnv:
         self.gym.refresh_rigid_body_state_tensor(self.sim)
 
     def step_gym(self):
-        FORCE_OBJ_NOT_MOVE = True
-        if FORCE_OBJ_NOT_MOVE:
-            print("Forcing object to be in place")
-            self.object.rb_states[0, 0] = self.object.object_start_pos.x
-            self.object.rb_states[0, 1] = self.object.object_start_pos.y
-            self.object.rb_states[0, 2] = self.object.object_start_pos.z
-
-            for i in range(3, 13):
-                if i == 6:
-                    self.object.rb_states[0, i] = 1.0
-                else:
-                    self.object.rb_states[0, i] = 0.0
-            self.gym.set_rigid_body_state_tensor(
-                self.sim, gymtorch.unwrap_tensor(self.object.rb_states_all)
-            )
-
         self.gym.simulate(self.sim)
         self.gym.fetch_results(self.sim, True)
 
@@ -677,7 +656,7 @@ class TriFingerEnv:
 
 def get_nerf_training_data(Obj, num_steps_before_collecting, viewer, overwrite):
     tf = TriFingerEnv(
-        viewer=viewer, robot_type="", Obj=Obj, disable_gravity=True, save_cameras=True
+        viewer=viewer, robot_type="", Obj=Obj, save_cameras=True
     )
     for _ in range(num_steps_before_collecting):
         tf.step_gym()

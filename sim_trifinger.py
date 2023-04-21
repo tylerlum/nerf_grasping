@@ -4,7 +4,7 @@ import shutil
 from pathlib import Path
 from unittest.mock import Mock
 
-from isaacgym import gymapi, gymutil, gymtorch
+from isaacgym import gymapi, gymutil
 import os
 import numpy as np
 import torch
@@ -124,7 +124,7 @@ class TriFingerEnv:
 
         # configure sim
         sim_params = gymapi.SimParams()
-        sim_params.dt = 1.0 / 60  # HACK TODO
+        sim_params.dt = 1.0 / 60.0
 
         sim_params.up_axis = gymapi.UP_AXIS_Z
         sim_params.gravity = gymapi.Vec3(0.0, 0.0, -9.8)
@@ -190,6 +190,7 @@ class TriFingerEnv:
         else:
             self.robot = Mock()
 
+        # Remove stage to avoid conflict with object for now?
         # self.setup_stage(env)
 
         if Obj is not None:
@@ -655,28 +656,25 @@ class TriFingerEnv:
 
 
 def get_nerf_training_data(Obj, num_steps_before_collecting, viewer, overwrite):
-    tf = TriFingerEnv(
-        viewer=viewer, robot_type="", Obj=Obj, save_cameras=True
-    )
+    tf = TriFingerEnv(viewer=viewer, robot_type="", Obj=Obj, save_cameras=True)
     for _ in range(num_steps_before_collecting):
         tf.step_gym()
         if Obj is not None:
-            print(f"tf.object.position = {tf.object.position}")
-            print(f"tf.object.orientation = {tf.object.orientation}")
-            start_pos = torch.tensor(
+            obj_start_pos = torch.tensor(
                 [
-                    tf.object.object_start_pos.x,
-                    tf.object.object_start_pos.y,
-                    tf.object.object_start_pos.z,
+                    tf.object.start_pos.x,
+                    tf.object.start_pos.y,
+                    tf.object.start_pos.z,
                 ]
             )
-            print(f"tf.object.object_start_pos = {start_pos}")
-            change_in_pos = torch.norm(tf.object.position - start_pos)
+            change_in_pos = torch.norm(tf.object.position - obj_start_pos)
+            print(f"tf.object.position = {tf.object.position}")
+            print(f"tf.object.orientation = {tf.object.orientation}")
+            print(f"tf.object.start_pos = {obj_start_pos}")
             print(f"change_in_pos = {change_in_pos}")
-            if change_in_pos > 0.001:
-                print("WARNING: Object has moved!")
-
             print()
+            if change_in_pos > 0.001:
+                raise ValueError(f"WARNING: Object has moved by {change_in_pos}")
 
     # name = "blank" if Obj is None else Obj.name
     save_folder = "./torch-ngp/data/isaac_" + Obj.name

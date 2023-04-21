@@ -94,9 +94,7 @@ class RigidObject:
 
         # NOTE: simple indexing will return a view of the data but advanced indexing will return a copy breaking the updateing
         rb_states_all = gymtorch.wrap_tensor(_rb_states)
-        self.rb_states = rb_states_all[
-            rb_start_index : rb_start_index + rb_count, :
-        ]
+        self.rb_states = rb_states_all[rb_start_index : rb_start_index + rb_count, :]
 
     def load_nerf_model(self):
         if self.nerf_loaded:
@@ -139,7 +137,9 @@ class RigidObject:
         asset_options.density = self.density
         asset_options.override_inertia = False
         asset_options.override_com = False
-        asset_options.fix_base_link = True
+        asset_options.fix_base_link = (
+            True  # TODO: ONLY USE THIS IF OBJECT IS STATIC FOR DATA COLLECTION
+        )
 
         asset_options.vhacd_params.mode = (
             0  # 0 = tetrahedron, 1 = voxel, was 1, but 0 fixed issue with xbox360
@@ -173,7 +173,7 @@ class RigidObject:
             min_points *= self.mesh_scale
 
         # Centered in xy, just touching the ground in z
-        self.object_start_pos = gymapi.Vec3(
+        self.start_pos = gymapi.Vec3(
             -object_center[0], -object_center[1], -min_points[2]
         )
 
@@ -181,7 +181,7 @@ class RigidObject:
             env,
             self.asset,
             gymapi.Transform(
-                p=self.object_start_pos,
+                p=self.start_pos,
             ),
             self.name,
             1,

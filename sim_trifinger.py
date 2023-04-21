@@ -94,6 +94,7 @@ class TriFingerEnv:
         viewer=True,
         robot_type="trifinger",
         Obj=None,
+        disable_gravity=False,
         save_cameras=False,
         **robot_kwargs,
     ):
@@ -101,7 +102,7 @@ class TriFingerEnv:
         self.gym = gymapi.acquire_gym()
         self.robot_type = robot_type
 
-        self.setup_sim()
+        self.setup_sim(disable_gravity)
         self.setup_envs(robot_type=robot_type, Obj=Obj, **robot_kwargs)
 
         if viewer:
@@ -118,7 +119,7 @@ class TriFingerEnv:
         self.gym.prepare_sim(self.sim)
         self.image_idx = 0
 
-    def setup_sim(self):
+    def setup_sim(self, disable_gravity):
         # only tested with this one
         assert self.args.physics_engine == gymapi.SIM_PHYSX
 
@@ -127,7 +128,11 @@ class TriFingerEnv:
         sim_params.dt = 1.0 / 60.0
 
         sim_params.up_axis = gymapi.UP_AXIS_Z
-        sim_params.gravity = gymapi.Vec3(0.0, 0.0, -9.8)
+        sim_params.gravity = (
+            gymapi.Vec3(0.0, 0.0, -9.8)
+            if not disable_gravity
+            else gymapi.Vec3(0.0, 0.0, 0.0)
+        )
 
         sim_params.physx.solver_type = 1
         sim_params.physx.num_position_iterations = 6
@@ -567,7 +572,7 @@ class TriFingerEnv:
 
     def visualize_example_grasp(self):
         # if self.added_lines:
-            # self.gym.clear_lines(self.viewer)
+        # self.gym.clear_lines(self.viewer)
         # self._visualize_grasp_normals()
         self._visualize_grasp_points()
 
@@ -604,8 +609,12 @@ class TriFingerEnv:
 
         self.grad_ests = grad_ests
 
-        ig_viz_utils.visualize_grasp_normals(self.gym, self.viewer, self.env, tip_positions, -grad_ests)
-        self.marker_handles += ig_viz_utils.visualize_markers(self.gym, self.env, self.sim, tip_positions, [GREEN] * NUM_FINGERS)
+        ig_viz_utils.visualize_grasp_normals(
+            self.gym, self.viewer, self.env, tip_positions, -grad_ests
+        )
+        self.marker_handles += ig_viz_utils.visualize_markers(
+            self.gym, self.env, self.sim, tip_positions, [GREEN] * NUM_FINGERS
+        )
         densities = nerf_utils.nerf_densities(
             self.object.model, nerf_tip_pos.reshape(1, NUM_FINGERS, NUM_XYZ)
         )
@@ -651,7 +660,9 @@ class TriFingerEnv:
 
 
 def get_nerf_training_data(Obj, num_steps_before_collecting, viewer, overwrite):
-    tf = TriFingerEnv(viewer=viewer, robot_type="", Obj=Obj, save_cameras=True)
+    tf = TriFingerEnv(
+        viewer=viewer, robot_type="", Obj=Obj, disable_gravity=True, save_cameras=True
+    )
     for _ in range(num_steps_before_collecting):
         tf.step_gym()
         if Obj is not None:

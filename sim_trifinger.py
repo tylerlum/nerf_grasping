@@ -146,10 +146,13 @@ class TriFingerEnv:
         )
         assert self.sim is not None
 
-        # intensity = 0.01 # for nerf generation
-        # ambient = 0.21 / intensity
-        intensity = 0.5
-        ambient = 0.10 / intensity
+        if args.get_nerf_training_data:
+            intensity = 0.01 # for nerf generation
+            ambient = 0.21 / intensity
+        else:
+            intensity = 0.5
+            ambient = 0.10 / intensity
+
         intensity = gymapi.Vec3(intensity, intensity, intensity)
         ambient = gymapi.Vec3(ambient, ambient, ambient)
 
@@ -206,8 +209,6 @@ class TriFingerEnv:
         stage_urdf_file = (
             "trifinger/robot_properties_fingers/urdf/high_table_boundary.urdf"
         )
-        # stage_urdf_file = "trifinger/robot_properties_fingers/urdf/trifinger_stage.urdf"
-        # stage_urdf_file = "trifinger/robot_properties_fingers/urdf/stage.urdf"
 
         asset_options = gymapi.AssetOptions()
         asset_options.disable_gravity = False
@@ -228,9 +229,6 @@ class TriFingerEnv:
         self.robot.viewer = self.viewer
         assert self.viewer is not None
 
-        # position outside stage
-        cam_pos = gymapi.Vec3(0.7, 0.175, 0.6)
-        # position above banana
         cam_pos = gymapi.Vec3(0.1, 0.02, 0.4)
         cam_target = gymapi.Vec3(0, 0, 0.2)
         self.gym.viewer_camera_look_at(self.viewer, self.env, cam_pos, cam_target)
@@ -243,7 +241,7 @@ class TriFingerEnv:
 
         # generates cameara positions along rings around object
         heights = [0.1, 0.3, 0.25, 0.35]
-        distances = [0.05, 0.125, 0.3, 0.3]
+        distances = [0.15, 0.2, 0.3, 0.3]
         counts = [56, 104, 96, 1]
         target_z = [0.0, 0.1, 0.0, 0.1]
 
@@ -655,9 +653,9 @@ class TriFingerEnv:
         self.image_idx = 0
 
 
-def get_nerf_training_data(Obj, num_steps_before_collecting, viewer, overwrite):
+def get_nerf_training_data(Obj, num_sim_steps_before_collecting_data, viewer, overwrite):
     tf = TriFingerEnv(viewer=viewer, robot_type="", Obj=Obj, save_cameras=True)
-    for _ in range(num_steps_before_collecting):
+    for _ in range(num_sim_steps_before_collecting_data):
         tf.step_gym()
         if Obj is not None:
             obj_start_pos = torch.tensor(
@@ -725,7 +723,7 @@ if __name__ == "__main__":
     parser.add_argument("--visualize_acronym_grasps", action="store_true")
     parser.add_argument("--visualize_example_grasp", action="store_true")
     parser.add_argument("--viewer", action="store_true")
-    parser.add_argument("--num_steps_before_collecting", type=int, default=100)
+    parser.add_argument("--num_sim_steps_before_collecting_data", type=int, default=100)
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()
 
@@ -762,7 +760,7 @@ if __name__ == "__main__":
     if args.get_nerf_training_data:
         get_nerf_training_data(
             Obj,
-            num_steps_before_collecting=args.num_steps_before_collecting,
+            num_sim_steps_before_collecting_data=args.num_sim_steps_before_collecting_data,
             viewer=args.viewer,
             overwrite=args.overwrite,
         )

@@ -24,8 +24,7 @@ def load_nerf(workspace, bound, scale, obj_translation):
     args = parser.parse_args(
         [
             "--workspace",
-            # f"{root_dir}/nerf_checkpoints/{workspace}",
-            f"{root_dir}/torch-ngp/isaac_banana_nerf",
+            f"{root_dir}/nerf_checkpoints/{workspace}",
             "--fp16",
             "--test",
             "--bound",
@@ -193,12 +192,6 @@ class RigidObject:
             env, actor, self.force_sensor_idx
         )
 
-        # SET_DESIRED_EXTENT = True
-        # if SET_DESIRED_EXTENT:
-        #     max_len = max(self.gt_mesh.extents)
-        #     desired_max_len = 10.0
-        #     desired_scale = desired_max_len / max_len
-        #     self.gym.set_actor_scale(env, actor, desired_scale)
         if hasattr(self, "mesh_scale"):
             print(f"Setting mesh scale to {self.mesh_scale}")
             self.gym.set_actor_scale(env, actor, self.mesh_scale)

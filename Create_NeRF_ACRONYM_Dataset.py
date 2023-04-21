@@ -229,72 +229,8 @@ def plot_obj(obj_filepath, scale=1.0, offset=None, color="lightpink"):
         scene=dict(xaxis=dict(title="X"), yaxis=dict(title="Y"), zaxis=dict(title="Z")),
         showlegend=True,
         title=f"Mesh: {os.path.basename(obj_filepath)} ({coordinates})",
-    )
-
-    # Create the figure
-    fig = go.Figure(data=[mesh], layout=layout)
-
-    # Return the figure
-    return fig
-
-
-# %%
-import trimesh
-import numpy as np
-from scipy.spatial.transform import Rotation
-@localscope.mfc
-def plot_obj(obj_filepath, scale=1.0, offset=None, color="lightpink", rotation_offset=None):
-    if offset is None:
-        offset = np.zeros(3)
-
-    # Read in the OBJ file
-    with open(obj_filepath, "r") as f:
-        lines = f.readlines()
-
-    # Extract the vertex coordinates and faces from the OBJ file
-    vertices = []
-    faces = []
-    for line in lines:
-        if line.startswith("v "):
-            vertex = [float(i) * scale for i in line.split()[1:4]]
-            vertices.append(vertex)
-        elif line.startswith("f "):
-            face = [int(i.split("/")[0]) - 1 for i in line.split()[1:4]]
-            faces.append(face)
-
-    # Convert the vertex coordinates and faces to numpy arrays
-    vertices = np.array(vertices)
-    faces = np.array(faces)
-
-    assert len(vertices.shape) == 2 and vertices.shape[1] == 3
-    assert len(faces.shape) == 2 and faces.shape[1] == 3
-
-    vertices += offset.reshape(1, 3)
-
-    # Apply rotation offset
-    if rotation_offset is not None:
-        r = Rotation.from_quat(rotation_offset)
-        vertices = r.apply(vertices)
-
-    # Create the mesh3d trace
-    mesh = go.Mesh3d(
-        x=vertices[:, 0],
-        y=vertices[:, 1],
-        z=vertices[:, 2],
-        i=faces[:, 0],
-        j=faces[:, 1],
-        k=faces[:, 2],
-        color=color,
-        opacity=0.5,
-        name=f"Mesh: {os.path.basename(obj_filepath)}",
-    )
-
-    # Create the layout
-    coordinates = "Object Coordinates" if np.all(offset == 0) else "Isaac Coordinates"
-    layout = go.Layout(
-        scene=dict(xaxis=dict(title="X"), yaxis=dict(title="Y"), zaxis=dict(title="Z")),
-        showlegend=True,
-        title=f"Mesh: {os.path.basename(obj_filepath)} ({coordinates})",
+        width=800,
+        height=800
     )
 
     # Create the figure
@@ -753,12 +689,8 @@ assets_dir_filepath = os.path.join(root_dir, "assets")
 objects_dir_filepath = os.path.join(assets_dir_filepath, "objects")
 acronym_dir_filepath = "/juno/u/tylerlum/github_repos/acronym/data/grasps"
 
-
 for selected_obj in tqdm(objs):
-    # TODO HACK
-    if "Mug_10f" not in selected_obj.workspace:
-        continue
-
+    
     # Prepare filenames
     nerf_model_workspace = "isaac_" + selected_obj.workspace
     acronym_data_filepath = os.path.join(acronym_dir_filepath, selected_obj.acronym_file)
@@ -805,10 +737,6 @@ for selected_obj in tqdm(objs):
     assert(num_grasps == grasp_successes.shape[0])
 
     for grasp_idx in range(grasp_transforms.shape[0]):
-        # TODO REMOVE
-        if grasp_idx < 3:
-            continue
-
         # Create plot of mesh
         fig = plot_obj(obj_filepath, scale=mesh_scale, offset=obj_offset)
         mesh_centroid_scatter = get_mesh_centroid_scatter(

@@ -125,7 +125,7 @@ class TriFingerEnv:
 
         # configure sim
         sim_params = gymapi.SimParams()
-        sim_params.dt = 1.0 / 6000.0  # HACK TODO
+        sim_params.dt = 1.0 / 60  # HACK TODO
 
         sim_params.up_axis = gymapi.UP_AXIS_Z
         sim_params.gravity = (
@@ -136,7 +136,7 @@ class TriFingerEnv:
 
         sim_params.physx.solver_type = 1
         sim_params.physx.num_position_iterations = 6
-        sim_params.physx.num_velocity_iterations = 0
+        sim_params.physx.num_velocity_iterations = 2
         sim_params.physx.num_threads = self.args.num_threads
         sim_params.physx.use_gpu = self.args.use_gpu
         # sim_params.physx.use_gpu = True
@@ -195,7 +195,7 @@ class TriFingerEnv:
         else:
             self.robot = Mock()
 
-        self.setup_stage(env)
+        # self.setup_stage(env)
 
         if Obj is not None:
             self.object = Obj(self.gym, self.sim, self.env)
@@ -432,18 +432,21 @@ class TriFingerEnv:
         self.gym.refresh_rigid_body_state_tensor(self.sim)
 
     def step_gym(self):
-        print("Forcing object to be in place")
-        print(f"self.object.rb_states.shape = {self.object.rb_states.shape}")
-        self.object.rb_states[0, 0] = self.object.object_start_pos.x
-        self.object.rb_states[0, 1] = self.object.object_start_pos.y
-        self.object.rb_states[0, 2] = self.object.object_start_pos.z
+        FORCE_OBJ_NOT_MOVE = True
+        if FORCE_OBJ_NOT_MOVE:
+            print("Forcing object to be in place")
+            self.object.rb_states[0, 0] = self.object.object_start_pos.x
+            self.object.rb_states[0, 1] = self.object.object_start_pos.y
+            self.object.rb_states[0, 2] = self.object.object_start_pos.z
 
-        for i in range(3, 13):
-            if i == 6:
-                self.object.rb_states[0, i] = 1.0
-            else:
-                self.object.rb_states[0, i] = 0.0
-        self.gym.set_rigid_body_state_tensor(self.sim, gymtorch.unwrap_tensor(self.object.rb_states_all))
+            for i in range(3, 13):
+                if i == 6:
+                    self.object.rb_states[0, i] = 1.0
+                else:
+                    self.object.rb_states[0, i] = 0.0
+            self.gym.set_rigid_body_state_tensor(
+                self.sim, gymtorch.unwrap_tensor(self.object.rb_states_all)
+            )
 
         self.gym.simulate(self.sim)
         self.gym.fetch_results(self.sim, True)
@@ -681,6 +684,19 @@ def get_nerf_training_data(Obj, num_steps_before_collecting, viewer, overwrite):
         if Obj is not None:
             print(f"tf.object.position = {tf.object.position}")
             print(f"tf.object.orientation = {tf.object.orientation}")
+            start_pos = torch.tensor(
+                [
+                    tf.object.object_start_pos.x,
+                    tf.object.object_start_pos.y,
+                    tf.object.object_start_pos.z,
+                ]
+            )
+            print(f"tf.object.object_start_pos = {start_pos}")
+            change_in_pos = torch.norm(tf.object.position - start_pos)
+            print(f"change_in_pos = {change_in_pos}")
+            if change_in_pos > 0.001:
+                print("WARNING: Object has moved!")
+
             print()
 
     # name = "blank" if Obj is None else Obj.name

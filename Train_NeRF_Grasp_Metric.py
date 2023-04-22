@@ -13,6 +13,7 @@
 #     name: python3
 # ---
 
+# %%
 
 # %% [markdown]
 # # Imports
@@ -33,6 +34,7 @@ from omegaconf import OmegaConf
 import sys
 from hydra import compose, initialize
 from hydra.core.config_store import ConfigStore
+from omegaconf import MISSING
 
 # %%
 # # Notebook Setup
@@ -84,7 +86,7 @@ class Config:
 
 # %%
 config_store = ConfigStore.instance()
-config_store.store(name="config", node=Config)
+config_store.store(name="config_store", node=Config)
 
 
 # %% [markdown]
@@ -99,13 +101,14 @@ else:
 
 
 # %%
-def get_config() -> Config:
-    with initialize(config_path="Train_NeRF_Grasp_Metric_cfg"):
+@localscope.mfc
+def get_config(arguments) -> Config:
+    with initialize(version_base="1.1", config_path="Train_NeRF_Grasp_Metric_cfg"):
         cfg = compose(config_name="config", overrides=arguments)
         return cfg
 
 
-cfg = get_config()
+cfg = get_config(arguments=arguments)
 
 # %% [markdown]
 # # Setup Workspace and Wandb Logging
@@ -127,12 +130,9 @@ wandb.init(
     name=run_name,
     group=cfg.wandb.group if len(cfg.wandb.group) > 0 else None,
     job_type=cfg.wandb.job_type if len(cfg.wandb.job_type) > 0 else None,
-    config=OmegaConf.to_container(cfg),
+    config=OmegaConf.to_container(cfg, throw_on_missing=True),
     reinit=True,
 )
-
-# %%
-cfg.data.frac_train
 
 # %% [markdown]
 # # Load In Data
@@ -140,10 +140,6 @@ cfg.data.frac_train
 # %%
 # CONSTANTS AND PARAMS
 ROOT_DIR = "/juno/u/tylerlum/github_repos/nerf_grasping"
-VAL_FRAC, TEST_FRAC = 0.1, 0.1
-
-INPUT_DATASET_DIR = os.path.join(ROOT_DIR, "nerf_acronym_grasp_success_dataset")
-TRAIN_FRAC = 1 - VAL_FRAC - TEST_FRAC
 RANDOM_SEED = 42
 BATCH_SIZE = 32
 DATA_LOADER_NUM_WORKERS = 4
@@ -180,10 +176,10 @@ class NeRFGrid_To_GraspSuccess_Dataset(Dataset):
 
 
 # %%
-full_dataset = NeRFGrid_To_GraspSuccess_Dataset(INPUT_DATASET_DIR)
+full_dataset = NeRFGrid_To_GraspSuccess_Dataset(os.path.join(ROOT_DIR, cfg.data.input_dataset_dir))
 train_dataset, val_dataset, test_dataset = random_split(
     full_dataset,
-    [TRAIN_FRAC, VAL_FRAC, TEST_FRAC],
+    [cfg.data.frac_train, cfg.data.frac_val, cfg.data.frac_test],
     generator=torch.Generator().manual_seed(RANDOM_SEED),
 )
 

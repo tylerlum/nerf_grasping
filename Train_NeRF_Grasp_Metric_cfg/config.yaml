@@ -5,6 +5,7 @@ defaults:
 data:
   frac_val: 0.1
   frac_test: 0.1
+  input_dataset_dir: "nerf_acronym_grasp_success_dataset"
   frac_train: ${eval:1 - ${.frac_val} - ${.frac_test}}
 
 wandb:

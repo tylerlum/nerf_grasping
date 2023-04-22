@@ -704,13 +704,14 @@ class Timer:
         self.get_current_time_fn = get_current_time_fn
 
     def __enter__(self):
-        self.start = self.get_current_time_fn()
+        # self.start = self.get_current_time_fn()
         return self
 
     def __exit__(self, type, value, traceback):
-        print(
-            f"Time elapsed for '{self.name}' is {self.get_current_time_fn() - self.start} seconds"
-        )
+        return
+        # print(
+        #     f"Time elapsed for '{self.name}' is {self.get_current_time_fn() - self.start} seconds"
+        # )
 
 
 # %% [markdown]
@@ -738,7 +739,9 @@ if SAVE_DATASET:
     os.makedirs(output_dataset_dir)
 
 
-for selected_obj in tqdm(objs):
+for selected_obj in (pbar := tqdm(objs)):
+    pbar.set_description(f"{selected_obj.workspace}")
+    
     # Prepare filenames
     nerf_model_workspace = "isaac_" + selected_obj.workspace
     acronym_data_filepath = os.path.join(
@@ -800,20 +803,19 @@ for selected_obj in tqdm(objs):
     num_grasps = grasp_transforms.shape[0]
     assert num_grasps == grasp_successes.shape[0]
 
-    for grasp_idx in range(num_grasps):
+    for grasp_idx in tqdm(range(num_grasps)):
+
         # Get grasp query points
         with Timer("Get grasp query points obj frame"):
             grasp_query_points_object_frame = get_transformed_points(
                 grasp_query_points_grasp_frame.reshape(-1, 3),
                 grasp_transforms[grasp_idx],
-            ).reshape(grasp_query_points_grasp_frame.shape)
+            )
 
         with Timer("Get grasp query points nerf frame"):
-            grasp_query_points_isaac_frame = (grasp_query_points_object_frame.reshape(
-                -1, 3
-            ) + obj_offset.reshape(1, 3)).reshape(grasp_query_points_object_frame.shape)
+            grasp_query_points_isaac_frame = grasp_query_points_object_frame + obj_offset.reshape(1, 3)
             grasp_query_points_nerf_frame = ig_to_nerf(
-                grasp_query_points_isaac_frame.reshape(-1, 3), return_tensor=True
+                grasp_query_points_isaac_frame, return_tensor=True
             )
 
         with Timer("Get grasp query densities"):
@@ -822,14 +824,15 @@ for selected_obj in tqdm(objs):
                 query_points=grasp_query_points_nerf_frame.reshape(1, -1, 3)
                 .float()
                 .cuda(),
-            ).reshape(grasp_query_points_object_frame.shape[:-1])
+            )
 
         with Timer("Convert grasp query densities to numpy"):
             grasp_query_nerf_densities = (
                 grasp_query_nerf_densities_torch.detach().cpu().numpy()
             )
-
-        assert grasp_query_nerf_densities.shape == (NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
+        
+        with Timer("Reshape nerf densities"):
+            grasp_query_nerf_densities = grasp_query_nerf_densities.reshape(NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
 
         # Save dataset
         if SAVE_DATASET:
@@ -838,17 +841,15 @@ for selected_obj in tqdm(objs):
             mesh_centroid_isaac_frame = mesh_centroid_obj_frame + obj_offset
             grasp_query_points_wrt_centroid = (
                 grasp_query_points_isaac_frame
-                - mesh_centroid_isaac_frame.reshape(1, 1, 1, 3)
+                - mesh_centroid_isaac_frame.reshape(1, 3)
             )
 
             # Merge together grasp_query_points_wrt_centroid and grasp_query_nerf_densities
             # So goes from (83, 21, 37, 3) and (83, 21, 37) to (83, 21, 37, 4)
             nerf_grid_input = np.concatenate(
                 [
-                    grasp_query_points_wrt_centroid,
-                    grasp_query_nerf_densities.reshape(
-                        *grasp_query_nerf_densities.shape, 1
-                    ),
+                    grasp_query_points_wrt_centroid.reshape(NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z, 3),
+                    grasp_query_nerf_densities.reshape(NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z, 1),
                 ],
                 axis=-1,
             )
@@ -858,7 +859,7 @@ for selected_obj in tqdm(objs):
             assert nerf_grid_input.shape == (4, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
 
             with open(output_filepath, "wb") as f:
-                print(f"Saving to {output_filepath}...")
+                # print(f"Saving to {output_filepath}...")
                 pickle.dump(
                     obj={
                         "nerf_grid_input": nerf_grid_input,
@@ -870,7 +871,7 @@ for selected_obj in tqdm(objs):
                     },
                     file=f,
                 )
-                print("Done saving")
+                # print("Done saving")
 
         # Create plot of mesh
         if CREATE_PLOTS:
@@ -971,8 +972,5 @@ for selected_obj in tqdm(objs):
 
 # %% [markdown]
 # # Visualize Results
-
-# %%
-grasp_query_points_isaac_frame.shape
 
 # %%

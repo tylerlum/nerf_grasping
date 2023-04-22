@@ -1,0 +1,18 @@
+defaults:
+  - _self_
+
+# Data
+data:
+  frac_val: 0.1
+  frac_test: 0.1
+  frac_train: ${eval:1 - ${.frac_val} - ${.frac_test}}
+
+wandb:
+  entity: "tylerlum"
+  project: "NeRF_Grasp_Metric_V1"
+  name: ""
+
+  group: ""
+  job_type: ""
+
+

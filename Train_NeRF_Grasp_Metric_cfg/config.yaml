@@ -1,22 +1,17 @@
 defaults:
   - _self_
 
-# _target_: "__main__.Config"
 
 # Data
 data:
-  # _target_: "__main__.DataConfig"
   frac_val: 0.1
   frac_test: 0.1
-  # frac_train: ${eval:1 - ${.frac_val} - ${.frac_test}}
-  frac_train: ${eval:"'hi'"}
-  # frac_train: "Hellow"
-  # frac_train: 0.1
+  frac_train: ${eval:1 - ${.frac_val} - ${.frac_test}}
+  # frac_train: 0.9
 
   input_dataset_dir: "nerf_acronym_grasp_success_dataset"
 
 wandb:
-  # _target_: "__main__.WandbConfig"
   entity: "tylerlum"
   project: "NeRF_Grasp_Metric_V1"
   name: ""

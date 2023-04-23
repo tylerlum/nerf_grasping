@@ -18,23 +18,23 @@
 # %% [markdown]
 # # Imports
 
-# %%
-from datetime import datetime
-from dataclasses import dataclass
-import wandb
-import plotly.graph_objects as go
-from localscope import localscope
 import os
 import pickle
-
-from torch.utils.data import DataLoader, Dataset, random_split
-import torch
-import numpy as np
-from omegaconf import OmegaConf
 import sys
+from dataclasses import dataclass
+from datetime import datetime
+
+import numpy as np
+import plotly.graph_objects as go
+import torch
 from hydra import compose, initialize
 from hydra.core.config_store import ConfigStore
-from omegaconf import MISSING
+from hydra.utils import instantiate
+from localscope import localscope
+from omegaconf import OmegaConf
+from torch.utils.data import DataLoader, Dataset, random_split
+
+import wandb
 
 # %%
 # # Notebook Setup
@@ -64,29 +64,31 @@ def is_notebook() -> bool:
 # %%
 @dataclass
 class WandbConfig:
-    entity: str = MISSING
-    project: str = MISSING
-    name: str = MISSING
-    group: str = MISSING
-    job_type: str = MISSING
+    entity: str
+    project: str
+    name: str
+    group: str
+    job_type: str
 
 
 @dataclass
 class DataConfig:
-    frac_val: float = MISSING
-    frac_test: float = MISSING
-    frac_train: float = MISSING
+    frac_val: float
+    frac_test: float
+    # frac_train: float
+
+    input_dataset_dir: str
 
 
 @dataclass
 class Config:
-    wandb: WandbConfig = MISSING
-    data: DataConfig = MISSING
+    wandb: WandbConfig
+    data: DataConfig
 
 
 # %%
 config_store = ConfigStore.instance()
-config_store.store(name="config_store", node=Config)
+config_store.store(name="config", node=Config)
 
 
 # %% [markdown]
@@ -101,15 +103,22 @@ else:
 
 
 # %%
-@localscope.mfc
-def get_structured_config(arguments) -> Config:
-    with initialize(version_base="1.1", config_path="Train_NeRF_Grasp_Metric_cfg"):
-        raw_cfg = compose(config_name="config", overrides=arguments)
-        structured_cfg: Config = OmegaConf.structured(raw_cfg)
-        return structured_cfg
+with initialize(version_base="1.1", config_path="Train_NeRF_Grasp_Metric_cfg"):
+    raw_cfg = compose(config_name="config", overrides=arguments, strict=True)
 
+cfg = instantiate(raw_cfg)
 
-cfg: Config = get_structured_config(arguments=arguments)
+# %%
+cfg.data
+
+# %%
+type(cfg.data)
+
+# %%
+type(cfg.wandb)
+
+# %%
+OmegaConf.to_container(cfg, throw_on_missing=True)
 
 # %% [markdown]
 # # Setup Workspace and Wandb Logging
@@ -177,7 +186,9 @@ class NeRFGrid_To_GraspSuccess_Dataset(Dataset):
 
 
 # %%
-full_dataset = NeRFGrid_To_GraspSuccess_Dataset(os.path.join(ROOT_DIR, cfg.data.input_dataset_dir))
+full_dataset = NeRFGrid_To_GraspSuccess_Dataset(
+    os.path.join(ROOT_DIR, cfg.data.input_dataset_dir)
+)
 train_dataset, val_dataset, test_dataset = random_split(
     full_dataset,
     [cfg.data.frac_train, cfg.data.frac_val, cfg.data.frac_test],
@@ -293,4 +304,3 @@ for nerf_grid_input, grasp_success in train_loader:
     fig.update_layout(legend_orientation="h")
     fig.show()
     break
-

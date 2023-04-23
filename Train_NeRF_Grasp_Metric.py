@@ -618,22 +618,20 @@ depth = 5
 # summary(nerf_to_grasp_success_model, input_size=(example_batch_size, *input_example_shape), device=device, depth=depth)
 
 example_batch_nerf_input, _ = next(iter(train_loader))
+example_batch_nerf_input = example_batch_nerf_input.to(device)
 print(f"example_batch_nerf_input.shape = {example_batch_nerf_input.shape}")
+
 summary(
     nerf_to_grasp_success_model,
-    input_data=example_batch_nerf_input.to(device),
+    input_data=example_batch_nerf_input,
     device=device,
     depth=depth,
 )
 
 # %%
-nerf_to_grasp_success_model(example_batch_nerf_input)
-
-# %%
 example_batch_nerf_input, _ = next(iter(train_loader))
 example_batch_nerf_input = example_batch_nerf_input.requires_grad_(True).to(device)
 example_grasp_success_prediction = nerf_to_grasp_success_model(example_batch_nerf_input)
-
 
 dot = make_dot(
     example_grasp_success_prediction,

@@ -739,6 +739,10 @@ if SAVE_DATASET:
     os.makedirs(output_dataset_dir)
 
 
+# TODO: REMOVE
+objs = objs[:3]
+print("WARNING: Only keeping first 3 objs")
+
 for selected_obj in (pbar := tqdm(objs)):
     pbar.set_description(f"{selected_obj.workspace}")
     

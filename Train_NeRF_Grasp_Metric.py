@@ -791,7 +791,7 @@ def iterate_through_dataloader(
             )
             forward_pass_time_taken = time.time() - start_forward_pass_time
 
-            # BC
+            # CE
             start_ce_loss_time = time.time()
             ce_loss = ce_loss_fn(input=grasp_success_logits, target=grasp_successes)
             ce_loss_time = time.time() - start_ce_loss_time
@@ -855,7 +855,7 @@ def iterate_through_dataloader(
                     f"Dataload: {round(1000*dataload_time_taken, 0)} ms",
                     f"Batch: {round(1000*batch_time_taken, 0)} ms",
                     f"Forward: {round(1000*forward_pass_time_taken, 0)} ms",
-                    f"CE Loss: {round(1000*ce_loss_time, 0)} ms",
+                    # f"CE Loss: {round(1000*ce_loss_time, 0)} ms",
                     f"Backward: {round(1000*backward_pass_time_taken, 0)} ms",
                     # f"Grad Log: {round(1000*grad_log_time_taken, 0)} ms",
                     # f"Grad Clip: {round(1000*grad_clip_time_taken, 0)} ms",
@@ -905,11 +905,21 @@ def plot_confusion_matrix(
         ground_truth = grasp_successes.tolist()
         preds, ground_truths = preds + pred, ground_truths + ground_truth
 
-    preds = nerf_to_grasp_success_model()
     wandb_log_dict[
         f"{phase.name.lower()}_confusion_matrix"
     ] = wandb.plot.confusion_matrix(
-        preds=preds, y_true=ground_truths, class_names=["Fail", "Success"]
+        preds=preds,
+        y_true=ground_truths,
+        class_names=["Fail", "Success"],
+        title=f"{phase.name.lower()} Confusion Matrix",
+    )
+
+    preds = torch.tensor(preds)
+    ground_truths = torch.tensor(ground_truths)
+    num_correct = torch.sum(preds == ground_truths).item()
+    num_datapoints = len(preds)
+    wandb_log_dict[f"{phase.name.lower()}_accuracy"] = (
+        num_correct / num_datapoints * 100
     )
 
 
@@ -939,8 +949,7 @@ def run_training_loop(
 
         # Save checkpoint
         start_save_checkpoint_time = time.time()
-        # if epoch % cfg.save_checkpoint_freq == 0:
-        if False:
+        if epoch % cfg.save_checkpoint_freq == 0:
             save_checkpoint(
                 workspace_dir_path=workspace_dir_path,
                 epoch=epoch,
@@ -951,8 +960,7 @@ def run_training_loop(
 
         # Create confusion matrix
         start_confusion_matrix_time = time.time()
-        # if epoch % cfg.confusion_matrix_freq == 0:
-        if False:
+        if epoch % cfg.confusion_matrix_freq == 0:
             plot_confusion_matrix(
                 phase=Phase.TRAIN,
                 dataloader=train_loader,
@@ -962,7 +970,7 @@ def run_training_loop(
             )
             plot_confusion_matrix(
                 phase=Phase.VAL,
-                dataloader=train_loader,
+                dataloader=val_loader,
                 nerf_to_grasp_success_model=nerf_to_grasp_success_model,
                 device=device,
                 wandb_log_dict=wandb_log_dict,

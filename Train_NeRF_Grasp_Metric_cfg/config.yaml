@@ -15,8 +15,8 @@ data:
   input_dataset_dir: "nerf_acronym_grasp_success_dataset"
 
 training:
-  batch_size: 32
-  dataloader_num_workers: 4
+  batch_size: 64
+  dataloader_num_workers: 8
   grad_clip_val: 1.0
   lr: 1e-4
   n_epochs: 20

@@ -19,7 +19,7 @@ training:
   dataloader_num_workers: 4
 
 neural_network:
-  conv_channels: [16, 32, 64, 128, 256]
+  conv_channels: [16, 32]
   pool_type: "MAX"
   dropout_prob: 0.0
   conv_output_to_1d: "FLATTEN"

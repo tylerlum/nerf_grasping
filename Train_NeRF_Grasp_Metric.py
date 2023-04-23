@@ -13,20 +13,21 @@
 #     name: python3
 # ---
 
-# %%
-
 # %% [markdown]
 # # Imports
 
-from typing import List
 import os
-import random
 import pickle
+import random
 import sys
 from dataclasses import dataclass
 from datetime import datetime
+from enum import Enum, auto
+from typing import List
 
+import hydra
 import numpy as np
+import omegaconf
 import plotly.graph_objects as go
 import torch
 import torch.nn as nn
@@ -34,9 +35,10 @@ from hydra import compose, initialize
 from hydra.core.config_store import ConfigStore
 from hydra.utils import instantiate
 from localscope import localscope
-from omegaconf import OmegaConf, DictConfig, MISSING
+from omegaconf import MISSING, OmegaConf
 from torch.utils.data import DataLoader, Dataset, random_split
-from enum import Enum, auto
+from torchinfo import summary
+from torchviz import make_dot
 from tqdm import tqdm
 
 import wandb
@@ -124,9 +126,8 @@ class Config:
 
 
 # %%
-# Do I need this?
-# config_store = ConfigStore.instance()
-# config_store.store(name="config", node=Config)
+config_store = ConfigStore.instance()
+config_store.store(name="config", node=Config)
 
 
 # %% [markdown]
@@ -141,12 +142,20 @@ else:
 
 
 # %%
-with initialize(version_base="1.1", config_path="Train_NeRF_Grasp_Metric_cfg"):
-    raw_cfg = compose(config_name="config", overrides=arguments)
+from hydra.errors import ConfigCompositionException
+from omegaconf.errors import ValidationError
 
-# %%
-# Runtime type-checking
-cfg: Config = instantiate(raw_cfg)
+try:
+    with initialize(version_base="1.1", config_path="Train_NeRF_Grasp_Metric_cfg"):
+        raw_cfg = compose(config_name="config", overrides=arguments)
+
+    # Runtime type-checking
+    cfg: Config = instantiate(raw_cfg)
+except ConfigCompositionException as e:
+    if isinstance(e.__cause__, ValidationError):
+        print("Catching exception to give concise summary")
+        print(f"e.__cause__ = {e.__cause__}")
+    exit()
 
 # %%
 print(f"Config:\n{OmegaConf.to_yaml(cfg)}")
@@ -198,7 +207,9 @@ wandb.init(
 # %%
 # CONSTANTS AND PARAMS
 ROOT_DIR = "/juno/u/tylerlum/github_repos/nerf_grasping"
-RANDOM_SEED = 42
+NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z = 83, 21, 37
+N_CHANNELS = 4
+input_example_shape = (N_CHANNELS, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
 
 
 # %%
@@ -217,18 +228,18 @@ class NeRFGrid_To_GraspSuccess_Dataset(Dataset):
     def __len__(self):
         return len(self.filepaths)
 
-    @localscope.mfc
+    @localscope.mfc(allowed=["NUM_PTS_X", "NUM_PTS_Y", "NUM_PTS_Z"])
     def __getitem__(self, idx):
         # Read pickle ifle
         with open(self.filepaths[idx], "rb") as f:
             data_dict = pickle.load(f)
 
-        nerf_grid_input = data_dict["nerf_grid_input"]
-        grasp_success = np.array([data_dict["grasp_success"]])
-        assert nerf_grid_input.shape == (4, 83, 21, 37)
-        assert grasp_success.shape == (1,)
+        nerf_grid_input = torch.from_numpy(data_dict["nerf_grid_input"]).float()
+        grasp_success = torch.from_numpy(np.array(data_dict["grasp_success"])).int()
+        assert nerf_grid_input.shape == (4, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
+        assert grasp_success.shape == ()
 
-        return data_dict["nerf_grid_input"], data_dict["grasp_success"]
+        return nerf_grid_input, grasp_success
 
 
 # %%
@@ -238,7 +249,7 @@ full_dataset = NeRFGrid_To_GraspSuccess_Dataset(
 train_dataset, val_dataset, test_dataset = random_split(
     full_dataset,
     [cfg.data.frac_train, cfg.data.frac_val, cfg.data.frac_test],
-    generator=torch.Generator().manual_seed(RANDOM_SEED),
+    generator=torch.Generator().manual_seed(cfg.random_seed),
 )
 
 # %%
@@ -326,13 +337,19 @@ def get_colored_points_scatter(points, colors):
 # %%
 idx_to_visualize = 0
 for nerf_grid_input, grasp_success in train_loader:
-    assert nerf_grid_input.shape == (cfg.training.batch_size, 4, 83, 21, 37)
+    assert nerf_grid_input.shape == (
+        cfg.training.batch_size,
+        4,
+        NUM_PTS_X,
+        NUM_PTS_Y,
+        NUM_PTS_Z,
+    )
     assert grasp_success.shape == (cfg.training.batch_size,)
 
     nerf_densities = nerf_grid_input[idx_to_visualize, -1, :, :, :]
-    assert nerf_densities.shape == (83, 21, 37)
+    assert nerf_densities.shape == (NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
     nerf_points = nerf_grid_input[idx_to_visualize, :3:, :, :].permute(1, 2, 3, 0)
-    assert nerf_points.shape == (83, 21, 37, 3)
+    assert nerf_points.shape == (NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z, 3)
     isaac_origin_lines = get_isaac_origin_lines()
     colored_points_scatter = get_colored_points_scatter(
         nerf_points.reshape(-1, 3), nerf_densities.reshape(-1)
@@ -358,13 +375,19 @@ for nerf_grid_input, grasp_success in train_loader:
 # %%
 idx_to_visualize = 0
 for nerf_grid_input, grasp_success in val_loader:
-    assert nerf_grid_input.shape == (cfg.training.batch_size, 4, 83, 21, 37)
+    assert nerf_grid_input.shape == (
+        cfg.training.batch_size,
+        4,
+        NUM_PTS_X,
+        NUM_PTS_Y,
+        NUM_PTS_Z,
+    )
     assert grasp_success.shape == (cfg.training.batch_size,)
 
     nerf_densities = nerf_grid_input[idx_to_visualize, -1, :, :, :]
-    assert nerf_densities.shape == (83, 21, 37)
+    assert nerf_densities.shape == (NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
     nerf_points = nerf_grid_input[idx_to_visualize, :3:, :, :].permute(1, 2, 3, 0)
-    assert nerf_points.shape == (83, 21, 37, 3)
+    assert nerf_points.shape == (NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z, 3)
     isaac_origin_lines = get_isaac_origin_lines()
     colored_points_scatter = get_colored_points_scatter(
         nerf_points.reshape(-1, 3), nerf_densities.reshape(-1)
@@ -533,7 +556,6 @@ def conv_encoder(
 
 # %%
 class NeRF_to_Grasp_Success_Model(nn.Module):
-    @localscope.mfc
     def __init__(self, input_example_shape, neural_network_config: NeuralNetworkConfig):
         super().__init__()
         self.input_example_shape = input_example_shape
@@ -556,9 +578,10 @@ class NeRF_to_Grasp_Success_Model(nn.Module):
         )
         _, conv_output_dim = conv_output.shape
 
+        N_CLASSES = 2
         self.mlp = mlp(
             num_inputs=conv_output_dim,
-            num_outputs=1,
+            num_outputs=N_CLASSES,
             hidden_layers=neural_network_config.mlp_hidden_layers,
         )
 
@@ -574,7 +597,53 @@ class NeRF_to_Grasp_Success_Model(nn.Module):
 
     @localscope.mfc
     def get_probability(self, x):
-        return torch.sigmoid(self.get_logit(x))
+        return nn.functional.softmax(self.get_logit(x), dim=-1)
 
 
+# %%
+device = "cuda" if torch.cuda.is_available() else "cpu"
+
+nerf_to_grasp_success_model = NeRF_to_Grasp_Success_Model(
+    input_example_shape=input_example_shape,
+    neural_network_config=cfg.neural_network,
+).to(device)
+
+# %%
+print(f"nerf_to_grasp_success_model = {nerf_to_grasp_success_model}")
+
+# %%
+depth = 5
+
+# example_batch_size = 1
+# summary(nerf_to_grasp_success_model, input_size=(example_batch_size, *input_example_shape), device=device, depth=depth)
+
+example_batch_nerf_input, _ = next(iter(train_loader))
+print(f"example_batch_nerf_input.shape = {example_batch_nerf_input.shape}")
+summary(
+    nerf_to_grasp_success_model,
+    input_data=example_batch_nerf_input.to(device),
+    device=device,
+    depth=depth,
+)
+
+# %%
+nerf_to_grasp_success_model(example_batch_nerf_input)
+
+# %%
+example_batch_nerf_input, _ = next(iter(train_loader))
+example_batch_nerf_input = example_batch_nerf_input.requires_grad_(True).to(device)
+example_grasp_success_prediction = nerf_to_grasp_success_model(example_batch_nerf_input)
+
+
+dot = make_dot(
+    example_grasp_success_prediction,
+    params={
+        **dict(nerf_to_grasp_success_model.named_parameters()),
+        **{"NERF INPUT": example_batch_nerf_input},
+        **{"GRASP SUCCESS": example_grasp_success_prediction},
+    },
+)
+
+# %%
+nerf_to_grasp_success_model.conv(example_batch_nerf_input)
 # %%

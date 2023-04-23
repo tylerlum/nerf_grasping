@@ -22,7 +22,7 @@ training:
   n_epochs: 20
   log_grad: True
   val_freq: 5
-  save_model_freq: 5
+  save_checkpoint_freq: 5
 
 neural_network:
   conv_channels: [16, 32]

@@ -44,6 +44,7 @@ from torchviz import make_dot
 from tqdm import tqdm
 
 import wandb
+from wandb.util import generate_id
 
 # %%
 # # Notebook Setup
@@ -98,7 +99,7 @@ class TrainingConfig:
     n_epochs: int = MISSING
     log_grad: bool = MISSING
     val_freq: int = MISSING
-    save_model_freq: int = MISSING
+    save_checkpoint_freq: int = MISSING
 
 
 class ConvOutputTo1D(Enum):
@@ -184,15 +185,30 @@ def set_seed(seed):
 
 set_seed(cfg.random_seed)
 
-
 # %% [markdown]
-# # Setup Workspace and Wandb Logging
+# # Setup Workspace and/or Load From Checkpoint
+
+
+# %%
+@localscope.mfc
+def load_checkpoint(workspace_dir_path: str) -> Optional[Dict[str, Any]]:
+    checkpoint_filepaths = sorted(
+        [
+            filename
+            for filename in os.listdir(workspace_dir_path)
+            if filename.endswith(".pt")
+        ]
+    )
+    if len(checkpoint_filepaths) == 0:
+        print("No checkpoint found")
+        return None
+    return torch.load(checkpoint_filepaths[-1])
+
 
 # %%
 time_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-run_name = f"{cfg.wandb.name}_{time_str}" if len(cfg.wandb.name) > 0 else time_str
 
-# %%
+# Set up workspace
 workspace_root_dir = "Train_NeRF_Grasp_Metric_workspaces"
 if not os.path.exists(workspace_root_dir):
     os.makedirs(workspace_root_dir)
@@ -200,23 +216,42 @@ if not os.path.exists(workspace_root_dir):
 # If defined wandb.name, use that
 # Else use time_str
 workspace_dir = cfg.wandb.name if len(cfg.wandb.name) > 0 else time_str
-workspace_dir_path = os.path.join(workspace_root_dir, run_name)
+workspace_dir_path = os.path.join(workspace_root_dir, workspace_dir)
 
 if not os.path.exists(workspace_dir_path):
     print(f"Creating workspace directory at {workspace_dir_path}")
     os.makedirs(workspace_dir_path)
     print("Done creating workspace directory")
+    checkpoint = None
 else:
     print(f"Workspace directory already exists at {workspace_dir_path}")
+    checkpoint = load_checkpoint(workspace_dir_path)
+
+wandb_run_id = (
+    checkpoint["wandb_run_id"] if checkpoint is not None else generate_id()
+)
+
+# %% [markdown]
+# # Setup Wandb Logging
 
 # %%
+wandb_run_name = f"{cfg.wandb.name}_{time_str}" if len(cfg.wandb.name) > 0 else time_str
+
+# %%
+# Add to config
+wandb_config = OmegaConf.to_container(cfg, throw_on_missing=True)
+wandb_config["wandb_run_id"] = wandb_run_id
+wandb_config["workspace_dir_path"] = workspace_dir_path
+
 wandb.init(
     entity=cfg.wandb.entity,
     project=cfg.wandb.project,
-    name=run_name,
+    name=wandb_run_name,
     group=cfg.wandb.group if len(cfg.wandb.group) > 0 else None,
     job_type=cfg.wandb.job_type if len(cfg.wandb.job_type) > 0 else None,
-    config=OmegaConf.to_container(cfg, throw_on_missing=True),
+    config=wandb_config,
+    id=wandb_run_id,
+    resume="allow",
     reinit=True,
 )
 
@@ -627,8 +662,27 @@ nerf_to_grasp_success_model = NeRF_to_Grasp_Success_Model(
     neural_network_config=cfg.neural_network,
 ).to(device)
 
+optimizer = torch.optim.AdamW(
+    params=nerf_to_grasp_success_model.parameters(),
+    lr=cfg.training.lr,
+)
+
+start_epoch = 0
+
+# %%
+if checkpoint is not None:
+    print("Loading checkpoint...")
+    nerf_to_grasp_success_model.load_state_dict(
+        checkpoint["nerf_to_grasp_success_model"]
+    )
+    optimizer.load_state_dict(checkpoint["optimizer"])
+    start_epoch = checkpoint["epoch"]
+    print("Done loading checkpoint")
+
+
 # %%
 print(f"nerf_to_grasp_success_model = {nerf_to_grasp_success_model}")
+print(f"optimizer = {optimizer}")
 
 # %%
 depth = 5
@@ -661,6 +715,29 @@ dot = make_dot(
     },
 )
 dot
+
+
+@localscope.mfc
+def save_checkpoint(
+    workspace_dir_path: str,
+    epoch: int,
+    nerf_to_grasp_success_model: NeRF_to_Grasp_Success_Model,
+    optimizer: torch.optim.Optimizer,
+    wandb_run_id: str,
+):
+    checkpoint_filepath = os.path.join(workspace_dir_path, f"checkpoint_{epoch:04}.pt")
+    print(f"Saving checkpoint to {checkpoint_filepath}")
+    torch.save(
+        {
+            "epoch": epoch,
+            "nerf_to_grasp_success_model": nerf_to_grasp_success_model.state_dict(),
+            "optimizer": optimizer.state_dict(),
+            "wandb_run_id": wandb_run_id,
+        },
+        checkpoint_filepath,
+    )
+    print("Done saving checkpoint")
+
 
 # %% [markdown]
 # # Training
@@ -811,20 +888,28 @@ def run_training_loop(
     nerf_to_grasp_success_model: NeRF_to_Grasp_Success_Model,
     device: str,
     optimizer: torch.optim.Optimizer,
+    start_epoch: int,
 ):
     training_loop_base_description = "Training Loop"
     for epoch in (
-        pbar := tqdm(range(cfg.n_epochs), desc=training_loop_base_description)
+        pbar := tqdm(
+            range(start_epoch, cfg.n_epochs), desc=training_loop_base_description
+        )
     ):
         wandb_log_dict = {}
         wandb_log_dict["epoch"] = epoch
 
         # Save model
-        start_save_model_time = time.time()
-        if epoch % cfg.save_model_freq == 0:
-            # TODO
-            print("TODO: Save model")
-        save_model_time_taken = time.time() - start_save_model_time
+        start_save_checkpoint_time = time.time()
+        if epoch % cfg.save_checkpoint_freq == 0:
+            save_checkpoint(
+                workspace_dir_path=workspace_dir_path,
+                epoch=epoch,
+                nerf_to_grasp_success_model=nerf_to_grasp_success_model,
+                optimizer=optimizer,
+                wandb_run_id=wandb_run_id,
+            )
+        save_checkpoint_time_taken = time.time() - start_save_checkpoint_time
 
         # Train
         start_train_time = time.time()
@@ -857,18 +942,13 @@ def run_training_loop(
         description = " | ".join(
             [
                 training_loop_base_description,
-                f"Save: {round(save_model_time_taken, 3)} s",
+                f"Save: {round(save_checkpoint_time_taken, 3)} s",
                 f"Train: {round(train_time_taken, 3)} s",
                 f"Val: {round(val_time_taken, 3)} s",
             ]
         )
         pbar.set_description(description)
 
-
-optimizer = torch.optim.AdamW(
-    params=nerf_to_grasp_success_model.parameters(),
-    lr=cfg.training.lr,
-)
 
 wandb.watch(nerf_to_grasp_success_model, log="gradients", log_freq=100)
 
@@ -879,6 +959,7 @@ run_training_loop(
     nerf_to_grasp_success_model=nerf_to_grasp_success_model,
     device=device,
     optimizer=optimizer,
+    start_epoch=start_epoch,
 )
 
 # %% [markdown]
@@ -903,8 +984,9 @@ wandb.log(wandb_log_dict)
 
 # %%
 save_checkpoint(
-    model=nerf_to_grasp_success_model,
-    optimizer=optimizer,
+    workspace_dir_path=workspace_dir_path,
     epoch=cfg.training.n_epochs,
-    save_dir=cfg.training.save_dir,
+    nerf_to_grasp_success_model=nerf_to_grasp_success_model,
+    optimizer=optimizer,
+    wandb_run_id=wandb_run_id,
 )

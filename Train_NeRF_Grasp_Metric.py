@@ -16,6 +16,7 @@
 # %% [markdown]
 # # Imports
 
+# %%
 import time
 import os
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
@@ -45,7 +46,7 @@ from tqdm import tqdm
 import wandb
 from wandb.util import generate_id
 
-# %%
+# %% [markdown]
 # # Notebook Setup
 
 # %%
@@ -682,6 +683,9 @@ optimizer = torch.optim.AdamW(
 
 start_epoch = 0
 
+# %% [markdown]
+# # Load Checkpoint
+
 # %%
 checkpoint = load_checkpoint(checkpoint_workspace_dir_path)
 if checkpoint is not None:
@@ -693,6 +697,9 @@ if checkpoint is not None:
     start_epoch = checkpoint["epoch"]
     print("Done loading checkpoint")
 
+
+# %% [markdown]
+# # Visualize Neural Network Model
 
 # %%
 print(f"nerf_to_grasp_success_model = {nerf_to_grasp_success_model}")
@@ -725,6 +732,9 @@ dot = make_dot(
 )
 dot
 
+
+# %% [markdown]
+# # Training Setup
 
 # %%
 @localscope.mfc
@@ -928,6 +938,7 @@ def plot_confusion_matrix(
 # # Training
 
 
+# %%
 @localscope.mfc
 def run_training_loop(
     cfg: TrainingConfig,

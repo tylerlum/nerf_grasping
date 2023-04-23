@@ -18,7 +18,9 @@
 # %% [markdown]
 # # Imports
 
+from typing import List
 import os
+import random
 import pickle
 import sys
 from dataclasses import dataclass
@@ -27,12 +29,15 @@ from datetime import datetime
 import numpy as np
 import plotly.graph_objects as go
 import torch
+import torch.nn as nn
 from hydra import compose, initialize
 from hydra.core.config_store import ConfigStore
 from hydra.utils import instantiate
 from localscope import localscope
 from omegaconf import OmegaConf, DictConfig, MISSING
 from torch.utils.data import DataLoader, Dataset, random_split
+from enum import Enum, auto
+from tqdm import tqdm
 
 import wandb
 
@@ -81,12 +86,45 @@ class DataConfig:
 
 
 @dataclass
+class TrainingConfig:
+    batch_size: int = MISSING
+    dataloader_num_workers: int = MISSING
+
+
+class ConvOutputTo1D(Enum):
+    FLATTEN = auto()  # (N, C, H, W) -> (N, C*H*W)
+    AVG_POOL_SPATIAL = auto()  # (N, C, H, W) -> (N, C, 1, 1) -> (N, C)
+    AVG_POOL_CHANNEL = auto()  # (N, C, H, W) -> (N, 1, H, W) -> (N, H*W)
+    MAX_POOL_SPATIAL = auto()  # (N, C, H, W) -> (N, C, 1, 1) -> (N, C)
+    MAX_POOL_CHANNEL = auto()  # (N, C, H, W) -> (N, 1, H, W) -> (N, H*W)
+
+
+class PoolType(Enum):
+    MAX = auto()
+    AVG = auto()
+
+
+@dataclass
+class NeuralNetworkConfig:
+    conv_channels: List[int] = MISSING
+    pool_type: PoolType = MISSING
+    dropout_prob: float = MISSING
+    conv_output_to_1d: ConvOutputTo1D = MISSING
+
+    mlp_hidden_layers: List[int] = MISSING
+
+
+@dataclass
 class Config:
     data: DataConfig = MISSING
     wandb: WandbConfig = MISSING
+    training: TrainingConfig = MISSING
+    neural_network: NeuralNetworkConfig = MISSING
+    random_seed: int = MISSING
 
 
 # %%
+# Do I need this?
 # config_store = ConfigStore.instance()
 # config_store.store(name="config", node=Config)
 
@@ -106,19 +144,29 @@ else:
 with initialize(version_base="1.1", config_path="Train_NeRF_Grasp_Metric_cfg"):
     raw_cfg = compose(config_name="config", overrides=arguments)
 
-cfg = instantiate(raw_cfg)
+# %%
+# Runtime type-checking
+cfg: Config = instantiate(raw_cfg)
 
 # %%
-cfg.data
+print(f"Config:\n{OmegaConf.to_yaml(cfg)}")
+
+# %% [markdown]
+# # Set Random Seed
+
 
 # %%
-type(cfg.data)
+@localscope.mfc
+def set_seed(seed):
+    random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    np.random.seed(seed)
+    torch.set_num_threads(1)
 
-# %%
-type(cfg.wandb)
 
-# %%
-OmegaConf.to_container(cfg, throw_on_missing=True)
+set_seed(cfg.random_seed)
+
 
 # %% [markdown]
 # # Setup Workspace and Wandb Logging
@@ -145,14 +193,12 @@ wandb.init(
 )
 
 # %% [markdown]
-# # Load In Data
+# # Dataset and Dataloader
 
 # %%
 # CONSTANTS AND PARAMS
 ROOT_DIR = "/juno/u/tylerlum/github_repos/nerf_grasping"
 RANDOM_SEED = 42
-BATCH_SIZE = 32
-DATA_LOADER_NUM_WORKERS = 4
 
 
 # %%
@@ -203,25 +249,29 @@ print(f"Test dataset size: {len(test_dataset)}")
 # %%
 train_loader = DataLoader(
     train_dataset,
-    batch_size=BATCH_SIZE,
+    batch_size=cfg.training.batch_size,
     shuffle=True,
     pin_memory=True,
-    num_workers=DATA_LOADER_NUM_WORKERS,
+    num_workers=cfg.training.dataloader_num_workers,
 )
 val_loader = DataLoader(
     train_dataset,
-    batch_size=BATCH_SIZE,
-    shuffle=True,
+    batch_size=cfg.training.batch_size,
+    shuffle=False,
     pin_memory=True,
-    num_workers=DATA_LOADER_NUM_WORKERS,
+    num_workers=cfg.training.dataloader_num_workers,
 )
 test_loader = DataLoader(
     train_dataset,
-    batch_size=BATCH_SIZE,
-    shuffle=True,
+    batch_size=cfg.training.batch_size,
+    shuffle=False,
     pin_memory=True,
-    num_workers=DATA_LOADER_NUM_WORKERS,
+    num_workers=cfg.training.dataloader_num_workers,
 )
+
+
+# %% [markdown]
+# # Visualize Dataset
 
 
 # %%
@@ -276,8 +326,8 @@ def get_colored_points_scatter(points, colors):
 # %%
 idx_to_visualize = 0
 for nerf_grid_input, grasp_success in train_loader:
-    assert nerf_grid_input.shape == (BATCH_SIZE, 4, 83, 21, 37)
-    assert grasp_success.shape == (BATCH_SIZE,)
+    assert nerf_grid_input.shape == (cfg.training.batch_size, 4, 83, 21, 37)
+    assert grasp_success.shape == (cfg.training.batch_size,)
 
     nerf_densities = nerf_grid_input[idx_to_visualize, -1, :, :, :]
     assert nerf_densities.shape == (83, 21, 37)
@@ -304,3 +354,227 @@ for nerf_grid_input, grasp_success in train_loader:
     fig.update_layout(legend_orientation="h")
     fig.show()
     break
+
+# %%
+idx_to_visualize = 0
+for nerf_grid_input, grasp_success in val_loader:
+    assert nerf_grid_input.shape == (cfg.training.batch_size, 4, 83, 21, 37)
+    assert grasp_success.shape == (cfg.training.batch_size,)
+
+    nerf_densities = nerf_grid_input[idx_to_visualize, -1, :, :, :]
+    assert nerf_densities.shape == (83, 21, 37)
+    nerf_points = nerf_grid_input[idx_to_visualize, :3:, :, :].permute(1, 2, 3, 0)
+    assert nerf_points.shape == (83, 21, 37, 3)
+    isaac_origin_lines = get_isaac_origin_lines()
+    colored_points_scatter = get_colored_points_scatter(
+        nerf_points.reshape(-1, 3), nerf_densities.reshape(-1)
+    )
+
+    layout = go.Layout(
+        scene=dict(xaxis=dict(title="X"), yaxis=dict(title="Y"), zaxis=dict(title="Z")),
+        showlegend=True,
+        title=f"Validation datapoint: success={grasp_success[idx_to_visualize].item()}",
+        width=800,
+        height=800,
+    )
+
+    # Create the figure
+    fig = go.Figure(layout=layout)
+    for line in isaac_origin_lines:
+        fig.add_trace(line)
+    fig.add_trace(colored_points_scatter)
+    fig.update_layout(legend_orientation="h")
+    fig.show()
+    break
+
+# %% [markdown]
+# # Create Neural Network Model
+
+
+# %%
+@localscope.mfc
+def mlp(
+    num_inputs,
+    num_outputs,
+    hidden_layers,
+    activation=nn.ReLU,
+    output_activation=nn.Identity,
+):
+    layers = []
+    layer_sizes = [num_inputs] + hidden_layers + [num_outputs]
+    for i in range(len(layer_sizes) - 1):
+        act = activation if i < len(layer_sizes) - 2 else output_activation
+        layers += [nn.Linear(layer_sizes[i], layer_sizes[i + 1]), act()]
+    return nn.Sequential(*layers)
+
+
+class Mean(nn.Module):
+    def __init__(self, dim):
+        super().__init__()
+        self.dim = dim
+
+    def forward(self, x):
+        return torch.mean(x, dim=self.dim)
+
+
+class Max(nn.Module):
+    def __init__(self, dim):
+        super().__init__()
+        self.dim = dim
+
+    def forward(self, x):
+        return torch.max(x, dim=self.dim)
+
+
+@localscope.mfc
+def conv_encoder(
+    input_shape,
+    conv_channels,
+    pool_type=PoolType.MAX,
+    dropout_prob=0.0,
+    conv_output_to_1d=ConvOutputTo1D.FLATTEN,
+    activation=nn.ReLU,
+):
+    # Input: Either (n_channels, n_dims) or (n_channels, height, width) or (n_channels, depth, height, width)
+
+    # Validate input
+    assert 2 <= len(input_shape) <= 4
+    n_input_channels = input_shape[0]
+    n_spatial_dims = len(input_shape[1:])
+
+    # Layers for different input sizes
+    n_spatial_dims_to_conv_layer_map = {1: nn.Conv1d, 2: nn.Conv2d, 3: nn.Conv3d}
+    n_spatial_dims_to_maxpool_layer_map = {
+        1: nn.MaxPool1d,
+        2: nn.MaxPool2d,
+        3: nn.MaxPool3d,
+    }
+    n_spatial_dims_to_avgpool_layer_map = {
+        1: nn.AvgPool1d,
+        2: nn.AvgPool2d,
+        3: nn.AvgPool3d,
+    }
+    n_spatial_dims_to_dropout_layer_map = {
+        # 1: nn.Dropout1d,  # Not in some versions of torch
+        2: nn.Dropout2d,
+        3: nn.Dropout3d,
+    }
+    n_spatial_dims_to_adaptivemaxpool_layer_map = {
+        1: nn.AdaptiveMaxPool1d,
+        2: nn.AdaptiveMaxPool2d,
+        3: nn.AdaptiveMaxPool3d,
+    }
+    n_spatial_dims_to_adaptiveavgpool_layer_map = {
+        1: nn.AdaptiveMaxPool1d,
+        2: nn.AdaptiveMaxPool2d,
+        3: nn.AdaptiveMaxPool3d,
+    }
+
+    # Setup layer types
+    conv_layer = n_spatial_dims_to_conv_layer_map[n_spatial_dims]
+    if pool_type == PoolType.MAX:
+        pool_layer = n_spatial_dims_to_maxpool_layer_map[n_spatial_dims]
+    elif pool_type == PoolType.AVG:
+        pool_layer = n_spatial_dims_to_avgpool_layer_map[n_spatial_dims]
+    else:
+        raise ValueError(f"Invalid pool_type = {pool_type}")
+    dropout_layer = n_spatial_dims_to_dropout_layer_map[n_spatial_dims]
+
+    # Conv layers
+    layers = []
+    n_channels = [n_input_channels] + conv_channels
+    for i in range(len(n_channels) - 1):
+        layers += [
+            conv_layer(
+                in_channels=n_channels[i],
+                out_channels=n_channels[i + 1],
+                kernel_size=3,
+                stride=1,
+                padding="same",
+            ),
+            activation(),
+            pool_layer(kernel_size=2, stride=2),
+        ]
+        if dropout_prob != 0.0:
+            layers += [dropout_layer(p=dropout_prob)]
+
+    # Convert from (n_channels, X) => (Y,)
+    if conv_output_to_1d == ConvOutputTo1D.FLATTEN:
+        layers.append(nn.Flatten(start_dim=1))
+    elif conv_output_to_1d == ConvOutputTo1D.AVG_POOL_SPATIAL:
+        adaptiveavgpool_layer = n_spatial_dims_to_adaptiveavgpool_layer_map[
+            n_spatial_dims
+        ]
+        layers.append(
+            adaptiveavgpool_layer(output_size=tuple([1 for _ in range(n_spatial_dims)]))
+        )
+        layers.append(nn.Flatten(start_dim=1))
+    elif conv_output_to_1d == ConvOutputTo1D.MAX_POOL_SPATIAL:
+        adaptivemaxpool_layer = n_spatial_dims_to_adaptivemaxpool_layer_map[
+            n_spatial_dims
+        ]
+        layers.append(
+            adaptivemaxpool_layer(output_size=tuple([1 for _ in range(n_spatial_dims)]))
+        )
+        layers.append(nn.Flatten(start_dim=1))
+    elif conv_output_to_1d == ConvOutputTo1D.AVG_POOL_CHANNEL:
+        channel_dim = 1
+        layers.append(Mean(dim=channel_dim))
+        layers.append(nn.Flatten(start_dim=1))
+    elif conv_output_to_1d == ConvOutputTo1D.MAX_POOL_CHANNEL:
+        channel_dim = 1
+        layers.append(Max(dim=channel_dim))
+        layers.append(nn.Flatten(start_dim=1))
+    else:
+        raise ValueError(f"Invalid conv_output_to_1d = {conv_output_to_1d}")
+
+    return nn.Sequential(*layers)
+
+
+# %%
+class NeRF_to_Grasp_Success_Model(nn.Module):
+    @localscope.mfc
+    def __init__(self, input_example_shape, neural_network_config: NeuralNetworkConfig):
+        super().__init__()
+        self.input_example_shape = input_example_shape
+        self.neural_network_config = neural_network_config
+
+        self.conv = conv_encoder(
+            input_shape=input_example_shape,
+            conv_channels=neural_network_config.conv_channels,
+            pool_type=neural_network_config.pool_type,
+            dropout_prob=neural_network_config.dropout_prob,
+            conv_output_to_1d=neural_network_config.conv_output_to_1d,
+        )
+
+        # Get conv output shape
+        example_batch_size = 1
+        example_input = torch.zeros((example_batch_size, *input_example_shape))
+        conv_output = self.conv(example_input)
+        assert (
+            len(conv_output.shape) == 2 and conv_output.shape[0] == example_batch_size
+        )
+        _, conv_output_dim = conv_output.shape
+
+        self.mlp = mlp(
+            num_inputs=conv_output_dim,
+            num_outputs=1,
+            hidden_layers=neural_network_config.mlp_hidden_layers,
+        )
+
+    @localscope.mfc
+    def forward(self, x):
+        x = self.conv(x)
+        x = self.mlp(x)
+        return x
+
+    @localscope.mfc
+    def get_logit(self, x):
+        return self.forward(x)
+
+    @localscope.mfc
+    def get_probability(self, x):
+        return torch.sigmoid(self.get_logit(x))
+
+
+# %%

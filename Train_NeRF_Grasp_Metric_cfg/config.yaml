@@ -1,14 +1,6 @@
 defaults:
   - _self_
 
-
-# Data
-data:
-  frac_val: 0.1
-  frac_test: 0.1
-  frac_train: ${eval:1 - ${.frac_val} - ${.frac_test}}
-  input_dataset_dir: "nerf_acronym_grasp_success_dataset"
-
 wandb:
   entity: "tylerlum"
   project: "NeRF_Grasp_Metric_V1"
@@ -16,4 +8,22 @@ wandb:
   group: ""
   job_type: ""
 
+data:
+  frac_val: 0.1
+  frac_test: 0.1
+  frac_train: ${eval:1 - ${.frac_val} - ${.frac_test}}
+  input_dataset_dir: "nerf_acronym_grasp_success_dataset"
+
+training:
+  batch_size: 32
+  dataloader_num_workers: 4
+
+neural_network:
+  conv_channels: [16, 32, 64, 128, 256]
+  pool_type: "MAX"
+  dropout_prob: 0.0
+  conv_output_to_1d: "FLATTEN"
+  mlp_hidden_layers: [256, 256, 256]
+
+random_seed: 42
 

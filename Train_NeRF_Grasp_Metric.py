@@ -191,7 +191,7 @@ def set_seed(seed):
     torch.set_num_threads(1)
 
 
-set_seed(cfg.random_seed)
+set_seed(cfg.random_seed)  
 
 # %% [markdown]
 # # Setup Checkpoint Workspace and Maybe Resume Previous Run

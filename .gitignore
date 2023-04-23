@@ -160,3 +160,6 @@ nerf_acronym_grasp_success_dataset*
 
 # workspaces
 Train_NeRF_Grasp_Metric_workspaces*
+
+# asset
+assets/objects/

@@ -31,7 +31,7 @@ from hydra import compose, initialize
 from hydra.core.config_store import ConfigStore
 from hydra.utils import instantiate
 from localscope import localscope
-from omegaconf import OmegaConf
+from omegaconf import OmegaConf, DictConfig, MISSING
 from torch.utils.data import DataLoader, Dataset, random_split
 
 import wandb
@@ -64,31 +64,31 @@ def is_notebook() -> bool:
 # %%
 @dataclass
 class WandbConfig:
-    entity: str
-    project: str
-    name: str
-    group: str
-    job_type: str
+    entity: str = MISSING
+    project: str = MISSING
+    name: str = MISSING
+    group: str = MISSING
+    job_type: str = MISSING
 
 
 @dataclass
 class DataConfig:
-    frac_val: float
-    frac_test: float
-    # frac_train: float
+    frac_val: float = MISSING
+    frac_test: float = MISSING
+    frac_train: float = MISSING
 
-    input_dataset_dir: str
+    input_dataset_dir: str = MISSING
 
 
 @dataclass
 class Config:
-    wandb: WandbConfig
-    data: DataConfig
+    data: DataConfig = MISSING
+    wandb: WandbConfig = MISSING
 
 
 # %%
-config_store = ConfigStore.instance()
-config_store.store(name="config", node=Config)
+# config_store = ConfigStore.instance()
+# config_store.store(name="config", node=Config)
 
 
 # %% [markdown]
@@ -104,7 +104,7 @@ else:
 
 # %%
 with initialize(version_base="1.1", config_path="Train_NeRF_Grasp_Metric_cfg"):
-    raw_cfg = compose(config_name="config", overrides=arguments, strict=True)
+    raw_cfg = compose(config_name="config", overrides=arguments)
 
 cfg = instantiate(raw_cfg)
 

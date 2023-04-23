@@ -23,6 +23,7 @@ training:
   log_grad: True
   val_freq: 5
   save_checkpoint_freq: 5
+  confusion_matrix_freq: 5
 
 neural_network:
   conv_channels: [16, 32]

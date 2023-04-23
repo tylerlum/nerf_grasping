@@ -18,6 +18,7 @@
 
 import time
 import os
+from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
 import pickle
 import random
 import sys
@@ -100,6 +101,7 @@ class TrainingConfig:
     log_grad: bool = MISSING
     val_freq: int = MISSING
     save_checkpoint_freq: int = MISSING
+    confusion_matrix_freq: int = MISSING
 
 
 class ConvOutputTo1D(Enum):
@@ -218,18 +220,23 @@ if not os.path.exists(workspace_root_dir):
 workspace_dir = cfg.wandb.name if len(cfg.wandb.name) > 0 else time_str
 workspace_dir_path = os.path.join(workspace_root_dir, workspace_dir)
 
+wandb_run_id_filepath = os.path.join(workspace_dir_path, "wandb_run_id.txt")
 if not os.path.exists(workspace_dir_path):
     print(f"Creating workspace directory at {workspace_dir_path}")
     os.makedirs(workspace_dir_path)
     print("Done creating workspace directory")
-    checkpoint = None
+
+    wandb_run_id = generate_id()
+    print(f"Saving wandb_run_id = {wandb_run_id} to {wandb_run_id_filepath}")
+    with open(wandb_run_id_filepath, "w") as f:
+        f.write(wandb_run_id)
+    print("Done saving wandb_run_id")
 else:
     print(f"Workspace directory already exists at {workspace_dir_path}")
-    checkpoint = load_checkpoint(workspace_dir_path)
-
-wandb_run_id = (
-    checkpoint["wandb_run_id"] if checkpoint is not None else generate_id()
-)
+    print(f"Loading wandb_run_id from {wandb_run_id_filepath}")
+    with open(wandb_run_id_filepath, "r") as f:
+        wandb_run_id = f.read()
+    print(f"Done loading wandb_run_id = {wandb_run_id}")
 
 # %% [markdown]
 # # Setup Wandb Logging
@@ -651,7 +658,7 @@ class NeRF_to_Grasp_Success_Model(nn.Module):
 
     @localscope.mfc
     def get_success_probability(self, x):
-        return nn.functional.softmax(self.get_success_logits(x), dim=-1)[:, -1]
+        return nn.functional.softmax(self.get_success_logits(x), dim=-1)
 
 
 # %%
@@ -670,6 +677,7 @@ optimizer = torch.optim.AdamW(
 start_epoch = 0
 
 # %%
+checkpoint = load_checkpoint(workspace_dir_path)
 if checkpoint is not None:
     print("Loading checkpoint...")
     nerf_to_grasp_success_model.load_state_dict(
@@ -723,7 +731,6 @@ def save_checkpoint(
     epoch: int,
     nerf_to_grasp_success_model: NeRF_to_Grasp_Success_Model,
     optimizer: torch.optim.Optimizer,
-    wandb_run_id: str,
 ):
     checkpoint_filepath = os.path.join(workspace_dir_path, f"checkpoint_{epoch:04}.pt")
     print(f"Saving checkpoint to {checkpoint_filepath}")
@@ -732,15 +739,11 @@ def save_checkpoint(
             "epoch": epoch,
             "nerf_to_grasp_success_model": nerf_to_grasp_success_model.state_dict(),
             "optimizer": optimizer.state_dict(),
-            "wandb_run_id": wandb_run_id,
         },
         checkpoint_filepath,
     )
     print("Done saving checkpoint")
 
-
-# %% [markdown]
-# # Training
 
 # %%
 
@@ -880,6 +883,40 @@ def iterate_through_dataloader(
     return
 
 
+# %%
+@localscope.mfc
+def plot_confusion_matrix(
+    phase: Phase,
+    dataloader: DataLoader,
+    nerf_to_grasp_success_model: NeRF_to_Grasp_Success_Model,
+    device: str,
+    wandb_log_dict: Dict[str, Any],
+):
+    preds, ground_truths = [], []
+    for nerf_grid_inputs, grasp_successes in (pbar := tqdm(dataloader)):
+        nerf_grid_inputs = nerf_grid_inputs.to(device)
+        grasp_successes = grasp_successes.to(device)
+        pbar.set_description(f"Confusion Matrix for {phase.name.lower()}")
+        pred = (
+            nerf_to_grasp_success_model.get_success_probability(nerf_grid_inputs)
+            .argmax(axis=1)
+            .tolist()
+        )
+        ground_truth = grasp_successes.tolist()
+        preds, ground_truths = preds + pred, ground_truths + ground_truth
+
+    preds = nerf_to_grasp_success_model()
+    wandb_log_dict[
+        f"{phase.name.lower()}_confusion_matrix"
+    ] = wandb.plot.confusion_matrix(
+        preds=preds, y_true=ground_truths, class_names=["Fail", "Success"]
+    )
+
+
+# %% [markdown]
+# # Training
+
+
 @localscope.mfc
 def run_training_loop(
     cfg: TrainingConfig,
@@ -889,6 +926,7 @@ def run_training_loop(
     device: str,
     optimizer: torch.optim.Optimizer,
     start_epoch: int,
+    workspace_dir_path: str,
 ):
     training_loop_base_description = "Training Loop"
     for epoch in (
@@ -899,7 +937,7 @@ def run_training_loop(
         wandb_log_dict = {}
         wandb_log_dict["epoch"] = epoch
 
-        # Save model
+        # Save checkpoint
         start_save_checkpoint_time = time.time()
         if epoch % cfg.save_checkpoint_freq == 0:
             save_checkpoint(
@@ -907,9 +945,27 @@ def run_training_loop(
                 epoch=epoch,
                 nerf_to_grasp_success_model=nerf_to_grasp_success_model,
                 optimizer=optimizer,
-                wandb_run_id=wandb_run_id,
             )
         save_checkpoint_time_taken = time.time() - start_save_checkpoint_time
+
+        # Create confusion matrix
+        start_confusion_matrix_time = time.time()
+        if epoch % cfg.confusion_matrix_freq == 0:
+            plot_confusion_matrix(
+                phase=Phase.TRAIN,
+                dataloader=train_loader,
+                nerf_to_grasp_success_model=nerf_to_grasp_success_model,
+                device=device,
+                wandb_log_dict=wandb_log_dict,
+            )
+            plot_confusion_matrix(
+                phase=Phase.TRAIN,
+                dataloader=train_loader,
+                nerf_to_grasp_success_model=nerf_to_grasp_success_model,
+                device=device,
+                wandb_log_dict=wandb_log_dict,
+            )
+        confusion_matrix_time = time.time() - start_confusion_matrix_time
 
         # Train
         start_train_time = time.time()
@@ -943,6 +999,7 @@ def run_training_loop(
             [
                 training_loop_base_description,
                 f"Save: {round(save_checkpoint_time_taken, 3)} s",
+                f"Confusion: {round(confusion_matrix_time, 3)} s"
                 f"Train: {round(train_time_taken, 3)} s",
                 f"Val: {round(val_time_taken, 3)} s",
             ]
@@ -960,6 +1017,7 @@ run_training_loop(
     device=device,
     optimizer=optimizer,
     start_epoch=start_epoch,
+    workspace_dir_path=workspace_dir_path,
 )
 
 # %% [markdown]
@@ -977,6 +1035,15 @@ iterate_through_dataloader(
     device=device,
     wandb_log_dict=wandb_log_dict,
 )
+
+plot_confusion_matrix(
+    phase=Phase.TEST,
+    dataloader=test_loader,
+    nerf_to_grasp_success_model=nerf_to_grasp_success_model,
+    device=device,
+    wandb_log_dict=wandb_log_dict,
+)
+
 wandb.log(wandb_log_dict)
 
 # %% [markdown]
@@ -988,5 +1055,4 @@ save_checkpoint(
     epoch=cfg.training.n_epochs,
     nerf_to_grasp_success_model=nerf_to_grasp_success_model,
     optimizer=optimizer,
-    wandb_run_id=wandb_run_id,
 )

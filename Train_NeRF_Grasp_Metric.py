@@ -16,6 +16,7 @@
 # %% [markdown]
 # # Imports
 
+import time
 import os
 import pickle
 import random
@@ -23,7 +24,8 @@ import sys
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum, auto
-from typing import List
+from typing import List, Dict, Any, Optional
+from collections import defaultdict
 
 import hydra
 import numpy as np
@@ -91,6 +93,12 @@ class DataConfig:
 class TrainingConfig:
     batch_size: int = MISSING
     dataloader_num_workers: int = MISSING
+    grad_clip_val: float = MISSING
+    lr: float = MISSING
+    n_epochs: int = MISSING
+    log_grad: bool = MISSING
+    val_freq: int = MISSING
+    save_model_freq: int = MISSING
 
 
 class ConvOutputTo1D(Enum):
@@ -185,10 +193,21 @@ time_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 run_name = f"{cfg.wandb.name}_{time_str}" if len(cfg.wandb.name) > 0 else time_str
 
 # %%
-# TODO: Make workspace like in NeRF training to be able to resume
-# workspace_root_dir = "Train_NeRF_Grasp_Metric_workspaces"
-# if not os.path.exists(workspace_root_dir):
-#     os.makedirs(workspace_root_dir)
+workspace_root_dir = "Train_NeRF_Grasp_Metric_workspaces"
+if not os.path.exists(workspace_root_dir):
+    os.makedirs(workspace_root_dir)
+
+# If defined wandb.name, use that
+# Else use time_str
+workspace_dir = cfg.wandb.name if len(cfg.wandb.name) > 0 else time_str
+workspace_dir_path = os.path.join(workspace_root_dir, run_name)
+
+if not os.path.exists(workspace_dir_path):
+    print(f"Creating workspace directory at {workspace_dir_path}")
+    os.makedirs(workspace_dir_path)
+    print("Done creating workspace directory")
+else:
+    print(f"Workspace directory already exists at {workspace_dir_path}")
 
 # %%
 wandb.init(
@@ -336,19 +355,19 @@ def get_colored_points_scatter(points, colors):
 
 # %%
 idx_to_visualize = 0
-for nerf_grid_input, grasp_success in train_loader:
-    assert nerf_grid_input.shape == (
+for nerf_grid_inputs, grasp_successes in train_loader:
+    assert nerf_grid_inputs.shape == (
         cfg.training.batch_size,
         4,
         NUM_PTS_X,
         NUM_PTS_Y,
         NUM_PTS_Z,
     )
-    assert grasp_success.shape == (cfg.training.batch_size,)
+    assert grasp_successes.shape == (cfg.training.batch_size,)
 
-    nerf_densities = nerf_grid_input[idx_to_visualize, -1, :, :, :]
+    nerf_densities = nerf_grid_inputs[idx_to_visualize, -1, :, :, :]
     assert nerf_densities.shape == (NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
-    nerf_points = nerf_grid_input[idx_to_visualize, :3:, :, :].permute(1, 2, 3, 0)
+    nerf_points = nerf_grid_inputs[idx_to_visualize, :3:, :, :].permute(1, 2, 3, 0)
     assert nerf_points.shape == (NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z, 3)
     isaac_origin_lines = get_isaac_origin_lines()
     colored_points_scatter = get_colored_points_scatter(
@@ -358,7 +377,7 @@ for nerf_grid_input, grasp_success in train_loader:
     layout = go.Layout(
         scene=dict(xaxis=dict(title="X"), yaxis=dict(title="Y"), zaxis=dict(title="Z")),
         showlegend=True,
-        title=f"Training datapoint: success={grasp_success[idx_to_visualize].item()}",
+        title=f"Training datapoint: success={grasp_successes[idx_to_visualize].item()}",
         width=800,
         height=800,
     )
@@ -374,19 +393,19 @@ for nerf_grid_input, grasp_success in train_loader:
 
 # %%
 idx_to_visualize = 0
-for nerf_grid_input, grasp_success in val_loader:
-    assert nerf_grid_input.shape == (
+for nerf_grid_inputs, grasp_successes in val_loader:
+    assert nerf_grid_inputs.shape == (
         cfg.training.batch_size,
         4,
         NUM_PTS_X,
         NUM_PTS_Y,
         NUM_PTS_Z,
     )
-    assert grasp_success.shape == (cfg.training.batch_size,)
+    assert grasp_successes.shape == (cfg.training.batch_size,)
 
-    nerf_densities = nerf_grid_input[idx_to_visualize, -1, :, :, :]
+    nerf_densities = nerf_grid_inputs[idx_to_visualize, -1, :, :, :]
     assert nerf_densities.shape == (NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
-    nerf_points = nerf_grid_input[idx_to_visualize, :3:, :, :].permute(1, 2, 3, 0)
+    nerf_points = nerf_grid_inputs[idx_to_visualize, :3:, :, :].permute(1, 2, 3, 0)
     assert nerf_points.shape == (NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z, 3)
     isaac_origin_lines = get_isaac_origin_lines()
     colored_points_scatter = get_colored_points_scatter(
@@ -396,7 +415,7 @@ for nerf_grid_input, grasp_success in val_loader:
     layout = go.Layout(
         scene=dict(xaxis=dict(title="X"), yaxis=dict(title="Y"), zaxis=dict(title="Z")),
         showlegend=True,
-        title=f"Validation datapoint: success={grasp_success[idx_to_visualize].item()}",
+        title=f"Validation datapoint: success={grasp_successes[idx_to_visualize].item()}",
         width=800,
         height=800,
     )
@@ -592,12 +611,12 @@ class NeRF_to_Grasp_Success_Model(nn.Module):
         return x
 
     @localscope.mfc
-    def get_logit(self, x):
+    def get_success_logits(self, x):
         return self.forward(x)
 
     @localscope.mfc
-    def get_probability(self, x):
-        return nn.functional.softmax(self.get_logit(x), dim=-1)
+    def get_success_probability(self, x):
+        return nn.functional.softmax(self.get_success_logits(x), dim=-1)[:, -1]
 
 
 # %%
@@ -641,7 +660,251 @@ dot = make_dot(
         **{"GRASP SUCCESS": example_grasp_success_prediction},
     },
 )
+dot
+
+# %% [markdown]
+# # Training
 
 # %%
-nerf_to_grasp_success_model.conv(example_batch_nerf_input)
+
+
+class Phase(Enum):
+    TRAIN = auto()
+    VAL = auto()
+    TEST = auto()
+
+
+@localscope.mfc
+def iterate_through_dataloader(
+    phase: Phase,
+    dataloader: DataLoader,
+    nerf_to_grasp_success_model: NeRF_to_Grasp_Success_Model,
+    device: str,
+    wandb_log_dict: Dict[str, Any],
+    cfg: Optional[TrainingConfig] = None,
+    optimizer: Optional[torch.optim.Optimizer] = None,
+):
+    assert phase in [Phase.TRAIN, Phase.VAL, Phase.TEST]
+    if phase == Phase.TRAIN:
+        nerf_to_grasp_success_model.train()
+        assert cfg is not None and optimizer is not None
+    else:
+        nerf_to_grasp_success_model.eval()
+
+    ce_loss_fn = nn.CrossEntropyLoss()
+
+    with torch.set_grad_enabled(phase == Phase.TRAIN):
+        losses_dict = defaultdict(list)
+        grads_dict = defaultdict(list)
+
+        end_time = time.time()
+        for nerf_grid_inputs, grasp_successes in (pbar := tqdm(dataloader)):
+            dataload_time_taken = time.time() - end_time
+
+            # Forward pass
+            start_forward_pass_time = time.time()
+            nerf_grid_inputs = nerf_grid_inputs.to(device)
+            grasp_successes = grasp_successes.to(device)
+
+            grasp_success_logits = nerf_to_grasp_success_model.get_success_logits(
+                nerf_grid_inputs
+            )
+            forward_pass_time_taken = time.time() - start_forward_pass_time
+
+            # BC
+            start_ce_loss_time = time.time()
+            ce_loss = ce_loss_fn(input=grasp_success_logits, target=grasp_successes)
+            ce_loss_time = time.time() - start_ce_loss_time
+
+            total_loss = ce_loss
+
+            # Gather data and report
+            start_loss_log_time = time.time()
+            losses_dict[f"{phase.name.lower()}_loss"].append(total_loss.item())
+            loss_log_time_taken = time.time() - start_loss_log_time
+
+            # Gradient step
+            start_backward_pass_time = time.time()
+            if phase == Phase.TRAIN:
+                optimizer.zero_grad()
+                total_loss.backward()
+                optimizer.step()
+            backward_pass_time_taken = time.time() - start_backward_pass_time
+
+            start_grad_log_time = time.time()
+            if phase == Phase.TRAIN and cfg is not None and cfg.log_grad:
+                grad_abs_values = torch.concat(
+                    [
+                        p.grad.data.abs().flatten()
+                        for p in nerf_to_grasp_success_model.parameters()
+                        if p.grad is not None and p.requires_grad
+                    ]
+                )
+                grads_dict[f"{phase.name.lower()}_max_grad_abs_value"].append(
+                    torch.max(grad_abs_values).item()
+                )
+                grads_dict[f"{phase.name.lower()}_median_grad_abs_value"].append(
+                    torch.median(grad_abs_values).item()
+                )
+                grads_dict[f"{phase.name.lower()}_mean_grad_abs_value"].append(
+                    torch.mean(grad_abs_values).item()
+                )
+                grads_dict[f"{phase.name.lower()}_mean_grad_norm_value"].append(
+                    torch.norm(grad_abs_values).item()
+                )
+            grad_log_time_taken = time.time() - start_grad_log_time
+
+            start_grad_clip_time = time.time()
+            if (
+                phase == Phase.TRAIN
+                and cfg is not None
+                and cfg.grad_clip_val is not None
+            ):
+                torch.nn.utils.clip_grad_value_(
+                    nerf_to_grasp_success_model.parameters(),
+                    cfg.grad_clip_val,
+                )
+            grad_clip_time_taken = time.time() - start_grad_clip_time
+
+            batch_time_taken = time.time() - end_time
+
+            # Set description
+            description = " | ".join(
+                [
+                    f"{phase.name.lower()}",
+                    f"Dataload: {round(dataload_time_taken, 3)} s",
+                    f"Batch: {round(batch_time_taken, 3)} s",
+                    f"Forward: {round(forward_pass_time_taken, 3)} s",
+                    f"CE Loss: {round(ce_loss_time, 3)} s",
+                    f"Backward: {round(backward_pass_time_taken, 3)} s",
+                    f"Grad Log: {round(grad_log_time_taken, 3)} s",
+                    f"Grad Clip: {round(grad_clip_time_taken, 3)} s",
+                    f"Loss Log: {round(loss_log_time_taken, 3)} s",
+                    f"loss: {round(np.mean(losses_dict[f'{phase.name.lower()}_loss']), 5)}",
+                ]
+            )
+            pbar.set_description(description)
+            end_time = time.time()
+
+    for loss_name, losses in losses_dict.items():
+        wandb_log_dict[loss_name] = np.mean(losses)
+
+    # Extra debugging
+    for grad_name, grad_vals in grads_dict.items():
+        if "_max_" in grad_name:
+            wandb_log_dict[grad_name] = np.max(grad_vals)
+        elif "_mean_" in grad_name:
+            wandb_log_dict[grad_name] = np.mean(grad_vals)
+        elif "_median_" in grad_name:
+            wandb_log_dict[grad_name] = np.median(grad_vals)
+        else:
+            print(f"WARNING: grad_name = {grad_name} will not be logged")
+
+    return
+
+
+@localscope.mfc
+def run_training_loop(
+    cfg: TrainingConfig,
+    train_loader: DataLoader,
+    val_loader: DataLoader,
+    nerf_to_grasp_success_model: NeRF_to_Grasp_Success_Model,
+    device: str,
+    optimizer: torch.optim.Optimizer,
+):
+    training_loop_base_description = "Training Loop"
+    for epoch in (
+        pbar := tqdm(range(cfg.n_epochs), desc=training_loop_base_description)
+    ):
+        wandb_log_dict = {}
+        wandb_log_dict["epoch"] = epoch
+
+        # Save model
+        start_save_model_time = time.time()
+        if epoch % cfg.save_model_freq == 0:
+            # TODO
+            print("TODO: Save model")
+        save_model_time_taken = time.time() - start_save_model_time
+
+        # Train
+        start_train_time = time.time()
+        iterate_through_dataloader(
+            phase=Phase.TRAIN,
+            dataloader=train_loader,
+            nerf_to_grasp_success_model=nerf_to_grasp_success_model,
+            device=device,
+            wandb_log_dict=wandb_log_dict,
+            cfg=cfg,
+            optimizer=optimizer,
+        )
+        train_time_taken = time.time() - start_train_time
+
+        # Val
+        start_val_time = time.time()
+        if epoch % cfg.val_freq == 0:
+            iterate_through_dataloader(
+                phase=Phase.VAL,
+                dataloader=val_loader,
+                nerf_to_grasp_success_model=nerf_to_grasp_success_model,
+                device=device,
+                wandb_log_dict=wandb_log_dict,
+            )
+        val_time_taken = time.time() - start_val_time
+
+        wandb.log(wandb_log_dict)
+
+        # Set description
+        description = " | ".join(
+            [
+                training_loop_base_description,
+                f"Save: {round(save_model_time_taken, 3)} s",
+                f"Train: {round(train_time_taken, 3)} s",
+                f"Val: {round(val_time_taken, 3)} s",
+            ]
+        )
+        pbar.set_description(description)
+
+
+optimizer = torch.optim.AdamW(
+    params=nerf_to_grasp_success_model.parameters(),
+    lr=cfg.training.lr,
+)
+
+wandb.watch(nerf_to_grasp_success_model, log="gradients", log_freq=100)
+
+run_training_loop(
+    cfg=cfg.training,
+    train_loader=train_loader,
+    val_loader=val_loader,
+    nerf_to_grasp_success_model=nerf_to_grasp_success_model,
+    device=device,
+    optimizer=optimizer,
+)
+
+# %% [markdown]
+# # Test
+
 # %%
+nerf_to_grasp_success_model.eval()
+wandb_log_dict = {}
+print(f"Running test metrics on epoch {cfg.training.n_epochs}")
+wandb_log_dict["epoch"] = cfg.training.n_epochs
+iterate_through_dataloader(
+    phase=Phase.TEST,
+    dataloader=test_loader,
+    nerf_to_grasp_success_model=nerf_to_grasp_success_model,
+    device=device,
+    wandb_log_dict=wandb_log_dict,
+)
+wandb.log(wandb_log_dict)
+
+# %% [markdown]
+# # Save Model
+
+# %%
+save_checkpoint(
+    model=nerf_to_grasp_success_model,
+    optimizer=optimizer,
+    epoch=cfg.training.n_epochs,
+    save_dir=cfg.training.save_dir,
+)

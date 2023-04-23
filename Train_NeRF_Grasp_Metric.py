@@ -296,7 +296,7 @@ class NeRFGrid_To_GraspSuccess_Dataset(Dataset):
             data_dict = pickle.load(f)
 
         nerf_grid_input = torch.from_numpy(data_dict["nerf_grid_input"]).float()
-        grasp_success = torch.from_numpy(np.array(data_dict["grasp_success"])).int()
+        grasp_success = torch.from_numpy(np.array(data_dict["grasp_success"])).long()
         assert nerf_grid_input.shape == (4, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
         assert grasp_success.shape == ()
 
@@ -852,14 +852,14 @@ def iterate_through_dataloader(
             description = " | ".join(
                 [
                     f"{phase.name.lower()}",
-                    f"Dataload: {round(dataload_time_taken, 3)} s",
-                    f"Batch: {round(batch_time_taken, 3)} s",
-                    f"Forward: {round(forward_pass_time_taken, 3)} s",
-                    f"CE Loss: {round(ce_loss_time, 3)} s",
-                    f"Backward: {round(backward_pass_time_taken, 3)} s",
-                    f"Grad Log: {round(grad_log_time_taken, 3)} s",
-                    f"Grad Clip: {round(grad_clip_time_taken, 3)} s",
-                    f"Loss Log: {round(loss_log_time_taken, 3)} s",
+                    f"Dataload: {round(1000*dataload_time_taken, 0)} ms",
+                    f"Batch: {round(1000*batch_time_taken, 0)} ms",
+                    f"Forward: {round(1000*forward_pass_time_taken, 0)} ms",
+                    f"CE Loss: {round(1000*ce_loss_time, 0)} ms",
+                    f"Backward: {round(1000*backward_pass_time_taken, 0)} ms",
+                    # f"Grad Log: {round(1000*grad_log_time_taken, 0)} ms",
+                    # f"Grad Clip: {round(1000*grad_clip_time_taken, 0)} ms",
+                    # f"Loss Log: {round(1000*loss_log_time_taken, 0)} ms",
                     f"loss: {round(np.mean(losses_dict[f'{phase.name.lower()}_loss']), 5)}",
                 ]
             )
@@ -939,7 +939,8 @@ def run_training_loop(
 
         # Save checkpoint
         start_save_checkpoint_time = time.time()
-        if epoch % cfg.save_checkpoint_freq == 0:
+        # if epoch % cfg.save_checkpoint_freq == 0:
+        if False:
             save_checkpoint(
                 workspace_dir_path=workspace_dir_path,
                 epoch=epoch,
@@ -950,7 +951,8 @@ def run_training_loop(
 
         # Create confusion matrix
         start_confusion_matrix_time = time.time()
-        if epoch % cfg.confusion_matrix_freq == 0:
+        # if epoch % cfg.confusion_matrix_freq == 0:
+        if False:
             plot_confusion_matrix(
                 phase=Phase.TRAIN,
                 dataloader=train_loader,
@@ -959,7 +961,7 @@ def run_training_loop(
                 wandb_log_dict=wandb_log_dict,
             )
             plot_confusion_matrix(
-                phase=Phase.TRAIN,
+                phase=Phase.VAL,
                 dataloader=train_loader,
                 nerf_to_grasp_success_model=nerf_to_grasp_success_model,
                 device=device,
@@ -998,10 +1000,10 @@ def run_training_loop(
         description = " | ".join(
             [
                 training_loop_base_description,
-                f"Save: {round(save_checkpoint_time_taken, 3)} s",
-                f"Confusion: {round(confusion_matrix_time, 3)} s"
-                f"Train: {round(train_time_taken, 3)} s",
-                f"Val: {round(val_time_taken, 3)} s",
+                f"Save: {round(1000*save_checkpoint_time_taken, 0)} ms",
+                f"Confusion: {round(1000*confusion_matrix_time, 0)} ms"
+                f"Train: {round(1000*train_time_taken, 0)} ms",
+                f"Val: {round(1000*val_time_taken, 0)} ms",
             ]
         )
         pbar.set_description(description)

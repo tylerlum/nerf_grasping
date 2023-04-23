@@ -731,7 +731,7 @@ acronym_dir_filepath = "/juno/u/tylerlum/github_repos/acronym/data/grasps"
 
 CREATE_PLOTS = False
 SAVE_DATASET = True
-output_dataset_dir = os.path.join(root_dir, "nerf_acronym_grasp_success_dataset")
+output_dataset_dir = os.path.join(root_dir, "nerf_acronym_grasp_success_dataset_v2")
 
 if SAVE_DATASET:
     if os.path.exists(output_dataset_dir):
@@ -740,8 +740,8 @@ if SAVE_DATASET:
 
 
 # TODO: REMOVE
-objs = objs[:3]
-print("WARNING: Only keeping first 3 objs")
+# objs = objs[:3]
+# print("WARNING: Only keeping first 3 objs")
 
 for selected_obj in (pbar := tqdm(objs)):
     pbar.set_description(f"{selected_obj.workspace}")

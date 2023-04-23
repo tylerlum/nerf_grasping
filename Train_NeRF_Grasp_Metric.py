@@ -28,9 +28,7 @@ from enum import Enum, auto
 from typing import List, Dict, Any, Optional
 from collections import defaultdict
 
-import hydra
 import numpy as np
-import omegaconf
 import plotly.graph_objects as go
 import torch
 import torch.nn as nn
@@ -128,11 +126,19 @@ class NeuralNetworkConfig:
 
 
 @dataclass
+class CheckpointWorkspaceConfig:
+    root_dir: str = MISSING
+    leaf_dir: str = MISSING
+    force_no_resume: bool = MISSING
+
+
+@dataclass
 class Config:
     data: DataConfig = MISSING
     wandb: WandbConfig = MISSING
     training: TrainingConfig = MISSING
     neural_network: NeuralNetworkConfig = MISSING
+    checkpoint_workspace: CheckpointWorkspaceConfig = MISSING
     random_seed: int = MISSING
 
 
@@ -188,16 +194,16 @@ def set_seed(seed):
 set_seed(cfg.random_seed)
 
 # %% [markdown]
-# # Setup Workspace and/or Load From Checkpoint
+# # Setup Checkpoint Workspace and Maybe Resume Previous Run
 
 
 # %%
 @localscope.mfc
-def load_checkpoint(workspace_dir_path: str) -> Optional[Dict[str, Any]]:
+def load_checkpoint(checkpoint_workspace_dir_path: str) -> Optional[Dict[str, Any]]:
     checkpoint_filepaths = sorted(
         [
             filename
-            for filename in os.listdir(workspace_dir_path)
+            for filename in os.listdir(checkpoint_workspace_dir_path)
             if filename.endswith(".pt")
         ]
     )
@@ -208,57 +214,54 @@ def load_checkpoint(workspace_dir_path: str) -> Optional[Dict[str, Any]]:
 
 
 # %%
-time_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+# Set up checkpoint_workspace
+if not os.path.exists(cfg.checkpoint_workspace.root_dir):
+    os.makedirs(cfg.checkpoint_workspace.root_dir)
 
-# Set up workspace
-workspace_root_dir = "Train_NeRF_Grasp_Metric_workspaces"
-if not os.path.exists(workspace_root_dir):
-    os.makedirs(workspace_root_dir)
+checkpoint_workspace_dir_path = os.path.join(cfg.checkpoint_workspace.root_dir, cfg.checkpoint_workspace.leaf_dir)
 
-# If defined wandb.name, use that
-# Else use time_str
-workspace_dir = cfg.wandb.name if len(cfg.wandb.name) > 0 else time_str
-workspace_dir_path = os.path.join(workspace_root_dir, workspace_dir)
+# Remove checkpoint_workspace directory if force_no_resume is set
+if os.path.exists(checkpoint_workspace_dir_path) and cfg.checkpoint_workspace.force_no_resume:
+    print(f"force_no_resume = {cfg.checkpoint_workspace.force_no_resume}")
+    print(f"Removing checkpoint_workspace directory at {checkpoint_workspace_dir_path}")
+    os.rmdir(checkpoint_workspace_dir_path)
+    print("Done removing checkpoint_workspace directory")
 
-wandb_run_id_filepath = os.path.join(workspace_dir_path, "wandb_run_id.txt")
-if not os.path.exists(workspace_dir_path):
-    print(f"Creating workspace directory at {workspace_dir_path}")
-    os.makedirs(workspace_dir_path)
-    print("Done creating workspace directory")
+# Read wandb_run_id from checkpoint_workspace if it exists
+wandb_run_id_filepath = os.path.join(checkpoint_workspace_dir_path, "wandb_run_id.txt")
+if os.path.exists(checkpoint_workspace_dir_path):
+    print(f"checkpoint_workspace directory already exists at {checkpoint_workspace_dir_path}")
+
+    print(f"Loading wandb_run_id from {wandb_run_id_filepath}")
+    with open(wandb_run_id_filepath, "r") as f:
+        wandb_run_id = f.read()
+    print(f"Done loading wandb_run_id = {wandb_run_id}")
+
+else:
+    print(f"Creating checkpoint_workspace directory at {checkpoint_workspace_dir_path}")
+    os.makedirs(checkpoint_workspace_dir_path)
+    print("Done creating checkpoint_workspace directory")
 
     wandb_run_id = generate_id()
     print(f"Saving wandb_run_id = {wandb_run_id} to {wandb_run_id_filepath}")
     with open(wandb_run_id_filepath, "w") as f:
         f.write(wandb_run_id)
     print("Done saving wandb_run_id")
-else:
-    print(f"Workspace directory already exists at {workspace_dir_path}")
-    print(f"Loading wandb_run_id from {wandb_run_id_filepath}")
-    with open(wandb_run_id_filepath, "r") as f:
-        wandb_run_id = f.read()
-    print(f"Done loading wandb_run_id = {wandb_run_id}")
 
 # %% [markdown]
 # # Setup Wandb Logging
 
 # %%
-wandb_run_name = f"{cfg.wandb.name}_{time_str}" if len(cfg.wandb.name) > 0 else time_str
-
-# %%
 # Add to config
-wandb_config = OmegaConf.to_container(cfg, throw_on_missing=True)
-wandb_config["wandb_run_id"] = wandb_run_id
-wandb_config["workspace_dir_path"] = workspace_dir_path
-
 wandb.init(
     entity=cfg.wandb.entity,
     project=cfg.wandb.project,
-    name=wandb_run_name,
+    name=cfg.wandb.name,
     group=cfg.wandb.group if len(cfg.wandb.group) > 0 else None,
     job_type=cfg.wandb.job_type if len(cfg.wandb.job_type) > 0 else None,
-    config=wandb_config,
+    config=OmegaConf.to_container(cfg, throw_on_missing=True),
     id=wandb_run_id,
-    resume="allow",
+    resume="never" if cfg.checkpoint_workspace.force_no_resume else "allow",
     reinit=True,
 )
 
@@ -277,6 +280,7 @@ input_example_shape = (N_CHANNELS, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
 class NeRFGrid_To_GraspSuccess_Dataset(Dataset):
     @localscope.mfc
     def __init__(self, input_dataset_dir):
+        super().__init__()
         self.input_dataset_dir = input_dataset_dir
         self.filepaths = [
             os.path.join(self.input_dataset_dir, object_dir, filepath)
@@ -409,8 +413,10 @@ for nerf_grid_inputs, grasp_successes in train_loader:
 
     nerf_densities = nerf_grid_inputs[idx_to_visualize, -1, :, :, :]
     assert nerf_densities.shape == (NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
+
     nerf_points = nerf_grid_inputs[idx_to_visualize, :3:, :, :].permute(1, 2, 3, 0)
     assert nerf_points.shape == (NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z, 3)
+
     isaac_origin_lines = get_isaac_origin_lines()
     colored_points_scatter = get_colored_points_scatter(
         nerf_points.reshape(-1, 3), nerf_densities.reshape(-1)
@@ -677,7 +683,7 @@ optimizer = torch.optim.AdamW(
 start_epoch = 0
 
 # %%
-checkpoint = load_checkpoint(workspace_dir_path)
+checkpoint = load_checkpoint(checkpoint_workspace_dir_path)
 if checkpoint is not None:
     print("Loading checkpoint...")
     nerf_to_grasp_success_model.load_state_dict(
@@ -693,11 +699,6 @@ print(f"nerf_to_grasp_success_model = {nerf_to_grasp_success_model}")
 print(f"optimizer = {optimizer}")
 
 # %%
-depth = 5
-
-# example_batch_size = 1
-# summary(nerf_to_grasp_success_model, input_size=(example_batch_size, *input_example_shape), device=device, depth=depth)
-
 example_batch_nerf_input, _ = next(iter(train_loader))
 example_batch_nerf_input = example_batch_nerf_input.to(device)
 print(f"example_batch_nerf_input.shape = {example_batch_nerf_input.shape}")
@@ -706,7 +707,7 @@ summary(
     nerf_to_grasp_success_model,
     input_data=example_batch_nerf_input,
     device=device,
-    depth=depth,
+    depth=5,
 )
 
 # %%
@@ -725,14 +726,15 @@ dot = make_dot(
 dot
 
 
+# %%
 @localscope.mfc
 def save_checkpoint(
-    workspace_dir_path: str,
+    checkpoint_workspace_dir_path: str,
     epoch: int,
     nerf_to_grasp_success_model: NeRF_to_Grasp_Success_Model,
     optimizer: torch.optim.Optimizer,
 ):
-    checkpoint_filepath = os.path.join(workspace_dir_path, f"checkpoint_{epoch:04}.pt")
+    checkpoint_filepath = os.path.join(checkpoint_workspace_dir_path, f"checkpoint_{epoch:04}.pt")
     print(f"Saving checkpoint to {checkpoint_filepath}")
     torch.save(
         {
@@ -770,6 +772,7 @@ def iterate_through_dataloader(
         assert cfg is not None and optimizer is not None
     else:
         nerf_to_grasp_success_model.eval()
+        assert cfg is None and optimizer is None
 
     ce_loss_fn = nn.CrossEntropyLoss()
 
@@ -794,9 +797,8 @@ def iterate_through_dataloader(
             # CE
             start_ce_loss_time = time.time()
             ce_loss = ce_loss_fn(input=grasp_success_logits, target=grasp_successes)
-            ce_loss_time = time.time() - start_ce_loss_time
-
             total_loss = ce_loss
+            ce_loss_time = time.time() - start_ce_loss_time
 
             # Gather data and report
             start_loss_log_time = time.time()
@@ -805,7 +807,7 @@ def iterate_through_dataloader(
 
             # Gradient step
             start_backward_pass_time = time.time()
-            if phase == Phase.TRAIN:
+            if phase == Phase.TRAIN and optimizer is not None:
                 optimizer.zero_grad()
                 total_loss.backward()
                 optimizer.step()
@@ -895,7 +897,6 @@ def plot_confusion_matrix(
     preds, ground_truths = [], []
     for nerf_grid_inputs, grasp_successes in (pbar := tqdm(dataloader)):
         nerf_grid_inputs = nerf_grid_inputs.to(device)
-        grasp_successes = grasp_successes.to(device)
         pbar.set_description(f"Confusion Matrix for {phase.name.lower()}")
         pred = (
             nerf_to_grasp_success_model.get_success_probability(nerf_grid_inputs)
@@ -936,7 +937,7 @@ def run_training_loop(
     device: str,
     optimizer: torch.optim.Optimizer,
     start_epoch: int,
-    workspace_dir_path: str,
+    checkpoint_workspace_dir_path: str,
 ):
     training_loop_base_description = "Training Loop"
     for epoch in (
@@ -951,7 +952,7 @@ def run_training_loop(
         start_save_checkpoint_time = time.time()
         if epoch % cfg.save_checkpoint_freq == 0:
             save_checkpoint(
-                workspace_dir_path=workspace_dir_path,
+                checkpoint_workspace_dir_path=checkpoint_workspace_dir_path,
                 epoch=epoch,
                 nerf_to_grasp_success_model=nerf_to_grasp_success_model,
                 optimizer=optimizer,
@@ -1027,7 +1028,7 @@ run_training_loop(
     device=device,
     optimizer=optimizer,
     start_epoch=start_epoch,
-    workspace_dir_path=workspace_dir_path,
+    checkpoint_workspace_dir_path=checkpoint_workspace_dir_path,
 )
 
 # %% [markdown]
@@ -1061,7 +1062,7 @@ wandb.log(wandb_log_dict)
 
 # %%
 save_checkpoint(
-    workspace_dir_path=workspace_dir_path,
+    checkpoint_workspace_dir_path=checkpoint_workspace_dir_path,
     epoch=cfg.training.n_epochs,
     nerf_to_grasp_success_model=nerf_to_grasp_success_model,
     optimizer=optimizer,

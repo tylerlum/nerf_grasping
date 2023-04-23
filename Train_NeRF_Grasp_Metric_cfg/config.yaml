@@ -4,14 +4,14 @@ defaults:
 wandb:
   entity: "tylerlum"
   project: "NeRF_Grasp_Metric_V1"
-  name: ""
+  name: ${eval:datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}
   group: ""
   job_type: ""
 
 data:
   frac_val: 0.1
   frac_test: 0.1
-  frac_train: ${eval:1 - ${.frac_val} - ${.frac_test}}
+  frac_train: ${eval:1 - ${data.frac_val} - ${data.frac_test}}
   input_dataset_dir: "nerf_acronym_grasp_success_dataset"
 
 training:
@@ -31,6 +31,11 @@ neural_network:
   dropout_prob: 0.0
   conv_output_to_1d: "FLATTEN"
   mlp_hidden_layers: [256, 256, 256]
+
+checkpoint_workspace:
+  root_dir: "Train_NeRF_Grasp_Metric_workspaces"
+  leaf_dir: ${wandb.name}
+  force_no_resume: False
 
 random_seed: 42
 

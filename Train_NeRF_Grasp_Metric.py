@@ -64,24 +64,24 @@ def is_notebook() -> bool:
 # %%
 @dataclass
 class WandbConfig:
-    entity: str
-    project: str
-    name: str
-    group: str
-    job_type: str
+    entity: str = MISSING
+    project: str = MISSING
+    name: str = MISSING
+    group: str = MISSING
+    job_type: str = MISSING
 
 
 @dataclass
 class DataConfig:
-    frac_val: float
-    frac_test: float
-    frac_train: float
+    frac_val: float = MISSING
+    frac_test: float = MISSING
+    frac_train: float = MISSING
 
 
 @dataclass
 class Config:
-    wandb: WandbConfig
-    data: DataConfig
+    wandb: WandbConfig = MISSING
+    data: DataConfig = MISSING
 
 
 # %%
@@ -102,13 +102,14 @@ else:
 
 # %%
 @localscope.mfc
-def get_config(arguments) -> Config:
+def get_structured_config(arguments) -> Config:
     with initialize(version_base="1.1", config_path="Train_NeRF_Grasp_Metric_cfg"):
-        cfg = compose(config_name="config", overrides=arguments)
-        return cfg
+        raw_cfg = compose(config_name="config", overrides=arguments)
+        structured_cfg: Config = OmegaConf.structured(raw_cfg)
+        return structured_cfg
 
 
-cfg = get_config(arguments=arguments)
+cfg: Config = get_structured_config(arguments=arguments)
 
 # %% [markdown]
 # # Setup Workspace and Wandb Logging
@@ -293,4 +294,3 @@ for nerf_grid_input, grasp_success in train_loader:
     fig.show()
     break
 
-# %%

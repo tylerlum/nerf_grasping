@@ -39,6 +39,6 @@ neural_network:
 checkpoint_workspace:
   root_dir: "Train_NeRF_Grasp_Metric_workspaces"
   leaf_dir: ${wandb.name}
-  force_no_resume: False
+  force_no_resume: True
 
 random_seed: 42

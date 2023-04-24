@@ -36,6 +36,7 @@ import math
 import os
 import pickle
 import random
+import shutil
 import sys
 import time
 from collections import defaultdict
@@ -56,11 +57,11 @@ from hydra.utils import instantiate
 from localscope import localscope
 from omegaconf import MISSING, OmegaConf
 from sklearn.metrics import ConfusionMatrixDisplay, confusion_matrix
-from torch.utils.data import DataLoader, Dataset, random_split, Subset
+from sklearn.utils.class_weight import compute_class_weight
+from torch.utils.data import DataLoader, Dataset, Subset, random_split
 from torchinfo import summary
 from torchviz import make_dot
 from wandb.util import generate_id
-from sklearn.utils.class_weight import compute_class_weight
 
 import wandb
 
@@ -247,7 +248,7 @@ if (
 ):
     print(f"force_no_resume = {cfg.checkpoint_workspace.force_no_resume}")
     print(f"Removing checkpoint_workspace directory at {checkpoint_workspace_dir_path}")
-    os.rmdir(checkpoint_workspace_dir_path)
+    shutil.rmtree(checkpoint_workspace_dir_path)
     print("Done removing checkpoint_workspace directory")
 
 # Read wandb_run_id from checkpoint_workspace if it exists

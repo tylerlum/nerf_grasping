@@ -288,7 +288,7 @@ wandb.init(
     id=wandb_run_id,
     resume="never" if cfg.checkpoint_workspace.force_no_resume else "allow",
     reinit=True,
-    settings=wandb.Settings(start_method="fork"),  # Fix for wandb init error
+    # settings=wandb.Settings(start_method="fork"),  # Fix for wandb init error, but stops wandb from logging
 )
 
 # %% [markdown]
@@ -518,7 +518,7 @@ assert math.ceil(len(val_dataset) / cfg.data.batch_size) == len(val_loader)
 assert math.ceil(len(test_dataset) / cfg.data.batch_size) == len(test_loader)
 
 # %% [markdown]
-# # Visualize Dataset
+# # Visualize Datapoint
 
 
 # %%
@@ -647,6 +647,78 @@ for nerf_grid_inputs, grasp_successes in val_loader:
     fig.update_layout(legend_orientation="h")
     fig.show()
     break
+
+# %% [markdown]
+# # Visualize Dataset Distribution
+
+# %%
+grasp_successes_np = train_dataset.dataset.grasp_successes[
+    train_dataset.indices
+].numpy()
+
+# Plot histogram in plotly
+fig = go.Figure(
+    data=[
+        go.Histogram(
+            x=grasp_successes_np,
+            name="Train",
+            marker_color="blue",
+        ),
+    ],
+    layout=go.Layout(
+        title="Distribution of Grasp Successes",
+        xaxis=dict(title="Grasp Success"),
+        yaxis=dict(title="Frequency"),
+    ),
+)
+fig.show()
+
+
+# %%
+nerf_grid_input_mins, nerf_grid_input_means, nerf_grid_input_maxs = [], [], []
+for nerf_grid_inputs, _ in tqdm(
+    train_loader, desc="Calculating nerf_grid_inputs dataset statistics"
+):
+    nerf_grid_input_mins.append(nerf_grid_inputs.min().item())
+    nerf_grid_input_means.append(nerf_grid_inputs.mean().item())
+    nerf_grid_input_maxs.append(nerf_grid_inputs.max().item())
+nerf_grid_input_mins, nerf_grid_input_means, nerf_grid_input_maxs = (
+    np.array(nerf_grid_input_mins),
+    np.array(nerf_grid_input_means),
+    np.array(nerf_grid_input_maxs),
+)
+print(f"nerf_grid_input_min: {nerf_grid_input_mins.min()}")
+print(f"nerf_grid_input_mean: {nerf_grid_input_means.mean()}")
+print(f"nerf_grid_input_max: {nerf_grid_input_maxs.max()}")
+
+# %%
+# Plot histogram of min, mean, and max values of nerf_grid_inputs
+fig = go.Figure(
+    data=[
+        go.Histogram(
+            x=nerf_grid_input_mins,
+            name="Min",
+            marker_color="blue",
+        ),
+        go.Histogram(
+            x=nerf_grid_input_means,
+            name="Mean",
+            marker_color="orange",
+        ),
+        go.Histogram(
+            x=nerf_grid_input_maxs,
+            name="Max",
+            marker_color="green",
+        ),
+    ],
+    layout=go.Layout(
+        title="Distribution of nerf_grid_inputs (Aggregated to Fit in RAM)",
+        xaxis=dict(title="nerf_grid_input value"),
+        yaxis=dict(title="Frequency"),
+        barmode="overlay",
+    ),
+)
+fig.show()
 
 # %% [markdown]
 # # Create Neural Network Model
@@ -1223,10 +1295,7 @@ wandb.watch(nerf_to_grasp_success_model, log="gradients", log_freq=100)
 
 # %%
 @localscope.mfc
-def compute_class_weight_np(train_dataset: Subset):
-    grasp_successes_np = train_dataset.dataset.grasp_successes[
-        train_dataset.indices
-    ].numpy()
+def compute_class_weight_np(grasp_successes_np: np.ndarray):
     try:
         class_weight_np = compute_class_weight(
             class_weight="balanced",
@@ -1241,7 +1310,7 @@ def compute_class_weight_np(train_dataset: Subset):
 
 
 class_weight = (
-    torch.from_numpy(compute_class_weight_np(train_dataset)).float().to(device)
+    torch.from_numpy(compute_class_weight_np(grasp_successes_np)).float().to(device)
 )
 print(f"Class weight: {class_weight}")
 ce_loss_fn = nn.CrossEntropyLoss(weight=class_weight)

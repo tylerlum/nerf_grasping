@@ -30,7 +30,7 @@ training:
   save_confusion_matrix_on_epoch_0: True
 
 neural_network:
-  conv_channels: [16, 32]
+  conv_channels: [64, 128, 256, 512]
   pool_type: "MAX"
   dropout_prob: 0.0
   conv_output_to_1d: "AVG_POOL_SPATIAL"

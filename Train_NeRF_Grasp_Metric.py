@@ -139,7 +139,6 @@ class NeuralNetworkConfig:
     pool_type: PoolType = MISSING
     dropout_prob: float = MISSING
     conv_output_to_1d: ConvOutputTo1D = MISSING
-
     mlp_hidden_layers: List[int] = MISSING
 
 
@@ -288,6 +287,7 @@ wandb.init(
     id=wandb_run_id,
     resume="never" if cfg.checkpoint_workspace.force_no_resume else "allow",
     reinit=True,
+    settings=wandb.Settings(start_method='fork'),  # Fix for wandb init error
 )
 
 # %% [markdown]
@@ -887,20 +887,23 @@ example_batch_nerf_input, _ = next(iter(train_loader))
 example_batch_nerf_input = example_batch_nerf_input.requires_grad_(True).to(device)
 example_grasp_success_prediction = nerf_to_grasp_success_model(example_batch_nerf_input)
 
-dot = make_dot(
-    example_grasp_success_prediction,
-    params={
-        **dict(nerf_to_grasp_success_model.named_parameters()),
-        **{"NERF INPUT": example_batch_nerf_input},
-        **{"GRASP SUCCESS": example_grasp_success_prediction},
-    },
-)
-
-model_graph_filename = "model_graph.png"
-model_graph_filename_split = model_graph_filename.split(".")
-print(f"Saving to {model_graph_filename}...")
-dot.render(model_graph_filename_split[0], format=model_graph_filename_split[1])
-print(f"Done saving to {model_graph_filename}")
+dot = None
+try:
+    dot = make_dot(
+        example_grasp_success_prediction,
+        params={
+            **dict(nerf_to_grasp_success_model.named_parameters()),
+            **{"NERF INPUT": example_batch_nerf_input},
+            **{"GRASP SUCCESS": example_grasp_success_prediction},
+        },
+    )
+    model_graph_filename = "model_graph.png"
+    model_graph_filename_split = model_graph_filename.split(".")
+    print(f"Saving to {model_graph_filename}...")
+    dot.render(model_graph_filename_split[0], format=model_graph_filename_split[1])
+    print(f"Done saving to {model_graph_filename}")
+except:
+    print("Failed to save model graph to file.")
 
 dot
 

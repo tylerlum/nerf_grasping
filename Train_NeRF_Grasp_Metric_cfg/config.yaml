@@ -12,7 +12,7 @@ data:
   frac_val: 0.25
   frac_test: 0.15
   frac_train: ${eval:1 - ${data.frac_val} - ${data.frac_test}}
-  input_dataset_dir: "nerf_acronym_grasp_success_dataset_small_pkl"
+  input_dataset_path: "nerf_acronym_grasp_success_dataset_3_categories_pkl"
   batch_size: 128
   dataloader_num_workers: 4
   dataloader_pin_memory: True
@@ -21,7 +21,7 @@ training:
   grad_clip_val: 1.0
   lr: 1e-4
   n_epochs: 20
-  log_grad: False  # Takes a lot of time
+  log_grad: False # Takes a lot of time
   val_freq: 5
   val_on_epoch_0: True
   save_checkpoint_freq: 5
@@ -42,4 +42,3 @@ checkpoint_workspace:
   force_no_resume: False
 
 random_seed: 42
-

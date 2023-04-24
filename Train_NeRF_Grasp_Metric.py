@@ -13,6 +13,7 @@
 #     name: python3
 # ---
 
+
 # %%
 def is_notebook() -> bool:
     try:
@@ -44,6 +45,7 @@ from enum import Enum, auto
 from functools import partial
 from typing import Any, Dict, List, Optional
 
+import h5py
 import numpy as np
 import plotly.graph_objects as go
 import torch
@@ -97,7 +99,7 @@ class DataConfig:
     frac_test: float = MISSING
     frac_train: float = MISSING
 
-    input_dataset_dir: str = MISSING
+    input_dataset_path: str = MISSING
     batch_size: int = MISSING
     dataloader_num_workers: int = MISSING
     dataloader_pin_memory: bool = MISSING
@@ -302,17 +304,17 @@ input_example_shape = (N_CHANNELS, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
 # %%
 class NeRFGrid_To_GraspSuccess_Dataset(Dataset):
     # @localscope.mfc  # ValueError: Cell is empty
-    def __init__(self, input_dataset_dir):
+    def __init__(self, input_dataset_path):
         super().__init__()
-        self.input_dataset_dir = input_dataset_dir
-        self.filepaths = self._get_filepaths(input_dataset_dir)
+        self.input_dataset_path = input_dataset_path
+        self.filepaths = self._get_filepaths(input_dataset_path)
 
     @localscope.mfc
-    def _get_filepaths(self, input_dataset_dir):
+    def _get_filepaths(self, input_dataset_path):
         return [
-            os.path.join(input_dataset_dir, object_dir, filepath)
-            for object_dir in os.listdir(input_dataset_dir)
-            for filepath in os.listdir(os.path.join(input_dataset_dir, object_dir))
+            os.path.join(input_dataset_path, object_dir, filepath)
+            for object_dir in os.listdir(input_dataset_path)
+            for filepath in os.listdir(os.path.join(input_dataset_path, object_dir))
             if filepath.endswith(".pkl")
         ]
 
@@ -335,9 +337,133 @@ class NeRFGrid_To_GraspSuccess_Dataset(Dataset):
 
 
 # %%
-full_dataset = NeRFGrid_To_GraspSuccess_Dataset(
-    os.path.join(ROOT_DIR, cfg.data.input_dataset_dir)
-)
+class NeRFGrid_To_GraspSuccess_ALL_Dataset(Dataset):
+    # @localscope.mfc  # ValueError: Cell is empty
+    def __init__(self, input_dataset_path):
+        super().__init__()
+        self.input_dataset_path = input_dataset_path
+        self.filepaths = self._get_filepaths(input_dataset_path)
+
+        # Read all pickle files
+        self.nerf_grid_inputs = []
+        self.grasp_successes = []
+        for filepath in tqdm(self.filepaths):
+            with open(filepath, "rb") as f:
+                data_dict = pickle.load(f)
+
+            nerf_grid_input = torch.from_numpy(data_dict["nerf_grid_input"]).float()
+            grasp_success = torch.from_numpy(
+                np.array(data_dict["grasp_success"])
+            ).long()
+            self.nerf_grid_inputs.append(nerf_grid_input)
+            self.grasp_successes.append(grasp_success)
+
+    @localscope.mfc
+    def _get_filepaths(self, input_dataset_path):
+        return [
+            os.path.join(input_dataset_path, object_dir, filepath)
+            for object_dir in os.listdir(input_dataset_path)
+            for filepath in os.listdir(os.path.join(input_dataset_path, object_dir))
+            if filepath.endswith(".pkl")
+        ]
+
+    @localscope.mfc
+    def __len__(self):
+        return len(self.filepaths)
+
+    @localscope.mfc(allowed=["NUM_PTS_X", "NUM_PTS_Y", "NUM_PTS_Z"])
+    def __getitem__(self, idx):
+        return self.nerf_grid_inputs[idx], self.grasp_successes[idx]
+
+
+# %%
+class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
+    # @localscope.mfc  # ValueError: Cell is empty
+    def __init__(self, input_hdf5_filepath):
+        super().__init__()
+        self.input_hdf5_filepath = input_hdf5_filepath
+        self.hdf5_file = h5py.File(input_hdf5_filepath, "r")
+        # TODO: Change "/nerf_grasp_data/grasp_success" to "/grasp_success"
+        self.len = self.hdf5_file["/nerf_grasp_data/grasp_success"].shape[0]
+
+    @localscope.mfc
+    def __len__(self):
+        return self.len
+
+    @localscope.mfc(allowed=["NUM_PTS_X", "NUM_PTS_Y", "NUM_PTS_Z"])
+    def __getitem__(self, idx):
+        nerf_grid_input = torch.from_numpy(
+            self.hdf5_file["/nerf_grid_input"][idx]
+        ).float()
+        grasp_success = torch.from_numpy(
+            np.array(self.hdf5_file["/nerf_grasp_data/grasp_success"][idx])
+        ).long()
+        assert nerf_grid_input.shape == (4, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
+        assert grasp_success.shape == ()
+
+        return nerf_grid_input, grasp_success
+
+
+# %%
+class NeRFGrid_To_GraspSuccess_HDF5_ALL_Dataset(Dataset):
+    # @localscope.mfc  # ValueError: Cell is empty
+    def __init__(self, input_hdf5_filepath):
+        super().__init__()
+        self.input_hdf5_filepath = input_hdf5_filepath
+        self.hdf5_file = h5py.File(input_hdf5_filepath, "r")
+        # TODO: Change "/nerf_grasp_data/grasp_success" to "/grasp_success"
+        self.len = self.hdf5_file["/nerf_grasp_data/grasp_success"].shape[0]
+
+        # Read all elements of the dataset
+        self.nerf_grid_inputs = [
+            torch.from_numpy(self.hdf5_file["/nerf_grid_input"][idx]).float()
+            for idx in tqdm(range(self.len))
+        ]
+        self.grasp_successes = [
+            torch.from_numpy(
+                np.array(self.hdf5_file["/nerf_grasp_data/grasp_success"][idx])
+            ).long()
+            for idx in tqdm(range(self.len))
+        ]
+
+    @localscope.mfc
+    def __len__(self):
+        return self.len
+
+    @localscope.mfc
+    def __getitem__(self, idx):
+        return self.nerf_grid_inputs[idx], self.grasp_successes[idx]
+
+
+# %%
+class DatasetType(Enum):
+    PKL_FILES = auto()
+    HDF5_FILE = auto()
+    PKL_FILES_ALL = auto()
+    HDF5_FILE_ALL = auto()
+
+
+dataset_type = DatasetType.HDF5_FILE
+
+if dataset_type == DatasetType.PKL_FILES_ALL:
+    full_dataset = NeRFGrid_To_GraspSuccess_ALL_Dataset(
+        os.path.join(ROOT_DIR, cfg.data.input_dataset_path)
+    )
+elif dataset_type == DatasetType.HDF5_FILE_ALL:
+    full_dataset = NeRFGrid_To_GraspSuccess_HDF5_ALL_Dataset(
+        os.path.join(ROOT_DIR, cfg.data.input_dataset_path)
+    )
+elif dataset_type == DatasetType.PKL_FILES:
+    full_dataset = NeRFGrid_To_GraspSuccess_Dataset(
+        os.path.join(ROOT_DIR, cfg.data.input_dataset_path)
+    )
+elif dataset_type == DatasetType.HDF5_FILE:
+    full_dataset = NeRFGrid_To_GraspSuccess_HDF5_Dataset(
+        os.path.join(ROOT_DIR, cfg.data.input_dataset_path)
+    )
+else:
+    raise ValueError(f"Unknown dataset type: {dataset_type}")
+
 train_dataset, val_dataset, test_dataset = random_split(
     full_dataset,
     [cfg.data.frac_train, cfg.data.frac_val, cfg.data.frac_test],
@@ -817,7 +943,7 @@ class Phase(Enum):
     TEST = auto()
 
 
-@localscope.mfc(allowed=['tqdm'])
+@localscope.mfc(allowed=["tqdm"])
 def iterate_through_dataloader(
     phase: Phase,
     dataloader: DataLoader,
@@ -942,7 +1068,7 @@ def iterate_through_dataloader(
 
 
 # %%
-@localscope.mfc(allowed=['tqdm'])
+@localscope.mfc(allowed=["tqdm"])
 def plot_confusion_matrix(
     phase: Phase,
     dataloader: DataLoader,
@@ -985,7 +1111,7 @@ def plot_confusion_matrix(
 
 
 # %%
-@localscope.mfc(allowed=['tqdm'])
+@localscope.mfc(allowed=["tqdm"])
 def run_training_loop(
     cfg: TrainingConfig,
     train_loader: DataLoader,

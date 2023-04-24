@@ -16,7 +16,7 @@
 # %% [markdown]
 # # Create NeRF ACRONYM Dataset
 #
-# ## Summary (April 21, 2023)
+# ## Summary (April 23, 2023)
 #
 # The purpose of this script is to create a dataset for predicting the quality of grasps from NeRF representations of objects.
 #
@@ -24,34 +24,12 @@
 #
 # ## Dataset
 # ```
-# {output_dataset_dir}
-# ├── isaac_3Shelves_ea3807911b86d7e7b53aed25092632f_0.0046205018
-# │   ├── 0.pkl
-# │   ├── 1.pkl
-# │   ├── 2.pkl
-# │   ├── ...
-# │   ├── 1999.pkl
-# ├── isaac_5Shelves_fc45d911f8b87b1aca32354d178e0245_0.0023979975
-# │   ├── 0.pkl
-# │   ├── 1.pkl
-# │   ├── 2.pkl
-# │   ├── ...
-# │   ├── 1999.pkl
+# {output_hdf5_filename} with hierarchical structure
+# /
+# ├── /nerf_grid_input [shape (N, 4, 80, 20, 30)]
+# ├── /grasp_success [shape (N,)]
 # ```
 #
-# where `<x>.pkl` is a `dict` with the following keys:
-#
-# ```
-# {
-#   "nerf_grid_input": np.array w/ shape (4, 83, 21, 37),
-#   "grasp_success": 0 or 1,
-#   "mesh_centroid_obj_frame": np.array w/ shape (3,),
-#   "obj_offset": np.array w/ shape (3,),
-#   "acronym_data_filename": hdf5 filename
-#   "grasp_idx": idx of this grasp within acronym_data_filename (should be same as filename)
-#   <may add other helpful meta-data>
-# }
-# ```
 # where the first channel of `nerf_grid_input` is the NeRF density at this point
 # and the remaining channels of `nerf_grid_input` are the x, y, and z coordinates of the point.
 # with respect to the mesh centroid
@@ -731,237 +709,235 @@ acronym_dir_filepath = "/juno/u/tylerlum/github_repos/acronym/data/grasps"
 
 CREATE_PLOTS = False
 SAVE_DATASET = True
-output_dataset_dir = os.path.join(
-    root_dir, "nerf_acronym_grasp_success_dataset_v3_small"
-)
+output_hdf5_filename = os.path.join(root_dir, "nerf_acronym_grasp_success_dataset.h5")
 
-if SAVE_DATASET:
-    if os.path.exists(output_dataset_dir):
-        print("Output dataset directory already exists...")
-    os.makedirs(output_dataset_dir)
+ACRONYM_NUM_GRASPS_PER_OBJ = 2000
+max_num_data_points = ACRONYM_NUM_GRASPS_PER_OBJ * len(objs)  # Simple heuristic
 
+if os.path.exists(output_hdf5_filename):
+    print(f"Found {output_hdf5_filename}, removing...")
+    os.remove(output_hdf5_filename)
+    print("Done removing")
 
-for selected_obj in (pbar := tqdm(objs)):
-    pbar.set_description(f"{selected_obj.workspace}")
-
-    # Prepare filenames
-    nerf_model_workspace = "isaac_" + selected_obj.workspace
-    acronym_data_filepath = os.path.join(
-        acronym_dir_filepath, selected_obj.acronym_file
+with h5py.File(output_hdf5_filename, "w") as hdf5_file:
+    current_idx = 0
+    nerf_grid_input_dataset = hdf5_file.create_dataset(
+        "/nerf_grid_input",
+        shape=(max_num_data_points, 4, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z),
+        dtype="f",
     )
-    urdf_filepath = os.path.join(assets_dir_filepath, selected_obj.asset_file)
-    obj_filepath = os.path.join(
-        objects_dir_filepath, selected_obj._get_mesh_path_from_urdf(urdf_filepath)
+    grasp_success_dataset = hdf5_file.create_dataset(
+        "nerf_grasp_data/grasp_success", shape=(max_num_data_points,), dtype="i"
     )
 
-    # Read acronym data
-    with Timer("Read acronym data file"):
-        acronym_data = h5py.File(acronym_data_filepath, "r")
+    for selected_obj in (pbar := tqdm(objs)):
+        pbar.set_description(f"{selected_obj.workspace}")
 
-    with Timer("Access acronym data"):
-        mesh_scale = float(acronym_data["object/scale"][()])
-        grasp_transforms = np.array(acronym_data["grasps/transforms"])
-        grasp_successes = np.array(
-            acronym_data["grasps/qualities/flex/object_in_gripper"]
+        # Prepare filenames
+        nerf_model_workspace = "isaac_" + selected_obj.workspace
+        acronym_data_filepath = os.path.join(
+            acronym_dir_filepath, selected_obj.acronym_file
+        )
+        urdf_filepath = os.path.join(assets_dir_filepath, selected_obj.asset_file)
+        obj_filepath = os.path.join(
+            objects_dir_filepath, selected_obj._get_mesh_path_from_urdf(urdf_filepath)
         )
 
-    assert grasp_transforms.shape == (2000, 4, 4)
-    assert grasp_successes.shape == (2000,)
+        # Read acronym data
+        with Timer("Read acronym data file"):
+            acronym_data = h5py.File(acronym_data_filepath, "r")
 
-    # Get mesh info
-    with Timer("Load mesh"):
-        mesh = trimesh.load(obj_filepath, force="mesh")
+        with Timer("Access acronym data"):
+            mesh_scale = float(acronym_data["object/scale"][()])
+            grasp_transforms = np.array(acronym_data["grasps/transforms"])
+            grasp_successes = np.array(
+                acronym_data["grasps/qualities/flex/object_in_gripper"]
+            )
 
-    with Timer("Get mesh info"):
-        min_points_obj_frame, max_points_obj_frame = get_mesh_bounds(
-            mesh, scale=mesh_scale
+        assert grasp_transforms.shape == (2000, 4, 4)
+        assert grasp_successes.shape == (2000,)
+
+        # Get mesh info
+        with Timer("Load mesh"):
+            mesh = trimesh.load(obj_filepath, force="mesh")
+
+        with Timer("Get mesh info"):
+            min_points_obj_frame, max_points_obj_frame = get_mesh_bounds(
+                mesh, scale=mesh_scale
+            )
+
+            # Use this offset for all plots so that the plot is in isaac coordinates
+            bound_min_z_obj_frame = min_points_obj_frame[2]
+            mesh_centroid_obj_frame = get_mesh_centroid(mesh, scale=mesh_scale)
+
+        # Compute offset
+        obj_offset = np.array(
+            [
+                -mesh_centroid_obj_frame[0],
+                -mesh_centroid_obj_frame[1],
+                -bound_min_z_obj_frame,
+            ]
         )
 
-        # Use this offset for all plots so that the plot is in isaac coordinates
-        bound_min_z_obj_frame = min_points_obj_frame[2]
-        mesh_centroid_obj_frame = get_mesh_centroid(mesh, scale=mesh_scale)
+        # Load nerf
+        print("Loading NeRF...")
+        with Timer("Load NeRF"):
+            nerf_model = load_nerf(workspace=nerf_model_workspace, bound=2, scale=1)
+        print("Done loading NeRF")
 
-    # Compute offset
-    obj_offset = np.array(
-        [
-            -mesh_centroid_obj_frame[0],
-            -mesh_centroid_obj_frame[1],
-            -bound_min_z_obj_frame,
-        ]
-    )
+        # Make plot for each grasp
+        num_grasps = grasp_transforms.shape[0]
+        assert num_grasps == grasp_successes.shape[0]
 
-    # Load nerf
-    print("Loading NeRF...")
-    with Timer("Load NeRF"):
-        nerf_model = load_nerf(workspace=nerf_model_workspace, bound=2, scale=1)
-    print("Done loading NeRF")
-
-    # Create folder
-    if SAVE_DATASET:
-        obj_output_dir = os.path.join(output_dataset_dir, selected_obj.workspace)
-        os.makedirs(obj_output_dir)
-
-    # Make plot for each grasp
-    num_grasps = grasp_transforms.shape[0]
-    assert num_grasps == grasp_successes.shape[0]
-
-    for grasp_idx in tqdm(range(num_grasps)):
-        # Get grasp query points
-        with Timer("Get grasp query points obj frame"):
-            grasp_query_points_object_frame = get_transformed_points(
-                grasp_query_points_grasp_frame.reshape(-1, 3),
-                grasp_transforms[grasp_idx],
-            )
-
-        with Timer("Get grasp query points nerf frame"):
-            grasp_query_points_isaac_frame = (
-                grasp_query_points_object_frame + obj_offset.reshape(1, 3)
-            )
-            grasp_query_points_nerf_frame = ig_to_nerf(
-                grasp_query_points_isaac_frame, return_tensor=True
-            )
-
-        with Timer("Get grasp query densities"):
-            grasp_query_nerf_densities_torch = get_nerf_densities(
-                nerf_model=nerf_model,
-                query_points=grasp_query_points_nerf_frame.reshape(1, -1, 3)
-                .float()
-                .cuda(),
-            )
-
-        with Timer("Convert grasp query densities to numpy"):
-            grasp_query_nerf_densities = (
-                grasp_query_nerf_densities_torch.detach().cpu().numpy()
-            )
-
-        with Timer("Reshape nerf densities"):
-            grasp_query_nerf_densities = grasp_query_nerf_densities.reshape(
-                NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z
-            )
-
-        # Save dataset
-        if SAVE_DATASET:
-            output_filepath = os.path.join(obj_output_dir, f"{grasp_idx}.pkl")
-
-            mesh_centroid_isaac_frame = mesh_centroid_obj_frame + obj_offset
-            grasp_query_points_wrt_centroid = (
-                grasp_query_points_isaac_frame - mesh_centroid_isaac_frame.reshape(1, 3)
-            )
-
-            # Merge together grasp_query_points_wrt_centroid and grasp_query_nerf_densities
-            # So goes from (83, 21, 37, 3) and (83, 21, 37) to (83, 21, 37, 4)
-            nerf_grid_input = np.concatenate(
-                [
-                    grasp_query_points_wrt_centroid.reshape(
-                        NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z, 3
-                    ),
-                    grasp_query_nerf_densities.reshape(
-                        NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z, 1
-                    ),
-                ],
-                axis=-1,
-            )
-
-            # Switch from (83, 21, 37, 4) to (4, 83, 21, 37)
-            nerf_grid_input = np.transpose(nerf_grid_input, (3, 0, 1, 2))
-            assert nerf_grid_input.shape == (4, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
-
-            with open(output_filepath, "wb") as f:
-                # print(f"Saving to {output_filepath}...")
-                pickle.dump(
-                    obj={
-                        "nerf_grid_input": nerf_grid_input,
-                        "grasp_success": grasp_successes[grasp_idx],
-                        "mesh_centroid_obj_frame": mesh_centroid_obj_frame,
-                        "obj_offset": obj_offset,
-                        "acronym_data_filename": selected_obj.acronym_file,
-                        "grasp_idx": grasp_idx,
-                    },
-                    file=f,
-                )
-                # print("Done saving")
-
-        # Create plot of mesh
-        if CREATE_PLOTS:
-            fig = plot_obj(obj_filepath, scale=mesh_scale, offset=obj_offset)
-            mesh_centroid_scatter = get_mesh_centroid_scatter(
-                mesh_centroid_obj_frame, offset=obj_offset
-            )
-            fig.add_trace(mesh_centroid_scatter)
-            mesh_origin_lines = get_mesh_origin_lines(offset=obj_offset)
-            for mesh_origin_line in mesh_origin_lines:
-                fig.add_trace(mesh_origin_line)
-
-            # Plot grasps
-            USE_GRASP_RAY_LINES = True
-            if USE_GRASP_RAY_LINES:
-                grasp_lines = get_grasp_ray_lines(
-                    grasp_transforms[grasp_idx : grasp_idx + 1],
-                    grasp_successes[grasp_idx : grasp_idx + 1],
-                    offset=obj_offset,
-                )
-            else:
-                grasp_lines = get_grasp_gripper_lines(
-                    grasp_transforms[grasp_idx : grasp_idx + 1],
-                    grasp_successes[grasp_idx : grasp_idx + 1],
-                    offset=obj_offset,
-                )
-            for grasp_line in grasp_lines:
-                fig.add_trace(grasp_line)
-
-            colored_points_scatter = get_colored_points_scatter(
-                points=grasp_query_points_object_frame.reshape(-1, 3),
-                colors=grasp_query_nerf_densities.reshape(-1),
-                offset=obj_offset,
-            )
-
-            # Add the scatter plot to a figure and display it
-            fig.add_trace(colored_points_scatter)
-
-            # Avoid legend overlap
-            fig.update_layout(legend_orientation="h")
-
-            PLOT_ALL_HIGH_DENSITY_POINTS = False
-            if PLOT_ALL_HIGH_DENSITY_POINTS:
-                ## Only for fancy plot of whole nerf
-                query_points_mesh_region_obj_frame = get_query_points_mesh_region(
-                    min_points_obj_frame, max_points_obj_frame, n_pts_per_dim=50
+        for grasp_idx in tqdm(range(num_grasps)):
+            # Get grasp query points
+            with Timer("Get grasp query points obj frame"):
+                grasp_query_points_object_frame = get_transformed_points(
+                    grasp_query_points_grasp_frame.reshape(-1, 3),
+                    grasp_transforms[grasp_idx],
                 )
 
-                query_points_mesh_region_obj_frame.shape
-
-                query_points_mesh_region_isaac_frame = np.copy(
-                    query_points_mesh_region_obj_frame
-                ).reshape(-1, 3) + obj_offset.reshape(1, 3)
-                query_points_mesh_region_nerf_frame = ig_to_nerf(
-                    query_points_mesh_region_isaac_frame.reshape(-1, 3),
-                    return_tensor=True,
+            with Timer("Get grasp query points nerf frame"):
+                grasp_query_points_isaac_frame = (
+                    grasp_query_points_object_frame + obj_offset.reshape(1, 3)
+                )
+                grasp_query_points_nerf_frame = ig_to_nerf(
+                    grasp_query_points_isaac_frame, return_tensor=True
                 )
 
-                # Compute nerf densities
-                query_nerf_densities_torch = get_nerf_densities(
-                    nerf_model,
-                    query_points_mesh_region_nerf_frame.reshape(1, -1, 3)
+            with Timer("Get grasp query densities"):
+                grasp_query_nerf_densities_torch = get_nerf_densities(
+                    nerf_model=nerf_model,
+                    query_points=grasp_query_points_nerf_frame.reshape(1, -1, 3)
                     .float()
                     .cuda(),
-                ).reshape(query_points_mesh_region_nerf_frame.shape[:-1])
-                query_nerf_densities = query_nerf_densities_torch.detach().cpu().numpy()
+                )
 
-                points = query_points_mesh_region_obj_frame.reshape(-1, 3)
-                densities = query_nerf_densities.reshape(-1)
+            with Timer("Convert grasp query densities to numpy"):
+                grasp_query_nerf_densities = (
+                    grasp_query_nerf_densities_torch.detach().cpu().numpy()
+                )
 
-                threshold = 100
-                filtered_points = points[densities > threshold]
-                filtered_densities = densities[densities > threshold]
+            with Timer("Reshape nerf densities"):
+                grasp_query_nerf_densities = grasp_query_nerf_densities.reshape(
+                    NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z
+                )
+
+            # Save dataset
+            if SAVE_DATASET:
+                mesh_centroid_isaac_frame = mesh_centroid_obj_frame + obj_offset
+                grasp_query_points_wrt_centroid = (
+                    grasp_query_points_isaac_frame
+                    - mesh_centroid_isaac_frame.reshape(1, 3)
+                )
+
+                # Merge together grasp_query_points_wrt_centroid and grasp_query_nerf_densities
+                # So goes from (83, 21, 37, 3) and (83, 21, 37) to (83, 21, 37, 4)
+                nerf_grid_input = np.concatenate(
+                    [
+                        grasp_query_points_wrt_centroid.reshape(
+                            NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z, 3
+                        ),
+                        grasp_query_nerf_densities.reshape(
+                            NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z, 1
+                        ),
+                    ],
+                    axis=-1,
+                )
+
+                # Switch from (83, 21, 37, 4) to (4, 83, 21, 37)
+                nerf_grid_input = np.transpose(nerf_grid_input, (3, 0, 1, 2))
+                assert nerf_grid_input.shape == (4, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
+
+                nerf_grid_input_dataset[current_idx] = nerf_grid_input
+                grasp_success_dataset[current_idx] = grasp_successes[grasp_idx]
+                current_idx += 1
+
+            # Create plot of mesh
+            if CREATE_PLOTS:
+                fig = plot_obj(obj_filepath, scale=mesh_scale, offset=obj_offset)
+                mesh_centroid_scatter = get_mesh_centroid_scatter(
+                    mesh_centroid_obj_frame, offset=obj_offset
+                )
+                fig.add_trace(mesh_centroid_scatter)
+                mesh_origin_lines = get_mesh_origin_lines(offset=obj_offset)
+                for mesh_origin_line in mesh_origin_lines:
+                    fig.add_trace(mesh_origin_line)
+
+                # Plot grasps
+                USE_GRASP_RAY_LINES = True
+                if USE_GRASP_RAY_LINES:
+                    grasp_lines = get_grasp_ray_lines(
+                        grasp_transforms[grasp_idx : grasp_idx + 1],
+                        grasp_successes[grasp_idx : grasp_idx + 1],
+                        offset=obj_offset,
+                    )
+                else:
+                    grasp_lines = get_grasp_gripper_lines(
+                        grasp_transforms[grasp_idx : grasp_idx + 1],
+                        grasp_successes[grasp_idx : grasp_idx + 1],
+                        offset=obj_offset,
+                    )
+                for grasp_line in grasp_lines:
+                    fig.add_trace(grasp_line)
+
                 colored_points_scatter = get_colored_points_scatter(
-                    points=filtered_points, colors=filtered_densities, offset=obj_offset
+                    points=grasp_query_points_object_frame.reshape(-1, 3),
+                    colors=grasp_query_nerf_densities.reshape(-1),
+                    offset=obj_offset,
                 )
 
                 # Add the scatter plot to a figure and display it
                 fig.add_trace(colored_points_scatter)
+
+                # Avoid legend overlap
                 fig.update_layout(legend_orientation="h")
 
-            fig.show()
+                PLOT_ALL_HIGH_DENSITY_POINTS = False
+                if PLOT_ALL_HIGH_DENSITY_POINTS:
+                    ## Only for fancy plot of whole nerf
+                    query_points_mesh_region_obj_frame = get_query_points_mesh_region(
+                        min_points_obj_frame, max_points_obj_frame, n_pts_per_dim=50
+                    )
+
+                    query_points_mesh_region_obj_frame.shape
+
+                    query_points_mesh_region_isaac_frame = np.copy(
+                        query_points_mesh_region_obj_frame
+                    ).reshape(-1, 3) + obj_offset.reshape(1, 3)
+                    query_points_mesh_region_nerf_frame = ig_to_nerf(
+                        query_points_mesh_region_isaac_frame.reshape(-1, 3),
+                        return_tensor=True,
+                    )
+
+                    # Compute nerf densities
+                    query_nerf_densities_torch = get_nerf_densities(
+                        nerf_model,
+                        query_points_mesh_region_nerf_frame.reshape(1, -1, 3)
+                        .float()
+                        .cuda(),
+                    ).reshape(query_points_mesh_region_nerf_frame.shape[:-1])
+                    query_nerf_densities = (
+                        query_nerf_densities_torch.detach().cpu().numpy()
+                    )
+
+                    points = query_points_mesh_region_obj_frame.reshape(-1, 3)
+                    densities = query_nerf_densities.reshape(-1)
+
+                    threshold = 100
+                    filtered_points = points[densities > threshold]
+                    filtered_densities = densities[densities > threshold]
+                    colored_points_scatter = get_colored_points_scatter(
+                        points=filtered_points,
+                        colors=filtered_densities,
+                        offset=obj_offset,
+                    )
+
+                    # Add the scatter plot to a figure and display it
+                    fig.add_trace(colored_points_scatter)
+                    fig.update_layout(legend_orientation="h")
+
+                fig.show()
 
 # %% [markdown]
 # # Create Dataset

@@ -727,7 +727,7 @@ with h5py.File(output_hdf5_filename, "w") as hdf5_file:
         dtype="f",
     )
     grasp_success_dataset = hdf5_file.create_dataset(
-        "nerf_grasp_data/grasp_success", shape=(max_num_data_points,), dtype="i"
+        "/grasp_success", shape=(max_num_data_points,), dtype="i"
     )
 
     for selected_obj in (pbar := tqdm(objs)):

@@ -383,8 +383,7 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
         super().__init__()
         self.input_hdf5_filepath = input_hdf5_filepath
         self.hdf5_file = h5py.File(input_hdf5_filepath, "r")
-        # TODO: Change "/nerf_grasp_data/grasp_success" to "/grasp_success"
-        self.len = self.hdf5_file["/nerf_grasp_data/grasp_success"].shape[0]
+        self.len = self.hdf5_file["/grasp_success"].shape[0]
 
     @localscope.mfc
     def __len__(self):
@@ -396,7 +395,7 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
             self.hdf5_file["/nerf_grid_input"][idx]
         ).float()
         grasp_success = torch.from_numpy(
-            np.array(self.hdf5_file["/nerf_grasp_data/grasp_success"][idx])
+            np.array(self.hdf5_file["/grasp_success"][idx])
         ).long()
         assert nerf_grid_input.shape == (4, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
         assert grasp_success.shape == ()
@@ -411,8 +410,7 @@ class NeRFGrid_To_GraspSuccess_HDF5_ALL_Dataset(Dataset):
         super().__init__()
         self.input_hdf5_filepath = input_hdf5_filepath
         self.hdf5_file = h5py.File(input_hdf5_filepath, "r")
-        # TODO: Change "/nerf_grasp_data/grasp_success" to "/grasp_success"
-        self.len = self.hdf5_file["/nerf_grasp_data/grasp_success"].shape[0]
+        self.len = self.hdf5_file["/grasp_success"].shape[0]
 
         # Read all elements of the dataset
         self.nerf_grid_inputs = [
@@ -420,9 +418,7 @@ class NeRFGrid_To_GraspSuccess_HDF5_ALL_Dataset(Dataset):
             for idx in tqdm(range(self.len))
         ]
         self.grasp_successes = [
-            torch.from_numpy(
-                np.array(self.hdf5_file["/nerf_grasp_data/grasp_success"][idx])
-            ).long()
+            torch.from_numpy(np.array(self.hdf5_file["/grasp_success"][idx])).long()
             for idx in tqdm(range(self.len))
         ]
 

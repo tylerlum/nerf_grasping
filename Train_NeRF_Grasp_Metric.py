@@ -51,7 +51,9 @@ from wandb.util import generate_id
 
 # %%
 OmegaConf.register_new_resolver("eval", eval, replace=True)
-OmegaConf.register_new_resolver("datetime_str", lambda: datetime.now().strftime("%Y-%m-%d_%H-%M-%S"), replace=True)
+OmegaConf.register_new_resolver(
+    "datetime_str", lambda: datetime.now().strftime("%Y-%m-%d_%H-%M-%S"), replace=True
+)
 
 
 # %%
@@ -220,10 +222,15 @@ def load_checkpoint(checkpoint_workspace_dir_path: str) -> Optional[Dict[str, An
 if not os.path.exists(cfg.checkpoint_workspace.root_dir):
     os.makedirs(cfg.checkpoint_workspace.root_dir)
 
-checkpoint_workspace_dir_path = os.path.join(cfg.checkpoint_workspace.root_dir, cfg.checkpoint_workspace.leaf_dir)
+checkpoint_workspace_dir_path = os.path.join(
+    cfg.checkpoint_workspace.root_dir, cfg.checkpoint_workspace.leaf_dir
+)
 
 # Remove checkpoint_workspace directory if force_no_resume is set
-if os.path.exists(checkpoint_workspace_dir_path) and cfg.checkpoint_workspace.force_no_resume:
+if (
+    os.path.exists(checkpoint_workspace_dir_path)
+    and cfg.checkpoint_workspace.force_no_resume
+):
     print(f"force_no_resume = {cfg.checkpoint_workspace.force_no_resume}")
     print(f"Removing checkpoint_workspace directory at {checkpoint_workspace_dir_path}")
     os.rmdir(checkpoint_workspace_dir_path)
@@ -232,7 +239,9 @@ if os.path.exists(checkpoint_workspace_dir_path) and cfg.checkpoint_workspace.fo
 # Read wandb_run_id from checkpoint_workspace if it exists
 wandb_run_id_filepath = os.path.join(checkpoint_workspace_dir_path, "wandb_run_id.txt")
 if os.path.exists(checkpoint_workspace_dir_path):
-    print(f"checkpoint_workspace directory already exists at {checkpoint_workspace_dir_path}")
+    print(
+        f"checkpoint_workspace directory already exists at {checkpoint_workspace_dir_path}"
+    )
 
     print(f"Loading wandb_run_id from {wandb_run_id_filepath}")
     with open(wandb_run_id_filepath, "r") as f:
@@ -342,20 +351,30 @@ train_loader = DataLoader(
     num_workers=cfg.training.dataloader_num_workers,
 )
 val_loader = DataLoader(
-    train_dataset,
+    val_dataset,
     batch_size=cfg.training.batch_size,
     shuffle=False,
     pin_memory=True,
     num_workers=cfg.training.dataloader_num_workers,
 )
 test_loader = DataLoader(
-    train_dataset,
+    test_dataset,
     batch_size=cfg.training.batch_size,
     shuffle=False,
     pin_memory=True,
     num_workers=cfg.training.dataloader_num_workers,
 )
 
+
+# %%
+print(f"Train loader size: {len(train_loader)}")
+print(f"Val loader size: {len(val_loader)}")
+print(f"Test loader size: {len(test_loader)}")
+
+# %%
+assert len(train_dataset) == len(train_loader)
+assert len(val_dataset) == len(val_loader)
+assert len(test_dataset) == len(test_loader)
 
 # %% [markdown]
 # # Visualize Dataset
@@ -753,6 +772,7 @@ dot
 # %% [markdown]
 # # Training Setup
 
+
 # %%
 @localscope.mfc
 def save_checkpoint(
@@ -761,7 +781,9 @@ def save_checkpoint(
     nerf_to_grasp_success_model: NeRF_to_Grasp_Success_Model,
     optimizer: torch.optim.Optimizer,
 ):
-    checkpoint_filepath = os.path.join(checkpoint_workspace_dir_path, f"checkpoint_{epoch:04}.pt")
+    checkpoint_filepath = os.path.join(
+        checkpoint_workspace_dir_path, f"checkpoint_{epoch:04}.pt"
+    )
     print(f"Saving checkpoint to {checkpoint_filepath}")
     torch.save(
         {
@@ -1060,79 +1082,6 @@ run_training_loop(
     start_epoch=start_epoch,
     checkpoint_workspace_dir_path=checkpoint_workspace_dir_path,
 )
-
-# %%
-
-phase=Phase.VAL
-dataloader=val_loader
-nerf_to_grasp_success_model=nerf_to_grasp_success_model
-device=device
-wandb_log_dict={}
-preds, ground_truths = [], []
-for nerf_grid_inputs, grasp_successes in (pbar := tqdm(dataloader)):
-    nerf_grid_inputs = nerf_grid_inputs[:2]
-    grasp_successes = grasp_successes[:2]
-    nerf_grid_inputs = nerf_grid_inputs.to(device)
-    print(f"min, mean, max = {torch.min(nerf_grid_inputs).item()}, {torch.mean(nerf_grid_inputs).item()}, {torch.max(nerf_grid_inputs).item()}")
-    print(f"grasp_successes = {grasp_successes}")
-    pbar.set_description(f"Confusion Matrix for {phase.name.lower()}")
-    xx = nerf_to_grasp_success_model.get_success_probability(nerf_grid_inputs)
-    yy = xx.argmax(axis=1)
-    pred = yy.tolist()
-    pred = (
-        nerf_to_grasp_success_model.get_success_probability(nerf_grid_inputs)
-        .argmax(axis=1)
-        .tolist()
-    )
-    ground_truth = grasp_successes.tolist()
-
-    preds, ground_truths = preds + pred, ground_truths + ground_truth
-    print(f"xx = {xx}, yy = {yy}, pred = {pred}, ground_truth = {ground_truth}")
-    print(f"preds = {preds}, ground_truths = {ground_truths}")
-    print()
-# wandb_log_dict[
-#     f"{phase.name.lower()}_confusion_matrix"
-# ] = wandb.plot.confusion_matrix(
-#     preds=preds,
-#     y_true=ground_truths,
-#     class_names=["Fail", "Success"],
-#     title=f"{phase.name.lower()} Confusion Matrix",
-# )
-
-# preds = torch.tensor(preds)
-# ground_truths = torch.tensor(ground_truths)
-# num_correct = torch.sum(preds == ground_truths).item()
-# num_datapoints = len(preds)
-# wandb_log_dict[f"{phase.name.lower()}_accuracy"] = (
-#     num_correct / num_datapoints * 100
-# )
-
-# %%
-full_dataset
-
-# %%
-all_nerf_inputs = [
-]
-all_success_outputs = [
-]
-
-
-for filepath in tqdm(full_dataset.filepaths):
-    with open(filepath, "rb") as f:
-        data_dict = pickle.load(f)
-        nerf_grid_input = torch.from_numpy(data_dict["nerf_grid_input"]).float()
-        grasp_success = torch.from_numpy(np.array(data_dict["grasp_success"])).long()
-        all_nerf_inputs.append(nerf_grid_input)
-        all_success_outputs.append(grasp_success)
-all_nerf_inputs = torch.stack(all_nerf_inputs, dim=0)
-all_success_outputs = torch.stack(all_success_outputs, dim=0)
-
-# %%
-unique_all_nerf_inputs, inverse_indices = torch.unique(all_nerf_inputs.reshape(all_nerf_inputs.size(0), -1), dim=0, return_inverse=True)
-has_duplicates = unique_all_nerf_inputs.size(0) < all_nerf_inputs.size(0)
-
-# %%
-has_duplicates
 
 # %% [markdown]
 # # Test

@@ -287,7 +287,7 @@ wandb.init(
     id=wandb_run_id,
     resume="never" if cfg.checkpoint_workspace.force_no_resume else "allow",
     reinit=True,
-    settings=wandb.Settings(start_method='fork'),  # Fix for wandb init error
+    settings=wandb.Settings(start_method="fork"),  # Fix for wandb init error
 )
 
 # %% [markdown]
@@ -1221,7 +1221,7 @@ wandb.watch(nerf_to_grasp_success_model, log="gradients", log_freq=100)
 
 # %%
 # TODO: Change weight to be based on the number of successes and failures
-ce_loss_fn = nn.CrossEntropyLoss(weight=torch.tensor([1, 1]).to(device)
+ce_loss_fn = nn.CrossEntropyLoss(weight=torch.tensor([1, 1])).to(device)
 
 # %%
 run_training_loop(

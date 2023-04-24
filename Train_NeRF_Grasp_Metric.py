@@ -60,6 +60,7 @@ from torch.utils.data import DataLoader, Dataset, random_split
 from torchinfo import summary
 from torchviz import make_dot
 from wandb.util import generate_id
+from sklearn.utils.class_weight import compute_class_weight
 
 import wandb
 
@@ -1221,7 +1222,17 @@ wandb.watch(nerf_to_grasp_success_model, log="gradients", log_freq=100)
 
 # %%
 # TODO: Change weight to be based on the number of successes and failures
-class_weight = torch.tensor([1.0, 1.0]).float().to(device)
+try:
+    class_weight = compute_class_weight(
+        class_weight="balanced",
+        classes=np.unique(train_dataset.grasp_successes.numpy()),
+        y=train_dataset.grasp_successes.numpy(),
+    )
+    class_weight = torch.from_numpy(class_weight).float().to(device)
+except Exception as e:
+    print(f"Failed to compute class weight: {e}")
+    print("Using default class weight")
+    class_weight = torch.tensor([1.0, 1.0]).float().to(device)
 ce_loss_fn = nn.CrossEntropyLoss(weight=class_weight)
 
 # %%

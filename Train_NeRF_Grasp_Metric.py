@@ -56,7 +56,7 @@ from hydra.utils import instantiate
 from localscope import localscope
 from omegaconf import MISSING, OmegaConf
 from sklearn.metrics import ConfusionMatrixDisplay, confusion_matrix
-from torch.utils.data import DataLoader, Dataset, random_split
+from torch.utils.data import DataLoader, Dataset, random_split, Subset
 from torchinfo import summary
 from torchviz import make_dot
 from wandb.util import generate_id
@@ -1220,19 +1220,30 @@ def run_training_loop(
 # %%
 wandb.watch(nerf_to_grasp_success_model, log="gradients", log_freq=100)
 
+
 # %%
-# TODO: Change weight to be based on the number of successes and failures
-try:
-    class_weight = compute_class_weight(
-        class_weight="balanced",
-        classes=np.unique(train_dataset.grasp_successes.numpy()),
-        y=train_dataset.grasp_successes.numpy(),
-    )
-    class_weight = torch.from_numpy(class_weight).float().to(device)
-except Exception as e:
-    print(f"Failed to compute class weight: {e}")
-    print("Using default class weight")
-    class_weight = torch.tensor([1.0, 1.0]).float().to(device)
+@localscope.mfc
+def compute_class_weight_np(train_dataset: Subset):
+    grasp_successes_np = train_dataset.dataset.grasp_successes[
+        train_dataset.indices
+    ].numpy()
+    try:
+        class_weight_np = compute_class_weight(
+            class_weight="balanced",
+            classes=np.unique(grasp_successes_np),
+            y=grasp_successes_np,
+        )
+    except Exception as e:
+        print(f"Failed to compute class weight: {e}")
+        print("Using default class weight")
+        class_weight_np = np.array([1.0, 1.0])
+    return class_weight_np
+
+
+class_weight = (
+    torch.from_numpy(compute_class_weight_np(train_dataset)).float().to(device)
+)
+print(f"Class weight: {class_weight}")
 ce_loss_fn = nn.CrossEntropyLoss(weight=class_weight)
 
 # %%

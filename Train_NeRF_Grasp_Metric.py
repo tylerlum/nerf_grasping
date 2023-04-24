@@ -383,7 +383,13 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
         super().__init__()
         self.input_hdf5_filepath = input_hdf5_filepath
         self.hdf5_file = h5py.File(input_hdf5_filepath, "r")
-        self.len = self.hdf5_file["/grasp_success"].shape[0]
+
+        # This is small enough to fit in RAM
+        self.grasp_successes = torch.from_numpy(
+            np.array(self.hdf5_file["/grasp_success"][()])
+        ).long()
+        self.len = self.grasp_successes.shape[0]
+        assert self.grasp_successes.shape == (self.len,)
 
     @localscope.mfc
     def __len__(self):
@@ -394,9 +400,7 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
         nerf_grid_input = torch.from_numpy(
             self.hdf5_file["/nerf_grid_input"][idx]
         ).float()
-        grasp_success = torch.from_numpy(
-            np.array(self.hdf5_file["/grasp_success"][idx])
-        ).long()
+        grasp_success = self.grasp_successes[idx]
         assert nerf_grid_input.shape == (4, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
         assert grasp_success.shape == ()
 
@@ -950,6 +954,7 @@ def iterate_through_dataloader(
     dataloader: DataLoader,
     nerf_to_grasp_success_model: NeRF_to_Grasp_Success_Model,
     device: str,
+    ce_loss_fn: nn.CrossEntropyLoss,
     wandb_log_dict: Dict[str, Any],
     cfg: Optional[TrainingConfig] = None,
     optimizer: Optional[torch.optim.Optimizer] = None,
@@ -962,8 +967,6 @@ def iterate_through_dataloader(
     else:
         nerf_to_grasp_success_model.eval()
         assert cfg is None and optimizer is None
-
-    ce_loss_fn = nn.CrossEntropyLoss()
 
     with torch.set_grad_enabled(phase == Phase.TRAIN):
         losses_dict = defaultdict(list)
@@ -1121,6 +1124,7 @@ def run_training_loop(
     val_loader: DataLoader,
     nerf_to_grasp_success_model: NeRF_to_Grasp_Success_Model,
     device: str,
+    ce_loss_fn: nn.CrossEntropyLoss,
     optimizer: torch.optim.Optimizer,
     start_epoch: int,
     checkpoint_workspace_dir_path: str,
@@ -1176,6 +1180,7 @@ def run_training_loop(
                 dataloader=val_loader,
                 nerf_to_grasp_success_model=nerf_to_grasp_success_model,
                 device=device,
+                ce_loss_fn=ce_loss_fn,
                 wandb_log_dict=wandb_log_dict,
             )
         val_time_taken = time.time() - start_val_time
@@ -1188,6 +1193,7 @@ def run_training_loop(
             dataloader=train_loader,
             nerf_to_grasp_success_model=nerf_to_grasp_success_model,
             device=device,
+            ce_loss_fn=ce_loss_fn,
             wandb_log_dict=wandb_log_dict,
             cfg=cfg,
             optimizer=optimizer,
@@ -1214,12 +1220,17 @@ def run_training_loop(
 wandb.watch(nerf_to_grasp_success_model, log="gradients", log_freq=100)
 
 # %%
+# TODO: Change weight to be based on the number of successes and failures
+ce_loss_fn = nn.CrossEntropyLoss(weight=torch.tensor([1, 1]).to(device)
+
+# %%
 run_training_loop(
     cfg=cfg.training,
     train_loader=train_loader,
     val_loader=val_loader,
     nerf_to_grasp_success_model=nerf_to_grasp_success_model,
     device=device,
+    ce_loss_fn=ce_loss_fn,
     optimizer=optimizer,
     start_epoch=start_epoch,
     checkpoint_workspace_dir_path=checkpoint_workspace_dir_path,
@@ -1238,6 +1249,7 @@ iterate_through_dataloader(
     dataloader=test_loader,
     nerf_to_grasp_success_model=nerf_to_grasp_success_model,
     device=device,
+    ce_loss_fn=ce_loss_fn,
     wandb_log_dict=wandb_log_dict,
 )
 

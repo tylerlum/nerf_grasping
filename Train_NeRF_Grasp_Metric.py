@@ -280,14 +280,18 @@ input_example_shape = (N_CHANNELS, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
 
 # %%
 class NeRFGrid_To_GraspSuccess_Dataset(Dataset):
-    @localscope.mfc
+    # @localscope.mfc  # ValueError: Cell is empty
     def __init__(self, input_dataset_dir):
         super().__init__()
         self.input_dataset_dir = input_dataset_dir
-        self.filepaths = [
-            os.path.join(self.input_dataset_dir, object_dir, filepath)
-            for object_dir in os.listdir(self.input_dataset_dir)
-            for filepath in os.listdir(os.path.join(self.input_dataset_dir, object_dir))
+        self.filepaths = self._get_filepaths(input_dataset_dir)
+
+    @localscope.mfc
+    def _get_filepaths(self, input_dataset_dir):
+        return [
+            os.path.join(input_dataset_dir, object_dir, filepath)
+            for object_dir in os.listdir(input_dataset_dir)
+            for filepath in os.listdir(os.path.join(input_dataset_dir, object_dir))
             if filepath.endswith(".pkl")
         ]
 
@@ -323,6 +327,11 @@ train_dataset, val_dataset, test_dataset = random_split(
 print(f"Train dataset size: {len(train_dataset)}")
 print(f"Val dataset size: {len(val_dataset)}")
 print(f"Test dataset size: {len(test_dataset)}")
+
+# %%
+assert len(set.intersection(set(train_dataset.indices), set(val_dataset.indices))) == 0
+assert len(set.intersection(set(train_dataset.indices), set(test_dataset.indices))) == 0
+assert len(set.intersection(set(val_dataset.indices), set(test_dataset.indices))) == 0
 
 # %%
 train_loader = DataLoader(
@@ -731,6 +740,13 @@ dot = make_dot(
         **{"GRASP SUCCESS": example_grasp_success_prediction},
     },
 )
+
+model_graph_filename = "model_graph.png"
+model_graph_filename_split = model_graph_filename.split(".")
+print(f"Saving to {model_graph_filename}...")
+dot.render(model_graph_filename_split[0], format=model_graph_filename_split[1])
+print(f"Done saving to {model_graph_filename}")
+
 dot
 
 
@@ -1030,8 +1046,10 @@ def run_training_loop(
         pbar.set_description(description)
 
 
+# %%
 wandb.watch(nerf_to_grasp_success_model, log="gradients", log_freq=100)
 
+# %%
 run_training_loop(
     cfg=cfg.training,
     train_loader=train_loader,
@@ -1042,6 +1060,79 @@ run_training_loop(
     start_epoch=start_epoch,
     checkpoint_workspace_dir_path=checkpoint_workspace_dir_path,
 )
+
+# %%
+
+phase=Phase.VAL
+dataloader=val_loader
+nerf_to_grasp_success_model=nerf_to_grasp_success_model
+device=device
+wandb_log_dict={}
+preds, ground_truths = [], []
+for nerf_grid_inputs, grasp_successes in (pbar := tqdm(dataloader)):
+    nerf_grid_inputs = nerf_grid_inputs[:2]
+    grasp_successes = grasp_successes[:2]
+    nerf_grid_inputs = nerf_grid_inputs.to(device)
+    print(f"min, mean, max = {torch.min(nerf_grid_inputs).item()}, {torch.mean(nerf_grid_inputs).item()}, {torch.max(nerf_grid_inputs).item()}")
+    print(f"grasp_successes = {grasp_successes}")
+    pbar.set_description(f"Confusion Matrix for {phase.name.lower()}")
+    xx = nerf_to_grasp_success_model.get_success_probability(nerf_grid_inputs)
+    yy = xx.argmax(axis=1)
+    pred = yy.tolist()
+    pred = (
+        nerf_to_grasp_success_model.get_success_probability(nerf_grid_inputs)
+        .argmax(axis=1)
+        .tolist()
+    )
+    ground_truth = grasp_successes.tolist()
+
+    preds, ground_truths = preds + pred, ground_truths + ground_truth
+    print(f"xx = {xx}, yy = {yy}, pred = {pred}, ground_truth = {ground_truth}")
+    print(f"preds = {preds}, ground_truths = {ground_truths}")
+    print()
+# wandb_log_dict[
+#     f"{phase.name.lower()}_confusion_matrix"
+# ] = wandb.plot.confusion_matrix(
+#     preds=preds,
+#     y_true=ground_truths,
+#     class_names=["Fail", "Success"],
+#     title=f"{phase.name.lower()} Confusion Matrix",
+# )
+
+# preds = torch.tensor(preds)
+# ground_truths = torch.tensor(ground_truths)
+# num_correct = torch.sum(preds == ground_truths).item()
+# num_datapoints = len(preds)
+# wandb_log_dict[f"{phase.name.lower()}_accuracy"] = (
+#     num_correct / num_datapoints * 100
+# )
+
+# %%
+full_dataset
+
+# %%
+all_nerf_inputs = [
+]
+all_success_outputs = [
+]
+
+
+for filepath in tqdm(full_dataset.filepaths):
+    with open(filepath, "rb") as f:
+        data_dict = pickle.load(f)
+        nerf_grid_input = torch.from_numpy(data_dict["nerf_grid_input"]).float()
+        grasp_success = torch.from_numpy(np.array(data_dict["grasp_success"])).long()
+        all_nerf_inputs.append(nerf_grid_input)
+        all_success_outputs.append(grasp_success)
+all_nerf_inputs = torch.stack(all_nerf_inputs, dim=0)
+all_success_outputs = torch.stack(all_success_outputs, dim=0)
+
+# %%
+unique_all_nerf_inputs, inverse_indices = torch.unique(all_nerf_inputs.reshape(all_nerf_inputs.size(0), -1), dim=0, return_inverse=True)
+has_duplicates = unique_all_nerf_inputs.size(0) < all_nerf_inputs.size(0)
+
+# %%
+has_duplicates
 
 # %% [markdown]
 # # Test

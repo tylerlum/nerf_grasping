@@ -1067,6 +1067,7 @@ def iterate_through_dataloader(
 
 
 # %%
+@torch.no_grad()
 @localscope.mfc(allowed=["tqdm"])
 def plot_confusion_matrix(
     phase: Phase,

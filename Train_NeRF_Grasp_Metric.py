@@ -113,7 +113,7 @@ class TrainingConfig:
     lr: float = MISSING
     n_epochs: int = MISSING
     log_grad_freq: int = MISSING
-
+    log_grad_on_epoch_0: bool = MISSING
     val_freq: int = MISSING
     val_on_epoch_0: bool = MISSING
     save_checkpoint_freq: int = MISSING
@@ -329,7 +329,7 @@ class NeRFGrid_To_GraspSuccess_Dataset(Dataset):
     def __len__(self):
         return len(self.filepaths)
 
-    @localscope.mfc(allowed=["NUM_PTS_X", "NUM_PTS_Y", "NUM_PTS_Z"])
+    @localscope.mfc(allowed=["N_CHANNELS", "NUM_PTS_X", "NUM_PTS_Y", "NUM_PTS_Z"])
     def __getitem__(self, idx):
         # Read pickle ifle
         with open(self.filepaths[idx], "rb") as f:
@@ -337,7 +337,7 @@ class NeRFGrid_To_GraspSuccess_Dataset(Dataset):
 
         nerf_grid_input = torch.from_numpy(data_dict["nerf_grid_input"]).float()
         grasp_success = torch.from_numpy(np.array(data_dict["grasp_success"])).long()
-        assert nerf_grid_input.shape == (4, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
+        assert nerf_grid_input.shape == (N_CHANNELS, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
         assert grasp_success.shape == ()
 
         return nerf_grid_input, grasp_success
@@ -378,7 +378,7 @@ class NeRFGrid_To_GraspSuccess_ALL_Dataset(Dataset):
     def __len__(self):
         return len(self.filepaths)
 
-    @localscope.mfc(allowed=["NUM_PTS_X", "NUM_PTS_Y", "NUM_PTS_Z"])
+    @localscope.mfc
     def __getitem__(self, idx):
         return self.nerf_grid_inputs[idx], self.grasp_successes[idx]
 
@@ -402,13 +402,13 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
     def __len__(self):
         return self.len
 
-    @localscope.mfc(allowed=["NUM_PTS_X", "NUM_PTS_Y", "NUM_PTS_Z"])
+    @localscope.mfc(allowed=["N_CHANNELS", "NUM_PTS_X", "NUM_PTS_Y", "NUM_PTS_Z"])
     def __getitem__(self, idx):
         nerf_grid_input = torch.from_numpy(
             self.hdf5_file["/nerf_grid_input"][idx]
         ).float()
         grasp_success = self.grasp_successes[idx]
-        assert nerf_grid_input.shape == (4, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
+        assert nerf_grid_input.shape == (N_CHANNELS, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
         assert grasp_success.shape == ()
 
         return nerf_grid_input, grasp_success
@@ -581,7 +581,7 @@ idx_to_visualize = 0
 for nerf_grid_inputs, grasp_successes in train_loader:
     assert nerf_grid_inputs.shape == (
         cfg.data.batch_size,
-        4,
+        N_CHANNELS,
         NUM_PTS_X,
         NUM_PTS_Y,
         NUM_PTS_Z,
@@ -621,7 +621,7 @@ idx_to_visualize = 0
 for nerf_grid_inputs, grasp_successes in val_loader:
     assert nerf_grid_inputs.shape == (
         cfg.data.batch_size,
-        4,
+        N_CHANNELS,
         NUM_PTS_X,
         NUM_PTS_Y,
         NUM_PTS_Z,
@@ -685,45 +685,105 @@ except Exception as e:
 
 
 # %%
-nerf_grid_input_mins, nerf_grid_input_means, nerf_grid_input_maxs = [], [], []
+nerf_coordinate_mins, nerf_coordinate_means, nerf_coordinate_maxs = [], [], []
+nerf_density_mins, nerf_density_means, nerf_density_maxs = [], [], []
 for nerf_grid_inputs, _ in tqdm(
     train_loader, desc="Calculating nerf_grid_inputs dataset statistics"
 ):
-    nerf_grid_input_mins.append(nerf_grid_inputs.min().item())
-    nerf_grid_input_means.append(nerf_grid_inputs.mean().item())
-    nerf_grid_input_maxs.append(nerf_grid_inputs.max().item())
-nerf_grid_input_mins, nerf_grid_input_means, nerf_grid_input_maxs = (
-    np.array(nerf_grid_input_mins),
-    np.array(nerf_grid_input_means),
-    np.array(nerf_grid_input_maxs),
+    assert nerf_grid_inputs.shape == (
+        cfg.data.batch_size,
+        N_CHANNELS,
+        NUM_PTS_X,
+        NUM_PTS_Y,
+        NUM_PTS_Z,
+    )
+    nerf_coordinates = nerf_grid_inputs[:, :3]
+    nerf_densities = nerf_grid_inputs[:, -1]
+
+    nerf_coordinate_mins.append(nerf_coordinates.min().item())
+    nerf_coordinate_means.append(nerf_coordinates.mean().item())
+    nerf_coordinate_maxs.append(nerf_coordinates.max().item())
+
+    nerf_density_mins.append(nerf_densities.min().item())
+    nerf_density_means.append(nerf_densities.mean().item())
+    nerf_density_maxs.append(nerf_densities.max().item())
+
+nerf_coordinate_mins, nerf_coordinate_means, nerf_coordinate_maxs = (
+    np.array(nerf_coordinate_mins),
+    np.array(nerf_coordinate_means),
+    np.array(nerf_coordinate_maxs),
 )
-print(f"nerf_grid_input_min: {nerf_grid_input_mins.min()}")
-print(f"nerf_grid_input_mean: {nerf_grid_input_means.mean()}")
-print(f"nerf_grid_input_max: {nerf_grid_input_maxs.max()}")
+nerf_coordinate_min = nerf_coordinate_mins.min()
+nerf_coordinate_mean = nerf_coordinate_means.mean()
+nerf_coordinate_max = nerf_coordinate_maxs.max()
+print(f"nerf_coordinate_min: {nerf_coordinate_min}")
+print(f"nerf_coordinate_mean: {nerf_coordinate_mean}")
+print(f"nerf_coordinate_max: {nerf_coordinate_max}")
+
+nerf_density_mins, nerf_density_means, nerf_density_maxs = (
+    np.array(nerf_density_mins),
+    np.array(nerf_density_means),
+    np.array(nerf_density_maxs),
+)
+nerf_density_min = nerf_density_mins.min()
+nerf_density_mean = nerf_density_means.mean()
+nerf_density_max = nerf_density_maxs.max()
+print(f"nerf_density_min: {nerf_density_min}")
+print(f"nerf_density_mean: {nerf_density_mean}")
+print(f"nerf_density_max: {nerf_density_max}")
 
 # %%
-# Plot histogram of min, mean, and max values of nerf_grid_inputs
+# Plot histogram of min, mean, and max values of nerf_coordinates
 fig = go.Figure(
     data=[
         go.Histogram(
-            x=nerf_grid_input_mins,
+            x=nerf_coordinate_mins,
             name="Min",
             marker_color="blue",
         ),
         go.Histogram(
-            x=nerf_grid_input_means,
+            x=nerf_coordinate_means,
             name="Mean",
             marker_color="orange",
         ),
         go.Histogram(
-            x=nerf_grid_input_maxs,
+            x=nerf_coordinate_maxs,
             name="Max",
             marker_color="green",
         ),
     ],
     layout=go.Layout(
-        title="Distribution of nerf_grid_inputs (Aggregated to Fit in RAM)",
-        xaxis=dict(title="nerf_grid_input value"),
+        title="Distribution of nerf_coordinates (Aggregated to Fit in RAM)",
+        xaxis=dict(title="nerf_coordinates"),
+        yaxis=dict(title="Frequency"),
+        barmode="overlay",
+    ),
+)
+fig.show()
+
+# %%
+# Plot histogram of min, mean, and max values of nerf_densities
+fig = go.Figure(
+    data=[
+        go.Histogram(
+            x=nerf_density_mins,
+            name="Min",
+            marker_color="blue",
+        ),
+        go.Histogram(
+            x=nerf_density_means,
+            name="Mean",
+            marker_color="orange",
+        ),
+        go.Histogram(
+            x=nerf_density_maxs,
+            name="Max",
+            marker_color="green",
+        ),
+    ],
+    layout=go.Layout(
+        title="Distribution of nerf_densities (Aggregated to Fit in RAM)",
+        xaxis=dict(title="nerf_densities"),
         yaxis=dict(title="Frequency"),
         barmode="overlay",
     ),
@@ -1023,6 +1083,41 @@ def save_checkpoint(
 
 
 # %%
+@localscope.mfc(allowed=["cfg"])
+def preprocess(
+    nerf_grid_inputs: torch.Tensor,
+    nerf_coordinate_min: float,
+    nerf_coordinate_max: float,
+    nerf_density_min: float,
+    nerf_density_max: float,
+):
+    # TODO: Look into exponential weighting of density
+    assert nerf_grid_inputs.shape == (
+        cfg.data.batch_size,
+        N_CHANNELS,
+        NUM_PTS_X,
+        NUM_PTS_Y,
+        NUM_PTS_Z,
+    )
+    nerf_coordinates = nerf_grid_inputs[:, :3]
+    nerf_densities = nerf_grid_inputs[:, -1]
+
+    # Normalize coordinates
+    normalized_nerf_coordinates = (nerf_coordinates - nerf_coordinate_min) / (
+        nerf_coordinate_max - nerf_coordinate_min
+    )
+    normalized_nerf_densities = (nerf_densities - nerf_density_min) / (
+        nerf_density_max - nerf_density_min
+    )
+    normalized_nerf_grid_iputs = torch.cat(
+        [normalized_nerf_coordinates, normalized_nerf_densities], dim=1
+    )
+    assert normalized_nerf_grid_iputs.shape == nerf_grid_inputs.shape
+
+    return normalized_nerf_coordinates
+
+
+# %%
 
 
 class Phase(Enum):
@@ -1062,6 +1157,7 @@ def iterate_through_dataloader(
             # Forward pass
             start_forward_pass_time = time.time()
             nerf_grid_inputs = nerf_grid_inputs.to(device)
+            nerf_grid_inputs = preprocess(nerf_grid_inputs)
             grasp_successes = grasp_successes.to(device)
 
             grasp_success_logits = nerf_to_grasp_success_model.get_success_logits(
@@ -1270,7 +1366,9 @@ def run_training_loop(
 
         # Train
         start_train_time = time.time()
-        log_grad = epoch % cfg.log_grad_freq == 0
+        log_grad = epoch % cfg.log_grad_freq == 0 and (
+            epoch != 0 or cfg.log_grad_on_epoch_0
+        )
         iterate_through_dataloader(
             phase=Phase.TRAIN,
             dataloader=train_loader,

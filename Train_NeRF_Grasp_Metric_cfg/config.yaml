@@ -22,8 +22,9 @@ training:
   lr: 1e-4
   n_epochs: 20
   log_grad_freq: 5
+  log_grad_on_epoch_0: False
   val_freq: 5
-  val_on_epoch_0: False
+  val_on_epoch_0: True
   save_checkpoint_freq: 5
   save_checkpoint_on_epoch_0: False
   confusion_matrix_freq: 5
@@ -32,7 +33,7 @@ training:
 neural_network:
   conv_channels: [32, 64, 128, 256]
   pool_type: "MAX"
-  dropout_prob: 0.0
+  dropout_prob: 0.1
   conv_output_to_1d: "AVG_POOL_SPATIAL"
   mlp_hidden_layers: [256, 256, 256]
 

@@ -13,50 +13,6 @@
 #     name: python3
 # ---
 
-# %% [markdown]
-# # Imports
-
-# %%
-import math
-import os
-import pickle
-import random
-import sys
-import time
-from collections import defaultdict
-from dataclasses import dataclass
-from datetime import datetime
-from enum import Enum, auto
-from typing import Any, Dict, List, Optional
-
-import numpy as np
-import plotly.graph_objects as go
-import torch
-import torch.nn as nn
-from hydra import compose, initialize
-from hydra.core.config_store import ConfigStore
-from hydra.utils import instantiate
-from localscope import localscope
-from omegaconf import MISSING, OmegaConf
-from sklearn.metrics import ConfusionMatrixDisplay, confusion_matrix
-from torch.utils.data import DataLoader, Dataset, random_split
-from torchinfo import summary
-from torchviz import make_dot
-from tqdm import tqdm
-from wandb.util import generate_id
-
-import wandb
-
-# %% [markdown]
-# # Notebook Setup
-
-# %%
-OmegaConf.register_new_resolver("eval", eval, replace=True)
-OmegaConf.register_new_resolver(
-    "datetime_str", lambda: datetime.now().strftime("%Y-%m-%d_%H-%M-%S"), replace=True
-)
-
-
 # %%
 def is_notebook() -> bool:
     try:
@@ -72,7 +28,57 @@ def is_notebook() -> bool:
 
 
 # %% [markdown]
+# # Imports
+
+# %%
+import math
+import os
+import pickle
+import random
+import sys
+import time
+from collections import defaultdict
+from dataclasses import dataclass
+from datetime import datetime
+from enum import Enum, auto
+from functools import partial
+from typing import Any, Dict, List, Optional
+
+import numpy as np
+import plotly.graph_objects as go
+import torch
+import torch.nn as nn
+from hydra import compose, initialize
+from hydra.core.config_store import ConfigStore
+from hydra.utils import instantiate
+from localscope import localscope
+from omegaconf import MISSING, OmegaConf
+from sklearn.metrics import ConfusionMatrixDisplay, confusion_matrix
+from torch.utils.data import DataLoader, Dataset, random_split
+from torchinfo import summary
+from torchviz import make_dot
+from wandb.util import generate_id
+
+import wandb
+
+# %%
+if is_notebook():
+    from tqdm.notebook import tqdm as std_tqdm
+else:
+    from tqdm import tqdm as std_tqdm
+
+tqdm = partial(std_tqdm, dynamic_ncols=True)
+
+
+# %% [markdown]
 # # Setup Config for Static Type-Checking
+
+
+# %%
+OmegaConf.register_new_resolver("eval", eval, replace=True)
+OmegaConf.register_new_resolver(
+    "datetime_str", lambda: datetime.now().strftime("%Y-%m-%d_%H-%M-%S"), replace=True
+)
 
 
 # %%
@@ -810,7 +816,7 @@ class Phase(Enum):
     TEST = auto()
 
 
-@localscope.mfc
+@localscope.mfc(allowed=['tqdm'])
 def iterate_through_dataloader(
     phase: Phase,
     dataloader: DataLoader,
@@ -908,13 +914,13 @@ def iterate_through_dataloader(
             description = " | ".join(
                 [
                     f"{phase.name.lower()} (ms)",
-                    f"Data: {1000*dataload_time_taken:.0f}",
                     f"Batch: {1000*batch_time_taken:.0f}",
+                    f"Data: {1000*dataload_time_taken:.0f}",
                     f"Fwd: {1000*forward_pass_time_taken:.0f}",
                     # f"CE Loss: {1000*ce_loss_time:.0f}",
                     f"Bwd: {1000*backward_pass_time_taken:.0f}",
                     f"Grad: {1000*grad_log_time_taken:.0f}",
-                    # f"Grad Clip: {1000*grad_clip_time_taken:.0f}",
+                    f"Clip: {1000*grad_clip_time_taken:.0f}",
                     # f"Loss Log: {1000*loss_log_time_taken:.0f}",
                     f"loss: {np.mean(losses_dict[f'{phase.name.lower()}_loss']):.5f}",
                 ]
@@ -940,7 +946,7 @@ def iterate_through_dataloader(
 
 
 # %%
-@localscope.mfc
+@localscope.mfc(allowed=['tqdm'])
 def plot_confusion_matrix(
     phase: Phase,
     dataloader: DataLoader,
@@ -983,7 +989,7 @@ def plot_confusion_matrix(
 
 
 # %%
-@localscope.mfc
+@localscope.mfc(allowed=['tqdm'])
 def run_training_loop(
     cfg: TrainingConfig,
     train_loader: DataLoader,
@@ -1019,7 +1025,7 @@ def run_training_loop(
         # Create confusion matrix
         start_confusion_matrix_time = time.time()
         if epoch % cfg.confusion_matrix_freq == 0 and (
-            epoch != 0 or cfg.confusion_matrix_on_epoch_0
+            epoch != 0 or cfg.save_confusion_matrix_on_epoch_0
         ):
             plot_confusion_matrix(
                 phase=Phase.TRAIN,
@@ -1128,3 +1134,5 @@ save_checkpoint(
     nerf_to_grasp_success_model=nerf_to_grasp_success_model,
     optimizer=optimizer,
 )
+
+# %%

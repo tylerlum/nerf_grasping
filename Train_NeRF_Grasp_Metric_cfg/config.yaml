@@ -20,7 +20,7 @@ training:
   grad_clip_val: 1.0
   lr: 1e-4
   n_epochs: 20
-  log_grad: True
+  log_grad: False  # Takes a lot of time
   val_freq: 5
   val_on_epoch_0: True
   save_checkpoint_freq: 5

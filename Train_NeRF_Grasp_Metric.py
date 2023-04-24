@@ -102,9 +102,13 @@ class TrainingConfig:
     lr: float = MISSING
     n_epochs: int = MISSING
     log_grad: bool = MISSING
+
     val_freq: int = MISSING
+    val_on_epoch_0: bool = MISSING
     save_checkpoint_freq: int = MISSING
+    save_checkpoint_on_epoch_0: bool = MISSING
     confusion_matrix_freq: int = MISSING
+    save_confusion_matrix_on_epoch_0: bool = MISSING
 
 
 class ConvOutputTo1D(Enum):
@@ -909,7 +913,7 @@ def iterate_through_dataloader(
                     f"Fwd: {1000*forward_pass_time_taken:.0f}",
                     # f"CE Loss: {1000*ce_loss_time:.0f}",
                     f"Bwd: {1000*backward_pass_time_taken:.0f}",
-                    # f"Grad Log: {1000*grad_log_time_taken:.0f}",
+                    f"Grad: {1000*grad_log_time_taken:.0f}",
                     # f"Grad Clip: {1000*grad_clip_time_taken:.0f}",
                     # f"Loss Log: {1000*loss_log_time_taken:.0f}",
                     f"loss: {np.mean(losses_dict[f'{phase.name.lower()}_loss']):.5f}",
@@ -1001,7 +1005,9 @@ def run_training_loop(
 
         # Save checkpoint
         start_save_checkpoint_time = time.time()
-        if epoch % cfg.save_checkpoint_freq == 0:
+        if epoch % cfg.save_checkpoint_freq == 0 and (
+            epoch != 0 or cfg.save_checkpoint_on_epoch_0
+        ):
             save_checkpoint(
                 checkpoint_workspace_dir_path=checkpoint_workspace_dir_path,
                 epoch=epoch,
@@ -1012,7 +1018,9 @@ def run_training_loop(
 
         # Create confusion matrix
         start_confusion_matrix_time = time.time()
-        if epoch % cfg.confusion_matrix_freq == 0:
+        if epoch % cfg.confusion_matrix_freq == 0 and (
+            epoch != 0 or cfg.confusion_matrix_on_epoch_0
+        ):
             plot_confusion_matrix(
                 phase=Phase.TRAIN,
                 dataloader=train_loader,
@@ -1029,6 +1037,18 @@ def run_training_loop(
             )
         confusion_matrix_time = time.time() - start_confusion_matrix_time
 
+        # Val
+        start_val_time = time.time()
+        if epoch % cfg.val_freq == 0 and (epoch != 0 or cfg.val_on_epoch_0):
+            iterate_through_dataloader(
+                phase=Phase.VAL,
+                dataloader=val_loader,
+                nerf_to_grasp_success_model=nerf_to_grasp_success_model,
+                device=device,
+                wandb_log_dict=wandb_log_dict,
+            )
+        val_time_taken = time.time() - start_val_time
+
         # Train
         start_train_time = time.time()
         iterate_through_dataloader(
@@ -1042,18 +1062,6 @@ def run_training_loop(
         )
         train_time_taken = time.time() - start_train_time
 
-        # Val
-        start_val_time = time.time()
-        if epoch % cfg.val_freq == 0:
-            iterate_through_dataloader(
-                phase=Phase.VAL,
-                dataloader=val_loader,
-                nerf_to_grasp_success_model=nerf_to_grasp_success_model,
-                device=device,
-                wandb_log_dict=wandb_log_dict,
-            )
-        val_time_taken = time.time() - start_val_time
-
         wandb.log(wandb_log_dict)
 
         # Set description
@@ -1061,7 +1069,7 @@ def run_training_loop(
             [
                 training_loop_base_description + " (s)",
                 f"Save: {save_checkpoint_time_taken:.0f}",
-                f"CM: {confusion_matrix_time:.0f}"
+                f"CM: {confusion_matrix_time:.0f}",
                 f"Train: {train_time_taken:.0f}",
                 f"Val: {val_time_taken:.0f}",
             ]

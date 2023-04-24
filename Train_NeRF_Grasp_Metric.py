@@ -207,7 +207,12 @@ def set_seed(seed):
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
     np.random.seed(seed)
-    torch.set_num_threads(1)
+    torch.set_num_threads(1)  # TODO: Is this slowing things down?
+
+    # torch.backends.cudnn.deterministic = True
+    # torch.backends.cudnn.benchmark = False
+    os.environ["PYTHONHASHSEED"] = str(seed)
+    print(f"Set random seed to {seed}")
 
 
 set_seed(cfg.random_seed)
@@ -221,7 +226,7 @@ set_seed(cfg.random_seed)
 def load_checkpoint(checkpoint_workspace_dir_path: str) -> Optional[Dict[str, Any]]:
     checkpoint_filepaths = sorted(
         [
-            filename
+            os.path.join(checkpoint_workspace_dir_path, filename)
             for filename in os.listdir(checkpoint_workspace_dir_path)
             if filename.endswith(".pt")
         ]
@@ -653,26 +658,30 @@ for nerf_grid_inputs, grasp_successes in val_loader:
 # # Visualize Dataset Distribution
 
 # %%
-grasp_successes_np = train_dataset.dataset.grasp_successes[
-    train_dataset.indices
-].numpy()
+try:
+    grasp_successes_np = train_dataset.dataset.grasp_successes[
+        train_dataset.indices
+    ].numpy()
 
-# Plot histogram in plotly
-fig = go.Figure(
-    data=[
-        go.Histogram(
-            x=grasp_successes_np,
-            name="Train",
-            marker_color="blue",
+    # Plot histogram in plotly
+    fig = go.Figure(
+        data=[
+            go.Histogram(
+                x=grasp_successes_np,
+                name="Train",
+                marker_color="blue",
+            ),
+        ],
+        layout=go.Layout(
+            title="Distribution of Grasp Successes",
+            xaxis=dict(title="Grasp Success"),
+            yaxis=dict(title="Frequency"),
         ),
-    ],
-    layout=go.Layout(
-        title="Distribution of Grasp Successes",
-        xaxis=dict(title="Grasp Success"),
-        yaxis=dict(title="Frequency"),
-    ),
-)
-fig.show()
+    )
+    fig.show()
+except Exception as e:
+    print(f"Error: {e}")
+    print("Skipping visualization of grasp success distribution")
 
 
 # %%
@@ -1296,8 +1305,11 @@ wandb.watch(nerf_to_grasp_success_model, log="gradients", log_freq=100)
 
 # %%
 @localscope.mfc
-def compute_class_weight_np(grasp_successes_np: np.ndarray):
+def compute_class_weight_np(train_dataset: Subset):
     try:
+        grasp_successes_np = train_dataset.dataset.grasp_successes[
+            train_dataset.indices
+        ].numpy()
         class_weight_np = compute_class_weight(
             class_weight="balanced",
             classes=np.unique(grasp_successes_np),
@@ -1311,7 +1323,7 @@ def compute_class_weight_np(grasp_successes_np: np.ndarray):
 
 
 class_weight = (
-    torch.from_numpy(compute_class_weight_np(grasp_successes_np)).float().to(device)
+    torch.from_numpy(compute_class_weight_np(train_dataset)).float().to(device)
 )
 print(f"Class weight: {class_weight}")
 ce_loss_fn = nn.CrossEntropyLoss(weight=class_weight)

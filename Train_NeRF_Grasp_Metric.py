@@ -17,17 +17,17 @@
 # # Imports
 
 # %%
-import time
+import math
 import os
-from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
 import pickle
 import random
 import sys
+import time
+from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum, auto
-from typing import List, Dict, Any, Optional
-from collections import defaultdict
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 import plotly.graph_objects as go
@@ -38,13 +38,14 @@ from hydra.core.config_store import ConfigStore
 from hydra.utils import instantiate
 from localscope import localscope
 from omegaconf import MISSING, OmegaConf
+from sklearn.metrics import ConfusionMatrixDisplay, confusion_matrix
 from torch.utils.data import DataLoader, Dataset, random_split
 from torchinfo import summary
 from torchviz import make_dot
 from tqdm import tqdm
+from wandb.util import generate_id
 
 import wandb
-from wandb.util import generate_id
 
 # %% [markdown]
 # # Notebook Setup
@@ -372,9 +373,9 @@ print(f"Val loader size: {len(val_loader)}")
 print(f"Test loader size: {len(test_loader)}")
 
 # %%
-assert len(train_dataset) == len(train_loader)
-assert len(val_dataset) == len(val_loader)
-assert len(test_dataset) == len(test_loader)
+assert math.ceil(len(train_dataset) / cfg.training.batch_size) == len(train_loader)
+assert math.ceil(len(val_dataset) / cfg.training.batch_size) == len(val_loader)
+assert math.ceil(len(test_dataset) / cfg.training.batch_size) == len(test_loader)
 
 # %% [markdown]
 # # Visualize Dataset
@@ -902,16 +903,16 @@ def iterate_through_dataloader(
             # Set description
             description = " | ".join(
                 [
-                    f"{phase.name.lower()}",
-                    f"Dataload: {round(1000*dataload_time_taken, 0)} ms",
-                    f"Batch: {round(1000*batch_time_taken, 0)} ms",
-                    f"Forward: {round(1000*forward_pass_time_taken, 0)} ms",
-                    # f"CE Loss: {round(1000*ce_loss_time, 0)} ms",
-                    f"Backward: {round(1000*backward_pass_time_taken, 0)} ms",
-                    # f"Grad Log: {round(1000*grad_log_time_taken, 0)} ms",
-                    # f"Grad Clip: {round(1000*grad_clip_time_taken, 0)} ms",
-                    # f"Loss Log: {round(1000*loss_log_time_taken, 0)} ms",
-                    f"loss: {round(np.mean(losses_dict[f'{phase.name.lower()}_loss']), 5)}",
+                    f"{phase.name.lower()} (ms)",
+                    f"Data: {1000*dataload_time_taken:.0f}",
+                    f"Batch: {1000*batch_time_taken:.0f}",
+                    f"Fwd: {1000*forward_pass_time_taken:.0f}",
+                    # f"CE Loss: {1000*ce_loss_time:.0f}",
+                    f"Bwd: {1000*backward_pass_time_taken:.0f}",
+                    # f"Grad Log: {1000*grad_log_time_taken:.0f}",
+                    # f"Grad Clip: {1000*grad_clip_time_taken:.0f}",
+                    # f"Loss Log: {1000*loss_log_time_taken:.0f}",
+                    f"loss: {np.mean(losses_dict[f'{phase.name.lower()}_loss']):.5f}",
                 ]
             )
             pbar.set_description(description)
@@ -946,7 +947,7 @@ def plot_confusion_matrix(
     preds, ground_truths = [], []
     for nerf_grid_inputs, grasp_successes in (pbar := tqdm(dataloader)):
         nerf_grid_inputs = nerf_grid_inputs.to(device)
-        pbar.set_description(f"Confusion Matrix for {phase.name.lower()}")
+        pbar.set_description(f"{phase.name.lower()} Confusion Matrix")
         pred = (
             nerf_to_grasp_success_model.get_success_probability(nerf_grid_inputs)
             .argmax(axis=1)
@@ -1058,11 +1059,11 @@ def run_training_loop(
         # Set description
         description = " | ".join(
             [
-                training_loop_base_description,
-                f"Save: {round(1000*save_checkpoint_time_taken, 0)} ms",
-                f"Confusion: {round(1000*confusion_matrix_time, 0)} ms"
-                f"Train: {round(1000*train_time_taken, 0)} ms",
-                f"Val: {round(1000*val_time_taken, 0)} ms",
+                training_loop_base_description + " (s)",
+                f"Save: {save_checkpoint_time_taken:.0f}",
+                f"CM: {confusion_matrix_time:.0f}"
+                f"Train: {train_time_taken:.0f}",
+                f"Val: {val_time_taken:.0f}",
             ]
         )
         pbar.set_description(description)

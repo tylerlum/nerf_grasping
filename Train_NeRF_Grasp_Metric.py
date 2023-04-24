@@ -853,13 +853,9 @@ def iterate_through_dataloader(
             grasp_success_logits = nerf_to_grasp_success_model.get_success_logits(
                 nerf_grid_inputs
             )
-            forward_pass_time_taken = time.time() - start_forward_pass_time
-
-            # CE
-            start_ce_loss_time = time.time()
             ce_loss = ce_loss_fn(input=grasp_success_logits, target=grasp_successes)
             total_loss = ce_loss
-            ce_loss_time = time.time() - start_ce_loss_time
+            forward_pass_time_taken = time.time() - start_forward_pass_time
 
             # Gather data and report
             start_loss_log_time = time.time()
@@ -918,11 +914,10 @@ def iterate_through_dataloader(
                     f"Batch: {1000*batch_time_taken:.0f}",
                     f"Data: {1000*dataload_time_taken:.0f}",
                     f"Fwd: {1000*forward_pass_time_taken:.0f}",
-                    # f"CE Loss: {1000*ce_loss_time:.0f}",
                     f"Bwd: {1000*backward_pass_time_taken:.0f}",
                     f"Grad: {1000*grad_log_time_taken:.0f}",
-                    f"Clip: {1000*grad_clip_time_taken:.0f}",
-                    # f"Loss Log: {1000*loss_log_time_taken:.0f}",
+                    # f"Clip: {1000*grad_clip_time_taken:.0f}",
+                    f"Loss Log: {1000*loss_log_time_taken:.0f}",
                     f"loss: {np.mean(losses_dict[f'{phase.name.lower()}_loss']):.5f}",
                 ]
             )

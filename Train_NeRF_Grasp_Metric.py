@@ -98,12 +98,13 @@ class DataConfig:
     frac_train: float = MISSING
 
     input_dataset_dir: str = MISSING
+    batch_size: int = MISSING
+    dataloader_num_workers: int = MISSING
+    dataloader_pin_memory: bool = MISSING
 
 
 @dataclass
 class TrainingConfig:
-    batch_size: int = MISSING
-    dataloader_num_workers: int = MISSING
     grad_clip_val: float = MISSING
     lr: float = MISSING
     n_epochs: int = MISSING
@@ -356,24 +357,24 @@ assert len(set.intersection(set(val_dataset.indices), set(test_dataset.indices))
 # %%
 train_loader = DataLoader(
     train_dataset,
-    batch_size=cfg.training.batch_size,
+    batch_size=cfg.data.batch_size,
     shuffle=True,
-    pin_memory=True,
-    num_workers=cfg.training.dataloader_num_workers,
+    pin_memory=cfg.data.dataloader_pin_memory,
+    num_workers=cfg.data.dataloader_num_workers,
 )
 val_loader = DataLoader(
     val_dataset,
-    batch_size=cfg.training.batch_size,
+    batch_size=cfg.data.batch_size,
     shuffle=False,
-    pin_memory=True,
-    num_workers=cfg.training.dataloader_num_workers,
+    pin_memory=cfg.data.dataloader_pin_memory,
+    num_workers=cfg.data.dataloader_num_workers,
 )
 test_loader = DataLoader(
     test_dataset,
-    batch_size=cfg.training.batch_size,
+    batch_size=cfg.data.batch_size,
     shuffle=False,
-    pin_memory=True,
-    num_workers=cfg.training.dataloader_num_workers,
+    pin_memory=cfg.data.dataloader_pin_memory,
+    num_workers=cfg.data.dataloader_num_workers,
 )
 
 
@@ -383,9 +384,9 @@ print(f"Val loader size: {len(val_loader)}")
 print(f"Test loader size: {len(test_loader)}")
 
 # %%
-assert math.ceil(len(train_dataset) / cfg.training.batch_size) == len(train_loader)
-assert math.ceil(len(val_dataset) / cfg.training.batch_size) == len(val_loader)
-assert math.ceil(len(test_dataset) / cfg.training.batch_size) == len(test_loader)
+assert math.ceil(len(train_dataset) / cfg.data.batch_size) == len(train_loader)
+assert math.ceil(len(val_dataset) / cfg.data.batch_size) == len(val_loader)
+assert math.ceil(len(test_dataset) / cfg.data.batch_size) == len(test_loader)
 
 # %% [markdown]
 # # Visualize Dataset
@@ -444,13 +445,13 @@ def get_colored_points_scatter(points, colors):
 idx_to_visualize = 0
 for nerf_grid_inputs, grasp_successes in train_loader:
     assert nerf_grid_inputs.shape == (
-        cfg.training.batch_size,
+        cfg.data.batch_size,
         4,
         NUM_PTS_X,
         NUM_PTS_Y,
         NUM_PTS_Z,
     )
-    assert grasp_successes.shape == (cfg.training.batch_size,)
+    assert grasp_successes.shape == (cfg.data.batch_size,)
 
     nerf_densities = nerf_grid_inputs[idx_to_visualize, -1, :, :, :]
     assert nerf_densities.shape == (NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
@@ -484,13 +485,13 @@ for nerf_grid_inputs, grasp_successes in train_loader:
 idx_to_visualize = 0
 for nerf_grid_inputs, grasp_successes in val_loader:
     assert nerf_grid_inputs.shape == (
-        cfg.training.batch_size,
+        cfg.data.batch_size,
         4,
         NUM_PTS_X,
         NUM_PTS_Y,
         NUM_PTS_Z,
     )
-    assert grasp_successes.shape == (cfg.training.batch_size,)
+    assert grasp_successes.shape == (cfg.data.batch_size,)
 
     nerf_densities = nerf_grid_inputs[idx_to_visualize, -1, :, :, :]
     assert nerf_densities.shape == (NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)

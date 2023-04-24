@@ -51,6 +51,7 @@ from wandb.util import generate_id
 
 # %%
 OmegaConf.register_new_resolver("eval", eval, replace=True)
+OmegaConf.register_new_resolver("datetime_str", lambda: datetime.now().strftime("%Y-%m-%d_%H-%M-%S"), replace=True)
 
 
 # %%

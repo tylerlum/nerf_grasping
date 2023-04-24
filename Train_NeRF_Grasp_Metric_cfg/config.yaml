@@ -4,7 +4,7 @@ defaults:
 wandb:
   entity: "tylerlum"
   project: "NeRF_Grasp_Metric_V1"
-  name: ${eval:datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}
+  name: ${datetime_str:}
   group: ""
   job_type: ""
 

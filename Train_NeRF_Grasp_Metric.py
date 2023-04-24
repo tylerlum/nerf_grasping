@@ -1221,7 +1221,8 @@ wandb.watch(nerf_to_grasp_success_model, log="gradients", log_freq=100)
 
 # %%
 # TODO: Change weight to be based on the number of successes and failures
-ce_loss_fn = nn.CrossEntropyLoss(weight=torch.tensor([1, 1])).to(device)
+class_weight = torch.tensor([1.0, 1.0]).float().to(device)
+ce_loss_fn = nn.CrossEntropyLoss(weight=class_weight)
 
 # %%
 run_training_loop(

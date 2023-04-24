@@ -709,7 +709,7 @@ acronym_dir_filepath = "/juno/u/tylerlum/github_repos/acronym/data/grasps"
 
 CREATE_PLOTS = False
 SAVE_DATASET = True
-output_hdf5_filename = os.path.join(root_dir, "nerf_acronym_grasp_success_dataset.h5")
+output_hdf5_filename = os.path.join(root_dir, "nerf_acronym_grasp_success_dataset_66_categories.h5")
 
 ACRONYM_NUM_GRASPS_PER_OBJ = 2000
 max_num_data_points = ACRONYM_NUM_GRASPS_PER_OBJ * len(objs)  # Simple heuristic

@@ -110,7 +110,7 @@ class TrainingConfig:
     grad_clip_val: float = MISSING
     lr: float = MISSING
     n_epochs: int = MISSING
-    log_grad: bool = MISSING
+    log_grad_freq: int = MISSING
 
     val_freq: int = MISSING
     val_on_epoch_0: bool = MISSING
@@ -413,14 +413,12 @@ class NeRFGrid_To_GraspSuccess_HDF5_ALL_Dataset(Dataset):
         self.len = self.hdf5_file["/grasp_success"].shape[0]
 
         # Read all elements of the dataset
-        self.nerf_grid_inputs = [
-            torch.from_numpy(self.hdf5_file["/nerf_grid_input"][idx]).float()
-            for idx in tqdm(range(self.len))
-        ]
-        self.grasp_successes = [
-            torch.from_numpy(np.array(self.hdf5_file["/grasp_success"][idx])).long()
-            for idx in tqdm(range(self.len))
-        ]
+        self.nerf_grid_inputs = torch.from_numpy(
+            self.hdf5_file["/nerf_grid_input"][()]
+        ).float()
+        self.grasp_successes = torch.from_numpy(
+            np.array(self.hdf5_file["/grasp_success"][()])
+        ).long()
 
     @localscope.mfc
     def __len__(self):
@@ -436,10 +434,14 @@ class DatasetType(Enum):
     PKL_FILES = auto()
     HDF5_FILE = auto()
     PKL_FILES_ALL = auto()
-    HDF5_FILE_ALL = auto()
+    HDF5_FILE_ALL = auto()  # Won't fit in memory
 
 
-dataset_type = DatasetType.HDF5_FILE
+dataset_type = (
+    DatasetType.HDF5_FILE
+    if cfg.data.input_dataset_path.endswith(".h5")
+    else DatasetType.PKL_FILES
+)
 
 if dataset_type == DatasetType.PKL_FILES_ALL:
     full_dataset = NeRFGrid_To_GraspSuccess_ALL_Dataset(
@@ -948,6 +950,7 @@ def iterate_through_dataloader(
     wandb_log_dict: Dict[str, Any],
     cfg: Optional[TrainingConfig] = None,
     optimizer: Optional[torch.optim.Optimizer] = None,
+    log_grad: bool = False,
 ):
     assert phase in [Phase.TRAIN, Phase.VAL, Phase.TEST]
     if phase == Phase.TRAIN:
@@ -993,7 +996,7 @@ def iterate_through_dataloader(
             backward_pass_time_taken = time.time() - start_backward_pass_time
 
             start_grad_log_time = time.time()
-            if phase == Phase.TRAIN and cfg is not None and cfg.log_grad:
+            if phase == Phase.TRAIN and log_grad:
                 grad_abs_values = torch.concat(
                     [
                         p.grad.data.abs().flatten()
@@ -1175,6 +1178,7 @@ def run_training_loop(
 
         # Train
         start_train_time = time.time()
+        log_grad = epoch % cfg.log_grad_freq == 0
         iterate_through_dataloader(
             phase=Phase.TRAIN,
             dataloader=train_loader,
@@ -1183,6 +1187,7 @@ def run_training_loop(
             wandb_log_dict=wandb_log_dict,
             cfg=cfg,
             optimizer=optimizer,
+            log_grad=log_grad,
         )
         train_time_taken = time.time() - start_train_time
 

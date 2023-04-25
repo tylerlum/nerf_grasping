@@ -399,12 +399,13 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
     def __init__(self, input_hdf5_filepath):
         super().__init__()
         self.input_hdf5_filepath = input_hdf5_filepath
-        self.hdf5_file = h5py.File(input_hdf5_filepath, "r")
+        self.hdf5_file = None
 
         # This is small enough to fit in RAM
-        self.grasp_successes = torch.from_numpy(
-            np.array(self.hdf5_file["/grasp_success"][()])
-        ).long()
+        with h5py.File(self.input_hdf5_filepath, "r") as hdf5_file:
+            self.grasp_successes = torch.from_numpy(
+                np.array(hdf5_file["/grasp_success"][()])
+            ).long()
         self.len = self.grasp_successes.shape[0]
         assert self.grasp_successes.shape == (self.len,)
 
@@ -414,6 +415,9 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
 
     @localscope.mfc(allowed=["INPUT_EXAMPLE_SHAPE"])
     def __getitem__(self, idx):
+        if self.hdf5_file is None:
+            self.hdf5_file = h5py.File(self.input_hdf5_filepath, "r")
+
         nerf_grid_input = torch.from_numpy(
             self.hdf5_file["/nerf_grid_input"][idx]
         ).float()

@@ -171,7 +171,10 @@ config_store.store(name="config", node=Config)
 
 # %%
 if is_notebook():
-    arguments = []
+    arguments = [
+        "data.input_dataset_path=nerf_acronym_grasp_success_dataset_3_categories.h5",  # TODO REMOVE
+        "wandb.name=large-model_normalize_3-categories",
+    ]
 else:
     arguments = sys.argv[1:]
     print(f"arguments = {arguments}")
@@ -304,8 +307,15 @@ wandb.init(
 # CONSTANTS AND PARAMS
 ROOT_DIR = "/juno/u/tylerlum/github_repos/nerf_grasping"
 NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z = 83, 21, 37
-N_CHANNELS = 4
-input_example_shape = (N_CHANNELS, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
+NUM_XYZ = 3
+NUM_DENSITY = 1
+NUM_CHANNELS = NUM_XYZ + NUM_DENSITY
+INPUT_EXAMPLE_SHAPE = (NUM_CHANNELS, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
+NERF_COORDINATE_START_IDX, NERF_COORDINATE_END_IDX = 0, 3
+NERF_DENSITY_START_IDX, NERF_DENSITY_END_IDX = 3, 4
+
+assert NERF_COORDINATE_END_IDX == NERF_COORDINATE_START_IDX + NUM_XYZ
+assert NERF_DENSITY_END_IDX == NERF_DENSITY_START_IDX + NUM_DENSITY
 
 
 # %%
@@ -329,7 +339,7 @@ class NeRFGrid_To_GraspSuccess_Dataset(Dataset):
     def __len__(self):
         return len(self.filepaths)
 
-    @localscope.mfc(allowed=["N_CHANNELS", "NUM_PTS_X", "NUM_PTS_Y", "NUM_PTS_Z"])
+    @localscope.mfc(allowed=["INPUT_EXAMPLE_SHAPE"])
     def __getitem__(self, idx):
         # Read pickle ifle
         with open(self.filepaths[idx], "rb") as f:
@@ -337,7 +347,7 @@ class NeRFGrid_To_GraspSuccess_Dataset(Dataset):
 
         nerf_grid_input = torch.from_numpy(data_dict["nerf_grid_input"]).float()
         grasp_success = torch.from_numpy(np.array(data_dict["grasp_success"])).long()
-        assert nerf_grid_input.shape == (N_CHANNELS, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
+        assert nerf_grid_input.shape == INPUT_EXAMPLE_SHAPE
         assert grasp_success.shape == ()
 
         return nerf_grid_input, grasp_success
@@ -402,13 +412,13 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
     def __len__(self):
         return self.len
 
-    @localscope.mfc(allowed=["N_CHANNELS", "NUM_PTS_X", "NUM_PTS_Y", "NUM_PTS_Z"])
+    @localscope.mfc(allowed=["INPUT_EXAMPLE_SHAPE"])
     def __getitem__(self, idx):
         nerf_grid_input = torch.from_numpy(
             self.hdf5_file["/nerf_grid_input"][idx]
         ).float()
         grasp_success = self.grasp_successes[idx]
-        assert nerf_grid_input.shape == (N_CHANNELS, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
+        assert nerf_grid_input.shape == INPUT_EXAMPLE_SHAPE
         assert grasp_success.shape == ()
 
         return nerf_grid_input, grasp_success
@@ -553,9 +563,9 @@ def get_isaac_origin_lines():
     return lines
 
 
-@localscope.mfc
+@localscope.mfc(allowed=["NUM_XYZ"])
 def get_colored_points_scatter(points, colors):
-    assert len(points.shape) == 2 and points.shape[1] == 3
+    assert len(points.shape) == 2 and points.shape[1] == NUM_XYZ
     assert len(colors.shape) == 1
 
     # Use plotly to make scatter3d plot
@@ -577,26 +587,28 @@ def get_colored_points_scatter(points, colors):
 
 
 # %%
+
+# %%
 idx_to_visualize = 0
 for nerf_grid_inputs, grasp_successes in train_loader:
     assert nerf_grid_inputs.shape == (
         cfg.data.batch_size,
-        N_CHANNELS,
-        NUM_PTS_X,
-        NUM_PTS_Y,
-        NUM_PTS_Z,
+        *INPUT_EXAMPLE_SHAPE,
     )
     assert grasp_successes.shape == (cfg.data.batch_size,)
 
-    nerf_densities = nerf_grid_inputs[idx_to_visualize, -1, :, :, :]
-    assert nerf_densities.shape == (NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
+    nerf_grid_input = nerf_grid_inputs[idx_to_visualize]
+    assert nerf_grid_input.shape == INPUT_EXAMPLE_SHAPE
 
-    nerf_points = nerf_grid_inputs[idx_to_visualize, :3:, :, :].permute(1, 2, 3, 0)
-    assert nerf_points.shape == (NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z, 3)
+    nerf_densities = nerf_grid_input[NERF_DENSITY_START_IDX:NERF_DENSITY_END_IDX, :, :, :]
+    assert nerf_densities.shape == (NUM_DENSITY, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
+
+    nerf_points = nerf_grid_input[NERF_COORDINATE_START_IDX:NERF_COORDINATE_END_IDX].permute(1, 2, 3, 0)
+    assert nerf_points.shape == (NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z, NUM_XYZ)
 
     isaac_origin_lines = get_isaac_origin_lines()
     colored_points_scatter = get_colored_points_scatter(
-        nerf_points.reshape(-1, 3), nerf_densities.reshape(-1)
+        nerf_points.reshape(-1, NUM_XYZ), nerf_densities.reshape(-1)
     )
 
     layout = go.Layout(
@@ -621,20 +633,22 @@ idx_to_visualize = 0
 for nerf_grid_inputs, grasp_successes in val_loader:
     assert nerf_grid_inputs.shape == (
         cfg.data.batch_size,
-        N_CHANNELS,
-        NUM_PTS_X,
-        NUM_PTS_Y,
-        NUM_PTS_Z,
+        *INPUT_EXAMPLE_SHAPE,
     )
     assert grasp_successes.shape == (cfg.data.batch_size,)
 
-    nerf_densities = nerf_grid_inputs[idx_to_visualize, -1, :, :, :]
-    assert nerf_densities.shape == (NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
-    nerf_points = nerf_grid_inputs[idx_to_visualize, :3:, :, :].permute(1, 2, 3, 0)
-    assert nerf_points.shape == (NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z, 3)
+    nerf_grid_input = nerf_grid_inputs[idx_to_visualize]
+    assert nerf_grid_input.shape == INPUT_EXAMPLE_SHAPE
+
+    nerf_densities = nerf_grid_input[NERF_DENSITY_START_IDX:NERF_DENSITY_END_IDX, :, :, :]
+    assert nerf_densities.shape == (NUM_DENSITY, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
+
+    nerf_points = nerf_grid_input[NERF_COORDINATE_START_IDX:NERF_COORDINATE_END_IDX].permute(1, 2, 3, 0)
+    assert nerf_points.shape == (NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z, NUM_XYZ)
+
     isaac_origin_lines = get_isaac_origin_lines()
     colored_points_scatter = get_colored_points_scatter(
-        nerf_points.reshape(-1, 3), nerf_densities.reshape(-1)
+        nerf_points.reshape(-1, NUM_XYZ), nerf_densities.reshape(-1)
     )
 
     layout = go.Layout(
@@ -690,14 +704,9 @@ nerf_density_mins, nerf_density_means, nerf_density_maxs = [], [], []
 for nerf_grid_inputs, _ in tqdm(
     train_loader, desc="Calculating nerf_grid_inputs dataset statistics"
 ):
-    assert nerf_grid_inputs.shape[1:] == (
-        N_CHANNELS,
-        NUM_PTS_X,
-        NUM_PTS_Y,
-        NUM_PTS_Z,
-    )
-    nerf_coordinates = nerf_grid_inputs[:, :3]
-    nerf_densities = nerf_grid_inputs[:, -1]
+    assert nerf_grid_inputs.shape[1:] == INPUT_EXAMPLE_SHAPE
+    nerf_coordinates = nerf_grid_inputs[:, NERF_COORDINATE_START_IDX:NERF_COORDINATE_END_IDX]
+    nerf_densities = nerf_grid_inputs[:, NERF_DENSITY_START_IDX:NERF_DENSITY_END_IDX]
 
     nerf_coordinate_mins.append(nerf_coordinates.min().item())
     nerf_coordinate_means.append(nerf_coordinates.mean().item())
@@ -983,7 +992,7 @@ class NeRF_to_Grasp_Success_Model(nn.Module):
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
 nerf_to_grasp_success_model = NeRF_to_Grasp_Success_Model(
-    input_example_shape=input_example_shape,
+    input_example_shape=INPUT_EXAMPLE_SHAPE,
     neural_network_config=cfg.neural_network,
 ).to(device)
 
@@ -1082,24 +1091,30 @@ def save_checkpoint(
 
 
 # %%
-@localscope.mfc(allowed=["cfg"])
+@localscope.mfc(
+    allowed=[
+        "cfg",
+        "INPUT_EXAMPLE_SHAPE",
+        "nerf_coordinate_min",  # HACK: Should be not a global
+        "nerf_coordinate_max",
+        "nerf_density_min",
+        "nerf_density_max",
+        "NERF_COORDINATE_START_IDX",
+        "NERF_COORDINATE_END_IDX",
+        "NERF_DENSITY_START_IDX",
+        "NERF_DENSITY_END_IDX",
+    ]
+)
 def preprocess(
     nerf_grid_inputs: torch.Tensor,
-    nerf_coordinate_min: float,
-    nerf_coordinate_max: float,
-    nerf_density_min: float,
-    nerf_density_max: float,
 ):
     # TODO: Look into exponential weighting of density
     assert nerf_grid_inputs.shape == (
         cfg.data.batch_size,
-        N_CHANNELS,
-        NUM_PTS_X,
-        NUM_PTS_Y,
-        NUM_PTS_Z,
+        *INPUT_EXAMPLE_SHAPE,
     )
-    nerf_coordinates = nerf_grid_inputs[:, :3]
-    nerf_densities = nerf_grid_inputs[:, -1]
+    nerf_coordinates = nerf_grid_inputs[:, NERF_COORDINATE_START_IDX:NERF_COORDINATE_END_IDX]
+    nerf_densities = nerf_grid_inputs[:, NERF_DENSITY_START_IDX:NERF_DENSITY_END_IDX]
 
     # Normalize coordinates
     normalized_nerf_coordinates = (nerf_coordinates - nerf_coordinate_min) / (

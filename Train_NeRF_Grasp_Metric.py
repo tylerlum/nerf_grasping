@@ -1168,7 +1168,7 @@ def iterate_through_dataloader(
             # Forward pass
             start_forward_pass_time = time.time()
             nerf_grid_inputs = nerf_grid_inputs.to(device)
-            nerf_grid_inputs = preprocess(nerf_grid_inputs)
+            # nerf_grid_inputs = preprocess(nerf_grid_inputs)  # TODO: (Should we preprocess?)
             grasp_successes = grasp_successes.to(device)
 
             grasp_success_logits = nerf_to_grasp_success_model.get_success_logits(

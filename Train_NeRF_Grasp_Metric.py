@@ -690,8 +690,7 @@ nerf_density_mins, nerf_density_means, nerf_density_maxs = [], [], []
 for nerf_grid_inputs, _ in tqdm(
     train_loader, desc="Calculating nerf_grid_inputs dataset statistics"
 ):
-    assert nerf_grid_inputs.shape == (
-        cfg.data.batch_size,
+    assert nerf_grid_inputs.shape[1:] == (
         N_CHANNELS,
         NUM_PTS_X,
         NUM_PTS_Y,

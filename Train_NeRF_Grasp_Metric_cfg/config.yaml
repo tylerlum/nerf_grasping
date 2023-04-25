@@ -15,7 +15,7 @@ data:
   input_dataset_path: "nerf_acronym_grasp_success_dataset_66_categories.h5"
   batch_size: 128
   dataloader_num_workers: 8
-  dataloader_pin_memory: True
+  dataloader_pin_memory: False
 
 training:
   grad_clip_val: 1.0
@@ -33,7 +33,7 @@ training:
 neural_network:
   conv_channels: [32, 64, 128, 256]
   pool_type: "MAX"
-  dropout_prob: 0.1
+  dropout_prob: 0.0
   conv_output_to_1d: "AVG_POOL_SPATIAL"
   mlp_hidden_layers: [256, 256, 256]
 

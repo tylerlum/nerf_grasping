@@ -1109,10 +1109,7 @@ def preprocess(
     nerf_grid_inputs: torch.Tensor,
 ):
     # TODO: Look into exponential weighting of density
-    assert nerf_grid_inputs.shape == (
-        cfg.data.batch_size,
-        *INPUT_EXAMPLE_SHAPE,
-    )
+    assert nerf_grid_inputs.shape[1:] == INPUT_EXAMPLE_SHAPE
     nerf_coordinates = nerf_grid_inputs[:, NERF_COORDINATE_START_IDX:NERF_COORDINATE_END_IDX]
     nerf_densities = nerf_grid_inputs[:, NERF_DENSITY_START_IDX:NERF_DENSITY_END_IDX]
 
@@ -1123,12 +1120,12 @@ def preprocess(
     normalized_nerf_densities = (nerf_densities - nerf_density_min) / (
         nerf_density_max - nerf_density_min
     )
-    normalized_nerf_grid_iputs = torch.cat(
+    normalized_nerf_grid_inputs = torch.cat(
         [normalized_nerf_coordinates, normalized_nerf_densities], dim=1
     )
-    assert normalized_nerf_grid_iputs.shape == nerf_grid_inputs.shape
+    assert normalized_nerf_grid_inputs.shape == nerf_grid_inputs.shape
 
-    return normalized_nerf_coordinates
+    return normalized_nerf_grid_inputs
 
 
 # %%

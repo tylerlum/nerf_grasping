@@ -303,8 +303,8 @@ wandb.init(
 
 # %%
 # CONSTANTS AND PARAMS
-ROOT_DIR = "/juno/u/tylerlum/github_repos/nerf_grasping"
-# ROOT_DIR = "/scr1/tylerlum"
+# ROOT_DIR = "/juno/u/tylerlum/github_repos/nerf_grasping"
+ROOT_DIR = "/scr1/tylerlum"
 NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z = 83, 21, 37
 NUM_XYZ = 3
 NUM_DENSITY = 1
@@ -412,11 +412,11 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
     def __len__(self):
         return self.len
 
-    @localscope.mfc(allowed=["INPUT_EXAMPLE_SHAPE"])
+    @localscope.mfc(allowed=["INPUT_EXAMPLE_SHAPE", "NERF_COORDINATE_START_IDX", "NERF_COORDINATE_END_IDX", "NERF_DENSITY_START_IDX", "NERF_DENSITY_END_IDX"])
     def __getitem__(self, idx):
         if self.hdf5_file is None:
-            # self.hdf5_file = h5py.File(self.input_hdf5_filepath, "r", rdcc_nbytes=1024**2 * 4000, rdcc_w0=1.0, rdcc_nslots=1000)
-            self.hdf5_file = h5py.File(self.input_hdf5_filepath, "r")
+            self.hdf5_file = h5py.File(self.input_hdf5_filepath, "r", rdcc_nbytes=1024**2 * 4000, rdcc_w0=1.0, rdcc_nslots=1000)
+            # self.hdf5_file = h5py.File(self.input_hdf5_filepath, "r")
 
         nerf_grid_input = torch.from_numpy(
             self.hdf5_file["/nerf_grid_input"][idx]
@@ -424,6 +424,14 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
         grasp_success = self.grasp_successes[idx]
         assert nerf_grid_input.shape == INPUT_EXAMPLE_SHAPE
         assert grasp_success.shape == ()
+
+        # Preprocess
+        USE_PREPROCESS = False
+        if USE_PREPROCESS:
+            with torch.no_grad():
+                # delta = torch.norm(nerf_grid_input[NERF_COORDINATE_START_IDX:NERF_COORDINATE_END_IDX, 1, 0, 0] - nerf_grid_input[NERF_COORDINATE_START_IDX:NERF_COORDINATE_END_IDX, 0, 0, 0])
+                delta = 0.001  # 1mm
+                nerf_grid_input[NERF_DENSITY_START_IDX:NERF_DENSITY_END_IDX] = torch.exp(-nerf_grid_input[NERF_DENSITY_START_IDX:NERF_DENSITY_END_IDX] * delta)
 
         return nerf_grid_input, grasp_success
 
@@ -1097,43 +1105,6 @@ def save_checkpoint(
     print("Done saving checkpoint")
 
 
-# %%
-@localscope.mfc(
-    allowed=[
-        "cfg",
-        "INPUT_EXAMPLE_SHAPE",
-        "nerf_coordinate_min",  # HACK: Should be not a global
-        "nerf_coordinate_max",
-        "nerf_density_min",
-        "nerf_density_max",
-        "NERF_COORDINATE_START_IDX",
-        "NERF_COORDINATE_END_IDX",
-        "NERF_DENSITY_START_IDX",
-        "NERF_DENSITY_END_IDX",
-    ]
-)
-def preprocess(
-    nerf_grid_inputs: torch.Tensor,
-):
-    # TODO: Look into exponential weighting of density
-    assert nerf_grid_inputs.shape[1:] == INPUT_EXAMPLE_SHAPE
-    nerf_coordinates = nerf_grid_inputs[:, NERF_COORDINATE_START_IDX:NERF_COORDINATE_END_IDX]
-    nerf_densities = nerf_grid_inputs[:, NERF_DENSITY_START_IDX:NERF_DENSITY_END_IDX]
-
-    # Normalize coordinates
-    normalized_nerf_coordinates = (nerf_coordinates - nerf_coordinate_min) / (
-        nerf_coordinate_max - nerf_coordinate_min
-    )
-    normalized_nerf_densities = (nerf_densities - nerf_density_min) / (
-        nerf_density_max - nerf_density_min
-    )
-    normalized_nerf_grid_inputs = torch.cat(
-        [normalized_nerf_coordinates, normalized_nerf_densities], dim=1
-    )
-    assert normalized_nerf_grid_inputs.shape == nerf_grid_inputs.shape
-
-    return normalized_nerf_grid_inputs
-
 
 # %%
 
@@ -1175,7 +1146,6 @@ def iterate_through_dataloader(
             # Forward pass
             start_forward_pass_time = time.time()
             nerf_grid_inputs = nerf_grid_inputs.to(device)
-            # nerf_grid_inputs = preprocess(nerf_grid_inputs)  # TODO: (Should we preprocess?)
             grasp_successes = grasp_successes.to(device)
 
             grasp_success_logits = nerf_to_grasp_success_model.get_success_logits(

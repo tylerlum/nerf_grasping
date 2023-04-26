@@ -101,6 +101,7 @@ class DataConfig:
     frac_test: float = MISSING
     frac_train: float = MISSING
 
+    input_dataset_root_dir: str = MISSING
     input_dataset_path: str = MISSING
     batch_size: int = MISSING
     dataloader_num_workers: int = MISSING
@@ -303,7 +304,6 @@ wandb.init(
 
 # %%
 # CONSTANTS AND PARAMS
-ROOT_DIR = "/scr1/tylerlum"
 NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z = 83, 21, 37
 NUM_XYZ = 3
 NUM_DENSITY = 1
@@ -420,7 +420,7 @@ dataset_type = DatasetType.HDF5_FILE
 
 if dataset_type == DatasetType.HDF5_FILE:
     full_dataset = NeRFGrid_To_GraspSuccess_HDF5_Dataset(
-        os.path.join(ROOT_DIR, cfg.data.input_dataset_path)
+        os.path.join(cfg.data.input_dataset_root_dir, cfg.data.input_dataset_path)
     )
 else:
     raise ValueError(f"Unknown dataset type: {dataset_type}")

@@ -707,9 +707,11 @@ assets_dir_filepath = os.path.join(root_dir, "assets")
 objects_dir_filepath = os.path.join(assets_dir_filepath, "objects")
 acronym_dir_filepath = "/juno/u/tylerlum/github_repos/acronym/data/grasps"
 
+
 CREATE_PLOTS = False
 SAVE_DATASET = True
-output_hdf5_filename = os.path.join(root_dir, "nerf_acronym_grasp_success_dataset_66_categories.h5")
+objs = objs[:3]
+output_hdf5_filename = os.path.join(root_dir, f"nerf_acronym_grasp_success_dataset_{len(objs)}_categories_v2.h5")
 
 ACRONYM_NUM_GRASPS_PER_OBJ = 2000
 max_num_data_points = ACRONYM_NUM_GRASPS_PER_OBJ * len(objs)  # Simple heuristic
@@ -725,6 +727,7 @@ with h5py.File(output_hdf5_filename, "w") as hdf5_file:
         "/nerf_grid_input",
         shape=(max_num_data_points, 4, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z),
         dtype="f",
+        chunks=(1, 4, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z),
     )
     grasp_success_dataset = hdf5_file.create_dataset(
         "/grasp_success", shape=(max_num_data_points,), dtype="i"

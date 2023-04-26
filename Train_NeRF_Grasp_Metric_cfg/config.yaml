@@ -15,7 +15,7 @@ data:
   input_dataset_path: "nerf_acronym_grasp_success_dataset_3_categories.h5"
   batch_size: 128
   dataloader_num_workers: 8
-  dataloader_pin_memory: False
+  dataloader_pin_memory: True
 
 training:
   grad_clip_val: 1.0

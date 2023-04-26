@@ -58,7 +58,7 @@ from localscope import localscope
 from omegaconf import MISSING, OmegaConf
 from sklearn.metrics import ConfusionMatrixDisplay, confusion_matrix
 from sklearn.utils.class_weight import compute_class_weight
-from torch.utils.data import DataLoader, Dataset, Subset, random_split
+from torch.utils.data import DataLoader, Dataset, Subset, random_split, SubsetRandomSampler
 from torchinfo import summary
 from torchviz import make_dot
 from wandb.util import generate_id
@@ -1268,6 +1268,24 @@ def iterate_through_dataloader(
     if phase == Phase.TRAIN:
         nerf_to_grasp_success_model.train()
         assert cfg is not None and optimizer is not None
+
+        # HACK: make subset of other dataloader
+        @localscope.mfc
+        def create_dataloader_subset(original_dataloader: DataLoader, fraction: float) -> DataLoader:
+            smaller_dataset_size = int(len(original_dataloader.dataset) * fraction)
+            print(f"HACK: Converting from {len(original_dataloader.dataset)} to {smaller_dataset_size}")
+            dataloader = DataLoader(
+                original_dataloader.dataset,
+                batch_size=original_dataloader.batch_size,
+                sampler=SubsetRandomSampler(
+                    random.sample(original_dataloader.indices, smaller_dataset_size)
+                ),
+                pin_memory=original_dataloader.pin_memory,
+                num_workers=original_dataloader.num_workers,
+            )
+            return dataloader
+        dataloader = create_dataloader_subset(dataloader, fraction=0.3)
+
     else:
         nerf_to_grasp_success_model.eval()
         assert cfg is None and optimizer is None

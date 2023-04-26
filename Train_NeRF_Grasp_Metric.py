@@ -168,6 +168,8 @@ class Config:
     checkpoint_workspace: CheckpointWorkspaceConfig = MISSING
     random_seed: int = MISSING
     visualize_data: bool = MISSING
+    dry_run: bool = MISSING
+
 
 
 # %%
@@ -204,6 +206,11 @@ except ConfigCompositionException as e:
 
 # %%
 print(f"Config:\n{OmegaConf.to_yaml(cfg)}")
+
+# %%
+if cfg.dry_run:
+    print("Dry run passed. Exiting.")
+    exit()
 
 # %% [markdown]
 # # Set Random Seed

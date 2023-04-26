@@ -46,3 +46,4 @@ checkpoint_workspace:
 
 random_seed: 42
 visualize_data: False
+dry_run: False

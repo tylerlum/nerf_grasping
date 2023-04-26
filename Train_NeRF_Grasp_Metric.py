@@ -317,81 +317,8 @@ assert NERF_DENSITY_END_IDX == NERF_DENSITY_START_IDX + NUM_DENSITY
 
 
 # %%
-class NeRFGrid_To_GraspSuccess_Dataset(Dataset):
-    # @localscope.mfc  # ValueError: Cell is empty
-    def __init__(self, input_dataset_path):
-        super().__init__()
-        self.input_dataset_path = input_dataset_path
-        self.filepaths = self._get_filepaths(input_dataset_path)
-
-    @localscope.mfc
-    def _get_filepaths(self, input_dataset_path):
-        return [
-            os.path.join(input_dataset_path, object_dir, filepath)
-            for object_dir in os.listdir(input_dataset_path)
-            for filepath in os.listdir(os.path.join(input_dataset_path, object_dir))
-            if filepath.endswith(".pkl")
-        ]
-
-    @localscope.mfc
-    def __len__(self):
-        return len(self.filepaths)
-
-    @localscope.mfc(allowed=["INPUT_EXAMPLE_SHAPE"])
-    def __getitem__(self, idx):
-        # Read pickle file
-        with open(self.filepaths[idx], "rb") as f:
-            data_dict = pickle.load(f)
-
-        nerf_grid_input = torch.from_numpy(data_dict["nerf_grid_input"]).float()
-        grasp_success = torch.from_numpy(np.array(data_dict["grasp_success"])).long()
-        assert nerf_grid_input.shape == INPUT_EXAMPLE_SHAPE
-        assert grasp_success.shape == ()
-
-        return nerf_grid_input, grasp_success
 
 
-# %%
-class NeRFGrid_To_GraspSuccess_ALL_Dataset(Dataset):
-    # @localscope.mfc  # ValueError: Cell is empty
-    def __init__(self, input_dataset_path):
-        super().__init__()
-        self.input_dataset_path = input_dataset_path
-        self.filepaths = self._get_filepaths(input_dataset_path)
-
-        # Read all pickle files
-        self.nerf_grid_inputs = []
-        self.grasp_successes = []
-        for filepath in tqdm(self.filepaths):
-            with open(filepath, "rb") as f:
-                data_dict = pickle.load(f)
-
-            nerf_grid_input = torch.from_numpy(data_dict["nerf_grid_input"]).float()
-            grasp_success = torch.from_numpy(
-                np.array(data_dict["grasp_success"])
-            ).long()
-            self.nerf_grid_inputs.append(nerf_grid_input)
-            self.grasp_successes.append(grasp_success)
-
-    @localscope.mfc
-    def _get_filepaths(self, input_dataset_path):
-        return [
-            os.path.join(input_dataset_path, object_dir, filepath)
-            for object_dir in os.listdir(input_dataset_path)
-            for filepath in os.listdir(os.path.join(input_dataset_path, object_dir))
-            if filepath.endswith(".pkl")
-        ]
-
-    @localscope.mfc
-    def __len__(self):
-        return len(self.filepaths)
-
-    @localscope.mfc
-    def __getitem__(self, idx):
-        return self.nerf_grid_inputs[idx], self.grasp_successes[idx]
-
-
-# %%
 class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
     # @localscope.mfc  # ValueError: Cell is empty
     def __init__(self, input_hdf5_filepath):
@@ -411,10 +338,24 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
     def __len__(self):
         return self.len
 
-    @localscope.mfc(allowed=["INPUT_EXAMPLE_SHAPE", "NERF_COORDINATE_START_IDX", "NERF_COORDINATE_END_IDX", "NERF_DENSITY_START_IDX", "NERF_DENSITY_END_IDX"])
+    @localscope.mfc(
+        allowed=[
+            "INPUT_EXAMPLE_SHAPE",
+            "NERF_COORDINATE_START_IDX",
+            "NERF_COORDINATE_END_IDX",
+            "NERF_DENSITY_START_IDX",
+            "NERF_DENSITY_END_IDX",
+        ]
+    )
     def __getitem__(self, idx):
         if self.hdf5_file is None:
-            self.hdf5_file = h5py.File(self.input_hdf5_filepath, "r", rdcc_nbytes=1024**2 * 4000, rdcc_w0=1.0, rdcc_nslots=1000)
+            self.hdf5_file = h5py.File(
+                self.input_hdf5_filepath,
+                "r",
+                rdcc_nbytes=1024**2 * 4000,
+                rdcc_w0=1.0,
+                rdcc_nslots=400_000,
+            )
 
         nerf_grid_input = torch.from_numpy(
             self.hdf5_file["/nerf_grid_input"][idx]
@@ -424,11 +365,18 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
         assert grasp_success.shape == ()
 
         # Preprocess
-        USE_PREPROCESS = False
+        USE_PREPROCESS = True
         if USE_PREPROCESS:
             with torch.no_grad():
                 delta = 0.001  # 1mm
-                nerf_grid_input[NERF_DENSITY_START_IDX:NERF_DENSITY_END_IDX] = torch.exp(-nerf_grid_input[NERF_DENSITY_START_IDX:NERF_DENSITY_END_IDX] * delta)
+                # alpha = 1 - exp(-delta * sigma) = probability of collision within this segment
+                # starting from beginning of segment
+                nerf_grid_input[
+                    NERF_DENSITY_START_IDX:NERF_DENSITY_END_IDX
+                ] = 1 - torch.exp(
+                    -nerf_grid_input[NERF_DENSITY_START_IDX:NERF_DENSITY_END_IDX]
+                    * delta
+                )
 
         return nerf_grid_input, grasp_success
 
@@ -467,25 +415,10 @@ class DatasetType(Enum):
     HDF5_FILE_ALL = auto()  # Won't fit in memory
 
 
-dataset_type = (
-    DatasetType.HDF5_FILE
-    if cfg.data.input_dataset_path.endswith(".h5")
-    else DatasetType.PKL_FILES
-)
+assert cfg.data.input_dataset_path.endswith(".h5")
+dataset_type = DatasetType.HDF5_FILE
 
-if dataset_type == DatasetType.PKL_FILES_ALL:
-    full_dataset = NeRFGrid_To_GraspSuccess_ALL_Dataset(
-        os.path.join(ROOT_DIR, cfg.data.input_dataset_path)
-    )
-elif dataset_type == DatasetType.HDF5_FILE_ALL:
-    full_dataset = NeRFGrid_To_GraspSuccess_HDF5_ALL_Dataset(
-        os.path.join(ROOT_DIR, cfg.data.input_dataset_path)
-    )
-elif dataset_type == DatasetType.PKL_FILES:
-    full_dataset = NeRFGrid_To_GraspSuccess_Dataset(
-        os.path.join(ROOT_DIR, cfg.data.input_dataset_path)
-    )
-elif dataset_type == DatasetType.HDF5_FILE:
+if dataset_type == DatasetType.HDF5_FILE:
     full_dataset = NeRFGrid_To_GraspSuccess_HDF5_Dataset(
         os.path.join(ROOT_DIR, cfg.data.input_dataset_path)
     )
@@ -610,10 +543,14 @@ if cfg.visualize_data:
         nerf_grid_input = nerf_grid_inputs[idx_to_visualize]
         assert nerf_grid_input.shape == INPUT_EXAMPLE_SHAPE
 
-        nerf_densities = nerf_grid_input[NERF_DENSITY_START_IDX:NERF_DENSITY_END_IDX, :, :, :]
+        nerf_densities = nerf_grid_input[
+            NERF_DENSITY_START_IDX:NERF_DENSITY_END_IDX, :, :, :
+        ]
         assert nerf_densities.shape == (NUM_DENSITY, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
 
-        nerf_points = nerf_grid_input[NERF_COORDINATE_START_IDX:NERF_COORDINATE_END_IDX].permute(1, 2, 3, 0)
+        nerf_points = nerf_grid_input[
+            NERF_COORDINATE_START_IDX:NERF_COORDINATE_END_IDX
+        ].permute(1, 2, 3, 0)
         assert nerf_points.shape == (NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z, NUM_XYZ)
 
         isaac_origin_lines = get_isaac_origin_lines()
@@ -622,7 +559,9 @@ if cfg.visualize_data:
         )
 
         layout = go.Layout(
-            scene=dict(xaxis=dict(title="X"), yaxis=dict(title="Y"), zaxis=dict(title="Z")),
+            scene=dict(
+                xaxis=dict(title="X"), yaxis=dict(title="Y"), zaxis=dict(title="Z")
+            ),
             showlegend=True,
             title=f"Training datapoint: success={grasp_successes[idx_to_visualize].item()}",
             width=800,
@@ -651,10 +590,14 @@ if cfg.visualize_data:
         nerf_grid_input = nerf_grid_inputs[idx_to_visualize]
         assert nerf_grid_input.shape == INPUT_EXAMPLE_SHAPE
 
-        nerf_densities = nerf_grid_input[NERF_DENSITY_START_IDX:NERF_DENSITY_END_IDX, :, :, :]
+        nerf_densities = nerf_grid_input[
+            NERF_DENSITY_START_IDX:NERF_DENSITY_END_IDX, :, :, :
+        ]
         assert nerf_densities.shape == (NUM_DENSITY, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
 
-        nerf_points = nerf_grid_input[NERF_COORDINATE_START_IDX:NERF_COORDINATE_END_IDX].permute(1, 2, 3, 0)
+        nerf_points = nerf_grid_input[
+            NERF_COORDINATE_START_IDX:NERF_COORDINATE_END_IDX
+        ].permute(1, 2, 3, 0)
         assert nerf_points.shape == (NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z, NUM_XYZ)
 
         isaac_origin_lines = get_isaac_origin_lines()
@@ -663,7 +606,9 @@ if cfg.visualize_data:
         )
 
         layout = go.Layout(
-            scene=dict(xaxis=dict(title="X"), yaxis=dict(title="Y"), zaxis=dict(title="Z")),
+            scene=dict(
+                xaxis=dict(title="X"), yaxis=dict(title="Y"), zaxis=dict(title="Z")
+            ),
             showlegend=True,
             title=f"Validation datapoint: success={grasp_successes[idx_to_visualize].item()}",
             width=800,
@@ -719,15 +664,15 @@ except Exception as e:
 #     assert nerf_grid_inputs.shape[1:] == INPUT_EXAMPLE_SHAPE
 #     nerf_coordinates = nerf_grid_inputs[:, NERF_COORDINATE_START_IDX:NERF_COORDINATE_END_IDX]
 #     nerf_densities = nerf_grid_inputs[:, NERF_DENSITY_START_IDX:NERF_DENSITY_END_IDX]
-# 
+#
 #     nerf_coordinate_mins.append(nerf_coordinates.min().item())
 #     nerf_coordinate_means.append(nerf_coordinates.mean().item())
 #     nerf_coordinate_maxs.append(nerf_coordinates.max().item())
-# 
+#
 #     nerf_density_mins.append(nerf_densities.min().item())
 #     nerf_density_means.append(nerf_densities.mean().item())
 #     nerf_density_maxs.append(nerf_densities.max().item())
-# 
+#
 # nerf_coordinate_mins, nerf_coordinate_means, nerf_coordinate_maxs = (
 #     np.array(nerf_coordinate_mins),
 #     np.array(nerf_coordinate_means),
@@ -739,7 +684,7 @@ except Exception as e:
 # print(f"nerf_coordinate_min: {nerf_coordinate_min}")
 # print(f"nerf_coordinate_mean: {nerf_coordinate_mean}")
 # print(f"nerf_coordinate_max: {nerf_coordinate_max}")
-# 
+#
 # nerf_density_mins, nerf_density_means, nerf_density_maxs = (
 #     np.array(nerf_density_mins),
 #     np.array(nerf_density_means),
@@ -751,7 +696,7 @@ except Exception as e:
 # print(f"nerf_density_min: {nerf_density_min}")
 # print(f"nerf_density_mean: {nerf_density_mean}")
 # print(f"nerf_density_max: {nerf_density_max}")
-# 
+#
 # # %%
 # # Plot histogram of min, mean, and max values of nerf_coordinates
 # fig = go.Figure(
@@ -780,7 +725,7 @@ except Exception as e:
 #     ),
 # )
 # fig.show()
-# 
+#
 # # %%
 # # Plot histogram of min, mean, and max values of nerf_densities
 # fig = go.Figure(
@@ -1100,7 +1045,6 @@ def save_checkpoint(
         checkpoint_filepath,
     )
     print("Done saving checkpoint")
-
 
 
 # %%

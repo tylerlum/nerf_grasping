@@ -352,9 +352,9 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
             self.hdf5_file = h5py.File(
                 self.input_hdf5_filepath,
                 "r",
-                rdcc_nbytes=1024**2 * 4000,
-                rdcc_w0=1.0,
-                rdcc_nslots=400_000,
+                rdcc_nbytes=1024**2 * 4_000,
+                rdcc_w0=0.75,
+                rdcc_nslots=4_000,
             )
 
         nerf_grid_input = torch.from_numpy(

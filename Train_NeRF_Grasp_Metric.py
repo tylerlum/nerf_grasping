@@ -159,6 +159,7 @@ class Config:
     neural_network: NeuralNetworkConfig = MISSING
     checkpoint_workspace: CheckpointWorkspaceConfig = MISSING
     random_seed: int = MISSING
+    visualize_data: bool = MISSING
 
 
 # %%
@@ -171,10 +172,7 @@ config_store.store(name="config", node=Config)
 
 # %%
 if is_notebook():
-    arguments = [
-        "data.input_dataset_path=nerf_acronym_grasp_success_dataset_3_categories.h5",  # TODO REMOVE
-        "wandb.name=large-model_normalize_3-categories",
-    ]
+    arguments = []
 else:
     arguments = sys.argv[1:]
     print(f"arguments = {arguments}")
@@ -191,9 +189,9 @@ try:
     # Runtime type-checking
     cfg: Config = instantiate(raw_cfg)
 except ConfigCompositionException as e:
-    if isinstance(e.__cause__, ValidationError):
-        print("Catching exception to give concise summary")
-        print(f"e.__cause__ = {e.__cause__}")
+    print(f"ConfigCompositionException: {e}")
+    print()
+    print(f"e.__cause__ = {e.__cause__}")
     exit()
 
 # %%
@@ -341,7 +339,7 @@ class NeRFGrid_To_GraspSuccess_Dataset(Dataset):
 
     @localscope.mfc(allowed=["INPUT_EXAMPLE_SHAPE"])
     def __getitem__(self, idx):
-        # Read pickle ifle
+        # Read pickle file
         with open(self.filepaths[idx], "rb") as f:
             data_dict = pickle.load(f)
 
@@ -593,110 +591,113 @@ def get_colored_points_scatter(points, colors):
 # %%
 
 # %%
-idx_to_visualize = 0
-for nerf_grid_inputs, grasp_successes in train_loader:
-    assert nerf_grid_inputs.shape == (
-        cfg.data.batch_size,
-        *INPUT_EXAMPLE_SHAPE,
-    )
-    assert grasp_successes.shape == (cfg.data.batch_size,)
+if cfg.visualize_data:
+    idx_to_visualize = 0
+    for nerf_grid_inputs, grasp_successes in train_loader:
+        assert nerf_grid_inputs.shape == (
+            cfg.data.batch_size,
+            *INPUT_EXAMPLE_SHAPE,
+        )
+        assert grasp_successes.shape == (cfg.data.batch_size,)
 
-    nerf_grid_input = nerf_grid_inputs[idx_to_visualize]
-    assert nerf_grid_input.shape == INPUT_EXAMPLE_SHAPE
+        nerf_grid_input = nerf_grid_inputs[idx_to_visualize]
+        assert nerf_grid_input.shape == INPUT_EXAMPLE_SHAPE
 
-    nerf_densities = nerf_grid_input[NERF_DENSITY_START_IDX:NERF_DENSITY_END_IDX, :, :, :]
-    assert nerf_densities.shape == (NUM_DENSITY, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
+        nerf_densities = nerf_grid_input[NERF_DENSITY_START_IDX:NERF_DENSITY_END_IDX, :, :, :]
+        assert nerf_densities.shape == (NUM_DENSITY, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
 
-    nerf_points = nerf_grid_input[NERF_COORDINATE_START_IDX:NERF_COORDINATE_END_IDX].permute(1, 2, 3, 0)
-    assert nerf_points.shape == (NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z, NUM_XYZ)
+        nerf_points = nerf_grid_input[NERF_COORDINATE_START_IDX:NERF_COORDINATE_END_IDX].permute(1, 2, 3, 0)
+        assert nerf_points.shape == (NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z, NUM_XYZ)
 
-    isaac_origin_lines = get_isaac_origin_lines()
-    colored_points_scatter = get_colored_points_scatter(
-        nerf_points.reshape(-1, NUM_XYZ), nerf_densities.reshape(-1)
-    )
+        isaac_origin_lines = get_isaac_origin_lines()
+        colored_points_scatter = get_colored_points_scatter(
+            nerf_points.reshape(-1, NUM_XYZ), nerf_densities.reshape(-1)
+        )
 
-    layout = go.Layout(
-        scene=dict(xaxis=dict(title="X"), yaxis=dict(title="Y"), zaxis=dict(title="Z")),
-        showlegend=True,
-        title=f"Training datapoint: success={grasp_successes[idx_to_visualize].item()}",
-        width=800,
-        height=800,
-    )
+        layout = go.Layout(
+            scene=dict(xaxis=dict(title="X"), yaxis=dict(title="Y"), zaxis=dict(title="Z")),
+            showlegend=True,
+            title=f"Training datapoint: success={grasp_successes[idx_to_visualize].item()}",
+            width=800,
+            height=800,
+        )
 
-    # Create the figure
-    fig = go.Figure(layout=layout)
-    for line in isaac_origin_lines:
-        fig.add_trace(line)
-    fig.add_trace(colored_points_scatter)
-    fig.update_layout(legend_orientation="h")
-    fig.show()
-    break
+        # Create the figure
+        fig = go.Figure(layout=layout)
+        for line in isaac_origin_lines:
+            fig.add_trace(line)
+        fig.add_trace(colored_points_scatter)
+        fig.update_layout(legend_orientation="h")
+        fig.show()
+        break
 
 # %%
-idx_to_visualize = 0
-for nerf_grid_inputs, grasp_successes in val_loader:
-    assert nerf_grid_inputs.shape == (
-        cfg.data.batch_size,
-        *INPUT_EXAMPLE_SHAPE,
-    )
-    assert grasp_successes.shape == (cfg.data.batch_size,)
+if cfg.visualize_data:
+    idx_to_visualize = 0
+    for nerf_grid_inputs, grasp_successes in val_loader:
+        assert nerf_grid_inputs.shape == (
+            cfg.data.batch_size,
+            *INPUT_EXAMPLE_SHAPE,
+        )
+        assert grasp_successes.shape == (cfg.data.batch_size,)
 
-    nerf_grid_input = nerf_grid_inputs[idx_to_visualize]
-    assert nerf_grid_input.shape == INPUT_EXAMPLE_SHAPE
+        nerf_grid_input = nerf_grid_inputs[idx_to_visualize]
+        assert nerf_grid_input.shape == INPUT_EXAMPLE_SHAPE
 
-    nerf_densities = nerf_grid_input[NERF_DENSITY_START_IDX:NERF_DENSITY_END_IDX, :, :, :]
-    assert nerf_densities.shape == (NUM_DENSITY, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
+        nerf_densities = nerf_grid_input[NERF_DENSITY_START_IDX:NERF_DENSITY_END_IDX, :, :, :]
+        assert nerf_densities.shape == (NUM_DENSITY, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
 
-    nerf_points = nerf_grid_input[NERF_COORDINATE_START_IDX:NERF_COORDINATE_END_IDX].permute(1, 2, 3, 0)
-    assert nerf_points.shape == (NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z, NUM_XYZ)
+        nerf_points = nerf_grid_input[NERF_COORDINATE_START_IDX:NERF_COORDINATE_END_IDX].permute(1, 2, 3, 0)
+        assert nerf_points.shape == (NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z, NUM_XYZ)
 
-    isaac_origin_lines = get_isaac_origin_lines()
-    colored_points_scatter = get_colored_points_scatter(
-        nerf_points.reshape(-1, NUM_XYZ), nerf_densities.reshape(-1)
-    )
+        isaac_origin_lines = get_isaac_origin_lines()
+        colored_points_scatter = get_colored_points_scatter(
+            nerf_points.reshape(-1, NUM_XYZ), nerf_densities.reshape(-1)
+        )
 
-    layout = go.Layout(
-        scene=dict(xaxis=dict(title="X"), yaxis=dict(title="Y"), zaxis=dict(title="Z")),
-        showlegend=True,
-        title=f"Validation datapoint: success={grasp_successes[idx_to_visualize].item()}",
-        width=800,
-        height=800,
-    )
+        layout = go.Layout(
+            scene=dict(xaxis=dict(title="X"), yaxis=dict(title="Y"), zaxis=dict(title="Z")),
+            showlegend=True,
+            title=f"Validation datapoint: success={grasp_successes[idx_to_visualize].item()}",
+            width=800,
+            height=800,
+        )
 
-    # Create the figure
-    fig = go.Figure(layout=layout)
-    for line in isaac_origin_lines:
-        fig.add_trace(line)
-    fig.add_trace(colored_points_scatter)
-    fig.update_layout(legend_orientation="h")
-    fig.show()
-    break
+        # Create the figure
+        fig = go.Figure(layout=layout)
+        for line in isaac_origin_lines:
+            fig.add_trace(line)
+        fig.add_trace(colored_points_scatter)
+        fig.update_layout(legend_orientation="h")
+        fig.show()
+        break
 
 # %% [markdown]
 # # Visualize Dataset Distribution
 
 # %%
 try:
-    grasp_successes_np = train_dataset.dataset.grasp_successes[
-        train_dataset.indices
-    ].numpy()
+    if cfg.visualize_data:
+        grasp_successes_np = train_dataset.dataset.grasp_successes[
+            train_dataset.indices
+        ].numpy()
 
-    # Plot histogram in plotly
-    fig = go.Figure(
-        data=[
-            go.Histogram(
-                x=grasp_successes_np,
-                name="Train",
-                marker_color="blue",
+        # Plot histogram in plotly
+        fig = go.Figure(
+            data=[
+                go.Histogram(
+                    x=grasp_successes_np,
+                    name="Train",
+                    marker_color="blue",
+                ),
+            ],
+            layout=go.Layout(
+                title="Distribution of Grasp Successes",
+                xaxis=dict(title="Grasp Success"),
+                yaxis=dict(title="Frequency"),
             ),
-        ],
-        layout=go.Layout(
-            title="Distribution of Grasp Successes",
-            xaxis=dict(title="Grasp Success"),
-            yaxis=dict(title="Frequency"),
-        ),
-    )
-    fig.show()
+        )
+        fig.show()
 except Exception as e:
     print(f"Error: {e}")
     print("Skipping visualization of grasp success distribution")

@@ -303,7 +303,6 @@ wandb.init(
 
 # %%
 # CONSTANTS AND PARAMS
-# ROOT_DIR = "/juno/u/tylerlum/github_repos/nerf_grasping"
 ROOT_DIR = "/scr1/tylerlum"
 NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z = 83, 21, 37
 NUM_XYZ = 3
@@ -416,7 +415,6 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
     def __getitem__(self, idx):
         if self.hdf5_file is None:
             self.hdf5_file = h5py.File(self.input_hdf5_filepath, "r", rdcc_nbytes=1024**2 * 4000, rdcc_w0=1.0, rdcc_nslots=1000)
-            # self.hdf5_file = h5py.File(self.input_hdf5_filepath, "r")
 
         nerf_grid_input = torch.from_numpy(
             self.hdf5_file["/nerf_grid_input"][idx]
@@ -429,7 +427,6 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
         USE_PREPROCESS = False
         if USE_PREPROCESS:
             with torch.no_grad():
-                # delta = torch.norm(nerf_grid_input[NERF_COORDINATE_START_IDX:NERF_COORDINATE_END_IDX, 1, 0, 0] - nerf_grid_input[NERF_COORDINATE_START_IDX:NERF_COORDINATE_END_IDX, 0, 0, 0])
                 delta = 0.001  # 1mm
                 nerf_grid_input[NERF_DENSITY_START_IDX:NERF_DENSITY_END_IDX] = torch.exp(-nerf_grid_input[NERF_DENSITY_START_IDX:NERF_DENSITY_END_IDX] * delta)
 

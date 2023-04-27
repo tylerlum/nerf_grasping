@@ -62,6 +62,8 @@ from torch.utils.data import DataLoader, Dataset, Subset, random_split, SubsetRa
 from torchinfo import summary
 from torchviz import make_dot
 from wandb.util import generate_id
+from torch.profiler import profile, record_function, ProfilerActivity
+
 
 import wandb
 
@@ -1304,6 +1306,14 @@ def iterate_through_dataloader(
         losses_dict = defaultdict(list)
         grads_dict = defaultdict(list)
 
+        batch_total_time_taken = 0.0
+        dataload_total_time_taken = 0.0
+        forward_pass_total_time_taken = 0.0
+        backward_pass_total_time_taken = 0.0
+        grad_log_total_time_taken = 0.0
+        loss_log_total_time_taken = 0.0
+        grad_clip_total_time_taken = 0.0
+
         end_time = time.time()
         for nerf_grid_inputs, grasp_successes in (pbar := tqdm(my_dataloader)):
             dataload_time_taken = time.time() - end_time
@@ -1379,13 +1389,40 @@ def iterate_through_dataloader(
                     f"Fwd: {1000*forward_pass_time_taken:.0f}",
                     f"Bwd: {1000*backward_pass_time_taken:.0f}",
                     f"Grad: {1000*grad_log_time_taken:.0f}",
-                    # f"Clip: {1000*grad_clip_time_taken:.0f}",
+                    f"Clip: {1000*grad_clip_time_taken:.0f}",
                     f"Loss Log: {1000*loss_log_time_taken:.0f}",
                     f"loss: {np.mean(losses_dict[f'{phase.name.lower()}_loss']):.5f}",
                 ]
             )
             pbar.set_description(description)
+
+            batch_total_time_taken += batch_time_taken
+            dataload_total_time_taken += dataload_time_taken
+            forward_pass_total_time_taken += forward_pass_time_taken
+            backward_pass_total_time_taken += backward_pass_time_taken
+            grad_log_total_time_taken += grad_log_time_taken
+            loss_log_total_time_taken += loss_log_time_taken
+            grad_clip_total_time_taken += grad_clip_time_taken
+
             end_time = time.time()
+
+    print(f"Total time taken for {phase.name.lower()} phase: {batch_total_time_taken:.2f} s")
+    print(f"Total time taken for dataload: {dataload_total_time_taken:.2f} s")
+    print(f"Total time taken for forward pass: {forward_pass_total_time_taken:.2f} s")
+    print(f"Total time taken for backward pass: {backward_pass_total_time_taken:.2f} s")
+    print(f"Total time taken for grad logging: {grad_log_total_time_taken:.2f} s")
+    print(f"Total time taken for loss logging: {loss_log_total_time_taken:.2f} s")
+    print(f"Total time taken for grad clipping: {grad_clip_total_time_taken:.2f} s")
+
+    # In percentage of batch_total_time_taken
+    print(f"In percentage of batch_total_time_taken, dataload: {100*dataload_total_time_taken/batch_total_time_taken:.2f} %")
+    print(f"In percentage of batch_total_time_taken, forward pass: {100*forward_pass_total_time_taken/batch_total_time_taken:.2f} %")
+    print(f"In percentage of batch_total_time_taken, backward pass: {100*backward_pass_total_time_taken/batch_total_time_taken:.2f} %")
+    print(f"In percentage of batch_total_time_taken, grad logging: {100*grad_log_total_time_taken/batch_total_time_taken:.2f} %")
+    print(f"In percentage of batch_total_time_taken, loss logging: {100*loss_log_total_time_taken/batch_total_time_taken:.2f} %")
+    print(f"In percentage of batch_total_time_taken, grad clipping: {100*grad_clip_total_time_taken/batch_total_time_taken:.2f} %")
+    print()
+
 
     for loss_name, losses in losses_dict.items():
         wandb_log_dict[loss_name] = np.mean(losses)
@@ -1580,17 +1617,33 @@ print(f"Class weight: {class_weight}")
 ce_loss_fn = nn.CrossEntropyLoss(weight=class_weight)
 
 # %%
-run_training_loop(
-    cfg=cfg.training,
-    train_loader=train_loader,
-    val_loader=val_loader,
-    nerf_to_grasp_success_model=nerf_to_grasp_success_model,
-    device=device,
-    ce_loss_fn=ce_loss_fn,
-    optimizer=optimizer,
-    start_epoch=start_epoch,
-    checkpoint_workspace_dir_path=checkpoint_workspace_dir_path,
-)
+with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True, profile_memory=True, use_cuda=True) as prof:
+    run_training_loop(
+        cfg=cfg.training,
+        train_loader=train_loader,
+        val_loader=val_loader,
+        nerf_to_grasp_success_model=nerf_to_grasp_success_model,
+        device=device,
+        ce_loss_fn=ce_loss_fn,
+        optimizer=optimizer,
+        start_epoch=start_epoch,
+        checkpoint_workspace_dir_path=checkpoint_workspace_dir_path,
+    )
+
+# Print profiling results by average time per operator
+print(prof.key_averages(group_by_input_shape=True).table(sort_by="cpu_time_total", row_limit=10))
+
+# Print profiling results by total time per operator
+print(prof.key_averages().table(sort_by="cpu_time_total", row_limit=10))
+
+# Print profiling results for CUDA time only
+print(prof.key_averages(group_by_input_shape=True, profile_memory=False).table(sort_by="cuda_time_total", row_limit=10))
+
+# Print profiling results for CPU time only
+print(prof.key_averages(group_by_input_shape=True, profile_memory=False).table(sort_by="cpu_time_total", row_limit=10))
+
+# Print memory profiling results by allocation size
+print(prof.key_averages().table(sort_by="self_cpu_memory_usage", row_limit=10))
 
 # %% [markdown]
 # # Test

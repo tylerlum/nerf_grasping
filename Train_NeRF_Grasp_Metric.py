@@ -367,7 +367,7 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
         with h5py.File(self.input_hdf5_filepath, "r") as hdf5_file:
             self.len = hdf5_file["/grasp_success"].shape[0]
             assert hdf5_file["/grasp_success"].shape == (self.len,)
-            assert hdf5_file["/nerf_grid_inputs"].shape == (
+            assert hdf5_file["/nerf_grid_input"].shape == (
                 self.len,
                 *INPUT_EXAMPLE_SHAPE,
             )
@@ -375,7 +375,7 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
             # This is usually too big for RAM
             if load_nerf_grid_inputs_in_ram:
                 self.nerf_grid_inputs = torch.from_numpy(
-                    hdf5_file["/nerf_grid_inputs"][()]
+                    hdf5_file["/nerf_grid_input"][()]
                 ).float()
             else:
                 self.nerf_grid_inputs = None
@@ -419,7 +419,9 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
             grasp_success = self.grasp_successes[idx]
         else:
             grasp_success = torch.from_numpy(
-                self.hdf5_file["/grasp_success"][idx]
+                np.array(
+                    self.hdf5_file["/grasp_success"][idx]
+                )  # Otherwise would be a scalar
             ).long()
 
         assert nerf_grid_input.shape == INPUT_EXAMPLE_SHAPE
@@ -1279,6 +1281,26 @@ class Phase(Enum):
     TEST = auto()
 
 
+@localscope.mfc
+def create_dataloader_subset(
+    original_dataloader: DataLoader, fraction: float
+) -> DataLoader:
+    smaller_dataset_size = int(len(original_dataloader.dataset) * fraction)
+    sampled_indices = random.sample(
+        range(len(original_dataloader.dataset.indices)), smaller_dataset_size
+    )
+    dataloader = DataLoader(
+        original_dataloader.dataset,
+        batch_size=original_dataloader.batch_size,
+        sampler=SubsetRandomSampler(
+            sampled_indices,
+        ),
+        pin_memory=original_dataloader.pin_memory,
+        num_workers=original_dataloader.num_workers,
+    )
+    return dataloader
+
+
 @localscope.mfc(allowed=["tqdm"])
 def iterate_through_dataloader(
     phase: Phase,
@@ -1291,37 +1313,6 @@ def iterate_through_dataloader(
     optimizer: Optional[torch.optim.Optimizer] = None,
     log_grad: bool = False,
 ):
-    # HACK: make subset of other dataloader
-    @localscope.mfc
-    def create_dataloader_subset(
-        original_dataloader: DataLoader, fraction: float
-    ) -> DataLoader:
-        smaller_dataset_size = int(len(original_dataloader.dataset) * fraction)
-        print(
-            f"HACK: Converting from {len(original_dataloader.dataset)} to {smaller_dataset_size}"
-        )
-        # sampled_indices = random.sample(original_dataloader.dataset.indices, smaller_dataset_size)
-        sampled_indices = random.sample(
-            range(len(original_dataloader.dataset.indices)), smaller_dataset_size
-        )
-        print(
-            f"HACK: original_dataloader.dataset.indices = {original_dataloader.dataset.indices}"
-        )
-        print(f"HACK: sampled_indices = {sampled_indices}")
-        dataloader = DataLoader(
-            original_dataloader.dataset,
-            batch_size=original_dataloader.batch_size,
-            sampler=SubsetRandomSampler(
-                # random.sample(original_dataloader.dataset.indices, smaller_dataset_size)
-                sampled_indices,
-            ),
-            pin_memory=original_dataloader.pin_memory,
-            num_workers=original_dataloader.num_workers,
-        )
-        return dataloader
-
-    my_dataloader = create_dataloader_subset(dataloader, fraction=0.1)
-
     assert phase in [Phase.TRAIN, Phase.VAL, Phase.TEST]
     if phase == Phase.TRAIN:
         nerf_to_grasp_success_model.train()
@@ -1344,7 +1335,7 @@ def iterate_through_dataloader(
         grad_clip_total_time_taken = 0.0
 
         end_time = time.time()
-        for nerf_grid_inputs, grasp_successes in (pbar := tqdm(my_dataloader)):
+        for nerf_grid_inputs, grasp_successes in (pbar := tqdm(dataloader)):
             dataload_time_taken = time.time() - end_time
 
             # Forward pass
@@ -1601,17 +1592,25 @@ def run_training_loop(
         log_grad = epoch % cfg.log_grad_freq == 0 and (
             epoch != 0 or cfg.log_grad_on_epoch_0
         )
-        iterate_through_dataloader(
-            phase=Phase.TRAIN,
-            dataloader=train_loader,
-            nerf_to_grasp_success_model=nerf_to_grasp_success_model,
-            device=device,
-            ce_loss_fn=ce_loss_fn,
-            wandb_log_dict=wandb_log_dict,
-            cfg=cfg,
-            optimizer=optimizer,
-            log_grad=log_grad,
+
+        subset_fraction = 0.2
+        subset_train_loader = create_dataloader_subset(
+            train_loader, fraction=subset_fraction
         )
+        num_passes = int(1 / subset_fraction)
+        for subset_pass in range(num_passes):
+            print(f"Subset pass {subset_pass + 1}/{num_passes}")
+            iterate_through_dataloader(
+                phase=Phase.TRAIN,
+                dataloader=subset_train_loader,
+                nerf_to_grasp_success_model=nerf_to_grasp_success_model,
+                device=device,
+                ce_loss_fn=ce_loss_fn,
+                wandb_log_dict=wandb_log_dict,
+                cfg=cfg,
+                optimizer=optimizer,
+                log_grad=log_grad,
+            )
         train_time_taken = time.time() - start_train_time
 
         wandb.log(wandb_log_dict)

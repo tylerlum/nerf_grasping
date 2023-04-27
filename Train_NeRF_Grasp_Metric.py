@@ -58,7 +58,13 @@ from localscope import localscope
 from omegaconf import MISSING, OmegaConf
 from sklearn.metrics import ConfusionMatrixDisplay, confusion_matrix
 from sklearn.utils.class_weight import compute_class_weight
-from torch.utils.data import DataLoader, Dataset, Subset, random_split, SubsetRandomSampler
+from torch.utils.data import (
+    DataLoader,
+    Dataset,
+    Subset,
+    random_split,
+    SubsetRandomSampler,
+)
 from torchinfo import summary
 from torchviz import make_dot
 from wandb.util import generate_id
@@ -111,10 +117,17 @@ class DataConfig:
 
     input_dataset_root_dir: str = MISSING
     input_dataset_path: str = MISSING
+
+
+@dataclass
+class DataLoaderConfig:
     batch_size: int = MISSING
-    dataloader_num_workers: int = MISSING
-    dataloader_pin_memory: bool = MISSING
+    num_workers: int = MISSING
+    pin_memory: bool = MISSING
     preprocess_type: PreprocessType = MISSING
+
+    load_nerf_grid_inputs_in_ram: bool = MISSING
+    load_grasp_successes_in_ram: bool = MISSING
 
 
 @dataclass
@@ -164,6 +177,7 @@ class CheckpointWorkspaceConfig:
 @dataclass
 class Config:
     data: DataConfig = MISSING
+    dataloader: DataLoaderConfig = MISSING
     wandb: WandbConfig = MISSING
     training: TrainingConfig = MISSING
     neural_network: NeuralNetworkConfig = MISSING
@@ -171,7 +185,6 @@ class Config:
     random_seed: int = MISSING
     visualize_data: bool = MISSING
     dry_run: bool = MISSING
-
 
 
 # %%
@@ -337,7 +350,13 @@ assert NERF_DENSITY_END_IDX == NERF_DENSITY_START_IDX + NUM_DENSITY
 
 class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
     # @localscope.mfc  # ValueError: Cell is empty
-    def __init__(self, input_hdf5_filepath, preprocess_fn=None):
+    def __init__(
+        self,
+        input_hdf5_filepath,
+        preprocess_fn=None,
+        load_nerf_grid_inputs_in_ram=False,
+        load_grasp_successes_in_ram=False,
+    ):
         super().__init__()
         self.input_hdf5_filepath = input_hdf5_filepath
         self.preprocess_fn = preprocess_fn
@@ -345,13 +364,29 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
         # Recommended in https://discuss.pytorch.org/t/dataloader-when-num-worker-0-there-is-bug/25643/13
         self.hdf5_file = None
 
-        # This is small enough to fit in RAM
         with h5py.File(self.input_hdf5_filepath, "r") as hdf5_file:
-            self.grasp_successes = torch.from_numpy(
-                np.array(hdf5_file["/grasp_success"][()])
-            ).long()
-        self.len = self.grasp_successes.shape[0]
-        assert self.grasp_successes.shape == (self.len,)
+            self.len = hdf5_file["/grasp_success"].shape[0]
+            assert hdf5_file["/grasp_success"].shape == (self.len,)
+            assert hdf5_file["/nerf_grid_inputs"].shape == (
+                self.len,
+                *INPUT_EXAMPLE_SHAPE,
+            )
+
+            # This is usually too big for RAM
+            if load_nerf_grid_inputs_in_ram:
+                self.nerf_grid_inputs = torch.from_numpy(
+                    hdf5_file["/nerf_grid_inputs"][()]
+                ).float()
+            else:
+                self.nerf_grid_inputs = None
+
+            # This is small enough to fit in RAM
+            if load_grasp_successes_in_ram:
+                self.grasp_successes = torch.from_numpy(
+                    hdf5_file["/grasp_success"][()]
+                ).long()
+            else:
+                self.grasp_successes = None
 
     @localscope.mfc
     def __len__(self):
@@ -373,10 +408,20 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
                 rdcc_nslots=4_000,
             )
 
-        nerf_grid_input = torch.from_numpy(
-            self.hdf5_file["/nerf_grid_input"][idx]
-        ).float()
-        grasp_success = self.grasp_successes[idx]
+        if self.nerf_grid_inputs is not None:
+            nerf_grid_input = self.nerf_grid_inputs[idx]
+        else:
+            nerf_grid_input = torch.from_numpy(
+                self.hdf5_file["/nerf_grid_input"][idx]
+            ).float()
+
+        if self.grasp_successes is not None:
+            grasp_success = self.grasp_successes[idx]
+        else:
+            grasp_success = torch.from_numpy(
+                self.hdf5_file["/grasp_success"][idx]
+            ).long()
+
         assert nerf_grid_input.shape == INPUT_EXAMPLE_SHAPE
         assert grasp_success.shape == ()
 
@@ -384,32 +429,6 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
             nerf_grid_input = self.preprocess_fn(nerf_grid_input)
 
         return nerf_grid_input, grasp_success
-
-
-# %%
-class NeRFGrid_To_GraspSuccess_HDF5_ALL_Dataset(Dataset):
-    # @localscope.mfc  # ValueError: Cell is empty
-    def __init__(self, input_hdf5_filepath):
-        super().__init__()
-        self.input_hdf5_filepath = input_hdf5_filepath
-        self.hdf5_file = h5py.File(input_hdf5_filepath, "r")
-        self.len = self.hdf5_file["/grasp_success"].shape[0]
-
-        # Read all elements of the dataset
-        self.nerf_grid_inputs = torch.from_numpy(
-            self.hdf5_file["/nerf_grid_input"][()]
-        ).float()
-        self.grasp_successes = torch.from_numpy(
-            np.array(self.hdf5_file["/grasp_success"][()])
-        ).long()
-
-    @localscope.mfc
-    def __len__(self):
-        return self.len
-
-    @localscope.mfc
-    def __getitem__(self, idx):
-        return self.nerf_grid_inputs[idx], self.grasp_successes[idx]
 
 
 # %%
@@ -605,15 +624,15 @@ preprocess_type_to_fn = {
     PreprocessType.WEIGHT: preprocess_to_weight,
 }
 
-preprocess_fn = preprocess_type_to_fn[cfg.data.preprocess_type]
-print(f"With preprocess type {cfg.data.preprocess_type}, using preprocess_fn: {preprocess_fn}")
+preprocess_fn = preprocess_type_to_fn[cfg.dataloader.preprocess_type]
+print(
+    f"With preprocess type {cfg.dataloader.preprocess_type}, using preprocess_fn: {preprocess_fn}"
+)
+
 
 # %%
 class DatasetType(Enum):
-    PKL_FILES = auto()
     HDF5_FILE = auto()
-    PKL_FILES_ALL = auto()
-    HDF5_FILE_ALL = auto()  # Won't fit in memory
 
 
 assert cfg.data.input_dataset_path.endswith(".h5")
@@ -623,6 +642,8 @@ if dataset_type == DatasetType.HDF5_FILE:
     full_dataset = NeRFGrid_To_GraspSuccess_HDF5_Dataset(
         os.path.join(cfg.data.input_dataset_root_dir, cfg.data.input_dataset_path),
         preprocess_fn=preprocess_fn,
+        load_nerf_grid_inputs_in_ram=cfg.dataloader.load_nerf_grid_inputs_in_ram,
+        load_grasp_successes_in_ram=cfg.dataloader.load_grasp_successes_in_ram,
     )
 else:
     raise ValueError(f"Unknown dataset type: {dataset_type}")
@@ -646,24 +667,24 @@ assert len(set.intersection(set(val_dataset.indices), set(test_dataset.indices))
 # %%
 train_loader = DataLoader(
     train_dataset,
-    batch_size=cfg.data.batch_size,
+    batch_size=cfg.dataloader.batch_size,
     shuffle=True,
-    pin_memory=cfg.data.dataloader_pin_memory,
-    num_workers=cfg.data.dataloader_num_workers,
+    pin_memory=cfg.dataloader.pin_memory,
+    num_workers=cfg.dataloader.num_workers,
 )
 val_loader = DataLoader(
     val_dataset,
-    batch_size=cfg.data.batch_size,
+    batch_size=cfg.dataloader.batch_size,
     shuffle=False,
-    pin_memory=cfg.data.dataloader_pin_memory,
-    num_workers=cfg.data.dataloader_num_workers,
+    pin_memory=cfg.dataloader.pin_memory,
+    num_workers=cfg.dataloader.num_workers,
 )
 test_loader = DataLoader(
     test_dataset,
-    batch_size=cfg.data.batch_size,
+    batch_size=cfg.dataloader.batch_size,
     shuffle=False,
-    pin_memory=cfg.data.dataloader_pin_memory,
-    num_workers=cfg.data.dataloader_num_workers,
+    pin_memory=cfg.dataloader.pin_memory,
+    num_workers=cfg.dataloader.num_workers,
 )
 
 
@@ -673,9 +694,9 @@ print(f"Val loader size: {len(val_loader)}")
 print(f"Test loader size: {len(test_loader)}")
 
 # %%
-assert math.ceil(len(train_dataset) / cfg.data.batch_size) == len(train_loader)
-assert math.ceil(len(val_dataset) / cfg.data.batch_size) == len(val_loader)
-assert math.ceil(len(test_dataset) / cfg.data.batch_size) == len(test_loader)
+assert math.ceil(len(train_dataset) / cfg.dataloader.batch_size) == len(train_loader)
+assert math.ceil(len(val_dataset) / cfg.dataloader.batch_size) == len(val_loader)
+assert math.ceil(len(test_dataset) / cfg.dataloader.batch_size) == len(test_loader)
 
 # %% [markdown]
 # # Visualize Datapoint
@@ -737,10 +758,10 @@ if cfg.visualize_data:
     idx_to_visualize = 0
     for nerf_grid_inputs, grasp_successes in train_loader:
         assert nerf_grid_inputs.shape == (
-            cfg.data.batch_size,
+            cfg.dataloader.batch_size,
             *INPUT_EXAMPLE_SHAPE,
         )
-        assert grasp_successes.shape == (cfg.data.batch_size,)
+        assert grasp_successes.shape == (cfg.dataloader.batch_size,)
 
         nerf_grid_input = nerf_grid_inputs[idx_to_visualize]
         assert nerf_grid_input.shape == INPUT_EXAMPLE_SHAPE
@@ -784,10 +805,10 @@ if cfg.visualize_data:
     idx_to_visualize = 0
     for nerf_grid_inputs, grasp_successes in val_loader:
         assert nerf_grid_inputs.shape == (
-            cfg.data.batch_size,
+            cfg.dataloader.batch_size,
             *INPUT_EXAMPLE_SHAPE,
         )
-        assert grasp_successes.shape == (cfg.data.batch_size,)
+        assert grasp_successes.shape == (cfg.dataloader.batch_size,)
 
         nerf_grid_input = nerf_grid_inputs[idx_to_visualize]
         assert nerf_grid_input.shape == INPUT_EXAMPLE_SHAPE
@@ -1270,15 +1291,22 @@ def iterate_through_dataloader(
     optimizer: Optional[torch.optim.Optimizer] = None,
     log_grad: bool = False,
 ):
-
     # HACK: make subset of other dataloader
     @localscope.mfc
-    def create_dataloader_subset(original_dataloader: DataLoader, fraction: float) -> DataLoader:
+    def create_dataloader_subset(
+        original_dataloader: DataLoader, fraction: float
+    ) -> DataLoader:
         smaller_dataset_size = int(len(original_dataloader.dataset) * fraction)
-        print(f"HACK: Converting from {len(original_dataloader.dataset)} to {smaller_dataset_size}")
+        print(
+            f"HACK: Converting from {len(original_dataloader.dataset)} to {smaller_dataset_size}"
+        )
         # sampled_indices = random.sample(original_dataloader.dataset.indices, smaller_dataset_size)
-        sampled_indices = random.sample(range(len(original_dataloader.dataset.indices)), smaller_dataset_size)
-        print(f"HACK: original_dataloader.dataset.indices = {original_dataloader.dataset.indices}")
+        sampled_indices = random.sample(
+            range(len(original_dataloader.dataset.indices)), smaller_dataset_size
+        )
+        print(
+            f"HACK: original_dataloader.dataset.indices = {original_dataloader.dataset.indices}"
+        )
         print(f"HACK: sampled_indices = {sampled_indices}")
         dataloader = DataLoader(
             original_dataloader.dataset,
@@ -1291,6 +1319,7 @@ def iterate_through_dataloader(
             num_workers=original_dataloader.num_workers,
         )
         return dataloader
+
     my_dataloader = create_dataloader_subset(dataloader, fraction=0.1)
 
     assert phase in [Phase.TRAIN, Phase.VAL, Phase.TEST]
@@ -1406,7 +1435,9 @@ def iterate_through_dataloader(
 
             end_time = time.time()
 
-    print(f"Total time taken for {phase.name.lower()} phase: {batch_total_time_taken:.2f} s")
+    print(
+        f"Total time taken for {phase.name.lower()} phase: {batch_total_time_taken:.2f} s"
+    )
     print(f"Total time taken for dataload: {dataload_total_time_taken:.2f} s")
     print(f"Total time taken for forward pass: {forward_pass_total_time_taken:.2f} s")
     print(f"Total time taken for backward pass: {backward_pass_total_time_taken:.2f} s")
@@ -1415,14 +1446,25 @@ def iterate_through_dataloader(
     print(f"Total time taken for grad clipping: {grad_clip_total_time_taken:.2f} s")
 
     # In percentage of batch_total_time_taken
-    print(f"In percentage of batch_total_time_taken, dataload: {100*dataload_total_time_taken/batch_total_time_taken:.2f} %")
-    print(f"In percentage of batch_total_time_taken, forward pass: {100*forward_pass_total_time_taken/batch_total_time_taken:.2f} %")
-    print(f"In percentage of batch_total_time_taken, backward pass: {100*backward_pass_total_time_taken/batch_total_time_taken:.2f} %")
-    print(f"In percentage of batch_total_time_taken, grad logging: {100*grad_log_total_time_taken/batch_total_time_taken:.2f} %")
-    print(f"In percentage of batch_total_time_taken, loss logging: {100*loss_log_total_time_taken/batch_total_time_taken:.2f} %")
-    print(f"In percentage of batch_total_time_taken, grad clipping: {100*grad_clip_total_time_taken/batch_total_time_taken:.2f} %")
+    print(
+        f"In percentage of batch_total_time_taken, dataload: {100*dataload_total_time_taken/batch_total_time_taken:.2f} %"
+    )
+    print(
+        f"In percentage of batch_total_time_taken, forward pass: {100*forward_pass_total_time_taken/batch_total_time_taken:.2f} %"
+    )
+    print(
+        f"In percentage of batch_total_time_taken, backward pass: {100*backward_pass_total_time_taken/batch_total_time_taken:.2f} %"
+    )
+    print(
+        f"In percentage of batch_total_time_taken, grad logging: {100*grad_log_total_time_taken/batch_total_time_taken:.2f} %"
+    )
+    print(
+        f"In percentage of batch_total_time_taken, loss logging: {100*loss_log_total_time_taken/batch_total_time_taken:.2f} %"
+    )
+    print(
+        f"In percentage of batch_total_time_taken, grad clipping: {100*grad_clip_total_time_taken/batch_total_time_taken:.2f} %"
+    )
     print()
-
 
     for loss_name, losses in losses_dict.items():
         wandb_log_dict[loss_name] = np.mean(losses)
@@ -1617,7 +1659,12 @@ print(f"Class weight: {class_weight}")
 ce_loss_fn = nn.CrossEntropyLoss(weight=class_weight)
 
 # %%
-with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True, profile_memory=True, use_cuda=True) as prof:
+with profile(
+    activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+    record_shapes=True,
+    profile_memory=True,
+    use_cuda=True,
+) as prof:
     run_training_loop(
         cfg=cfg.training,
         train_loader=train_loader,
@@ -1631,16 +1678,28 @@ with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], record_sh
     )
 
 # Print profiling results by average time per operator
-print(prof.key_averages(group_by_input_shape=True).table(sort_by="cpu_time_total", row_limit=10))
+print(
+    prof.key_averages(group_by_input_shape=True).table(
+        sort_by="cpu_time_total", row_limit=10
+    )
+)
 
 # Print profiling results by total time per operator
 print(prof.key_averages().table(sort_by="cpu_time_total", row_limit=10))
 
 # Print profiling results for CUDA time only
-print(prof.key_averages(group_by_input_shape=True, profile_memory=False).table(sort_by="cuda_time_total", row_limit=10))
+print(
+    prof.key_averages(group_by_input_shape=True, profile_memory=False).table(
+        sort_by="cuda_time_total", row_limit=10
+    )
+)
 
 # Print profiling results for CPU time only
-print(prof.key_averages(group_by_input_shape=True, profile_memory=False).table(sort_by="cpu_time_total", row_limit=10))
+print(
+    prof.key_averages(group_by_input_shape=True, profile_memory=False).table(
+        sort_by="cpu_time_total", row_limit=10
+    )
+)
 
 # Print memory profiling results by allocation size
 print(prof.key_averages().table(sort_by="self_cpu_memory_usage", row_limit=10))

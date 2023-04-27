@@ -14,15 +14,19 @@ data:
   frac_train: ${eval:1 - ${data.frac_val} - ${data.frac_test}}
   input_dataset_root_dir: "/scr1/tylerlum"
   input_dataset_path: "nerf_acronym_grasp_success_dataset_66_categories_v2.h5"
+
+dataloader:
   batch_size: 128
-  dataloader_num_workers: 8
-  dataloader_pin_memory: True
+  num_workers: 8
+  pin_memory: True
   preprocess_type: "ALPHA"
+  load_nerf_grid_inputs_in_ram: False
+  load_grasp_successes_in_ram: False
 
 training:
   grad_clip_val: 1.0
   lr: 1e-3
-  n_epochs: 20
+  n_epochs: 200
   log_grad_freq: 5
   log_grad_on_epoch_0: False
   val_freq: 5

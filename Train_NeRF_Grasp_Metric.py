@@ -873,7 +873,9 @@ def create_grasp_success_distribution_fig(
 ):
     try:
         with h5py.File(input_dataset_full_path, "r") as hdf5_file:
-            grasp_successes_np = np.array(hdf5_file["/grasp_success"][train_dataset.indices])
+            grasp_successes_np = np.array(
+                hdf5_file["/grasp_success"][sorted(train_dataset.indices)]  # Must be ascending
+            )
 
         # Plot histogram in plotly
         fig = go.Figure(
@@ -1363,6 +1365,7 @@ def iterate_through_dataloader(
     wandb_log_dict: Dict[str, Any],
     cfg: Optional[TrainingConfig] = None,
     optimizer: Optional[torch.optim.Optimizer] = None,
+    log_loss: bool = False,
     log_grad: bool = False,
     gather_predictions: bool = False,
     log_confusion_matrix: bool = False,
@@ -1430,7 +1433,8 @@ def iterate_through_dataloader(
 
             # Loss logging
             start_loss_log_time = time.time()
-            losses_dict[f"{phase.name.lower()}_loss"].append(total_loss.item())
+            if log_loss:
+                losses_dict[f"{phase.name.lower()}_loss"].append(total_loss.item())
             loss_log_time_taken = time.time() - start_loss_log_time
 
             # Gradient logging
@@ -1471,6 +1475,11 @@ def iterate_through_dataloader(
             batch_time_taken = time.time() - end_time
 
             # Set description
+            loss_log_str = (
+                f"loss: {np.mean(losses_dict[f'{phase.name.lower()}_loss']):.5f}"
+                if len(losses_dict[f"{phase.name.lower()}_loss"]) > 0
+                else "loss: N/A"
+            )
             description = " | ".join(
                 [
                     f"{phase.name.lower()} (ms)",
@@ -1482,7 +1491,7 @@ def iterate_through_dataloader(
                     f"Loss: {1000*loss_log_time_taken:.0f}",
                     f"Grad: {1000*grad_log_time_taken:.0f}",
                     f"Gather: {1000*gather_predictions_time_taken:.0f}",
-                    f"loss: {np.mean(losses_dict[f'{phase.name.lower()}_loss']):.5f}",
+                    loss_log_str,
                 ]
             )
             pbar.set_description(description)
@@ -1650,21 +1659,6 @@ def run_training_loop(
         )
         gather_predictions = log_confusion_matrix
 
-        # Val
-        start_val_time = time.time()
-        if epoch % cfg.val_freq == 0 and (epoch != 0 or cfg.val_on_epoch_0):
-            iterate_through_dataloader(
-                phase=Phase.VAL,
-                dataloader=val_loader,
-                nerf_to_grasp_success_model=nerf_to_grasp_success_model,
-                device=device,
-                ce_loss_fn=ce_loss_fn,
-                wandb_log_dict=wandb_log_dict,
-                gather_predictions=gather_predictions,
-                log_confusion_matrix=log_confusion_matrix,
-            )
-        val_time_taken = time.time() - start_val_time
-
         # Train
         start_train_time = time.time()
         log_grad = epoch % cfg.log_grad_freq == 0 and (
@@ -1678,6 +1672,7 @@ def run_training_loop(
             num_passes = int(1 / subset_fraction)
             for subset_pass in range(num_passes):
                 print(f"Subset pass {subset_pass + 1}/{num_passes}")
+                log_loss = subset_pass == num_passes - 1
                 iterate_through_dataloader(
                     phase=Phase.TRAIN,
                     dataloader=subset_train_loader,
@@ -1687,9 +1682,10 @@ def run_training_loop(
                     wandb_log_dict=wandb_log_dict,
                     cfg=cfg,
                     optimizer=optimizer,
+                    log_loss=log_loss,
                     log_grad=log_grad,
-                    gather_predictions=gather_predictions,
-                    log_confusion_matrix=log_confusion_matrix,
+                    gather_predictions=False,  # Doesn't make sense to gather predictions for a subset
+                    log_confusion_matrix=False,
                 )
         else:
             iterate_through_dataloader(
@@ -1701,11 +1697,29 @@ def run_training_loop(
                 wandb_log_dict=wandb_log_dict,
                 cfg=cfg,
                 optimizer=optimizer,
+                log_loss=True,
                 log_grad=log_grad,
                 gather_predictions=gather_predictions,
                 log_confusion_matrix=log_confusion_matrix,
             )
         train_time_taken = time.time() - start_train_time
+
+        # Val
+        # Can do this before or after training (decided on after since before it was always at -ln(1/N_CLASSES) ~ 0.69)
+        start_val_time = time.time()
+        if epoch % cfg.val_freq == 0 and (epoch != 0 or cfg.val_on_epoch_0):
+            iterate_through_dataloader(
+                phase=Phase.VAL,
+                dataloader=val_loader,
+                nerf_to_grasp_success_model=nerf_to_grasp_success_model,
+                device=device,
+                ce_loss_fn=ce_loss_fn,
+                wandb_log_dict=wandb_log_dict,
+                gather_predictions=gather_predictions,
+                log_loss=True,
+                log_confusion_matrix=log_confusion_matrix,
+            )
+        val_time_taken = time.time() - start_val_time
 
         wandb.log(wandb_log_dict)
 
@@ -1730,7 +1744,9 @@ wandb.watch(nerf_to_grasp_success_model, log="gradients", log_freq=100)
 def compute_class_weight_np(train_dataset: Subset, input_dataset_full_path: str):
     try:
         with h5py.File(input_dataset_full_path, "r") as hdf5_file:
-            grasp_successes_np = np.array(hdf5_file["/grasp_success"][train_dataset.indices])
+            grasp_successes_np = np.array(
+                hdf5_file["/grasp_success"][sorted(train_dataset.indices)]  # Must be ascending
+            )
 
         class_weight_np = compute_class_weight(
             class_weight="balanced",
@@ -1745,7 +1761,13 @@ def compute_class_weight_np(train_dataset: Subset, input_dataset_full_path: str)
 
 
 class_weight = (
-    torch.from_numpy(compute_class_weight_np(train_dataset)).float().to(device)
+    torch.from_numpy(
+        compute_class_weight_np(
+            train_dataset=train_dataset, input_dataset_full_path=input_dataset_full_path
+        )
+    )
+    .float()
+    .to(device)
 )
 print(f"Class weight: {class_weight}")
 ce_loss_fn = nn.CrossEntropyLoss(weight=class_weight)
@@ -1779,6 +1801,7 @@ iterate_through_dataloader(
     ce_loss_fn=ce_loss_fn,
     wandb_log_dict=wandb_log_dict,
     gather_predictions=True,
+    log_loss=True,
     log_confusion_matrix=True,
 )
 

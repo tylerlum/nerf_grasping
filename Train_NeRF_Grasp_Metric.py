@@ -639,10 +639,13 @@ class DatasetType(Enum):
 
 assert cfg.data.input_dataset_path.endswith(".h5")
 dataset_type = DatasetType.HDF5_FILE
+input_dataset_full_path = os.path.join(
+    cfg.data.input_dataset_root_dir, cfg.data.input_dataset_path
+)
 
 if dataset_type == DatasetType.HDF5_FILE:
     full_dataset = NeRFGrid_To_GraspSuccess_HDF5_Dataset(
-        os.path.join(cfg.data.input_dataset_root_dir, cfg.data.input_dataset_path),
+        input_dataset_full_path,
         preprocess_fn=preprocess_fn,
         load_nerf_grid_inputs_in_ram=cfg.dataloader.load_nerf_grid_inputs_in_ram,
         load_grasp_successes_in_ram=cfg.dataloader.load_grasp_successes_in_ram,
@@ -703,6 +706,31 @@ assert math.ceil(len(test_dataset) / cfg.dataloader.batch_size) == len(test_load
 # %% [markdown]
 # # Visualize Datapoint
 
+# %%
+
+
+class Phase(Enum):
+    TRAIN = auto()
+    VAL = auto()
+    TEST = auto()
+
+
+# %%
+@localscope.mfc
+def wandb_log_plotly_fig(plotly_fig, title):
+    if wandb.run is None:
+        print("Not logging plotly fig to wandb because wandb.run is None")
+        return
+
+    path_to_plotly_html = f"{wandb.run.dir}/{title}.html"
+    print(f"Saving to {path_to_plotly_html}")
+
+    plotly_fig.write_html(path_to_plotly_html)
+    wandb_table = wandb.Table(columns=[title])
+    wandb_table.add_data(wandb.Html(path_to_plotly_html))
+    wandb.log({title: wandb_table})
+    print(f"Successfully logged {title} to wandb")
+
 
 # %%
 @localscope.mfc
@@ -754,117 +782,104 @@ def get_colored_points_scatter(points, colors):
 
 
 # %%
+@localscope.mfc(
+    allowed=[
+        "cfg",
+        "INPUT_EXAMPLE_SHAPE",
+        "NUM_DENSITY",
+        "NUM_PTS_X",
+        "NUM_PTS_Y",
+        "NUM_PTS_Z",
+        "NERF_DENSITY_START_IDX",
+        "NERF_DENSITY_END_IDX",
+        "NUM_XYZ",
+        "NERF_COORDINATE_START_IDX",
+        "NERF_COORDINATE_END_IDX",
+    ]
+)
+def create_datapoint_plotly_fig(
+    loader: DataLoader,
+    datapoint_name: str,
+    idx_to_visualize: int = 0,
+    save_to_wandb: bool = False,
+) -> go.Figure:
+    nerf_grid_inputs, grasp_successes = next(iter(loader))
+
+    assert nerf_grid_inputs.shape == (
+        cfg.dataloader.batch_size,
+        *INPUT_EXAMPLE_SHAPE,
+    )
+    assert grasp_successes.shape == (cfg.dataloader.batch_size,)
+
+    nerf_grid_input = nerf_grid_inputs[idx_to_visualize]
+    assert nerf_grid_input.shape == INPUT_EXAMPLE_SHAPE
+
+    nerf_densities = nerf_grid_input[
+        NERF_DENSITY_START_IDX:NERF_DENSITY_END_IDX, :, :, :
+    ]
+    assert nerf_densities.shape == (NUM_DENSITY, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
+
+    nerf_points = nerf_grid_input[
+        NERF_COORDINATE_START_IDX:NERF_COORDINATE_END_IDX
+    ].permute(1, 2, 3, 0)
+    assert nerf_points.shape == (NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z, NUM_XYZ)
+
+    isaac_origin_lines = get_isaac_origin_lines()
+    colored_points_scatter = get_colored_points_scatter(
+        nerf_points.reshape(-1, NUM_XYZ), nerf_densities.reshape(-1)
+    )
+
+    layout = go.Layout(
+        scene=dict(xaxis=dict(title="X"), yaxis=dict(title="Y"), zaxis=dict(title="Z")),
+        showlegend=True,
+        title=f"{datapoint_name} datapoint: success={grasp_successes[idx_to_visualize].item()}",
+        width=800,
+        height=800,
+    )
+
+    # Create the figure
+    fig = go.Figure(layout=layout)
+    for line in isaac_origin_lines:
+        fig.add_trace(line)
+    fig.add_trace(colored_points_scatter)
+    fig.update_layout(legend_orientation="h")
+
+    if save_to_wandb:
+        wandb_log_plotly_fig(plotly_fig=fig, title=f"{datapoint_name}_datapoint")
+    return fig
+
 
 # %%
 if cfg.visualize_data:
-    idx_to_visualize = 0
-    for nerf_grid_inputs, grasp_successes in train_loader:
-        assert nerf_grid_inputs.shape == (
-            cfg.dataloader.batch_size,
-            *INPUT_EXAMPLE_SHAPE,
-        )
-        assert grasp_successes.shape == (cfg.dataloader.batch_size,)
-
-        nerf_grid_input = nerf_grid_inputs[idx_to_visualize]
-        assert nerf_grid_input.shape == INPUT_EXAMPLE_SHAPE
-
-        nerf_densities = nerf_grid_input[
-            NERF_DENSITY_START_IDX:NERF_DENSITY_END_IDX, :, :, :
-        ]
-        assert nerf_densities.shape == (NUM_DENSITY, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
-
-        nerf_points = nerf_grid_input[
-            NERF_COORDINATE_START_IDX:NERF_COORDINATE_END_IDX
-        ].permute(1, 2, 3, 0)
-        assert nerf_points.shape == (NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z, NUM_XYZ)
-
-        isaac_origin_lines = get_isaac_origin_lines()
-        colored_points_scatter = get_colored_points_scatter(
-            nerf_points.reshape(-1, NUM_XYZ), nerf_densities.reshape(-1)
-        )
-
-        layout = go.Layout(
-            scene=dict(
-                xaxis=dict(title="X"), yaxis=dict(title="Y"), zaxis=dict(title="Z")
-            ),
-            showlegend=True,
-            title=f"Training datapoint: success={grasp_successes[idx_to_visualize].item()}",
-            width=800,
-            height=800,
-        )
-
-        # Create the figure
-        fig = go.Figure(layout=layout)
-        for line in isaac_origin_lines:
-            fig.add_trace(line)
-        fig.add_trace(colored_points_scatter)
-        fig.update_layout(legend_orientation="h")
-        fig.show()
-        break
+    create_datapoint_plotly_fig(
+        loader=train_loader, datapoint_name=Phase.TRAIN.name.lower(), save_to_wandb=True
+    )
 
 # %%
 if cfg.visualize_data:
-    idx_to_visualize = 0
-    for nerf_grid_inputs, grasp_successes in val_loader:
-        assert nerf_grid_inputs.shape == (
-            cfg.dataloader.batch_size,
-            *INPUT_EXAMPLE_SHAPE,
-        )
-        assert grasp_successes.shape == (cfg.dataloader.batch_size,)
-
-        nerf_grid_input = nerf_grid_inputs[idx_to_visualize]
-        assert nerf_grid_input.shape == INPUT_EXAMPLE_SHAPE
-
-        nerf_densities = nerf_grid_input[
-            NERF_DENSITY_START_IDX:NERF_DENSITY_END_IDX, :, :, :
-        ]
-        assert nerf_densities.shape == (NUM_DENSITY, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
-
-        nerf_points = nerf_grid_input[
-            NERF_COORDINATE_START_IDX:NERF_COORDINATE_END_IDX
-        ].permute(1, 2, 3, 0)
-        assert nerf_points.shape == (NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z, NUM_XYZ)
-
-        isaac_origin_lines = get_isaac_origin_lines()
-        colored_points_scatter = get_colored_points_scatter(
-            nerf_points.reshape(-1, NUM_XYZ), nerf_densities.reshape(-1)
-        )
-
-        layout = go.Layout(
-            scene=dict(
-                xaxis=dict(title="X"), yaxis=dict(title="Y"), zaxis=dict(title="Z")
-            ),
-            showlegend=True,
-            title=f"Validation datapoint: success={grasp_successes[idx_to_visualize].item()}",
-            width=800,
-            height=800,
-        )
-
-        # Create the figure
-        fig = go.Figure(layout=layout)
-        for line in isaac_origin_lines:
-            fig.add_trace(line)
-        fig.add_trace(colored_points_scatter)
-        fig.update_layout(legend_orientation="h")
-        fig.show()
-        break
+    create_datapoint_plotly_fig(
+        loader=val_loader, datapoint_name=Phase.VAL.name.lower(), save_to_wandb=True
+    )
 
 # %% [markdown]
 # # Visualize Dataset Distribution
 
+
 # %%
-try:
-    if cfg.visualize_data:
-        grasp_successes_np = train_dataset.dataset.grasp_successes[
-            train_dataset.indices
-        ].numpy()
+@localscope.mfc
+def create_grasp_success_distribution_fig(
+    train_dataset: Subset, input_dataset_full_path: str, save_to_wandb: bool = False
+):
+    try:
+        with h5py.File(input_dataset_full_path, "r") as hdf5_file:
+            grasp_successes = hdf5_file["/grasp_success"][train_dataset.indices]
 
         # Plot histogram in plotly
         fig = go.Figure(
             data=[
                 go.Histogram(
-                    x=grasp_successes_np,
-                    name="Train",
+                    x=grasp_successes,
+                    name="Grasp Successes",
                     marker_color="blue",
                 ),
             ],
@@ -874,22 +889,48 @@ try:
                 yaxis=dict(title="Frequency"),
             ),
         )
-        fig.show()
-except Exception as e:
-    print(f"Error: {e}")
-    print("Skipping visualization of grasp success distribution")
+        if save_to_wandb:
+            wandb_log_plotly_fig(
+                plotly_fig=fig, title="Distribution of Grasp Successes"
+            )
+        return fig
+
+    except Exception as e:
+        print(f"Error: {e}")
+        print("Skipping visualization of grasp success distribution")
+
+
+if cfg.visualize_data:
+    create_grasp_success_distribution_fig(
+        train_dataset=train_dataset, save_to_wandb=True
+    )
 
 
 # %%
-if cfg.visualize_data:
+@localscope.mfc(
+    allowed=[
+        "INPUT_EXAMPLE_SHAPE",
+        "NERF_COORDINATE_START_IDX",
+        "NERF_COORDINATE_END_IDX",
+        "NERF_DENSITY_START_IDX",
+        "NERF_DENSITY_END_IDX",
+    ]
+)
+def create_nerf_grid_input_distribution_figs(
+    train_loader: DataLoader, save_to_wandb: bool = False
+):
     nerf_coordinate_mins, nerf_coordinate_means, nerf_coordinate_maxs = [], [], []
     nerf_density_mins, nerf_density_means, nerf_density_maxs = [], [], []
     for nerf_grid_inputs, _ in tqdm(
         train_loader, desc="Calculating nerf_grid_inputs dataset statistics"
     ):
         assert nerf_grid_inputs.shape[1:] == INPUT_EXAMPLE_SHAPE
-        nerf_coordinates = nerf_grid_inputs[:, NERF_COORDINATE_START_IDX:NERF_COORDINATE_END_IDX]
-        nerf_densities = nerf_grid_inputs[:, NERF_DENSITY_START_IDX:NERF_DENSITY_END_IDX]
+        nerf_coordinates = nerf_grid_inputs[
+            :, NERF_COORDINATE_START_IDX:NERF_COORDINATE_END_IDX
+        ]
+        nerf_densities = nerf_grid_inputs[
+            :, NERF_DENSITY_START_IDX:NERF_DENSITY_END_IDX
+        ]
 
         nerf_coordinate_mins.append(nerf_coordinates.min().item())
         nerf_coordinate_means.append(nerf_coordinates.mean().item())
@@ -923,10 +964,8 @@ if cfg.visualize_data:
     print(f"nerf_density_mean: {nerf_density_mean}")
     print(f"nerf_density_max: {nerf_density_max}")
 
-# %%
-# Plot histogram of min, mean, and max values of nerf_coordinates
-if cfg.visualize_data:
-    fig = go.Figure(
+    # Coordinates
+    coordinates_fig = go.Figure(
         data=[
             go.Histogram(
                 x=nerf_coordinate_mins,
@@ -951,12 +990,9 @@ if cfg.visualize_data:
             barmode="overlay",
         ),
     )
-    fig.show()
 
-# %%
-# Plot histogram of min, mean, and max values of nerf_densities
-if cfg.visualize_data:
-    fig = go.Figure(
+    # Density
+    density_fig = go.Figure(
         data=[
             go.Histogram(
                 x=nerf_density_mins,
@@ -981,7 +1017,24 @@ if cfg.visualize_data:
             barmode="overlay",
         ),
     )
-    fig.show()
+
+    if save_to_wandb:
+        wandb_log_plotly_fig(
+            plotly_fig=coordinates_fig, title="Distribution of nerf_coordinates"
+        )
+        wandb_log_plotly_fig(
+            plotly_fig=density_fig, title="Distribution of nerf_densities"
+        )
+
+    return coordinates_fig, density_fig
+
+
+# %%
+if cfg.visualize_data:
+    create_nerf_grid_input_distribution_figs(
+        train_loader=train_loader, save_to_wandb=True
+    )
+
 
 # %% [markdown]
 # # Create Neural Network Model
@@ -1276,12 +1329,6 @@ def save_checkpoint(
 
 
 # %%
-
-
-class Phase(Enum):
-    TRAIN = auto()
-    VAL = auto()
-    TEST = auto()
 
 
 @localscope.mfc

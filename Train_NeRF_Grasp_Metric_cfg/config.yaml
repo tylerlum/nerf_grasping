@@ -33,7 +33,7 @@ training:
   val_on_epoch_0: True
   save_checkpoint_freq: 5
   save_checkpoint_on_epoch_0: False
-  confusion_matrix_freq: 5
+  confusion_matrix_freq: 10
   save_confusion_matrix_on_epoch_0: False
 
 neural_network:
@@ -49,5 +49,5 @@ checkpoint_workspace:
   force_no_resume: True
 
 random_seed: 42
-visualize_data: True
+visualize_data: False
 dry_run: False

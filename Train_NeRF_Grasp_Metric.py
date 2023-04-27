@@ -1365,7 +1365,7 @@ def iterate_through_dataloader(
     wandb_log_dict: Dict[str, Any],
     cfg: Optional[TrainingConfig] = None,
     optimizer: Optional[torch.optim.Optimizer] = None,
-    log_loss: bool = False,
+    log_loss: bool = True,
     log_grad: bool = False,
     gather_predictions: bool = False,
     log_confusion_matrix: bool = False,
@@ -1672,7 +1672,6 @@ def run_training_loop(
             num_passes = int(1 / subset_fraction)
             for subset_pass in range(num_passes):
                 print(f"Subset pass {subset_pass + 1}/{num_passes}")
-                log_loss = subset_pass == num_passes - 1
                 iterate_through_dataloader(
                     phase=Phase.TRAIN,
                     dataloader=subset_train_loader,
@@ -1682,7 +1681,6 @@ def run_training_loop(
                     wandb_log_dict=wandb_log_dict,
                     cfg=cfg,
                     optimizer=optimizer,
-                    log_loss=log_loss,
                     log_grad=log_grad,
                     gather_predictions=False,  # Doesn't make sense to gather predictions for a subset
                     log_confusion_matrix=False,
@@ -1697,7 +1695,6 @@ def run_training_loop(
                 wandb_log_dict=wandb_log_dict,
                 cfg=cfg,
                 optimizer=optimizer,
-                log_loss=True,
                 log_grad=log_grad,
                 gather_predictions=gather_predictions,
                 log_confusion_matrix=log_confusion_matrix,
@@ -1716,7 +1713,6 @@ def run_training_loop(
                 ce_loss_fn=ce_loss_fn,
                 wandb_log_dict=wandb_log_dict,
                 gather_predictions=gather_predictions,
-                log_loss=True,
                 log_confusion_matrix=log_confusion_matrix,
             )
         val_time_taken = time.time() - start_val_time
@@ -1801,7 +1797,6 @@ iterate_through_dataloader(
     ce_loss_fn=ce_loss_fn,
     wandb_log_dict=wandb_log_dict,
     gather_predictions=True,
-    log_loss=True,
     log_confusion_matrix=True,
 )
 

@@ -718,7 +718,7 @@ class Phase(Enum):
 
 # %%
 @localscope.mfc
-def wandb_log_plotly_fig(plotly_fig, title):
+def wandb_log_plotly_fig(plotly_fig, title, group_name="plotly"):
     if wandb.run is None:
         print("Not logging plotly fig to wandb because wandb.run is None")
         return
@@ -729,7 +729,10 @@ def wandb_log_plotly_fig(plotly_fig, title):
     plotly_fig.write_html(path_to_plotly_html)
     wandb_table = wandb.Table(columns=[title])
     wandb_table.add_data(wandb.Html(path_to_plotly_html))
-    wandb.log({title: wandb_table})
+    if group_name is not None:
+        wandb.log({f"{group_name}/{title}": wandb_table})
+    else:
+        wandb.log({title: wandb_table})
     print(f"Successfully logged {title} to wandb")
 
 
@@ -874,7 +877,9 @@ def create_grasp_success_distribution_fig(
     try:
         with h5py.File(input_dataset_full_path, "r") as hdf5_file:
             grasp_successes_np = np.array(
-                hdf5_file["/grasp_success"][sorted(train_dataset.indices)]  # Must be ascending
+                hdf5_file["/grasp_success"][
+                    sorted(train_dataset.indices)
+                ]  # Must be ascending
             )
 
         # Plot histogram in plotly
@@ -905,7 +910,7 @@ def create_grasp_success_distribution_fig(
 
 if cfg.visualize_data:
     create_grasp_success_distribution_fig(
-        train_dataset=train_dataset, save_to_wandb=True
+        train_dataset=train_dataset, input_dataset_full_path=input_dataset_full_path, save_to_wandb=True
     )
 
 
@@ -1556,7 +1561,7 @@ def iterate_through_dataloader(
 
     if len(all_predictions) > 0 and len(all_ground_truths) > 0:
         # Can add more metrics here
-        wandb_log_dict[f"{phase.name.lower()}_accuracy"] = accuracy_score(
+        wandb_log_dict[f"{phase.name.lower()}_accuracy"] = 100.0 * accuracy_score(
             y_true=all_ground_truths, y_pred=all_predictions
         )
 
@@ -1741,7 +1746,9 @@ def compute_class_weight_np(train_dataset: Subset, input_dataset_full_path: str)
     try:
         with h5py.File(input_dataset_full_path, "r") as hdf5_file:
             grasp_successes_np = np.array(
-                hdf5_file["/grasp_success"][sorted(train_dataset.indices)]  # Must be ascending
+                hdf5_file["/grasp_success"][
+                    sorted(train_dataset.indices)
+                ]  # Must be ascending
             )
 
         class_weight_np = compute_class_weight(

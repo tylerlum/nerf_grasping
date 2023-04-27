@@ -143,6 +143,7 @@ class TrainingConfig:
     save_checkpoint_on_epoch_0: bool = MISSING
     confusion_matrix_freq: int = MISSING
     save_confusion_matrix_on_epoch_0: bool = MISSING
+    use_dataloader_subset: bool = MISSING
 
 
 class ConvOutputTo1D(Enum):
@@ -872,13 +873,13 @@ def create_grasp_success_distribution_fig(
 ):
     try:
         with h5py.File(input_dataset_full_path, "r") as hdf5_file:
-            grasp_successes = hdf5_file["/grasp_success"][train_dataset.indices]
+            grasp_successes_np = np.array(hdf5_file["/grasp_success"][train_dataset.indices])
 
         # Plot histogram in plotly
         fig = go.Figure(
             data=[
                 go.Histogram(
-                    x=grasp_successes,
+                    x=grasp_successes_np,
                     name="Grasp Successes",
                     marker_color="blue",
                 ),
@@ -914,6 +915,7 @@ if cfg.visualize_data:
         "NERF_COORDINATE_END_IDX",
         "NERF_DENSITY_START_IDX",
         "NERF_DENSITY_END_IDX",
+        "tqdm",
     ]
 )
 def create_nerf_grid_input_distribution_figs(
@@ -1668,8 +1670,7 @@ def run_training_loop(
         log_grad = epoch % cfg.log_grad_freq == 0 and (
             epoch != 0 or cfg.log_grad_on_epoch_0
         )
-        USE_DATALOADER_SUBSET = True
-        if USE_DATALOADER_SUBSET:
+        if cfg.use_dataloader_subset:
             subset_fraction = 0.2
             subset_train_loader = create_dataloader_subset(
                 train_loader, fraction=subset_fraction
@@ -1726,11 +1727,11 @@ wandb.watch(nerf_to_grasp_success_model, log="gradients", log_freq=100)
 
 # %%
 @localscope.mfc
-def compute_class_weight_np(train_dataset: Subset):
+def compute_class_weight_np(train_dataset: Subset, input_dataset_full_path: str):
     try:
-        grasp_successes_np = train_dataset.dataset.grasp_successes[
-            train_dataset.indices
-        ].numpy()
+        with h5py.File(input_dataset_full_path, "r") as hdf5_file:
+            grasp_successes_np = np.array(hdf5_file["/grasp_success"][train_dataset.indices])
+
         class_weight_np = compute_class_weight(
             class_weight="balanced",
             classes=np.unique(grasp_successes_np),

@@ -35,6 +35,7 @@ training:
   save_checkpoint_on_epoch_0: False
   confusion_matrix_freq: 10
   save_confusion_matrix_on_epoch_0: False
+  use_dataloader_subset: True
 
 neural_network:
   conv_channels: [32, 64, 128, 256]

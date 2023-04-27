@@ -56,7 +56,7 @@ from hydra.core.config_store import ConfigStore
 from hydra.utils import instantiate
 from localscope import localscope
 from omegaconf import MISSING, OmegaConf
-from sklearn.metrics import ConfusionMatrixDisplay, confusion_matrix
+from sklearn.metrics import ConfusionMatrixDisplay, confusion_matrix, accuracy_score
 from sklearn.utils.class_weight import compute_class_weight
 from torch.utils.data import (
     DataLoader,
@@ -1362,6 +1362,8 @@ def iterate_through_dataloader(
     cfg: Optional[TrainingConfig] = None,
     optimizer: Optional[torch.optim.Optimizer] = None,
     log_grad: bool = False,
+    gather_predictions: bool = False,
+    log_confusion_matrix: bool = False,
 ):
     assert phase in [Phase.TRAIN, Phase.VAL, Phase.TEST]
     if phase == Phase.TRAIN:
@@ -1383,6 +1385,9 @@ def iterate_through_dataloader(
         grad_log_total_time_taken = 0.0
         loss_log_total_time_taken = 0.0
         grad_clip_total_time_taken = 0.0
+        gather_predictions_total_time_taken = 0.0
+
+        all_predictions, all_ground_truths = [], []
 
         end_time = time.time()
         for nerf_grid_inputs, grasp_successes in (pbar := tqdm(dataloader)):
@@ -1400,42 +1405,7 @@ def iterate_through_dataloader(
             total_loss = ce_loss
             forward_pass_time_taken = time.time() - start_forward_pass_time
 
-            # Gather data and report
-            start_loss_log_time = time.time()
-            losses_dict[f"{phase.name.lower()}_loss"].append(total_loss.item())
-            loss_log_time_taken = time.time() - start_loss_log_time
-
-            # Gradient step
-            start_backward_pass_time = time.time()
-            if phase == Phase.TRAIN and optimizer is not None:
-                optimizer.zero_grad()
-                total_loss.backward()
-                optimizer.step()
-            backward_pass_time_taken = time.time() - start_backward_pass_time
-
-            start_grad_log_time = time.time()
-            if phase == Phase.TRAIN and log_grad:
-                grad_abs_values = torch.concat(
-                    [
-                        p.grad.data.abs().flatten()
-                        for p in nerf_to_grasp_success_model.parameters()
-                        if p.grad is not None and p.requires_grad
-                    ]
-                )
-                grads_dict[f"{phase.name.lower()}_max_grad_abs_value"].append(
-                    torch.max(grad_abs_values).item()
-                )
-                grads_dict[f"{phase.name.lower()}_median_grad_abs_value"].append(
-                    torch.median(grad_abs_values).item()
-                )
-                grads_dict[f"{phase.name.lower()}_mean_grad_abs_value"].append(
-                    torch.mean(grad_abs_values).item()
-                )
-                grads_dict[f"{phase.name.lower()}_mean_grad_norm_value"].append(
-                    torch.norm(grad_abs_values).item()
-                )
-            grad_log_time_taken = time.time() - start_grad_log_time
-
+            # Grad clip
             start_grad_clip_time = time.time()
             if (
                 phase == Phase.TRAIN
@@ -1448,6 +1418,54 @@ def iterate_through_dataloader(
                 )
             grad_clip_time_taken = time.time() - start_grad_clip_time
 
+            # Gradient step
+            start_backward_pass_time = time.time()
+            if phase == Phase.TRAIN and optimizer is not None:
+                optimizer.zero_grad()
+                total_loss.backward()
+                optimizer.step()
+            backward_pass_time_taken = time.time() - start_backward_pass_time
+
+            # Loss logging
+            start_loss_log_time = time.time()
+            losses_dict[f"{phase.name.lower()}_loss"].append(total_loss.item())
+            loss_log_time_taken = time.time() - start_loss_log_time
+
+            # Gradient logging
+            start_grad_log_time = time.time()
+            if phase == Phase.TRAIN and log_grad:
+                with torch.no_grad():  # not sure if need this
+                    grad_abs_values = torch.concat(
+                        [
+                            p.grad.data.abs().flatten()
+                            for p in nerf_to_grasp_success_model.parameters()
+                            if p.grad is not None and p.requires_grad
+                        ]
+                    )
+                    grads_dict[f"{phase.name.lower()}_max_grad_abs_value"].append(
+                        torch.max(grad_abs_values).item()
+                    )
+                    grads_dict[f"{phase.name.lower()}_median_grad_abs_value"].append(
+                        torch.median(grad_abs_values).item()
+                    )
+                    grads_dict[f"{phase.name.lower()}_mean_grad_abs_value"].append(
+                        torch.mean(grad_abs_values).item()
+                    )
+                    grads_dict[f"{phase.name.lower()}_mean_grad_norm_value"].append(
+                        torch.norm(grad_abs_values).item()
+                    )
+            grad_log_time_taken = time.time() - start_grad_log_time
+
+            # Gather predictions and ground truths
+            start_gather_predictions_time = time.time()
+            if gather_predictions:
+                with torch.no_grad():
+                    predictions = grasp_success_logits.argmax(axis=1).tolist()
+                    ground_truths = grasp_successes.tolist()
+                    all_predictions = all_predictions + predictions
+                    all_ground_truths = all_ground_truths + ground_truths
+            gather_predictions_time_taken = time.time() - start_gather_predictions_time
+
             batch_time_taken = time.time() - end_time
 
             # Set description
@@ -1457,10 +1475,11 @@ def iterate_through_dataloader(
                     f"Batch: {1000*batch_time_taken:.0f}",
                     f"Data: {1000*dataload_time_taken:.0f}",
                     f"Fwd: {1000*forward_pass_time_taken:.0f}",
-                    f"Bwd: {1000*backward_pass_time_taken:.0f}",
-                    f"Grad: {1000*grad_log_time_taken:.0f}",
                     f"Clip: {1000*grad_clip_time_taken:.0f}",
-                    f"Loss Log: {1000*loss_log_time_taken:.0f}",
+                    f"Bwd: {1000*backward_pass_time_taken:.0f}",
+                    f"Loss: {1000*loss_log_time_taken:.0f}",
+                    f"Grad: {1000*grad_log_time_taken:.0f}",
+                    f"Gather: {1000*gather_predictions_time_taken:.0f}",
                     f"loss: {np.mean(losses_dict[f'{phase.name.lower()}_loss']):.5f}",
                 ]
             )
@@ -1469,46 +1488,66 @@ def iterate_through_dataloader(
             batch_total_time_taken += batch_time_taken
             dataload_total_time_taken += dataload_time_taken
             forward_pass_total_time_taken += forward_pass_time_taken
-            backward_pass_total_time_taken += backward_pass_time_taken
-            grad_log_total_time_taken += grad_log_time_taken
-            loss_log_total_time_taken += loss_log_time_taken
             grad_clip_total_time_taken += grad_clip_time_taken
+            backward_pass_total_time_taken += backward_pass_time_taken
+            loss_log_total_time_taken += loss_log_time_taken
+            grad_log_total_time_taken += grad_log_time_taken
+            gather_predictions_total_time_taken += gather_predictions_time_taken
 
             end_time = time.time()
 
     print(
         f"Total time taken for {phase.name.lower()} phase: {batch_total_time_taken:.2f} s"
     )
-    print(f"Total time taken for dataload: {dataload_total_time_taken:.2f} s")
-    print(f"Total time taken for forward pass: {forward_pass_total_time_taken:.2f} s")
-    print(f"Total time taken for backward pass: {backward_pass_total_time_taken:.2f} s")
-    print(f"Total time taken for grad logging: {grad_log_total_time_taken:.2f} s")
-    print(f"Total time taken for loss logging: {loss_log_total_time_taken:.2f} s")
-    print(f"Total time taken for grad clipping: {grad_clip_total_time_taken:.2f} s")
-
-    # In percentage of batch_total_time_taken
+    print(f"Time taken for dataload: {dataload_total_time_taken:.2f} s")
+    print(f"Time taken for forward pass: {forward_pass_total_time_taken:.2f} s")
+    print(f"Time taken for grad clipping: {grad_clip_total_time_taken:.2f} s")
+    print(f"Time taken for backward pass: {backward_pass_total_time_taken:.2f} s")
+    print(f"Time taken for loss logging: {loss_log_total_time_taken:.2f} s")
+    print(f"Time taken for grad logging: {grad_log_total_time_taken:.2f} s")
     print(
-        f"In percentage of batch_total_time_taken, dataload: {100*dataload_total_time_taken/batch_total_time_taken:.2f} %"
-    )
-    print(
-        f"In percentage of batch_total_time_taken, forward pass: {100*forward_pass_total_time_taken/batch_total_time_taken:.2f} %"
-    )
-    print(
-        f"In percentage of batch_total_time_taken, backward pass: {100*backward_pass_total_time_taken/batch_total_time_taken:.2f} %"
-    )
-    print(
-        f"In percentage of batch_total_time_taken, grad logging: {100*grad_log_total_time_taken/batch_total_time_taken:.2f} %"
-    )
-    print(
-        f"In percentage of batch_total_time_taken, loss logging: {100*loss_log_total_time_taken/batch_total_time_taken:.2f} %"
-    )
-    print(
-        f"In percentage of batch_total_time_taken, grad clipping: {100*grad_clip_total_time_taken/batch_total_time_taken:.2f} %"
+        f"Time taken for gather predictions: {gather_predictions_total_time_taken:.2f} s"
     )
     print()
 
+    # In percentage of batch_total_time_taken
+    print("In percentage of batch_total_time_taken:")
+    print(f"dataload: {100*dataload_total_time_taken/batch_total_time_taken:.2f} %")
+    print(
+        f"forward pass: {100*forward_pass_total_time_taken/batch_total_time_taken:.2f} %"
+    )
+    print(
+        f"grad clipping: {100*grad_clip_total_time_taken/batch_total_time_taken:.2f} %"
+    )
+    print(
+        f"backward pass: {100*backward_pass_total_time_taken/batch_total_time_taken:.2f} %"
+    )
+    print(f"loss logging: {100*loss_log_total_time_taken/batch_total_time_taken:.2f} %")
+    print(f"grad logging: {100*grad_log_total_time_taken/batch_total_time_taken:.2f} %")
+    print(
+        f"gather predictions: {100*gather_predictions_total_time_taken/batch_total_time_taken:.2f} %"
+    )
+    print()
+    print()
+
+    if log_confusion_matrix and len(all_predictions) > 0 and len(all_ground_truths) > 0:
+        wandb_log_dict[
+            f"{phase.name.lower()}_confusion_matrix"
+        ] = wandb.plot.confusion_matrix(
+            preds=all_predictions,
+            y_true=all_ground_truths,
+            class_names=["Fail", "Success"],
+            title=f"{phase.name.lower()} Confusion Matrix",
+        )
+
     for loss_name, losses in losses_dict.items():
         wandb_log_dict[loss_name] = np.mean(losses)
+
+    if len(all_predictions) > 0 and len(all_ground_truths) > 0:
+        # Can add more metrics here
+        wandb_log_dict[f"{phase.name.lower()}_accuracy"] = accuracy_score(
+            y_true=all_ground_truths, y_pred=all_predictions
+        )
 
     # Extra debugging
     for grad_name, grad_vals in grads_dict.items():
@@ -1534,6 +1573,7 @@ def plot_confusion_matrix(
     device: str,
     wandb_log_dict: Dict[str, Any],
 ):
+    # TODO: This is very slow and wasteful if we already compute all these in the other iterate_through_dataloader function calls
     preds, ground_truths = [], []
     for nerf_grid_inputs, grasp_successes in (pbar := tqdm(dataloader)):
         nerf_grid_inputs = nerf_grid_inputs.to(device)
@@ -1603,26 +1643,10 @@ def run_training_loop(
             )
         save_checkpoint_time_taken = time.time() - start_save_checkpoint_time
 
-        # Create confusion matrix
-        start_confusion_matrix_time = time.time()
-        if epoch % cfg.confusion_matrix_freq == 0 and (
+        log_confusion_matrix = epoch % cfg.confusion_matrix_freq == 0 and (
             epoch != 0 or cfg.save_confusion_matrix_on_epoch_0
-        ):
-            plot_confusion_matrix(
-                phase=Phase.TRAIN,
-                dataloader=train_loader,
-                nerf_to_grasp_success_model=nerf_to_grasp_success_model,
-                device=device,
-                wandb_log_dict=wandb_log_dict,
-            )
-            plot_confusion_matrix(
-                phase=Phase.VAL,
-                dataloader=val_loader,
-                nerf_to_grasp_success_model=nerf_to_grasp_success_model,
-                device=device,
-                wandb_log_dict=wandb_log_dict,
-            )
-        confusion_matrix_time = time.time() - start_confusion_matrix_time
+        )
+        gather_predictions = log_confusion_matrix
 
         # Val
         start_val_time = time.time()
@@ -1634,6 +1658,8 @@ def run_training_loop(
                 device=device,
                 ce_loss_fn=ce_loss_fn,
                 wandb_log_dict=wandb_log_dict,
+                gather_predictions=gather_predictions,
+                log_confusion_matrix=log_confusion_matrix,
             )
         val_time_taken = time.time() - start_val_time
 
@@ -1661,6 +1687,8 @@ def run_training_loop(
                     cfg=cfg,
                     optimizer=optimizer,
                     log_grad=log_grad,
+                    gather_predictions=gather_predictions,
+                    log_confusion_matrix=log_confusion_matrix,
                 )
         else:
             iterate_through_dataloader(
@@ -1673,6 +1701,8 @@ def run_training_loop(
                 cfg=cfg,
                 optimizer=optimizer,
                 log_grad=log_grad,
+                gather_predictions=gather_predictions,
+                log_confusion_matrix=log_confusion_matrix,
             )
         train_time_taken = time.time() - start_train_time
 
@@ -1683,7 +1713,6 @@ def run_training_loop(
             [
                 training_loop_base_description + " (s)",
                 f"Save: {save_checkpoint_time_taken:.0f}",
-                f"CM: {confusion_matrix_time:.0f}",
                 f"Train: {train_time_taken:.0f}",
                 f"Val: {val_time_taken:.0f}",
             ]
@@ -1748,14 +1777,8 @@ iterate_through_dataloader(
     device=device,
     ce_loss_fn=ce_loss_fn,
     wandb_log_dict=wandb_log_dict,
-)
-
-plot_confusion_matrix(
-    phase=Phase.TEST,
-    dataloader=test_loader,
-    nerf_to_grasp_success_model=nerf_to_grasp_success_model,
-    device=device,
-    wandb_log_dict=wandb_log_dict,
+    gather_predictions=True,
+    log_confusion_matrix=True,
 )
 
 wandb.log(wandb_log_dict)

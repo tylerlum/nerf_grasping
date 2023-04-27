@@ -107,6 +107,7 @@ class PreprocessType(Enum):
     DENSITY = auto()
     ALPHA = auto()
     WEIGHT = auto()
+    WEIGHT_V2 = auto()  # Both WEIGHT and WEIGHT_V2 should be the same, just need to double check
 
 
 @dataclass
@@ -569,7 +570,7 @@ def preprocess_to_weight_v2(nerf_grid_input):
     # right_weight_j = alpha_j * (1 - alpha_{j+1}) * ... * (1 - alpha_{NUM_PTS_X}))
     #          = probability of collision within j-th segment starting from right edge
 
-    @localscope.mfc
+    # @localscope.mfc  # TODO: Had error, should fix
     def compute_left_weight(alpha):
         # [1 - alpha_1, (1 - alpha_1) * (1 - alpha_2), ..., (1 - alpha_1) * ... * (1 - alpha_{NUM_PTS_X}))]
         cumprod_1_minus_alpha_from_left = (1 - alpha).cumprod(dim=x_axis_dim)
@@ -625,6 +626,7 @@ preprocess_type_to_fn = {
     PreprocessType.DENSITY: preprocess_to_density,
     PreprocessType.ALPHA: preprocess_to_alpha,
     PreprocessType.WEIGHT: preprocess_to_weight,
+    PreprocessType.WEIGHT_V2: preprocess_to_weight_v2,
 }
 
 preprocess_fn = preprocess_type_to_fn[cfg.dataloader.preprocess_type]

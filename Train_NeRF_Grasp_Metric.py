@@ -881,104 +881,107 @@ except Exception as e:
 
 
 # %%
-# nerf_coordinate_mins, nerf_coordinate_means, nerf_coordinate_maxs = [], [], []
-# nerf_density_mins, nerf_density_means, nerf_density_maxs = [], [], []
-# for nerf_grid_inputs, _ in tqdm(
-#     train_loader, desc="Calculating nerf_grid_inputs dataset statistics"
-# ):
-#     assert nerf_grid_inputs.shape[1:] == INPUT_EXAMPLE_SHAPE
-#     nerf_coordinates = nerf_grid_inputs[:, NERF_COORDINATE_START_IDX:NERF_COORDINATE_END_IDX]
-#     nerf_densities = nerf_grid_inputs[:, NERF_DENSITY_START_IDX:NERF_DENSITY_END_IDX]
-#
-#     nerf_coordinate_mins.append(nerf_coordinates.min().item())
-#     nerf_coordinate_means.append(nerf_coordinates.mean().item())
-#     nerf_coordinate_maxs.append(nerf_coordinates.max().item())
-#
-#     nerf_density_mins.append(nerf_densities.min().item())
-#     nerf_density_means.append(nerf_densities.mean().item())
-#     nerf_density_maxs.append(nerf_densities.max().item())
-#
-# nerf_coordinate_mins, nerf_coordinate_means, nerf_coordinate_maxs = (
-#     np.array(nerf_coordinate_mins),
-#     np.array(nerf_coordinate_means),
-#     np.array(nerf_coordinate_maxs),
-# )
-# nerf_coordinate_min = nerf_coordinate_mins.min()
-# nerf_coordinate_mean = nerf_coordinate_means.mean()
-# nerf_coordinate_max = nerf_coordinate_maxs.max()
-# print(f"nerf_coordinate_min: {nerf_coordinate_min}")
-# print(f"nerf_coordinate_mean: {nerf_coordinate_mean}")
-# print(f"nerf_coordinate_max: {nerf_coordinate_max}")
-#
-# nerf_density_mins, nerf_density_means, nerf_density_maxs = (
-#     np.array(nerf_density_mins),
-#     np.array(nerf_density_means),
-#     np.array(nerf_density_maxs),
-# )
-# nerf_density_min = nerf_density_mins.min()
-# nerf_density_mean = nerf_density_means.mean()
-# nerf_density_max = nerf_density_maxs.max()
-# print(f"nerf_density_min: {nerf_density_min}")
-# print(f"nerf_density_mean: {nerf_density_mean}")
-# print(f"nerf_density_max: {nerf_density_max}")
-#
-# # %%
-# # Plot histogram of min, mean, and max values of nerf_coordinates
-# fig = go.Figure(
-#     data=[
-#         go.Histogram(
-#             x=nerf_coordinate_mins,
-#             name="Min",
-#             marker_color="blue",
-#         ),
-#         go.Histogram(
-#             x=nerf_coordinate_means,
-#             name="Mean",
-#             marker_color="orange",
-#         ),
-#         go.Histogram(
-#             x=nerf_coordinate_maxs,
-#             name="Max",
-#             marker_color="green",
-#         ),
-#     ],
-#     layout=go.Layout(
-#         title="Distribution of nerf_coordinates (Aggregated to Fit in RAM)",
-#         xaxis=dict(title="nerf_coordinates"),
-#         yaxis=dict(title="Frequency"),
-#         barmode="overlay",
-#     ),
-# )
-# fig.show()
-#
-# # %%
-# # Plot histogram of min, mean, and max values of nerf_densities
-# fig = go.Figure(
-#     data=[
-#         go.Histogram(
-#             x=nerf_density_mins,
-#             name="Min",
-#             marker_color="blue",
-#         ),
-#         go.Histogram(
-#             x=nerf_density_means,
-#             name="Mean",
-#             marker_color="orange",
-#         ),
-#         go.Histogram(
-#             x=nerf_density_maxs,
-#             name="Max",
-#             marker_color="green",
-#         ),
-#     ],
-#     layout=go.Layout(
-#         title="Distribution of nerf_densities (Aggregated to Fit in RAM)",
-#         xaxis=dict(title="nerf_densities"),
-#         yaxis=dict(title="Frequency"),
-#         barmode="overlay",
-#     ),
-# )
-# fig.show()
+if cfg.visualize_data:
+    nerf_coordinate_mins, nerf_coordinate_means, nerf_coordinate_maxs = [], [], []
+    nerf_density_mins, nerf_density_means, nerf_density_maxs = [], [], []
+    for nerf_grid_inputs, _ in tqdm(
+        train_loader, desc="Calculating nerf_grid_inputs dataset statistics"
+    ):
+        assert nerf_grid_inputs.shape[1:] == INPUT_EXAMPLE_SHAPE
+        nerf_coordinates = nerf_grid_inputs[:, NERF_COORDINATE_START_IDX:NERF_COORDINATE_END_IDX]
+        nerf_densities = nerf_grid_inputs[:, NERF_DENSITY_START_IDX:NERF_DENSITY_END_IDX]
+
+        nerf_coordinate_mins.append(nerf_coordinates.min().item())
+        nerf_coordinate_means.append(nerf_coordinates.mean().item())
+        nerf_coordinate_maxs.append(nerf_coordinates.max().item())
+
+        nerf_density_mins.append(nerf_densities.min().item())
+        nerf_density_means.append(nerf_densities.mean().item())
+        nerf_density_maxs.append(nerf_densities.max().item())
+
+    nerf_coordinate_mins, nerf_coordinate_means, nerf_coordinate_maxs = (
+        np.array(nerf_coordinate_mins),
+        np.array(nerf_coordinate_means),
+        np.array(nerf_coordinate_maxs),
+    )
+    nerf_coordinate_min = nerf_coordinate_mins.min()
+    nerf_coordinate_mean = nerf_coordinate_means.mean()
+    nerf_coordinate_max = nerf_coordinate_maxs.max()
+    print(f"nerf_coordinate_min: {nerf_coordinate_min}")
+    print(f"nerf_coordinate_mean: {nerf_coordinate_mean}")
+    print(f"nerf_coordinate_max: {nerf_coordinate_max}")
+
+    nerf_density_mins, nerf_density_means, nerf_density_maxs = (
+        np.array(nerf_density_mins),
+        np.array(nerf_density_means),
+        np.array(nerf_density_maxs),
+    )
+    nerf_density_min = nerf_density_mins.min()
+    nerf_density_mean = nerf_density_means.mean()
+    nerf_density_max = nerf_density_maxs.max()
+    print(f"nerf_density_min: {nerf_density_min}")
+    print(f"nerf_density_mean: {nerf_density_mean}")
+    print(f"nerf_density_max: {nerf_density_max}")
+
+# %%
+# Plot histogram of min, mean, and max values of nerf_coordinates
+if cfg.visualize_data:
+    fig = go.Figure(
+        data=[
+            go.Histogram(
+                x=nerf_coordinate_mins,
+                name="Min",
+                marker_color="blue",
+            ),
+            go.Histogram(
+                x=nerf_coordinate_means,
+                name="Mean",
+                marker_color="orange",
+            ),
+            go.Histogram(
+                x=nerf_coordinate_maxs,
+                name="Max",
+                marker_color="green",
+            ),
+        ],
+        layout=go.Layout(
+            title="Distribution of nerf_coordinates (Aggregated to Fit in RAM)",
+            xaxis=dict(title="nerf_coordinates"),
+            yaxis=dict(title="Frequency"),
+            barmode="overlay",
+        ),
+    )
+    fig.show()
+
+# %%
+# Plot histogram of min, mean, and max values of nerf_densities
+if cfg.visualize_data:
+    fig = go.Figure(
+        data=[
+            go.Histogram(
+                x=nerf_density_mins,
+                name="Min",
+                marker_color="blue",
+            ),
+            go.Histogram(
+                x=nerf_density_means,
+                name="Mean",
+                marker_color="orange",
+            ),
+            go.Histogram(
+                x=nerf_density_maxs,
+                name="Max",
+                marker_color="green",
+            ),
+        ],
+        layout=go.Layout(
+            title="Distribution of nerf_densities (Aggregated to Fit in RAM)",
+            xaxis=dict(title="nerf_densities"),
+            yaxis=dict(title="Frequency"),
+            barmode="overlay",
+        ),
+    )
+    fig.show()
 
 # %% [markdown]
 # # Create Neural Network Model

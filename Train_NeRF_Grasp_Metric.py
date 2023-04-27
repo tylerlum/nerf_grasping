@@ -1642,17 +1642,30 @@ def run_training_loop(
         log_grad = epoch % cfg.log_grad_freq == 0 and (
             epoch != 0 or cfg.log_grad_on_epoch_0
         )
-
-        subset_fraction = 0.2
-        subset_train_loader = create_dataloader_subset(
-            train_loader, fraction=subset_fraction
-        )
-        num_passes = int(1 / subset_fraction)
-        for subset_pass in range(num_passes):
-            print(f"Subset pass {subset_pass + 1}/{num_passes}")
+        USE_DATALOADER_SUBSET = True
+        if USE_DATALOADER_SUBSET:
+            subset_fraction = 0.2
+            subset_train_loader = create_dataloader_subset(
+                train_loader, fraction=subset_fraction
+            )
+            num_passes = int(1 / subset_fraction)
+            for subset_pass in range(num_passes):
+                print(f"Subset pass {subset_pass + 1}/{num_passes}")
+                iterate_through_dataloader(
+                    phase=Phase.TRAIN,
+                    dataloader=subset_train_loader,
+                    nerf_to_grasp_success_model=nerf_to_grasp_success_model,
+                    device=device,
+                    ce_loss_fn=ce_loss_fn,
+                    wandb_log_dict=wandb_log_dict,
+                    cfg=cfg,
+                    optimizer=optimizer,
+                    log_grad=log_grad,
+                )
+        else:
             iterate_through_dataloader(
                 phase=Phase.TRAIN,
-                dataloader=subset_train_loader,
+                dataloader=train_loader,
                 nerf_to_grasp_success_model=nerf_to_grasp_success_model,
                 device=device,
                 ce_loss_fn=ce_loss_fn,
@@ -1708,50 +1721,17 @@ print(f"Class weight: {class_weight}")
 ce_loss_fn = nn.CrossEntropyLoss(weight=class_weight)
 
 # %%
-with profile(
-    activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
-    record_shapes=True,
-    profile_memory=True,
-    use_cuda=True,
-) as prof:
-    run_training_loop(
-        cfg=cfg.training,
-        train_loader=train_loader,
-        val_loader=val_loader,
-        nerf_to_grasp_success_model=nerf_to_grasp_success_model,
-        device=device,
-        ce_loss_fn=ce_loss_fn,
-        optimizer=optimizer,
-        start_epoch=start_epoch,
-        checkpoint_workspace_dir_path=checkpoint_workspace_dir_path,
-    )
-
-# Print profiling results by average time per operator
-print(
-    prof.key_averages(group_by_input_shape=True).table(
-        sort_by="cpu_time_total", row_limit=10
-    )
+run_training_loop(
+    cfg=cfg.training,
+    train_loader=train_loader,
+    val_loader=val_loader,
+    nerf_to_grasp_success_model=nerf_to_grasp_success_model,
+    device=device,
+    ce_loss_fn=ce_loss_fn,
+    optimizer=optimizer,
+    start_epoch=start_epoch,
+    checkpoint_workspace_dir_path=checkpoint_workspace_dir_path,
 )
-
-# Print profiling results by total time per operator
-print(prof.key_averages().table(sort_by="cpu_time_total", row_limit=10))
-
-# Print profiling results for CUDA time only
-print(
-    prof.key_averages(group_by_input_shape=True, profile_memory=False).table(
-        sort_by="cuda_time_total", row_limit=10
-    )
-)
-
-# Print profiling results for CPU time only
-print(
-    prof.key_averages(group_by_input_shape=True, profile_memory=False).table(
-        sort_by="cpu_time_total", row_limit=10
-    )
-)
-
-# Print memory profiling results by allocation size
-print(prof.key_averages().table(sort_by="self_cpu_memory_usage", row_limit=10))
 
 # %% [markdown]
 # # Test

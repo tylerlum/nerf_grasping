@@ -12,7 +12,8 @@ data:
   frac_val: 0.25
   frac_test: 0.15
   frac_train: ${eval:1 - ${data.frac_val} - ${data.frac_test}}
-  input_dataset_root_dir: "/scr1/tylerlum"
+  # input_dataset_root_dir: "/scr1/tylerlum"
+  input_dataset_root_dir: "/juno/u/tylerlum/github_repos/nerf_grasping"
   input_dataset_path: "nerf_acronym_grasp_success_dataset_66_categories_v2.h5"
 
 dataloader:
@@ -38,11 +39,11 @@ training:
   use_dataloader_subset: True
 
 neural_network:
-  conv_channels: [32, 64, 128, 256]
+  conv_channels: [32, 64, 128]
   pool_type: "MAX"
   dropout_prob: 0.0
   conv_output_to_1d: "AVG_POOL_SPATIAL"
-  mlp_hidden_layers: [256, 256, 256]
+  mlp_hidden_layers: [256, 256]
 
 checkpoint_workspace:
   root_dir: "Train_NeRF_Grasp_Metric_workspaces"

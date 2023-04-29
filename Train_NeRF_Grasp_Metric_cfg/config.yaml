@@ -13,7 +13,7 @@ data:
   frac_test: 0.15
   frac_train: ${eval:1 - ${data.frac_val} - ${data.frac_test}}
   # input_dataset_root_dir: "/scr1/tylerlum"
-  input_dataset_root_dir: "/juno/u/tylerlum/github_repos/nerf_grasping"
+  input_dataset_root_dir: "/juno/u/tylerlum/github_repos/nerf_grasping/nerf_acronym_grasp_success_datasets"
   input_dataset_path: "nerf_acronym_grasp_success_dataset_66_categories_v2.h5"
 
 dataloader:
@@ -34,7 +34,7 @@ training:
   val_on_epoch_0: True
   save_checkpoint_freq: 5
   save_checkpoint_on_epoch_0: False
-  confusion_matrix_freq: 10
+  confusion_matrix_freq: 5
   save_confusion_matrix_on_epoch_0: False
   use_dataloader_subset: True
 

@@ -1344,9 +1344,15 @@ def save_checkpoint(
 
 @localscope.mfc
 def create_dataloader_subset(
-    original_dataloader: DataLoader, fraction: float
+    original_dataloader: DataLoader, fraction: Optional[float] = None, subset_size: Optional[int] = None,
 ) -> DataLoader:
-    smaller_dataset_size = int(len(original_dataloader.dataset) * fraction)
+    if fraction is not None and subset_size is None:
+        smaller_dataset_size = int(len(original_dataloader.dataset) * fraction)
+    elif fraction is None and subset_size is not None:
+        smaller_dataset_size = subset_size
+    else:
+        raise ValueError(f"Must specify either fraction or subset_size")
+
     sampled_indices = random.sample(
         range(len(original_dataloader.dataset.indices)), smaller_dataset_size
     )
@@ -1672,11 +1678,15 @@ def run_training_loop(
             epoch != 0 or cfg.log_grad_on_epoch_0
         )
         if cfg.use_dataloader_subset:
-            subset_fraction = 0.2
+            # subset_fraction = 0.2
+            # subset_train_loader = create_dataloader_subset(
+            #     train_loader, fraction=subset_fraction
+            # )
+            # num_passes = int(1 / subset_fraction)
             subset_train_loader = create_dataloader_subset(
-                train_loader, fraction=subset_fraction
+                train_loader, subset_size=32_000,  # 2023-04-28 each datapoint is 1MB
             )
-            num_passes = int(1 / subset_fraction)
+            num_passes = 3
             for subset_pass in range(num_passes):
                 print(f"Subset pass {subset_pass + 1}/{num_passes}")
                 iterate_through_dataloader(

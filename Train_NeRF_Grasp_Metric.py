@@ -397,6 +397,8 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
     @localscope.mfc(
         allowed=[
             "INPUT_EXAMPLE_SHAPE",
+            "NERF_DENSITY_START_IDX",
+            "NERF_DENSITY_END_IDX",
         ]
     )
     def __getitem__(self, idx):

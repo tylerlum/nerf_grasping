@@ -710,8 +710,16 @@ acronym_dir_filepath = "/juno/u/tylerlum/github_repos/acronym/data/grasps"
 
 CREATE_PLOTS = False
 SAVE_DATASET = True
-objs = objs[:3]
-output_hdf5_filename = os.path.join(root_dir, f"nerf_acronym_grasp_success_dataset_{len(objs)}_categories_v2.h5")
+
+LIMIT_NUM_OBJECTS = False
+if LIMIT_NUM_OBJECTS:
+    num_objects = 3
+    print(f"Limiting number of objects to {num_objects}")
+    objs = objs[:num_objects]
+
+output_hdf5_filename = os.path.join(
+    root_dir, f"nerf_acronym_grasp_success_dataset_{len(objs)}_categories_v2.h5"
+)
 
 ACRONYM_NUM_GRASPS_PER_OBJ = 2000
 max_num_data_points = ACRONYM_NUM_GRASPS_PER_OBJ * len(objs)  # Simple heuristic
@@ -731,6 +739,12 @@ with h5py.File(output_hdf5_filename, "w") as hdf5_file:
     )
     grasp_success_dataset = hdf5_file.create_dataset(
         "/grasp_success", shape=(max_num_data_points,), dtype="i"
+    )
+    acronym_filenames_dataset = hdf5_file.create_dataset(
+        "/acronym_filenames", shape=(max_num_data_points,), dtype=h5py.string_dtype()
+    )
+    grasp_idxs_dataset = hdf5_file.create_dataset(
+        "/grasp_idx", shape=(max_num_data_points,), dtype="i"
     )
 
     for selected_obj in (pbar := tqdm(objs)):
@@ -854,6 +868,8 @@ with h5py.File(output_hdf5_filename, "w") as hdf5_file:
 
                 nerf_grid_input_dataset[current_idx] = nerf_grid_input
                 grasp_success_dataset[current_idx] = grasp_successes[grasp_idx]
+                acronym_filenames_dataset[current_idx] = selected_obj.acronym_file
+                grasp_idxs_dataset[current_idx] = grasp_idx
                 current_idx += 1
 
             # Create plot of mesh

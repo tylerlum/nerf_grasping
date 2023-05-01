@@ -64,7 +64,11 @@ import pickle
 
 # %%
 obj_class_names = [
-    k for k in tqdm(list(acronym_objects.__dict__.keys())) if k.startswith("Obj_")
+    k
+    for k in tqdm(
+        list(acronym_objects.__dict__.keys()), desc="Getting Object Class Names"
+    )
+    if k.startswith("Obj_")
 ]
 
 # %%
@@ -72,15 +76,55 @@ nerf_checkpoints_path = "nerf_checkpoints"
 
 # %%
 checkpoints = os.listdir(nerf_checkpoints_path)
-checkpoints_set = set(checkpoints)
+
+# Should be like isaac_AccentTable_93f7c646dc5dcbebbf7421909bb3502_0.0061787559
+print(f"Found {len(checkpoints)} checkpoints")
+print(f"First 10 are {checkpoints[:10]}")
 
 # %%
-# Get objs with checkpoint, hacky
-objs = []
-for obj_class_name in tqdm(obj_class_names):
-    workspace = "isaac_" + eval(f"acronym_objects.{obj_class_name}.workspace")
-    if workspace in checkpoints_set:
-        objs.append(eval(f"acronym_objects.{obj_class_name}()"))
+
+
+@localscope.mfc
+def create_objs(obj_class_names, checkpoints):
+    workspace_to_obj_class_name = {
+        eval(f"acronym_objects.{obj_class_name}.workspace"): obj_class_name
+        for obj_class_name in tqdm(obj_class_names, desc="Getting workspace to obj")
+    }
+    workspaces_set = set(workspace_to_obj_class_name.keys())
+
+    objs = []
+    for checkpoint in tqdm(
+        checkpoints, desc="Getting objects associated with checkpoints"
+    ):
+        if not checkpoint.startswith("isaac_"):
+            print(f"Skipping {checkpoint} because it doesn't start with isaac_")
+            continue
+
+        # isaac_AccentTable_93f7c646dc5dcbebbf7421909bb3502_0.0061787559 => AccentTable_93f7c646dc5dcbebbf7421909bb3502_0.0061787559
+        workspace = checkpoint.split("isaac_", maxsplit=1)[1]
+        if workspace in workspaces_set:
+            obj_class_name = workspace_to_obj_class_name[workspace]
+            objs.append(eval(f"acronym_objects.{obj_class_name}()"))
+    return objs
+
+
+# %%
+@localscope.mfc
+def create_objs_2(obj_class_names, checkpoints):
+    checkpoints_set = set(checkpoints)
+
+    # Get objs with checkpoint, hacky
+    # Simpler than the other way, but tqdm bar doesn't make sense
+    objs = []
+    for obj_class_name in tqdm(obj_class_names):
+        workspace = "isaac_" + eval(f"acronym_objects.{obj_class_name}.workspace")
+        if workspace in checkpoints_set:
+            objs.append(eval(f"acronym_objects.{obj_class_name}()"))
+    return objs
+
+
+# %%
+objs = create_objs(obj_class_names, checkpoints)
 
 # %%
 print(f"Found {len(objs)} objs")
@@ -718,19 +762,23 @@ if LIMIT_NUM_OBJECTS:
     objs = objs[:num_objects]
 
 output_hdf5_filename = os.path.join(
-    root_dir, f"nerf_acronym_grasp_success_dataset_{len(objs)}_categories_v2.h5"
+    root_dir, f"nerf_acronym_grasp_success_dataset_{len(objs)}_categories.h5"
 )
 
 ACRONYM_NUM_GRASPS_PER_OBJ = 2000
 max_num_data_points = ACRONYM_NUM_GRASPS_PER_OBJ * len(objs)  # Simple heuristic
 
 if os.path.exists(output_hdf5_filename):
-    print(f"Found {output_hdf5_filename}, removing...")
-    os.remove(output_hdf5_filename)
-    print("Done removing")
+    print(f"Found {output_hdf5_filename}, exiting...")
+    exit()
+    # print(f"Found {output_hdf5_filename}, removing...")
+    # os.remove(output_hdf5_filename)
+    # print("Done removing")
 
 with h5py.File(output_hdf5_filename, "w") as hdf5_file:
     current_idx = 0
+
+    # TODO: May not want to keep all coordinate information
     nerf_grid_input_dataset = hdf5_file.create_dataset(
         "/nerf_grid_input",
         shape=(max_num_data_points, 4, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z),

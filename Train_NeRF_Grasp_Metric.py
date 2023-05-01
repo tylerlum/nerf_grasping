@@ -434,7 +434,8 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
         if self.preprocess_fn is not None:
             nerf_grid_input = self.preprocess_fn(nerf_grid_input)
 
-        nerf_grid_input = nerf_grid_input[NERF_DENSITY_START_IDX:NERF_DENSITY_END_IDX]  # TODO: Hack
+        # nerf_grid_input = nerf_grid_input[NERF_DENSITY_START_IDX:NERF_DENSITY_END_IDX]  # TODO: Hack
+        nerf_grid_input *= 0  # TODO: Hack
         return nerf_grid_input, grasp_success
 
 
@@ -1244,8 +1245,8 @@ class NeRF_to_Grasp_Success_Model(nn.Module):
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
 nerf_to_grasp_success_model = NeRF_to_Grasp_Success_Model(
-    # input_example_shape=INPUT_EXAMPLE_SHAPE,
-    input_example_shape=(NUM_DENSITY, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z),  # TODO: Hack
+    input_example_shape=INPUT_EXAMPLE_SHAPE,
+    # input_example_shape=(NUM_DENSITY, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z),  # TODO: Hack
     neural_network_config=cfg.neural_network,
 ).to(device)
 

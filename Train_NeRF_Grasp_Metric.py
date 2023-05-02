@@ -973,6 +973,11 @@ right_rotated_x_axis = torch.matmul(right_rotation_matrix, world_x_axis)
 right_rotated_y_axis = torch.matmul(right_rotation_matrix, world_y_axis)
 right_rotated_z_axis = torch.matmul(right_rotation_matrix, world_z_axis)
 
+# GET IMPORTANT VALUES
+left_rho = torch.norm(left_finger_origin)
+left_z = left_finger_origin[2]
+left_x_dir = 
+
 
 @localscope.mfc
 def R_to_rpy(R):
@@ -1187,6 +1192,89 @@ for line in xyz_lines3:
     fig.add_trace(line)
 
 fig.show()
+
+# %%
+ray_o = torch.tensor([0.1, 0.2, 0.3]).float() / 2
+ray_d_len = 0.1
+ray_d = torch.tensor([-0.7, -0.8, -0.9]).float()
+ray_d = ray_d / torch.norm(ray_d) * ray_d_len
+
+fig = go.Figure(layout=layout)
+
+traces = []
+traces.append(go.Scatter3d(
+    x=[ray_o[0]],
+    y=[ray_o[1]],
+    z=[ray_o[2]],
+    mode="markers",
+    marker=dict(size=5, color="red"),
+    name="ray origin",
+))
+traces.append(go.Scatter3d(
+    x=[ray_o[0], ray_o[0]+ray_d[0]],
+    y=[ray_o[1], ray_o[1]+ray_d[1]],
+    z=[ray_o[2], ray_o[2]+ray_d[2]],
+    mode="lines",
+    line=dict(width=2, color="red"),
+    name="ray direction",
+))
+
+traces.extend(isaac_origin_lines)
+
+# Get theta and phi
+theta = torch.atan2(ray_o[1], ray_o[0])
+phi = torch.atan2(torch.sqrt(ray_o[0]**2 + ray_o[1]**2), ray_o[2])
+print(f"theta: {torch.rad2deg(theta)}")
+print(f"phi: {torch.rad2deg(phi)}")
+
+# Get adjusted ray origin and ray direction
+theta_rotation_matrix = torch.tensor([
+    [torch.cos(-theta), -torch.sin(-theta), 0.0],
+    [torch.sin(-theta), torch.cos(-theta), 0.0],
+    [0.0, 0.0, 1.0],
+])
+adjusted_ray_o = theta_rotation_matrix @ ray_o
+print(f"adjusted_ray_o: {adjusted_ray_o}")
+
+adjusted_ray_d = theta_rotation_matrix @ ray_d
+print(f"adjusted_ray_d: {adjusted_ray_d}")
+
+traces.append(go.Scatter3d(
+    x=[adjusted_ray_o[0]],
+    y=[adjusted_ray_o[1]],
+    z=[adjusted_ray_o[2]],
+    mode="markers",
+    marker=dict(size=5, color="blue"),
+    name="adjusted ray origin",
+))
+
+traces.append(go.Scatter3d(
+    x=[adjusted_ray_o[0], adjusted_ray_o[0]+adjusted_ray_d[0]],
+    y=[adjusted_ray_o[1], adjusted_ray_o[1]+adjusted_ray_d[1]],
+    z=[adjusted_ray_o[2], adjusted_ray_o[2]+adjusted_ray_d[2]],
+    mode="lines",
+    line=dict(width=2, color="blue"),
+    name="adjusted ray direction",
+))
+
+
+print(f"tip = {adjusted_ray_o + adjusted_ray_d}")
+print(f"other tip = {ray_o + ray_d}")
+print(f"other other tip = {theta_rotation_matrix @ (ray_o + ray_d)}")
+
+theta_prime = torch.atan2(adjusted_ray_d[1], adjusted_ray_d[0])
+phi_prime = torch.atan2(torch.sqrt(adjusted_ray_d[0]**2 + adjusted_ray_d[1]**2), adjusted_ray_d[2])
+print(f"theta_prime: {torch.rad2deg(theta_prime)}")
+print(f"phi_prime: {torch.rad2deg(phi_prime)}")
+
+
+
+
+for trace in traces:
+    fig.add_trace(trace)
+fig.show()
+
+
 
 
 # %% [markdown]

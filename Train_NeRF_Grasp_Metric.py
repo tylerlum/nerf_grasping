@@ -879,7 +879,7 @@ create_datapoint_plotly_fig(
 
 # %%
 idx_to_visualize = 0
-datapoint_name = "Tyler's"
+datapoint_name = "TYLER'S"
 nerf_grid_inputs, grasp_successes = next(iter(val_loader))
 
 assert nerf_grid_inputs.shape == (
@@ -899,18 +899,18 @@ nerf_points = nerf_grid_input[
 ].permute(1, 2, 3, 0)
 assert nerf_points.shape == (NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z, NUM_XYZ)
 
-# DEFINE IMPORTANT METRICS
+# define important metrics
 left_finger_origin = nerf_points[0, NUM_PTS_Y // 2, NUM_PTS_Z // 2]
 right_finger_origin = nerf_points[-1, NUM_PTS_Y // 2, NUM_PTS_Z // 2]
 left_finger_direction = right_finger_origin - left_finger_origin
 left_finger_direction = left_finger_direction / torch.norm(left_finger_direction)
 right_finger_direction = -left_finger_direction
 
-# We want the dist from origin (and maybe z) from origin, which are the origin values
-# We want the orientation of the grasp, which is the pitch (and maybe roll), which are the direction values
-# In particular, we the "ray direction" is along the x axis in the gripper frame
-# We can get the xyz axes of the gripper in world frame and get the rotation matrix from that
-# Then, we can remove the z axis rotation?
+# we want the dist from origin (and maybe z) from origin, which are the origin values
+# we want the orientation of the grasp, which is the pitch (and maybe roll), which are the direction values
+# in particular, we the "ray direction" is along the x axis in the gripper frame
+# we can get the xyz axes of the gripper in world frame and get the rotation matrix from that
+# then, we can remove the z axis rotation?
 left_finger_x_idx, left_finger_y_idx, left_finger_z_idx = (
     0,
     NUM_PTS_Y // 2,
@@ -972,11 +972,6 @@ left_rotated_z_axis = torch.matmul(left_rotation_matrix, world_z_axis)
 right_rotated_x_axis = torch.matmul(right_rotation_matrix, world_x_axis)
 right_rotated_y_axis = torch.matmul(right_rotation_matrix, world_y_axis)
 right_rotated_z_axis = torch.matmul(right_rotation_matrix, world_z_axis)
-
-# GET IMPORTANT VALUES
-left_rho = torch.norm(left_finger_origin)
-left_z = left_finger_origin[2]
-left_x_dir = 
 
 
 @localscope.mfc
@@ -1273,6 +1268,108 @@ print(f"phi_prime: {torch.rad2deg(phi_prime)}")
 for trace in traces:
     fig.add_trace(trace)
 fig.show()
+
+
+# %%
+idx_to_visualize = 0
+datapoint_name = "TYLER'S"
+nerf_grid_inputs, grasp_successes = next(iter(val_loader))
+
+assert nerf_grid_inputs.shape == (
+    cfg.dataloader.batch_size,
+    *INPUT_EXAMPLE_SHAPE,
+)
+assert grasp_successes.shape == (cfg.dataloader.batch_size,)
+
+nerf_grid_input = nerf_grid_inputs[idx_to_visualize]
+assert nerf_grid_input.shape == INPUT_EXAMPLE_SHAPE
+
+nerf_densities = nerf_grid_input[NERF_DENSITY_START_IDX:NERF_DENSITY_END_IDX, :, :, :]
+assert nerf_densities.shape == (NUM_DENSITY, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
+
+nerf_points = nerf_grid_input[
+    NERF_COORDINATE_START_IDX:NERF_COORDINATE_END_IDX
+].permute(1, 2, 3, 0)
+assert nerf_points.shape == (NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z, NUM_XYZ)
+
+# define important metrics
+left_finger_origin = nerf_points[0, NUM_PTS_Y // 2, NUM_PTS_Z // 2]
+right_finger_origin = nerf_points[-1, NUM_PTS_Y // 2, NUM_PTS_Z // 2]
+left_finger_direction = right_finger_origin - left_finger_origin
+left_finger_direction = left_finger_direction / torch.norm(left_finger_direction)
+right_finger_direction = -left_finger_direction
+
+# we want the dist from origin (and maybe z) from origin, which are the origin values
+# we want the orientation of the grasp, which is the pitch (and maybe roll), which are the direction values
+# in particular, we the "ray direction" is along the x axis in the gripper frame
+# we can get the xyz axes of the gripper in world frame and get the rotation matrix from that
+# then, we can remove the z axis rotation?
+left_finger_x_idx, left_finger_y_idx, left_finger_z_idx = (
+    0,
+    NUM_PTS_Y // 2,
+    NUM_PTS_Z // 2,
+)
+left_finger_x_axis = (
+    nerf_points[left_finger_x_idx + 1, left_finger_y_idx, left_finger_z_idx]
+    - nerf_points[left_finger_x_idx, left_finger_y_idx, left_finger_z_idx]
+)
+left_finger_y_axis = (
+    nerf_points[left_finger_x_idx, left_finger_y_idx + 1, left_finger_z_idx]
+    - nerf_points[left_finger_x_idx, left_finger_y_idx, left_finger_z_idx]
+)
+left_finger_z_axis = (
+    nerf_points[left_finger_x_idx, left_finger_y_idx, left_finger_z_idx + 1]
+    - nerf_points[left_finger_x_idx, left_finger_y_idx, left_finger_z_idx]
+)
+left_finger_x_axis = left_finger_x_axis / torch.norm(left_finger_x_axis)
+left_finger_y_axis = left_finger_y_axis / torch.norm(left_finger_y_axis)
+left_finger_z_axis = left_finger_z_axis / torch.norm(left_finger_z_axis)
+
+right_finger_x_idx, right_finger_y_idx, right_finger_z_idx = (
+    -1,
+    NUM_PTS_Y // 2,
+    NUM_PTS_Z // 2,
+)
+right_finger_x_axis = (
+    nerf_points[right_finger_x_idx - 1, right_finger_y_idx, right_finger_z_idx]
+    - nerf_points[right_finger_x_idx, right_finger_y_idx, right_finger_z_idx]
+)
+right_finger_y_axis = (
+    nerf_points[right_finger_x_idx, right_finger_y_idx - 1, right_finger_z_idx]
+    - nerf_points[right_finger_x_idx, right_finger_y_idx, right_finger_z_idx]
+)
+right_finger_z_axis = (
+    nerf_points[right_finger_x_idx, right_finger_y_idx, right_finger_z_idx + 1]
+    - nerf_points[right_finger_x_idx, right_finger_y_idx, right_finger_z_idx]
+)
+right_finger_x_axis = right_finger_x_axis / torch.norm(right_finger_x_axis)
+right_finger_y_axis = right_finger_y_axis / torch.norm(right_finger_y_axis)
+right_finger_z_axis = right_finger_z_axis / torch.norm(right_finger_z_axis)
+
+@localscope.mfc(allowed=["NUM_XYZ"])
+def get_params(ray_o, ray_d, y_axis):
+    assert ray_o.shape == ray_d.shape == y_axis.shape == (NUM_XYZ,)
+
+    # ray_d is x_axis
+    rho = torch.norm(ray_o)
+    theta  = torch.atan2(ray_o[1], ray_o[0])
+    phi = torch.atan2(torch.sqrt(ray_o[0]**2 + ray_o[1]**2), ray_o[2])
+
+    # From theta
+    rotation_matrix = torch.tensor([
+        [torch.cos(-theta), -torch.sin(-theta), 0],
+        [torch.sin(-theta), torch.cos(-theta), 0],
+        [0, 0, 1],
+    ])
+    adjusted_ray_o = rotation_matrix @ ray_o
+    adjusted_ray_d = rotation_matrix @ ray_d
+
+    theta_prime = torch.atan2(adjusted_ray_d[1], adjusted_ray_d[0])
+    phi_prime = torch.atan2(torch.sqrt(adjusted_ray_d[0]**2 + adjusted_ray_d[1]**2), adjusted_ray_d[2])
+
+
+
+
 
 
 

@@ -436,6 +436,7 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
 
         # nerf_grid_input = nerf_grid_input[NERF_DENSITY_START_IDX:NERF_DENSITY_END_IDX]  # TODO: Hack
         nerf_grid_input *= 0  # TODO: Hack
+        nerf_grid_input += torch.rand_like(nerf_grid_input)  # TODO: Hack
         return nerf_grid_input, grasp_success
 
 

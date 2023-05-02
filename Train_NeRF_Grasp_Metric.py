@@ -911,23 +911,121 @@ right_finger_direction = -left_finger_direction
 # In particular, we the "ray direction" is along the x axis in the gripper frame
 # We can get the xyz axes of the gripper in world frame and get the rotation matrix from that
 # Then, we can remove the z axis rotation?
-left_finger_x_idx, left_finger_y_idx, left_finger_z_idx = 0, NUM_PTS_Y // 2, NUM_PTS_Z // 2
-left_finger_x_axis = nerf_points[left_finger_x_idx + 1, left_finger_y_idx, left_finger_z_idx] - nerf_points[left_finger_x_idx, left_finger_y_idx, left_finger_z_idx]
-left_finger_y_axis = nerf_points[left_finger_x_idx, left_finger_y_idx + 1, left_finger_z_idx] - nerf_points[left_finger_x_idx, left_finger_y_idx, left_finger_z_idx]
-left_finger_z_axis = nerf_points[left_finger_x_idx, left_finger_y_idx, left_finger_z_idx + 1] - nerf_points[left_finger_x_idx, left_finger_y_idx, left_finger_z_idx]
+left_finger_x_idx, left_finger_y_idx, left_finger_z_idx = (
+    0,
+    NUM_PTS_Y // 2,
+    NUM_PTS_Z // 2,
+)
+left_finger_x_axis = (
+    nerf_points[left_finger_x_idx + 1, left_finger_y_idx, left_finger_z_idx]
+    - nerf_points[left_finger_x_idx, left_finger_y_idx, left_finger_z_idx]
+)
+left_finger_y_axis = (
+    nerf_points[left_finger_x_idx, left_finger_y_idx + 1, left_finger_z_idx]
+    - nerf_points[left_finger_x_idx, left_finger_y_idx, left_finger_z_idx]
+)
+left_finger_z_axis = (
+    nerf_points[left_finger_x_idx, left_finger_y_idx, left_finger_z_idx + 1]
+    - nerf_points[left_finger_x_idx, left_finger_y_idx, left_finger_z_idx]
+)
 left_finger_x_axis = left_finger_x_axis / torch.norm(left_finger_x_axis)
 left_finger_y_axis = left_finger_y_axis / torch.norm(left_finger_y_axis)
 left_finger_z_axis = left_finger_z_axis / torch.norm(left_finger_z_axis)
+
+right_finger_x_idx, right_finger_y_idx, right_finger_z_idx = (
+    -1,
+    NUM_PTS_Y // 2,
+    NUM_PTS_Z // 2,
+)
+right_finger_x_axis = (
+    nerf_points[right_finger_x_idx - 1, right_finger_y_idx, right_finger_z_idx]
+    - nerf_points[right_finger_x_idx, right_finger_y_idx, right_finger_z_idx]
+)
+right_finger_y_axis = (
+    nerf_points[right_finger_x_idx, right_finger_y_idx - 1, right_finger_z_idx]
+    - nerf_points[right_finger_x_idx, right_finger_y_idx, right_finger_z_idx]
+)
+right_finger_z_axis = (
+    nerf_points[right_finger_x_idx, right_finger_y_idx, right_finger_z_idx + 1]
+    - nerf_points[right_finger_x_idx, right_finger_y_idx, right_finger_z_idx]
+)
+right_finger_x_axis = right_finger_x_axis / torch.norm(right_finger_x_axis)
+right_finger_y_axis = right_finger_y_axis / torch.norm(right_finger_y_axis)
+right_finger_z_axis = right_finger_z_axis / torch.norm(right_finger_z_axis)
 
 world_x_axis = torch.tensor([1.0, 0.0, 0.0])
 world_y_axis = torch.tensor([0.0, 1.0, 0.0])
 world_z_axis = torch.tensor([0.0, 0.0, 1.0])
 
+left_rotation_matrix = torch.stack(
+    [left_finger_x_axis, left_finger_y_axis, left_finger_z_axis], dim=1
+)
+right_rotation_matrix = torch.stack(
+    [right_finger_x_axis, right_finger_y_axis, right_finger_z_axis], dim=1
+)
+print(f"left_rotation_matrix: {left_rotation_matrix}")
+print(f"right_rotation_matrix: {right_rotation_matrix}")
+
+left_rotated_x_axis = torch.matmul(left_rotation_matrix, world_x_axis)
+left_rotated_y_axis = torch.matmul(left_rotation_matrix, world_y_axis)
+left_rotated_z_axis = torch.matmul(left_rotation_matrix, world_z_axis)
+right_rotated_x_axis = torch.matmul(right_rotation_matrix, world_x_axis)
+right_rotated_y_axis = torch.matmul(right_rotation_matrix, world_y_axis)
+right_rotated_z_axis = torch.matmul(right_rotation_matrix, world_z_axis)
+
+
+@localscope.mfc
+def R_to_rpy(R):
+    assert R.shape == (3, 3)
+    pitch = torch.atan2(-R[2, 0], torch.sqrt(R[0, 0] ** 2 + R[1, 0] ** 2))
+    roll = torch.atan2(R[2, 1] / torch.cos(pitch), R[2, 2] / torch.cos(pitch))
+    yaw = torch.atan2(R[1, 0] / torch.cos(pitch), R[0, 0] / torch.cos(pitch))
+    return roll, pitch, yaw
+
+@localscope.mfc
+def R_to_rpy_2(R):
+    assert R.shape == (3, 3)
+    from scipy.spatial.transform import Rotation
+    R = R.cpu().numpy()
+    rpy = Rotation.from_matrix(R).as_euler("xyz", degrees=False)
+    return rpy
+
+
+@localscope.mfc
+def rpy_to_R(roll, pitch, yaw):
+    from scipy.spatial.transform import Rotation
+    R = Rotation.from_euler("xyz", [roll, pitch, yaw], degrees=False).as_matrix()
+    return torch.from_numpy(R).float()
+
+
+
+left_rotation_rpy = R_to_rpy(left_rotation_matrix)
+right_rotation_rpy = R_to_rpy(right_rotation_matrix)
+left_rotation_rpy_2 = R_to_rpy_2(left_rotation_matrix)
+right_rotation_rpy_2 = R_to_rpy_2(right_rotation_matrix)
+
+print(f"left_rotation_rpy: {left_rotation_rpy}")
+print(f"right_rotation_rpy: {right_rotation_rpy}")
+print(f"left_rotation_rpy_2: {left_rotation_rpy_2}")
+print(f"right_rotation_rpy_2: {right_rotation_rpy_2}")
+
+left_rotation_matrix_with_yaw = rpy_to_R(*left_rotation_rpy)
+right_rotation_matrix_with_yaw = rpy_to_R(*right_rotation_rpy)
+left_rotation_matrix_without_yaw = rpy_to_R(*left_rotation_rpy[:-1], 0.0)
+right_rotation_matrix_without_yaw = rpy_to_R(*right_rotation_rpy[:-1], 0.0)
+print()
+
+print(f"left_rotation_matrix_with_yaw: {left_rotation_matrix_with_yaw}")
+print(f"right_rotation_matrix_with_yaw: {right_rotation_matrix_with_yaw}")
+print(f"left_rotation_matrix_without_yaw: {left_rotation_matrix_without_yaw}")
+print(f"right_rotation_matrix_without_yaw: {right_rotation_matrix_without_yaw}")
+
+
 
 
 @localscope.mfc(allowed=["NUM_XYZ"])
-def create_ray_origin_direction(origin, direction, name):
-    assert origin.shape == direction.shape == (NUM_XYZ,)
+def create_ray_origin_direction(origin, x_direction, y_direction, name):
+    assert origin.shape == x_direction.shape == y_direction.shape == (NUM_XYZ,)
     length = 0.04
 
     # Use plotly to make scatter3d plot
@@ -943,16 +1041,25 @@ def create_ray_origin_direction(origin, direction, name):
         name=f"{name} origin",
     )
 
-    line = go.Scatter3d(
-        x=[origin[0], origin[0] + length * direction[0]],
-        y=[origin[1], origin[1] + length * direction[1]],
-        z=[origin[2], origin[2] + length * direction[2]],
+    x_line = go.Scatter3d(
+        x=[origin[0], origin[0] + length * x_direction[0]],
+        y=[origin[1], origin[1] + length * x_direction[1]],
+        z=[origin[2], origin[2] + length * x_direction[2]],
         mode="lines",
-        line=dict(width=2, color="blue"),
-        name=f"{name} direction",
+        line=dict(width=2, color="red"),
+        name=f"{name} x direction",
+    )
+    y_line = go.Scatter3d(
+        x=[origin[0], origin[0] + length * y_direction[0]],
+        y=[origin[1], origin[1] + length * y_direction[1]],
+        z=[origin[2], origin[2] + length * y_direction[2]],
+        mode="lines",
+        line=dict(width=2, color="green"),
+        name=f"{name} y direction",
     )
 
-    return scatter, line
+    return scatter, x_line, y_line
+
 
 isaac_origin_lines = get_isaac_origin_lines()
 colored_points_scatter = get_colored_points_scatter(
@@ -973,14 +1080,112 @@ for line in isaac_origin_lines:
     fig.add_trace(line)
 fig.add_trace(colored_points_scatter)
 
-for trace in create_ray_origin_direction(left_finger_origin, left_finger_direction, "left_finger"):
+# for trace in create_ray_origin_direction(
+#     left_finger_origin, left_finger_x_axis, left_finger_y_axis, "left_finger"
+# ):
+#     fig.add_trace(trace)
+# 
+# for trace in create_ray_origin_direction(
+#     right_finger_origin, right_finger_x_axis, right_finger_y_axis, "right_finger"
+# ):
+#     fig.add_trace(trace)
+
+adjusted_left_finger_origin = torch.tensor([torch.norm(left_finger_origin[:2]), 0.0, left_finger_origin[2]])
+adjusted_right_finger_origin = torch.tensor([torch.norm(right_finger_origin[:2]), 0.0, right_finger_origin[2]])
+for trace in create_ray_origin_direction(
+    adjusted_left_finger_origin, torch.matmul(left_rotation_matrix_without_yaw, world_x_axis), torch.matmul(left_rotation_matrix_without_yaw, world_y_axis), "left_finger_without_yaw"
+):
+    fig.add_trace(trace)
+for trace in create_ray_origin_direction(
+    adjusted_right_finger_origin, torch.matmul(right_rotation_matrix_without_yaw, world_x_axis), torch.matmul(right_rotation_matrix_without_yaw, world_y_axis), "right_finger_without_yaw"
+):
     fig.add_trace(trace)
 
-for trace in create_ray_origin_direction(right_finger_origin, right_finger_direction, "right_finger"):
+for trace in create_ray_origin_direction(
+    left_finger_origin, torch.matmul(left_rotation_matrix_with_yaw, world_x_axis), torch.matmul(left_rotation_matrix_with_yaw, world_y_axis), "left_finger_with_yaw"
+):
     fig.add_trace(trace)
+
+for trace in create_ray_origin_direction(
+    right_finger_origin, torch.matmul(right_rotation_matrix_with_yaw, world_x_axis), torch.matmul(right_rotation_matrix_with_yaw, world_y_axis), "right_finger_with_yaw"
+):
+    fig.add_trace(trace)
+
 
 
 fig.update_layout(legend_orientation="h")
+fig.show()
+
+
+# %%
+from scipy.spatial.transform import Rotation
+
+
+R = Rotation.from_euler('xyz', [20, 70, 0], degrees=True)
+R2 = Rotation.from_euler('xyz', [20, 70, 30], degrees=True)
+# R = R2
+
+
+# rotation_matrix = R.as_matrix()
+# print(f"rotation_matrix: {rotation_matrix}")
+fig = go.Figure(layout=layout)
+for line in isaac_origin_lines:
+    fig.add_trace(line)
+
+@localscope.mfc
+def get_xyz_lines(rotation_matrix, name, colors):
+    x_axis = torch.tensor([0.1, 0.0, 0.0]).float()
+    y_axis = torch.tensor([0.0, 0.1, 0.0]).float()
+    z_axis = torch.tensor([0.0, 0.0, 0.1]).float()
+
+    rotated_x_axis = torch.matmul(torch.from_numpy(rotation_matrix).float(), x_axis)
+    rotated_y_axis = torch.matmul(torch.from_numpy(rotation_matrix).float(), y_axis)
+    rotated_z_axis = torch.matmul(torch.from_numpy(rotation_matrix).float(), z_axis)
+    rotated_x_line = go.Scatter3d(
+        x=[0.0, rotated_x_axis[0]],
+        y=[0.0, rotated_x_axis[1]],
+        z=[0.0, rotated_x_axis[2]],
+        mode="lines",
+        line=dict(width=2, color=colors[0]),
+        name=f"{name} x direction",
+    )
+    rotated_y_line = go.Scatter3d(
+        x=[0.0, rotated_y_axis[0]],
+        y=[0.0, rotated_y_axis[1]],
+        z=[0.0, rotated_y_axis[2]],
+        mode="lines",
+        line=dict(width=2, color=colors[1]),
+        name=f"{name} y direction",
+    )
+    rotated_z_line = go.Scatter3d(
+        x=[0.0, rotated_z_axis[0]],
+        y=[0.0, rotated_z_axis[1]],
+        z=[0.0, rotated_z_axis[2]],
+        mode="lines",
+        line=dict(width=2, color=colors[2]),
+        name=f"{name} z direction",
+    )
+    return rotated_x_line, rotated_y_line, rotated_z_line
+
+xyz_lines = get_xyz_lines(R.as_matrix(), "R", ("red", "red", "red"))
+for line in xyz_lines:
+    fig.add_trace(line)
+
+xyz_lines2 = get_xyz_lines(R2.as_matrix(), "R2", ("blue", "blue", "blue"))
+for line in xyz_lines2:
+    fig.add_trace(line)
+
+R2_inv = R2.inv()
+R2_euler = R2_inv.as_euler('zyx', degrees=True)
+print(f"R2_euler: {R2_euler}")
+R2_euler_only_yaw = np.array([0.0, 0.0, R2_euler[0]])
+
+R3 = Rotation.from_euler('xyz', R2_euler_only_yaw, degrees=True)
+
+xyz_lines3 = get_xyz_lines((R3*R2).as_matrix(), "R3@R2", ("green", "green", "green"))
+for line in xyz_lines3:
+    fig.add_trace(line)
+
 fig.show()
 
 

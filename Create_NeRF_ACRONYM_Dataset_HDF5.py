@@ -794,6 +794,9 @@ with h5py.File(output_hdf5_filename, "w") as hdf5_file:
     grasp_idxs_dataset = hdf5_file.create_dataset(
         "/grasp_idx", shape=(max_num_data_points,), dtype="i"
     )
+    grasp_transforms_dataset = hdf5_file.create_dataset(
+        "/grasp_transform", shape=(max_num_data_points, 4, 4), dtype="f"
+    )
 
     for selected_obj in (pbar := tqdm(objs)):
         pbar.set_description(f"{selected_obj.workspace}")
@@ -918,6 +921,7 @@ with h5py.File(output_hdf5_filename, "w") as hdf5_file:
                 grasp_success_dataset[current_idx] = grasp_successes[grasp_idx]
                 acronym_filenames_dataset[current_idx] = selected_obj.acronym_file
                 grasp_idxs_dataset[current_idx] = grasp_idx
+                grasp_transforms_dataset[current_idx] = grasp_transforms[grasp_idx]
                 current_idx += 1
 
             # Create plot of mesh

@@ -107,7 +107,9 @@ class PreprocessType(Enum):
     DENSITY = auto()
     ALPHA = auto()
     WEIGHT = auto()
-    WEIGHT_V2 = auto()  # Both WEIGHT and WEIGHT_V2 should be the same, just need to double check
+    WEIGHT_V2 = (
+        auto()
+    )  # Both WEIGHT and WEIGHT_V2 should be the same, just need to double check
 
 
 @dataclass
@@ -434,8 +436,6 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
         if self.preprocess_fn is not None:
             nerf_grid_input = self.preprocess_fn(nerf_grid_input)
 
-        # nerf_grid_input = nerf_grid_input[NERF_DENSITY_START_IDX:NERF_DENSITY_END_IDX]  # TODO: Hack
-        nerf_grid_input *= 0  # TODO: Hack
         return nerf_grid_input, grasp_success
 
 
@@ -871,6 +871,119 @@ if cfg.visualize_data:
         loader=val_loader, datapoint_name=Phase.VAL.name.lower(), save_to_wandb=True
     )
 
+# %%
+# REMOVE THIS
+create_datapoint_plotly_fig(
+    loader=val_loader, datapoint_name=Phase.VAL.name.lower(), save_to_wandb=True
+)
+
+# %%
+idx_to_visualize = 0
+datapoint_name = "Tyler's"
+nerf_grid_inputs, grasp_successes = next(iter(val_loader))
+
+assert nerf_grid_inputs.shape == (
+    cfg.dataloader.batch_size,
+    *INPUT_EXAMPLE_SHAPE,
+)
+assert grasp_successes.shape == (cfg.dataloader.batch_size,)
+
+nerf_grid_input = nerf_grid_inputs[idx_to_visualize]
+assert nerf_grid_input.shape == INPUT_EXAMPLE_SHAPE
+
+nerf_densities = nerf_grid_input[NERF_DENSITY_START_IDX:NERF_DENSITY_END_IDX, :, :, :]
+assert nerf_densities.shape == (NUM_DENSITY, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
+
+nerf_points = nerf_grid_input[
+    NERF_COORDINATE_START_IDX:NERF_COORDINATE_END_IDX
+].permute(1, 2, 3, 0)
+assert nerf_points.shape == (NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z, NUM_XYZ)
+
+# DEFINE IMPORTANT METRICS
+left_finger_origin = nerf_points[0, NUM_PTS_Y // 2, NUM_PTS_Z // 2]
+right_finger_origin = nerf_points[-1, NUM_PTS_Y // 2, NUM_PTS_Z // 2]
+left_finger_direction = right_finger_origin - left_finger_origin
+left_finger_direction = left_finger_direction / torch.norm(left_finger_direction)
+right_finger_direction = -left_finger_direction
+
+# We want the dist from origin (and maybe z) from origin, which are the origin values
+# We want the orientation of the grasp, which is the pitch (and maybe roll), which are the direction values
+# In particular, we the "ray direction" is along the x axis in the gripper frame
+# We can get the xyz axes of the gripper in world frame and get the rotation matrix from that
+# Then, we can remove the z axis rotation?
+left_finger_x_idx, left_finger_y_idx, left_finger_z_idx = 0, NUM_PTS_Y // 2, NUM_PTS_Z // 2
+left_finger_x_axis = nerf_points[left_finger_x_idx + 1, left_finger_y_idx, left_finger_z_idx] - nerf_points[left_finger_x_idx, left_finger_y_idx, left_finger_z_idx]
+left_finger_y_axis = nerf_points[left_finger_x_idx, left_finger_y_idx + 1, left_finger_z_idx] - nerf_points[left_finger_x_idx, left_finger_y_idx, left_finger_z_idx]
+left_finger_z_axis = nerf_points[left_finger_x_idx, left_finger_y_idx, left_finger_z_idx + 1] - nerf_points[left_finger_x_idx, left_finger_y_idx, left_finger_z_idx]
+left_finger_x_axis = left_finger_x_axis / torch.norm(left_finger_x_axis)
+left_finger_y_axis = left_finger_y_axis / torch.norm(left_finger_y_axis)
+left_finger_z_axis = left_finger_z_axis / torch.norm(left_finger_z_axis)
+
+world_x_axis = torch.tensor([1.0, 0.0, 0.0])
+world_y_axis = torch.tensor([0.0, 1.0, 0.0])
+world_z_axis = torch.tensor([0.0, 0.0, 1.0])
+
+
+
+@localscope.mfc(allowed=["NUM_XYZ"])
+def create_ray_origin_direction(origin, direction, name):
+    assert origin.shape == direction.shape == (NUM_XYZ,)
+    length = 0.04
+
+    # Use plotly to make scatter3d plot
+    scatter = go.Scatter3d(
+        x=[origin[0]],
+        y=[origin[1]],
+        z=[origin[2]],
+        mode="markers",
+        marker=dict(
+            size=10,
+            color="blue",
+        ),
+        name=f"{name} origin",
+    )
+
+    line = go.Scatter3d(
+        x=[origin[0], origin[0] + length * direction[0]],
+        y=[origin[1], origin[1] + length * direction[1]],
+        z=[origin[2], origin[2] + length * direction[2]],
+        mode="lines",
+        line=dict(width=2, color="blue"),
+        name=f"{name} direction",
+    )
+
+    return scatter, line
+
+isaac_origin_lines = get_isaac_origin_lines()
+colored_points_scatter = get_colored_points_scatter(
+    nerf_points.reshape(-1, NUM_XYZ), nerf_densities.reshape(-1)
+)
+
+layout = go.Layout(
+    scene=dict(xaxis=dict(title="X"), yaxis=dict(title="Y"), zaxis=dict(title="Z")),
+    showlegend=True,
+    title=f"{datapoint_name} datapoint: success={grasp_successes[idx_to_visualize].item()}",
+    width=800,
+    height=800,
+)
+
+# Create the figure
+fig = go.Figure(layout=layout)
+for line in isaac_origin_lines:
+    fig.add_trace(line)
+fig.add_trace(colored_points_scatter)
+
+for trace in create_ray_origin_direction(left_finger_origin, left_finger_direction, "left_finger"):
+    fig.add_trace(trace)
+
+for trace in create_ray_origin_direction(right_finger_origin, right_finger_direction, "right_finger"):
+    fig.add_trace(trace)
+
+
+fig.update_layout(legend_orientation="h")
+fig.show()
+
+
 # %% [markdown]
 # # Visualize Dataset Distribution
 
@@ -916,7 +1029,9 @@ def create_grasp_success_distribution_fig(
 
 if cfg.visualize_data:
     create_grasp_success_distribution_fig(
-        train_dataset=train_dataset, input_dataset_full_path=input_dataset_full_path, save_to_wandb=True
+        train_dataset=train_dataset,
+        input_dataset_full_path=input_dataset_full_path,
+        save_to_wandb=True,
     )
 
 
@@ -1242,11 +1357,13 @@ class NeRF_to_Grasp_Success_Model(nn.Module):
 
 
 # %%
+
+exit()  # TODO REMOVE
+
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
 nerf_to_grasp_success_model = NeRF_to_Grasp_Success_Model(
     input_example_shape=INPUT_EXAMPLE_SHAPE,
-    # input_example_shape=(NUM_DENSITY, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z),  # TODO: Hack
     neural_network_config=cfg.neural_network,
 ).to(device)
 
@@ -1349,7 +1466,9 @@ def save_checkpoint(
 
 @localscope.mfc
 def create_dataloader_subset(
-    original_dataloader: DataLoader, fraction: Optional[float] = None, subset_size: Optional[int] = None,
+    original_dataloader: DataLoader,
+    fraction: Optional[float] = None,
+    subset_size: Optional[int] = None,
 ) -> DataLoader:
     if fraction is not None and subset_size is None:
         smaller_dataset_size = int(len(original_dataloader.dataset) * fraction)
@@ -1689,7 +1808,8 @@ def run_training_loop(
             # )
             # num_passes = int(1 / subset_fraction)
             subset_train_loader = create_dataloader_subset(
-                train_loader, subset_size=32_000,  # 2023-04-28 each datapoint is 1MB
+                train_loader,
+                subset_size=32_000,  # 2023-04-28 each datapoint is 1MB
             )
             num_passes = 3
             for subset_pass in range(num_passes):

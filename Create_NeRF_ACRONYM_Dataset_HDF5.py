@@ -790,10 +790,10 @@ with h5py.File(output_hdf5_filename, "w") as hdf5_file:
     acronym_filename_dataset = hdf5_file.create_dataset(
         "/acronym_filename", shape=(max_num_data_points,), dtype=h5py.string_dtype()
     )
-    grasp_idxs_dataset = hdf5_file.create_dataset(
+    grasp_idx_dataset = hdf5_file.create_dataset(
         "/grasp_idx", shape=(max_num_data_points,), dtype="i"
     )
-    grasp_transforms_dataset = hdf5_file.create_dataset(
+    grasp_transform_dataset = hdf5_file.create_dataset(
         "/grasp_transform", shape=(max_num_data_points, 4, 4), dtype="f"
     )
 
@@ -921,8 +921,8 @@ with h5py.File(output_hdf5_filename, "w") as hdf5_file:
                     nerf_grid_input_dataset[current_idx] = nerf_grid_input
                     grasp_success_dataset[current_idx] = grasp_successes[grasp_idx]
                     acronym_filename_dataset[current_idx] = selected_obj.acronym_file
-                    grasp_idxs_dataset[current_idx] = grasp_idx
-                    grasp_transforms_dataset[current_idx] = grasp_transforms[grasp_idx]
+                    grasp_idx_dataset[current_idx] = grasp_idx
+                    grasp_transform_dataset[current_idx] = grasp_transforms[grasp_idx]
                     current_idx += 1
                     hdf5_file.attrs[
                         "num_data_points"

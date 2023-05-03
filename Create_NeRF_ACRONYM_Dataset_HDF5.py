@@ -751,7 +751,6 @@ assets_dir_filepath = os.path.join(root_dir, "assets")
 objects_dir_filepath = os.path.join(assets_dir_filepath, "objects")
 acronym_dir_filepath = "/juno/u/tylerlum/github_repos/acronym/data/grasps"
 
-
 CREATE_PLOTS = False
 SAVE_DATASET = True
 
@@ -788,8 +787,8 @@ with h5py.File(output_hdf5_filename, "w") as hdf5_file:
     grasp_success_dataset = hdf5_file.create_dataset(
         "/grasp_success", shape=(max_num_data_points,), dtype="i"
     )
-    acronym_filenames_dataset = hdf5_file.create_dataset(
-        "/acronym_filenames", shape=(max_num_data_points,), dtype=h5py.string_dtype()
+    acronym_filename_dataset = hdf5_file.create_dataset(
+        "/acronym_filename", shape=(max_num_data_points,), dtype=h5py.string_dtype()
     )
     grasp_idxs_dataset = hdf5_file.create_dataset(
         "/grasp_idx", shape=(max_num_data_points,), dtype="i"
@@ -801,7 +800,7 @@ with h5py.File(output_hdf5_filename, "w") as hdf5_file:
     for selected_obj in (pbar := tqdm(objs)):
         pbar.set_description(f"{selected_obj.workspace}")
 
-        # Prepare filenames
+        # Prepare filename
         nerf_model_workspace = "isaac_" + selected_obj.workspace
         acronym_data_filepath = os.path.join(
             acronym_dir_filepath, selected_obj.acronym_file
@@ -917,12 +916,25 @@ with h5py.File(output_hdf5_filename, "w") as hdf5_file:
                 nerf_grid_input = np.transpose(nerf_grid_input, (3, 0, 1, 2))
                 assert nerf_grid_input.shape == (4, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
 
-                nerf_grid_input_dataset[current_idx] = nerf_grid_input
-                grasp_success_dataset[current_idx] = grasp_successes[grasp_idx]
-                acronym_filenames_dataset[current_idx] = selected_obj.acronym_file
-                grasp_idxs_dataset[current_idx] = grasp_idx
-                grasp_transforms_dataset[current_idx] = grasp_transforms[grasp_idx]
-                current_idx += 1
+                # Ensure no nans (most likely come from nerf densities)
+                if not np.isnan(nerf_grid_input).any():
+                    nerf_grid_input_dataset[current_idx] = nerf_grid_input
+                    grasp_success_dataset[current_idx] = grasp_successes[grasp_idx]
+                    acronym_filename_dataset[current_idx] = selected_obj.acronym_file
+                    grasp_idxs_dataset[current_idx] = grasp_idx
+                    grasp_transforms_dataset[current_idx] = grasp_transforms[grasp_idx]
+                    current_idx += 1
+                    hdf5_file.attrs[
+                        "num_data_points"
+                    ] = current_idx  # May not be max_num_data_points if nan grasps
+                else:
+                    print()
+                    print("-" * 80)
+                    print(
+                        f"WARNING: Found {np.isnan(nerf_grid_input).sum()} nans in grasp {grasp_idx} of {obj_filepath}/{selected_obj.acronym_file}"
+                    )
+                    print("-" * 80)
+                    print()
 
             # Create plot of mesh
             if CREATE_PLOTS:

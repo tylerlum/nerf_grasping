@@ -199,7 +199,7 @@ config_store.store(name="config", node=Config)
 
 # %%
 if is_notebook():
-    arguments = []
+    arguments = ['data.input_dataset_path=nerf_acronym_grasp_success_dataset_445_categories.h5']  # TODO REMOVE
 else:
     arguments = sys.argv[1:]
     print(f"arguments = {arguments}")
@@ -428,11 +428,27 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
                 )  # Otherwise would be a scalar
             ).long()
 
+        if torch.isnan(nerf_grid_input).any():
+            print(f"nerf_grid_input has nan at idx {idx} before preprocessing")
+            acronym_file = self.hdf5_file["/acronym_filenames"][idx]
+            print(f"acronym_file: {acronym_file}")
+            grasp_idx = self.hdf5_file["/grasp_idx"][idx]
+            print(f"grasp_idx = {grasp_idx}")
+            print("+++++++++++++++++++++===")
+
         assert nerf_grid_input.shape == INPUT_EXAMPLE_SHAPE
         assert grasp_success.shape == ()
 
         if self.preprocess_fn is not None:
             nerf_grid_input = self.preprocess_fn(nerf_grid_input)
+
+        if torch.isnan(nerf_grid_input).any():
+            print(f"nerf_grid_input has nan at idx {idx} after preprocessing")
+            acronym_file = self.hdf5_file["/acronym_filenames"][idx]
+            print(f"acronym_file: {acronym_file}")
+            grasp_idx = self.hdf5_file["/grasp_idx"][idx]
+            print(f"grasp_idx = {grasp_idx}")
+            print("___________________________")
 
         nerf_grid_input = nerf_grid_input[NERF_DENSITY_START_IDX:NERF_DENSITY_END_IDX]  # TODO: Hack
         return nerf_grid_input, grasp_success
@@ -1417,6 +1433,8 @@ def iterate_through_dataloader(
 
             # Forward pass
             start_forward_pass_time = time.time()
+            if torch.isnan(nerf_grid_inputs).any():
+                print(f"nan in nerf_grid_inputs")
             nerf_grid_inputs = nerf_grid_inputs.to(device)
             grasp_successes = grasp_successes.to(device)
 
@@ -1755,23 +1773,62 @@ def run_training_loop(
 # %%
 wandb.watch(nerf_to_grasp_success_model, log="gradients", log_freq=100)
 
+# # %%
+# # TODO REMOVE
+# print("Loading data...")
+# t1 = time.time()
+# with h5py.File(input_dataset_full_path, "r") as hdf5_file:
+#     grasp_successes_np = np.array(hdf5_file["/grasp_success"][()])
+# t2 = time.time()
+# print(f"Loaded data in {t2 - t1:.2f} s")
+# 
+# # %%
+# print("Extracting indices...")
+# t1 = time.time()
+# grasp_succeses_np_2 = grasp_successes_np[train_dataset.indices]
+# t2 = time.time()
+# print(f"Extracted indices in {t2 - t1:.2f} s")
+# 
+# # %%
+# print("Computing class weight...")
+# t1 = time.time()
+# class_weight_np = compute_class_weight(class_weight="balanced", classes=np.unique(grasp_succeses_np_2), y=grasp_succeses_np_2)
+# t2 = time.time()
+# print(f"class_weight_np: {class_weight_np}")
+# print(f"Computed class weight in {t2 - t1:.2f} s")
 
 # %%
 @localscope.mfc
 def compute_class_weight_np(train_dataset: Subset, input_dataset_full_path: str):
     try:
+        print("Loading grasp success data...")
+        t1 = time.time()
+        # with h5py.File(input_dataset_full_path, "r") as hdf5_file:
+        #     grasp_successes_np = np.array(
+        #         hdf5_file["/grasp_success"][
+        #             sorted(train_dataset.indices)
+        #         ]  # Must be ascending
+        #     )
         with h5py.File(input_dataset_full_path, "r") as hdf5_file:
-            grasp_successes_np = np.array(
-                hdf5_file["/grasp_success"][
-                    sorted(train_dataset.indices)
-                ]  # Must be ascending
-            )
+            grasp_successes_np = np.array(hdf5_file["/grasp_success"][()])
+        t2 = time.time()
+        print(f"Loaded grasp success data in {t2 - t1:.2f} s")
 
+        print("Extracting indices...")
+        t1 = time.time()
+        grasp_successes_np = grasp_successes_np[train_dataset.indices]
+        t2 = time.time()
+        print(f"Extracted indices in {t2 - t1:.2f} s")
+
+        print("Computing class weight with this data...")
+        t1 = time.time()
         class_weight_np = compute_class_weight(
             class_weight="balanced",
             classes=np.unique(grasp_successes_np),
             y=grasp_successes_np,
         )
+        t2 = time.time()
+        print(f"Computed class weight in {t2 - t1:.2f} s")
     except Exception as e:
         print(f"Failed to compute class weight: {e}")
         print("Using default class weight")
@@ -1779,6 +1836,7 @@ def compute_class_weight_np(train_dataset: Subset, input_dataset_full_path: str)
     return class_weight_np
 
 
+print("Computing class weight...")
 class_weight = (
     torch.from_numpy(
         compute_class_weight_np(
@@ -1803,6 +1861,58 @@ run_training_loop(
     start_epoch=start_epoch,
     checkpoint_workspace_dir_path=checkpoint_workspace_dir_path,
 )
+
+# %%
+for nerf_grid_input, grasp_success in train_loader:
+    print("IN")
+    print(f"Has nan in nerf_grid_input: {torch.isnan(nerf_grid_input).any()}")
+    print(f"Has nan in grasp_success: {torch.isnan(grasp_success).any()}")
+    if torch.isnan(nerf_grid_input).any():
+        print("NERF GRID INPUT")
+        # print(f"nerf_grid_input: {nerf_grid_input}")
+        for i in range(nerf_grid_input.shape[0]):
+            if torch.isnan(nerf_grid_input[i]).any():
+                print(f"Number of nans in {i} is: {torch.isnan(nerf_grid_input[i]).sum()}")
+        print("-----------------")
+    nerf_grid_input = nerf_grid_input.to(device)
+    grasp_success = grasp_success.to(device)
+    print(f"Has nan in nerf_grid_input: {torch.isnan(nerf_grid_input).any()}")
+    print(f"Has nan in grasp_success: {torch.isnan(grasp_success).any()}")
+    conv_out = nerf_to_grasp_success_model.conv(nerf_grid_input)
+    print(f"Has nan in conv_out: {torch.isnan(conv_out).any()}")
+    mlp_out = nerf_to_grasp_success_model.mlp(conv_out)
+    print(f"Has nan in mlp_out: {torch.isnan(mlp_out).any()}")
+    loss = ce_loss_fn(input=mlp_out, target=grasp_success)
+    print(f"Has nan in loss: {torch.isnan(loss).any()}")
+    print()
+
+# %%
+with h5py.File(input_dataset_full_path, "r") as hdf5_file:
+    nerf_grid_inputs = hdf5_file["/nerf_grid_input"]
+    length = nerf_grid_inputs.shape[0]
+    for i in tqdm(range(length)):
+        if np.isnan(nerf_grid_inputs[i]).any():
+            print(f"i: {i}, has nan: {np.isnan(nerf_grid_inputs[i]).sum()}")
+        # print(f"i: {i}, has nan: {np.isnan(nerf_grid_inputs[i]).any()}")
+
+# %%
+all_data_loader = DataLoader(
+    dataset=full_dataset,
+    batch_size=cfg.dataloader.batch_size,
+    shuffle=False,
+    pin_memory=False,
+    num_workers=cfg.dataloader.num_workers,
+)
+for batch_i, (nerf_grid_input, grasp_success) in tqdm(enumerate(all_data_loader), total=len(all_data_loader)):
+    if not torch.isnan(nerf_grid_input).any():
+        continue
+    for i in range(nerf_grid_input.shape[0]):
+        if torch.isnan(nerf_grid_input[i]).any():
+            print(f"Number of nans in batch_i {batch_i} i {i} is: {torch.isnan(nerf_grid_input[i]).sum()}")
+
+# %%
+nerf_grid_input, grasp_success = full_dataset[266273]
+
 
 # %% [markdown]
 # # Test

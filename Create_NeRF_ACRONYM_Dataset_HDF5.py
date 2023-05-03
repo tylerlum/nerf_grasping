@@ -124,7 +124,9 @@ def create_objs_2(obj_class_names, checkpoints):
 
 
 # %%
-objs = create_objs(obj_class_names, checkpoints)
+# HACK
+objs = [acronym_objects.Obj_Plant_ed25fff42d9880dcfe572c9a3e59d718_0_005260()]
+# objs = create_objs(obj_class_names, checkpoints)
 
 # %%
 print(f"Found {len(objs)} objs")
@@ -788,8 +790,8 @@ with h5py.File(output_hdf5_filename, "w") as hdf5_file:
     grasp_success_dataset = hdf5_file.create_dataset(
         "/grasp_success", shape=(max_num_data_points,), dtype="i"
     )
-    acronym_filenames_dataset = hdf5_file.create_dataset(
-        "/acronym_filenames", shape=(max_num_data_points,), dtype=h5py.string_dtype()
+    acronym_filename_dataset = hdf5_file.create_dataset(
+        "/acronym_filename", shape=(max_num_data_points,), dtype=h5py.string_dtype()
     )
     grasp_idxs_dataset = hdf5_file.create_dataset(
         "/grasp_idx", shape=(max_num_data_points,), dtype="i"
@@ -798,7 +800,7 @@ with h5py.File(output_hdf5_filename, "w") as hdf5_file:
     for selected_obj in (pbar := tqdm(objs)):
         pbar.set_description(f"{selected_obj.workspace}")
 
-        # Prepare filenames
+        # Prepare filename
         nerf_model_workspace = "isaac_" + selected_obj.workspace
         acronym_data_filepath = os.path.join(
             acronym_dir_filepath, selected_obj.acronym_file
@@ -871,6 +873,7 @@ with h5py.File(output_hdf5_filename, "w") as hdf5_file:
                 )
 
             with Timer("Get grasp query densities"):
+                import ipdb; ipdb.set_trace()
                 grasp_query_nerf_densities_torch = get_nerf_densities(
                     nerf_model=nerf_model,
                     query_points=grasp_query_points_nerf_frame.reshape(1, -1, 3)
@@ -914,9 +917,14 @@ with h5py.File(output_hdf5_filename, "w") as hdf5_file:
                 nerf_grid_input = np.transpose(nerf_grid_input, (3, 0, 1, 2))
                 assert nerf_grid_input.shape == (4, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
 
+                if np.isnan(nerf_grid_input).any():
+                    # breakpoint()
+                    import ipdb; ipdb.set_trace()
+                    print(f"Skipping grasp {grasp_idx} because it has NaNs")
+
                 nerf_grid_input_dataset[current_idx] = nerf_grid_input
                 grasp_success_dataset[current_idx] = grasp_successes[grasp_idx]
-                acronym_filenames_dataset[current_idx] = selected_obj.acronym_file
+                acronym_filename_dataset[current_idx] = selected_obj.acronym_file
                 grasp_idxs_dataset[current_idx] = grasp_idx
                 current_idx += 1
 

@@ -2271,18 +2271,29 @@ wandb.watch(nerf_to_grasp_success_model, log="gradients", log_freq=100)
 @localscope.mfc
 def compute_class_weight_np(train_dataset: Subset, input_dataset_full_path: str):
     try:
+        print("Loading grasp success data for class weighting...")
+        t1 = time.time()
         with h5py.File(input_dataset_full_path, "r") as hdf5_file:
-            grasp_successes_np = np.array(
-                hdf5_file["/grasp_success"][
-                    sorted(train_dataset.indices)
-                ]  # Must be ascending
-            )
+            grasp_successes_np = np.array(hdf5_file["/grasp_success"][()])
+        t2 = time.time()
+        print(f"Loaded grasp success data in {t2 - t1:.2f} s")
 
+        print("Extracting training indices...")
+        t3 = time.time()
+        grasp_successes_np = grasp_successes_np[train_dataset.indices]
+        t4 = time.time()
+        print(f"Extracted training indices in {t4 - t3:.2f} s")
+
+        print("Computing class weight with this data...")
+        t5 = time.time()
         class_weight_np = compute_class_weight(
             class_weight="balanced",
             classes=np.unique(grasp_successes_np),
             y=grasp_successes_np,
         )
+        t6 = time.time()
+        print(f"Computed class weight in {t6 - t5:.2f} s")
+
     except Exception as e:
         print(f"Failed to compute class weight: {e}")
         print("Using default class weight")

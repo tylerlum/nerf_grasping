@@ -201,7 +201,7 @@ config_store.store(name="config", node=Config)
 
 # %%
 if is_notebook():
-    arguments = []
+    arguments = ["data.input_dataset_path=nerf_acronym_grasp_success_dataset_608_categories.h5"]
 else:
     arguments = sys.argv[1:]
     print(f"arguments = {arguments}")
@@ -1346,14 +1346,72 @@ right_finger_x_axis = right_finger_x_axis / torch.norm(right_finger_x_axis)
 right_finger_y_axis = right_finger_y_axis / torch.norm(right_finger_y_axis)
 right_finger_z_axis = right_finger_z_axis / torch.norm(right_finger_z_axis)
 
+
+@localscope.mfc
+def get_xyz_axes(origin, x_axis, y_axis, z_axis, name, length=0.04):
+    traces = []
+    traces.append(
+        go.Scatter3d(
+            x=[origin[0], origin[0] + x_axis[0] * length],
+            y=[origin[1], origin[1] + x_axis[1] * length],
+            z=[origin[2], origin[2] + x_axis[2] * length],
+            mode="lines",
+            line=dict(width=2, color="red"),
+            name=f"{name} x axis",
+        )
+    )
+    traces.append(
+        go.Scatter3d(
+            x=[origin[0], origin[0] + y_axis[0] * length],
+            y=[origin[1], origin[1] + y_axis[1] * length],
+            z=[origin[2], origin[2] + y_axis[2] * length],
+            mode="lines",
+            line=dict(width=2, color="green"),
+            name=f"{name} y axis",
+        )
+    )
+    traces.append(
+        go.Scatter3d(
+            x=[origin[0], origin[0] + z_axis[0] * length],
+            y=[origin[1], origin[1] + z_axis[1] * length],
+            z=[origin[2], origin[2] + z_axis[2] * length],
+            mode="lines",
+            line=dict(width=2, color="blue"),
+            name=f"{name} z axis",
+        )
+    )
+    return traces
+
+fig = go.Figure(layout=layout)
+traces = []
+traces += get_xyz_axes(origin=np.array([0, 0, 0]), x_axis=np.array([1.0, 0.0, 0.0]), y_axis=np.array([0.0, 1.0, 0.0]), z_axis=np.array([0.0, 0.0, 1.0]), name="default")
+traces += get_xyz_axes(origin=left_finger_origin, x_axis=left_finger_x_axis, y_axis=left_finger_y_axis, z_axis=left_finger_z_axis, name="left finger")
+traces += get_xyz_axes(origin=right_finger_origin, x_axis=right_finger_x_axis, y_axis=right_finger_y_axis, z_axis=right_finger_z_axis, name="right finger")
+for trace in traces:
+    fig.add_trace(trace)
+fig.show()
+
+# %%
+
 @localscope.mfc(allowed=["NUM_XYZ"])
 def get_params(ray_o, ray_d, y_axis):
     assert ray_o.shape == ray_d.shape == y_axis.shape == (NUM_XYZ,)
+    x_axis = ray_d
+    z_axis = torch.cross(x_axis, y_axis)
+    R = torch.stack([x_axis, y_axis, z_axis], dim=1)
+    from scipy.spatial.transform import Rotation
+    rpy = Rotation.from_matrix(R.cpu().numpy()).as_euler("xyz")
+    ypr = Rotation.from_matrix(R.cpu().numpy()).as_euler("zyx")
+    print(f"rpy: {rpy}")
+    print(f"ypr: {ypr}")
 
     # ray_d is x_axis
     rho = torch.norm(ray_o)
     theta  = torch.atan2(ray_o[1], ray_o[0])
     phi = torch.atan2(torch.sqrt(ray_o[0]**2 + ray_o[1]**2), ray_o[2])
+    print(f"rho: {rho}")
+    print(f"theta: {theta}")
+    print(f"phi: {phi}")
 
     # From theta
     rotation_matrix = torch.tensor([
@@ -1367,8 +1425,117 @@ def get_params(ray_o, ray_d, y_axis):
     theta_prime = torch.atan2(adjusted_ray_d[1], adjusted_ray_d[0])
     phi_prime = torch.atan2(torch.sqrt(adjusted_ray_d[0]**2 + adjusted_ray_d[1]**2), adjusted_ray_d[2])
 
+from scipy.spatial.transform import Rotation
+left_R = torch.stack([left_finger_x_axis, left_finger_y_axis, left_finger_z_axis], dim=1)
+left_rotation_around_x = torch.tensor(Rotation.from_matrix(left_R.cpu().numpy()).as_euler("xyz")[0]).float()
+left_rotation_around_x_2 = torch.tensor(Rotation.from_matrix(left_R.cpu().numpy()).as_euler("zyx")[-1]).float()
+print(f"left_rotation_around_x: {np.rad2deg(left_rotation_around_x)}")
+print(f"left_rotation_around_x_2: {np.rad2deg(left_rotation_around_x_2)}")
+
+# left_rotation_matrix_around_x = torch.tensor([
+#     [1, 0, 0],
+#     [0, torch.cos(-left_rotation_around_x), -torch.sin(-left_rotation_around_x)],
+#     [0, torch.sin(-left_rotation_around_x), torch.cos(-left_rotation_around_x)],
+# ])
+# left_rotation_matrix_around_x_2 = torch.tensor([
+#     [1, 0, 0],
+#     [0, torch.cos(-left_rotation_around_x_2), -torch.sin(-left_rotation_around_x_2)],
+#     [0, torch.sin(-left_rotation_around_x_2), torch.cos(-left_rotation_around_x_2)],
+# ])
+# left_rotation_matrix_around_x = torch.from_numpy(Rotation.from_rotvec(-left_rotation_around_x.cpu().numpy() * left_finger_x_axis.cpu().numpy()).as_matrix()).float()
+left_rotation_matrix_around_x = torch.from_numpy(Rotation.from_rotvec(-left_rotation_around_x_2.cpu().numpy() * left_finger_x_axis.cpu().numpy()).as_matrix()).float()
+
+traces += get_xyz_axes(origin=left_finger_origin, x_axis=left_rotation_matrix_around_x @ left_finger_x_axis, y_axis=left_rotation_matrix_around_x @ left_finger_y_axis, z_axis=left_rotation_matrix_around_x @ left_finger_z_axis, name="left finger rotated around x")
+for trace in traces:
+    fig.add_trace(trace)
+fig.show()
 
 
+# %%
+print(f"type(left_rotation_around_x): {type(left_rotation_around_x)}")
+
+# %%
+# Say we have a transformation matrix T that simply moves it from the origin to the point (x, y, z)
+# And orientation such that the new x is pointed towards (0, 0, 0)
+# How do we formulate this as euler angles?
+# let's think about rotating the axes before any translation
+# Rotation about x will not change the direction of x
+# Rotation about y will make the new x-axis a linear combination of the old x and z axes
+# This makes the new z-axis a linear combination of the old x and z axes
+# Actually, let's formulate this as a axis angle rotation
+left_rotation_matrix = torch.stack([left_finger_x_axis, left_finger_y_axis, left_finger_z_axis], dim=1)
+left_rotation_rotvec = torch.tensor(Rotation.from_matrix(left_rotation_matrix.cpu().numpy()).as_rotvec()).float()
+origin, x_axis, y_axis, z_axis = np.array([0, 0, 0]), np.array([1.0, 0.0, 0.0]), np.array([0.0, 1.0, 0.0]), np.array([0.0, 0.0, 1.0])
+print(f"left_rotation_rotvec: {torch.rad2deg(left_rotation_rotvec)}")
+
+fig = go.Figure(layout=layout)
+traces = []
+traces += get_xyz_axes(origin=origin, x_axis=x_axis, y_axis=y_axis, z_axis=z_axis, name="original")
+traces += get_xyz_axes(origin=left_finger_origin, x_axis=left_rotation_matrix @ x_axis, y_axis=left_rotation_matrix @ y_axis, z_axis=left_rotation_matrix @ z_axis, name="left finger")
+for trace in traces:
+    fig.add_trace(trace)
+fig.show()
+
+# %%
+theta = torch.atan2(left_finger_origin[1], left_finger_origin[0])
+theta += torch.tensor(np.pi / 2)
+transformation_matrix = torch.tensor([
+    [torch.cos(-theta), -torch.sin(-theta), 0, 0],
+    [torch.sin(-theta), torch.cos(-theta), 0, 0],
+    [0, 0, 1, 0],
+    [0, 0, 0, 1],
+])
+fig = go.Figure(layout=layout)
+traces = []
+traces += get_xyz_axes(origin=origin, x_axis=x_axis, y_axis=y_axis, z_axis=z_axis, name="original")
+traces += get_xyz_axes(origin=left_finger_origin, x_axis=left_rotation_matrix @ x_axis, y_axis=left_rotation_matrix @ y_axis, z_axis=left_rotation_matrix @ z_axis, name="left finger")
+# traces += get_xyz_axes(origin=torch.tensor([torch.norm(left_finger_origin[:2]), 0, left_finger_origin[2]]), x_axis=rotation_matrix @ left_finger_x_axis, y_axis=rotation_matrix @ left_finger_y_axis, z_axis=rotation_matrix @ left_finger_z_axis, name="left finger rotated around z")
+# traces += get_xyz_axes(origin=torch.tensor([torch.norm(left_finger_origin[:2]), 0, left_finger_origin[2]]), x_axis=left_finger_x_axis @ rotation_matrix, y_axis=left_finger_y_axis @ rotation_matrix, z_axis=left_finger_z_axis @ rotation_matrix, name="left finger rotated around z")
+new_left_finger_origin = transformation_matrix @ torch.cat([left_finger_origin, torch.tensor([1.0])])
+new_left_finger_origin_2 = torch.tensor([torch.norm(left_finger_origin[:2]), 0, left_finger_origin[2]])
+print(f"new_left_finger_origin = {new_left_finger_origin}")
+print(f"new_left_finger_origin_2 = {new_left_finger_origin_2}")
+new_left_finger_x_axis = transformation_matrix @ torch.cat([left_finger_x_axis, torch.tensor([0.0])])
+new_left_finger_y_axis = transformation_matrix @ torch.cat([left_finger_y_axis, torch.tensor([0.0])])
+new_left_finger_z_axis = transformation_matrix @ torch.cat([left_finger_z_axis, torch.tensor([0.0])])
+print(f"new_left_finger_x_axis = {new_left_finger_x_axis}")
+print(f"new_left_finger_y_axis = {new_left_finger_y_axis}")
+print(f"new_left_finger_z_axis = {new_left_finger_z_axis}")
+
+# traces += get_xyz_axes(origin=new_left_finger_origin, x_axis=left_finger_x_axis, y_axis=left_finger_y_axis, z_axis=left_finger_z_axis, name="left finger rotated around z")
+traces += get_xyz_axes(origin=new_left_finger_origin, x_axis=new_left_finger_x_axis, y_axis=new_left_finger_y_axis, z_axis=new_left_finger_z_axis, name="left finger rotated around z")
+for trace in traces:
+    fig.add_trace(trace)
+fig.show()
+
+@localscope.mfc
+def distance_point_to_line(point, line_point1, line_point2):
+    # Calculate the vector between the two points on the line
+    line_vec = line_point2 - line_point1
+    
+    # Calculate the vector between the point and the first point on the line
+    point_vec = point - line_point1
+    
+    # Calculate the projection of point_vec onto line_vec
+    # This gives us the distance of the point from the line
+    projection = torch.dot(point_vec, line_vec) / torch.dot(line_vec, line_vec)
+    
+    # Calculate the closest point on the line to the given point
+    closest_point = line_point1 + projection * line_vec
+    
+    # Calculate the distance between the closest point and the given point
+    distance = torch.norm(point - closest_point)
+    
+    return distance
+
+
+
+
+
+
+# %%
+
+exit()  # TODO REMOVE
 
 
 
@@ -1747,9 +1914,6 @@ class NeRF_to_Grasp_Success_Model(nn.Module):
 
 
 # %%
-
-exit()  # TODO REMOVE
-
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
 nerf_to_grasp_success_model = NeRF_to_Grasp_Success_Model(
@@ -1916,7 +2080,6 @@ def iterate_through_dataloader(
         backward_pass_total_time_taken = 0.0
         grad_log_total_time_taken = 0.0
         loss_log_total_time_taken = 0.0
-        grad_clip_total_time_taken = 0.0
         gather_predictions_total_time_taken = 0.0
 
         all_predictions, all_ground_truths = [], []
@@ -1937,24 +2100,18 @@ def iterate_through_dataloader(
             total_loss = ce_loss
             forward_pass_time_taken = time.time() - start_forward_pass_time
 
-            # Grad clip
-            start_grad_clip_time = time.time()
-            if (
-                phase == Phase.TRAIN
-                and cfg is not None
-                and cfg.grad_clip_val is not None
-            ):
-                torch.nn.utils.clip_grad_value_(
-                    nerf_to_grasp_success_model.parameters(),
-                    cfg.grad_clip_val,
-                )
-            grad_clip_time_taken = time.time() - start_grad_clip_time
-
             # Gradient step
             start_backward_pass_time = time.time()
             if phase == Phase.TRAIN and optimizer is not None:
                 optimizer.zero_grad()
                 total_loss.backward()
+
+                if cfg is not None and cfg.grad_clip_val is not None:
+                    torch.nn.utils.clip_grad_value_(
+                        nerf_to_grasp_success_model.parameters(),
+                        cfg.grad_clip_val,
+                    )
+
                 optimizer.step()
             backward_pass_time_taken = time.time() - start_backward_pass_time
 
@@ -2013,7 +2170,6 @@ def iterate_through_dataloader(
                     f"Batch: {1000*batch_time_taken:.0f}",
                     f"Data: {1000*dataload_time_taken:.0f}",
                     f"Fwd: {1000*forward_pass_time_taken:.0f}",
-                    f"Clip: {1000*grad_clip_time_taken:.0f}",
                     f"Bwd: {1000*backward_pass_time_taken:.0f}",
                     f"Loss: {1000*loss_log_time_taken:.0f}",
                     f"Grad: {1000*grad_log_time_taken:.0f}",
@@ -2026,7 +2182,6 @@ def iterate_through_dataloader(
             batch_total_time_taken += batch_time_taken
             dataload_total_time_taken += dataload_time_taken
             forward_pass_total_time_taken += forward_pass_time_taken
-            grad_clip_total_time_taken += grad_clip_time_taken
             backward_pass_total_time_taken += backward_pass_time_taken
             loss_log_total_time_taken += loss_log_time_taken
             grad_log_total_time_taken += grad_log_time_taken
@@ -2039,7 +2194,6 @@ def iterate_through_dataloader(
     )
     print(f"Time taken for dataload: {dataload_total_time_taken:.2f} s")
     print(f"Time taken for forward pass: {forward_pass_total_time_taken:.2f} s")
-    print(f"Time taken for grad clipping: {grad_clip_total_time_taken:.2f} s")
     print(f"Time taken for backward pass: {backward_pass_total_time_taken:.2f} s")
     print(f"Time taken for loss logging: {loss_log_total_time_taken:.2f} s")
     print(f"Time taken for grad logging: {grad_log_total_time_taken:.2f} s")
@@ -2053,9 +2207,6 @@ def iterate_through_dataloader(
     print(f"dataload: {100*dataload_total_time_taken/batch_total_time_taken:.2f} %")
     print(
         f"forward pass: {100*forward_pass_total_time_taken/batch_total_time_taken:.2f} %"
-    )
-    print(
-        f"grad clipping: {100*grad_clip_total_time_taken/batch_total_time_taken:.2f} %"
     )
     print(
         f"backward pass: {100*backward_pass_total_time_taken/batch_total_time_taken:.2f} %"

@@ -14,13 +14,14 @@ data:
   frac_train: ${eval:1 - ${data.frac_val} - ${data.frac_test}}
   # input_dataset_root_dir: "/scr1/tylerlum"
   input_dataset_root_dir: "/juno/u/tylerlum/github_repos/nerf_grasping/nerf_acronym_grasp_success_datasets"
-  input_dataset_path: "nerf_acronym_grasp_success_dataset_66_categories_v2.h5"
+  input_dataset_path: "nerf_acronym_grasp_success_dataset_608_categories.h5"
+  max_num_data_points: ${eval:None}
 
 dataloader:
   batch_size: 128
   num_workers: 8
   pin_memory: True
-  preprocess_type: "ALPHA"
+  preprocess_density_type: "ALPHA"
   load_nerf_grid_inputs_in_ram: False
   load_grasp_successes_in_ram: False
 

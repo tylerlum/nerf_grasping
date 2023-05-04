@@ -117,6 +117,7 @@ class DataConfig:
 
     input_dataset_root_dir: str = MISSING
     input_dataset_path: str = MISSING
+    max_num_data_points: Optional[int] = MISSING
 
 
 @dataclass
@@ -217,7 +218,7 @@ except ConfigCompositionException as e:
     print(f"ConfigCompositionException: {e}")
     print()
     print(f"e.__cause__ = {e.__cause__}")
-    exit()
+    raise e.__cause__
 
 # %%
 print(f"Config:\n{OmegaConf.to_yaml(cfg)}")
@@ -434,7 +435,7 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
         )
 
         grasp_success = (
-            torch.from_numpy(self.hdf5_file["/grasp_success"][idx]).long()
+            torch.from_numpy(np.array(self.hdf5_file["/grasp_success"][idx])).long()
             if self.grasp_successes is None
             else self.grasp_successes[idx]
         )
@@ -507,6 +508,7 @@ def preprocess_to_weight(nerf_densities: torch.Tensor):
     weight = compute_weight(alpha)
 
     return weight
+
 
 # %%
 @localscope.mfc(
@@ -810,7 +812,6 @@ def preprocess_nerf_grid_inputs(
     ]
 
 
-
 # %%
 class DatasetType(Enum):
     HDF5_FILE = auto()
@@ -825,6 +826,7 @@ input_dataset_full_path = os.path.join(
 if dataset_type == DatasetType.HDF5_FILE:
     full_dataset = NeRFGrid_To_GraspSuccess_HDF5_Dataset(
         input_dataset_full_path,
+        max_num_data_points=cfg.data.max_num_data_points,
         load_nerf_grid_inputs_in_ram=cfg.dataloader.load_nerf_grid_inputs_in_ram,
         load_grasp_successes_in_ram=cfg.dataloader.load_grasp_successes_in_ram,
     )
@@ -965,7 +967,6 @@ def get_colored_points_scatter(points: torch.Tensor, colors: torch.Tensor):
 # %%
 @localscope.mfc(
     allowed=[
-        "cfg",
         "INPUT_EXAMPLE_SHAPE",
         "NUM_DENSITY",
         "NUM_PTS_X",
@@ -979,21 +980,15 @@ def get_colored_points_scatter(points: torch.Tensor, colors: torch.Tensor):
     ]
 )
 def create_datapoint_plotly_fig(
-    loader: DataLoader,
+    dataset: NeRFGrid_To_GraspSuccess_HDF5_Dataset,
     datapoint_name: str,
     idx_to_visualize: int = 0,
     save_to_wandb: bool = False,
 ) -> go.Figure:
-    nerf_grid_inputs, grasp_successes = next(iter(loader))
+    nerf_grid_input, grasp_success = dataset[idx_to_visualize]
 
-    assert nerf_grid_inputs.shape == (
-        cfg.dataloader.batch_size,
-        *INPUT_EXAMPLE_SHAPE,
-    )
-    assert grasp_successes.shape == (cfg.dataloader.batch_size,)
-
-    nerf_grid_input = nerf_grid_inputs[idx_to_visualize]
     assert nerf_grid_input.shape == INPUT_EXAMPLE_SHAPE
+    assert len(np.array(grasp_success).shape) == 0
 
     nerf_densities = nerf_grid_input[
         NERF_DENSITY_START_IDX:NERF_DENSITY_END_IDX, :, :, :
@@ -1013,7 +1008,7 @@ def create_datapoint_plotly_fig(
     layout = go.Layout(
         scene=dict(xaxis=dict(title="X"), yaxis=dict(title="Y"), zaxis=dict(title="Z")),
         showlegend=True,
-        title=f"{datapoint_name} datapoint: success={grasp_successes[idx_to_visualize].item()}",
+        title=f"{datapoint_name} datapoint: success={grasp_success}",
         width=800,
         height=800,
     )
@@ -1033,14 +1028,144 @@ def create_datapoint_plotly_fig(
 # %%
 if cfg.visualize_data:
     create_datapoint_plotly_fig(
-        loader=train_loader, datapoint_name=Phase.TRAIN.name.lower(), save_to_wandb=True
+        dataset=train_dataset, datapoint_name=Phase.TRAIN.name.lower(), save_to_wandb=True
     )
 
 # %%
 if cfg.visualize_data:
     create_datapoint_plotly_fig(
-        loader=val_loader, datapoint_name=Phase.VAL.name.lower(), save_to_wandb=True
+        dataset=val_dataset, datapoint_name=Phase.VAL.name.lower(), save_to_wandb=True
     )
+
+# %%
+# TODO: REMOVE
+create_datapoint_plotly_fig(
+    dataset=val_dataset, datapoint_name=Phase.VAL.name.lower(), save_to_wandb=False
+)
+
+# %%
+@localscope.mfc
+def plot_obj(obj_filepath, scale=1.0, offset=None, color="lightpink", return_mesh=False):
+    if offset is None:
+        offset = np.zeros(3)
+
+    # Read in the OBJ file
+    with open(obj_filepath, "r") as f:
+        lines = f.readlines()
+
+    # Extract the vertex coordinates and faces from the OBJ file
+    vertices = []
+    faces = []
+    for line in lines:
+        if line.startswith("v "):
+            vertex = [float(i) * scale for i in line.split()[1:4]]
+            vertices.append(vertex)
+        elif line.startswith("f "):
+            face = [int(i.split("/")[0]) - 1 for i in line.split()[1:4]]
+            faces.append(face)
+
+    # Convert the vertex coordinates and faces to numpy arrays
+    vertices = np.array(vertices)
+    faces = np.array(faces)
+
+    assert len(vertices.shape) == 2 and vertices.shape[1] == 3
+    assert len(faces.shape) == 2 and faces.shape[1] == 3
+
+    vertices += offset.reshape(1, 3)
+
+    # Create the mesh3d trace
+    mesh = go.Mesh3d(
+        x=vertices[:, 0],
+        y=vertices[:, 1],
+        z=vertices[:, 2],
+        i=faces[:, 0],
+        j=faces[:, 1],
+        k=faces[:, 2],
+        color=color,
+        opacity=0.5,
+        name=f"Mesh: {os.path.basename(obj_filepath)}",
+    )
+
+    # Create the layout
+    coordinates = "Mesh Centroid Centered Coordinates"
+    layout = go.Layout(
+        scene=dict(xaxis=dict(title="X"), yaxis=dict(title="Y"), zaxis=dict(title="Z")),
+        showlegend=True,
+        title=f"Mesh: {os.path.basename(obj_filepath)} ({coordinates})",
+        width=800,
+        height=800,
+    )
+
+    # Create the figure
+    fig = go.Figure(data=[mesh], layout=layout)
+
+    if return_mesh:
+        return fig, mesh
+
+    # Return the figure
+    return fig
+
+
+
+# %%
+
+idx = 2300
+with h5py.File(input_dataset_full_path, "r") as hdf5_file:
+    nerf_grid_input = np.array(
+        hdf5_file["/nerf_grid_input"][idx]
+    )  # (NUM_INPUT_CHANNELS, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
+    grasp_success = np.array(hdf5_file["/grasp_success"][idx])  # (1,)
+    acronym_filename = hdf5_file["/acronym_filename"][idx].decode("utf-8")
+    grasp_transform = np.array(hdf5_file["/grasp_transform"][idx])
+    grasp_idx = hdf5_file["/grasp_idx"][idx]
+    acronym_root_dir = "/juno/u/tylerlum/github_repos/acronym/data/grasps"
+    acronym_filepath = os.path.join(acronym_root_dir, acronym_filename)
+    with h5py.File(acronym_filepath, "r") as acronym_hdf5_file:
+        mesh_root_dir = "assets/objects"
+        mesh_filename = acronym_hdf5_file['object/file'][()].decode("utf-8")
+        mesh_filepath = os.path.join(mesh_root_dir, mesh_filename)
+        import trimesh
+        mesh = trimesh.load(mesh_filepath, force="mesh")
+        mesh_scale = float(acronym_hdf5_file["object/scale"][()])
+        mesh_centroid = np.array(mesh.centroid) * mesh_scale
+
+LEFT_TIP_POSITION_GRASP_FRAME = np.array(
+    [4.10000000e-02, -7.27595772e-12, 1.12169998e-01]
+)
+RIGHT_TIP_POSITION_GRASP_FRAME = np.array(
+    [-4.10000000e-02, -7.27595772e-12, 1.12169998e-01]
+)
+left_tip = np.matmul(grasp_transform, np.concatenate([LEFT_TIP_POSITION_GRASP_FRAME, [1.0]]))[:3] - mesh_centroid
+right_tip = np.matmul(grasp_transform, np.concatenate([RIGHT_TIP_POSITION_GRASP_FRAME, [1.0]]))[:3] - mesh_centroid
+
+
+        # grasp = np.array(acronym_hdf5_file["/grasp"][grasp_idx])
+        # grasp_success = np.array(acronym_hdf5_file["/grasp_success"][grasp_idx])
+
+fig = create_datapoint_plotly_fig(
+    dataset=val_dataset, datapoint_name=Phase.VAL.name.lower(), save_to_wandb=False, idx_to_visualize=idx,
+)
+_, mesh = plot_obj(obj_filepath=mesh_filepath, scale=mesh_scale, offset=-mesh_centroid, color="lightpink", return_mesh=True)
+fig.add_trace(mesh)
+
+# Draw line from left_tip to right_tip
+fig.add_trace(
+    go.Scatter3d(
+        x=[left_tip[0], right_tip[0]],
+        y=[left_tip[1], right_tip[1]],
+        z=[left_tip[2], right_tip[2]],
+        mode="lines",
+        line=dict(color="red", width=10),
+        name="Grasp",
+    )
+)
+
+fig.show()
+
+
+# %%
+
+# TODO: END OF NEW
 
 # %% [markdown]
 # # Visualize Dataset Distribution

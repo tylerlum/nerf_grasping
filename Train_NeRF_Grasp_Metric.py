@@ -103,7 +103,7 @@ class WandbConfig:
     job_type: str = MISSING
 
 
-class PreprocessType(Enum):
+class PreprocessDensityType(Enum):
     DENSITY = auto()
     ALPHA = auto()
     WEIGHT = auto()
@@ -124,7 +124,7 @@ class DataLoaderConfig:
     batch_size: int = MISSING
     num_workers: int = MISSING
     pin_memory: bool = MISSING
-    preprocess_type: PreprocessType = MISSING
+    preprocess_density_type: PreprocessDensityType = MISSING
 
     load_nerf_grid_inputs_in_ram: bool = MISSING
     load_grasp_successes_in_ram: bool = MISSING
@@ -353,24 +353,25 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
     def __init__(
         self,
         input_hdf5_filepath,
-        preprocess_fn=None,
         load_nerf_grid_inputs_in_ram=False,
         load_grasp_successes_in_ram=False,
     ):
         super().__init__()
         self.input_hdf5_filepath = input_hdf5_filepath
-        self.preprocess_fn = preprocess_fn
 
         # Recommended in https://discuss.pytorch.org/t/dataloader-when-num-worker-0-there-is-bug/25643/13
         self.hdf5_file = None
 
         with h5py.File(self.input_hdf5_filepath, "r") as hdf5_file:
-            self.len = hdf5_file["/grasp_success"].shape[0]
-            assert hdf5_file["/grasp_success"].shape == (self.len,)
-            assert hdf5_file["/nerf_grid_input"].shape == (
-                self.len,
-                *INPUT_EXAMPLE_SHAPE,
+            self.len = (
+                hdf5_file.attrs["num_data_points"]
+                if "num_data_points" in hdf5_file.attrs
+                else hdf5_file["/grasp_success"].shape[0]
             )
+
+            # Check that the data is in the expected format
+            assert len(hdf5_file["/grasp_success"].shape) == 1
+            assert hdf5_file["/nerf_grid_input"].shape[1:] == INPUT_EXAMPLE_SHAPE
 
             # This is usually too big for RAM
             if load_nerf_grid_inputs_in_ram:
@@ -429,9 +430,6 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
         assert nerf_grid_input.shape == INPUT_EXAMPLE_SHAPE
         assert grasp_success.shape == ()
 
-        if self.preprocess_fn is not None:
-            nerf_grid_input = self.preprocess_fn(nerf_grid_input)
-
         return nerf_grid_input, grasp_success
 
 
@@ -439,35 +437,14 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
 @localscope.mfc(
     allowed=[
         "ctx_factory",  # global from torch.no_grad
-        "INPUT_EXAMPLE_SHAPE",
-    ]
-)
-@torch.no_grad()
-def preprocess_to_density(nerf_grid_input):
-    assert nerf_grid_input.shape == INPUT_EXAMPLE_SHAPE
-    return nerf_grid_input
-
-
-@localscope.mfc(
-    allowed=[
-        "ctx_factory",  # global from torch.no_grad
-        "INPUT_EXAMPLE_SHAPE",
-        "NERF_DENSITY_START_IDX",
-        "NERF_DENSITY_END_IDX",
         "DELTA",
     ]
 )
 @torch.no_grad()
-def preprocess_to_alpha(nerf_grid_input):
+def preprocess_to_alpha(nerf_densities):
     # alpha = 1 - exp(-delta * sigma)
     #       = probability of collision within this segment starting from beginning of segment
-    assert nerf_grid_input.shape == INPUT_EXAMPLE_SHAPE
-
-    # alpha
-    nerf_grid_input[NERF_DENSITY_START_IDX:NERF_DENSITY_END_IDX] = 1 - torch.exp(
-        -nerf_grid_input[NERF_DENSITY_START_IDX:NERF_DENSITY_END_IDX] * DELTA
-    )
-    return nerf_grid_input
+    return 1.0 - torch.exp(-DELTA * nerf_densities)
 
 
 @localscope.mfc(
@@ -477,20 +454,17 @@ def preprocess_to_alpha(nerf_grid_input):
         "NERF_DENSITY_START_IDX",
         "NERF_DENSITY_END_IDX",
         "NUM_PTS_X",
-        "DELTA",
     ]
 )
 @torch.no_grad()
-def preprocess_to_weight(nerf_grid_input):
+def preprocess_to_weight(nerf_densities):
     # alpha_j = 1 - exp(-delta_j * sigma_j)
-    #       = probability of collision within this segment starting from beginning of segment
-    # left_weight_j = alpha_j * (1 - alpha_{j-1}) * ... * (1 - alpha_1))
+    #         = probability of collision within this segment starting from beginning of segment
+    # weight_j = alpha_j * (1 - alpha_{j-1}) * ... * (1 - alpha_1))
     #          = probability of collision within j-th segment starting from left edge
-    # right_weight_j = alpha_j * (1 - alpha_{j+1}) * ... * (1 - alpha_{NUM_PTS_X}))
-    #          = probability of collision within j-th segment starting from right edge
 
-    # @localscope.mfc  # TODO: Had error, should fix
-    def compute_left_weight(alpha):
+    @localscope.mfc  # TODO: Had error, should fix
+    def compute_weight(alpha):
         # [1 - alpha_1, (1 - alpha_1) * (1 - alpha_2), ..., (1 - alpha_1) * ... * (1 - alpha_{NUM_PTS_X}))]
         cumprod_1_minus_alpha_from_left = (1 - alpha).cumprod(dim=x_axis_dim)
 
@@ -499,56 +473,40 @@ def preprocess_to_weight(nerf_grid_input):
             [
                 torch.ones_like(
                     cumprod_1_minus_alpha_from_left[:, :1],
-                    dtype=nerf_grid_input.dtype,
-                    device=nerf_grid_input.device,
+                    dtype=alpha.dtype,
+                    device=alpha.device,
                 ),
                 cumprod_1_minus_alpha_from_left[:, :-1],
             ],
             dim=x_axis_dim,
         )
 
-        # left_weight_j = alpha_j * (1 - alpha_{j-1}) * ... * (1 - alpha_1))
-        left_weight = alpha * cumprod_1_minus_alpha_from_left_shifted
-        return left_weight
+        # weight_j = alpha_j * (1 - alpha_{j-1}) * ... * (1 - alpha_1))
+        weight = alpha * cumprod_1_minus_alpha_from_left_shifted
+        return weight
 
-    assert nerf_grid_input.shape == INPUT_EXAMPLE_SHAPE
-
-    x_axis_dim = 1
+    assert nerf_densities.shape[-3:] == (NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
+    x_axis_dim = -3
 
     # [alpha_1, alpha_2, ..., alpha_{NUM_PTS_X}]
-    alpha = 1.0 - torch.exp(
-        -nerf_grid_input[NERF_DENSITY_START_IDX:NERF_DENSITY_END_IDX] * DELTA
-    )
+    alpha = preprocess_to_alpha(nerf_densities)
 
-    # left_weight_j = alpha_j * (1 - alpha_{j-1}) * ... * (1 - alpha_1))
-    left_weight = compute_left_weight(alpha)
+    # weight_j = alpha_j * (1 - alpha_{j-1}) * ... * (1 - alpha_1))
+    weight = compute_weight(alpha)
 
-    # right_weight_j = alpha_j * (1 - alpha_{j+1}) * ... * (1 - alpha_{NUM_PTS_X})
-    right_weight = compute_left_weight(alpha.flip(dims=(x_axis_dim,))).flip(
-        dims=(x_axis_dim,)
-    )
-
-    midpoint_idx = NUM_PTS_X // 2
-    nerf_grid_input[
-        NERF_DENSITY_START_IDX:NERF_DENSITY_END_IDX, :midpoint_idx
-    ] = left_weight[:, :midpoint_idx]
-    nerf_grid_input[
-        NERF_DENSITY_START_IDX:NERF_DENSITY_END_IDX, midpoint_idx:
-    ] = right_weight[:, midpoint_idx:]
-
-    return nerf_grid_input
+    return weight
 
 
 # %%
 preprocess_type_to_fn = {
-    PreprocessType.DENSITY: preprocess_to_density,
-    PreprocessType.ALPHA: preprocess_to_alpha,
-    PreprocessType.WEIGHT: preprocess_to_weight,
+    PreprocessDensityType.DENSITY: lambda x: x,
+    PreprocessDensityType.ALPHA: preprocess_to_alpha,
+    PreprocessDensityType.WEIGHT: preprocess_to_weight,
 }
 
-preprocess_fn = preprocess_type_to_fn[cfg.dataloader.preprocess_type]
+preprocess_density_fn = preprocess_type_to_fn[cfg.dataloader.preprocess_density_type]
 print(
-    f"With preprocess type {cfg.dataloader.preprocess_type}, using preprocess_fn: {preprocess_fn}"
+    f"With preprocess type {cfg.dataloader.preprocess_density_type}, using preprocess_density_fn: {preprocess_density_fn}"
 )
 
 
@@ -566,7 +524,6 @@ input_dataset_full_path = os.path.join(
 if dataset_type == DatasetType.HDF5_FILE:
     full_dataset = NeRFGrid_To_GraspSuccess_HDF5_Dataset(
         input_dataset_full_path,
-        preprocess_fn=preprocess_fn,
         load_nerf_grid_inputs_in_ram=cfg.dataloader.load_nerf_grid_inputs_in_ram,
         load_grasp_successes_in_ram=cfg.dataloader.load_grasp_successes_in_ram,
     )

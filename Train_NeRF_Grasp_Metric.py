@@ -508,18 +508,307 @@ def preprocess_to_weight(nerf_densities: torch.Tensor):
 
     return weight
 
-
 # %%
-preprocess_type_to_fn = {
-    PreprocessDensityType.DENSITY: lambda x: x,
-    PreprocessDensityType.ALPHA: preprocess_to_alpha,
-    PreprocessDensityType.WEIGHT: preprocess_to_weight,
-}
-
-preprocess_density_fn = preprocess_type_to_fn[cfg.dataloader.preprocess_density_type]
-print(
-    f"With preprocess type {cfg.dataloader.preprocess_density_type}, using preprocess_density_fn: {preprocess_density_fn}"
+@localscope.mfc(
+    allowed=[
+        "cfg",
+        "NUM_PTS_X",
+        "NUM_PTS_Y",
+        "NUM_PTS_Z",
+        "NUM_XYZ",
+        "NUM_CHANNELS",
+        "NERF_DENSITY_START_IDX",
+        "NERF_DENSITY_END_IDX",
+        "NERF_COORDINATE_START_IDX",
+        "NERF_COORDINATE_END_IDX",
+    ]
 )
+def get_nerf_densities_and_points(nerf_grid_inputs: torch.Tensor):
+    assert (
+        len(nerf_grid_inputs.shape) == 5
+        and nerf_grid_inputs.shape[0] == cfg.dataloader.batch_size
+        and nerf_grid_inputs.shape[1] == NUM_CHANNELS
+        and nerf_grid_inputs.shape[2] in [NUM_PTS_X // 2, NUM_PTS_X]
+        and nerf_grid_inputs.shape[3] == NUM_PTS_Y
+        and nerf_grid_inputs.shape[4] == NUM_PTS_Z
+    )
+
+    assert torch.is_tensor(nerf_grid_inputs)
+
+    nerf_densities = nerf_grid_inputs[:, NERF_DENSITY_START_IDX:NERF_DENSITY_END_IDX]
+    nerf_points = nerf_grid_inputs[:, NERF_COORDINATE_START_IDX:NERF_COORDINATE_END_IDX]
+
+    return nerf_densities, nerf_points
+
+
+@localscope.mfc(
+    allowed=[
+        "cfg",
+        "NUM_PTS_X",
+        "NUM_PTS_Y",
+        "NUM_PTS_Z",
+        "NUM_XYZ",
+    ]
+)
+def get_global_params(nerf_points: torch.Tensor):
+    assert (
+        len(nerf_points.shape) == 5
+        and nerf_points.shape[0] == cfg.dataloader.batch_size
+        and nerf_points.shape[1] == NUM_XYZ
+        and nerf_points.shape[2] in [NUM_PTS_X // 2, NUM_PTS_X]
+        and nerf_points.shape[3] == NUM_PTS_Y
+        and nerf_points.shape[4] == NUM_PTS_Z
+    )
+    assert torch.is_tensor(nerf_points)
+
+    new_origin_x_idx, new_origin_y_idx, new_origin_z_idx = (
+        0,
+        NUM_PTS_Y // 2,
+        NUM_PTS_Z // 2,
+    )
+
+    new_origin = nerf_points[:, :, new_origin_x_idx, new_origin_y_idx, new_origin_z_idx]
+    assert new_origin.shape == (cfg.dataloader.batch_size, NUM_XYZ)
+
+    new_x_axis = nn.functional.normalize(
+        nerf_points[:, new_origin_x_idx + 1, new_origin_y_idx, new_origin_z_idx]
+        - new_origin,
+        dim=-1,
+    )
+    new_y_axis = nn.functional.normalize(
+        nerf_points[:, new_origin_x_idx, new_origin_y_idx + 1, new_origin_z_idx]
+        - new_origin,
+        dim=-1,
+    )
+    new_z_axis = nn.functional.normalize(
+        nerf_points[:, new_origin_x_idx, new_origin_y_idx, new_origin_z_idx + 1]
+        - new_origin,
+        dim=-1,
+    )
+
+    assert torch.isclose(torch.cross(new_x_axis, new_y_axis, dim=-1), new_z_axis).all()
+
+    # new_z_axis is implicit from the cross product of new_x_axis and new_y_axis
+    return new_origin, new_x_axis, new_y_axis
+
+
+@localscope.mfc(
+    allowed=[
+        "cfg",
+        "NUM_XYZ",
+    ]
+)
+def invariance_transformation(
+    left_global_params: Tuple[torch.Tensor, ...],
+    right_global_params: Tuple[torch.Tensor, ...],
+    rotate_polar_angle: bool = False,
+    reflect_around_xz_plane_randomly: bool = False,
+    remove_y_axis: bool = False,
+):
+    left_origin, left_x_axis, left_y_axis = left_global_params
+    right_origin, right_x_axis, right_y_axis = right_global_params
+
+    assert (
+        left_origin.shape
+        == right_origin.shape
+        == left_x_axis.shape
+        == right_x_axis.shape
+        == left_y_axis.shape
+        == right_y_axis.shape
+        == (cfg.dataloader.batch_size, NUM_XYZ)
+    )
+
+    # Always do rotation wrt left
+    # Get azimuth angle of left_origin
+    azimuth_angle = torch.atan2(left_origin[:, 1], left_origin[:, 0])
+
+    # Reverse azimuth angle around z to get back to xz plane (left_origin_y = 0)
+    # This handles invariance in both xy and yaw (angle around z)
+    transformation_matrix_around_z = torch.tensor(
+        [
+            [torch.cos(-azimuth_angle), -torch.sin(-azimuth_angle), 0, 0],
+            [torch.sin(-azimuth_angle), torch.cos(-azimuth_angle), 0, 0],
+            [0, 0, 1, 0],
+            [0, 0, 0, 1],
+        ]
+    )
+
+    @localscope.mfc
+    def transform(transformation_matrix, point):
+        assert transformation_matrix.shape == (4, 4)
+        assert point.shape == (cfg.dataloader.batch_size, 3)
+
+        transformed_point = transformation_matrix @ torch.cat(
+            [point, torch.tensor([1.0])]
+        )
+
+        return transformed_point[:, :3]
+
+    # Transform all
+    left_origin = transform(transformation_matrix_around_z, left_origin)
+    left_x_axis = transform(transformation_matrix_around_z, left_x_axis)
+    left_y_axis = transform(transformation_matrix_around_z, left_y_axis)
+    right_origin = transform(transformation_matrix_around_z, right_origin)
+    right_x_axis = transform(transformation_matrix_around_z, right_x_axis)
+    right_y_axis = transform(transformation_matrix_around_z, right_y_axis)
+
+    assert torch.all(
+        torch.isclose(left_origin[:, 1], torch.zeros_like(left_origin[:, 1]))
+    )  # left_origin_y = 0
+
+    if rotate_polar_angle:
+        # Always do rotation wrt left
+        # Get polar angle of left_origin
+        polar_angle = torch.atan2(
+            torch.sqrt(left_origin[0] ** 2 + left_origin[1] ** 2), left_origin[2]
+        )
+
+        # Angle between x axis and left_origin
+        polar_angle = torch.pi / 2 - polar_angle
+
+        # Rotation around y, positive to bring down to z = 0
+        transformation_matrix_around_y = torch.tensor(
+            [
+                [torch.cos(polar_angle), 0, torch.sin(polar_angle), 0],
+                [0, 1, 0, 0],
+                [-torch.sin(polar_angle), 0, torch.cos(polar_angle), 0],
+                [0, 0, 0, 1],
+            ]
+        )
+
+        # Transform all
+        left_origin = transform(transformation_matrix_around_y, left_origin)
+        left_x_axis = transform(transformation_matrix_around_y, left_x_axis)
+        left_y_axis = transform(transformation_matrix_around_y, left_y_axis)
+        right_origin = transform(transformation_matrix_around_y, right_origin)
+        right_x_axis = transform(transformation_matrix_around_y, right_x_axis)
+        right_y_axis = transform(transformation_matrix_around_y, right_y_axis)
+
+        assert torch.all(
+            torch.isclose(left_origin[:, 2], torch.zeros_like(left_origin[:, 2]))
+        )  # left_origin_z = 0
+
+    # To handle additional invariance, we can reflect around planes of symmetry
+    # xy plane probably doesn't make sense, as gravity affects this axis
+    # yz is handled already by the rotation around z
+    # xz plane is probably the best choice, as there is symmetry around moving left and right
+
+    # Reflect around xz plane
+    if reflect_around_xz_plane_randomly:
+        reflect = torch.rand((cfg.dataloader.batch_size,)) > 0.5
+        left_origin = torch.where(
+            reflect[:, None], left_origin * torch.tensor([1, -1, 1]), left_origin
+        )
+        left_x_axis = torch.where(
+            reflect[:, None], left_x_axis * torch.tensor([1, -1, 1]), left_x_axis
+        )
+        left_y_axis = torch.where(
+            reflect[:, None], left_y_axis * torch.tensor([1, -1, 1]), left_y_axis
+        )
+        right_origin = torch.where(
+            reflect[:, None], right_origin * torch.tensor([1, -1, 1]), right_origin
+        )
+        right_x_axis = torch.where(
+            reflect[:, None], right_x_axis * torch.tensor([1, -1, 1]), right_x_axis
+        )
+        right_y_axis = torch.where(
+            reflect[:, None], right_y_axis * torch.tensor([1, -1, 1]), right_y_axis
+        )
+
+    # y-axis gives you the orientation around the approach direction, which may not be important
+    if remove_y_axis:
+        return left_origin, left_x_axis, right_origin, right_x_axis
+    return (
+        left_origin,
+        left_x_axis,
+        left_y_axis,
+        right_origin,
+        right_x_axis,
+        right_y_axis,
+    )
+
+
+@localscope.mfc(
+    allowed=[
+        "cfg",
+        "INPUT_EXAMPLE_SHAPE",
+        "NUM_PTS_X",
+    ]
+)
+def preprocess_nerf_grid_inputs(
+    nerf_grid_inputs: torch.Tensor,
+    flip_left_right_randomly: bool = False,
+    preprocess_density_type: PreprocessDensityType = PreprocessDensityType.DENSITY,
+    add_invariance_transformations: bool = False,
+):
+    assert nerf_grid_inputs.shape == (
+        cfg.dataloader.batch_size,
+        *INPUT_EXAMPLE_SHAPE,
+    )
+    assert torch.is_tensor(nerf_grid_inputs)
+
+    # Split into left and right
+    # Need to rotate the right side around the z-axis, so that the x-axis is pointing toward the left
+    # so need to flip the x and y axes
+    num_pts_per_side = NUM_PTS_X // 2
+    x_dim, y_dim = -3, -2
+    left_nerf_grid_inputs = nerf_grid_inputs[:, :, :num_pts_per_side, :, :]
+    right_nerf_grid_inputs = nerf_grid_inputs[:, :, -num_pts_per_side:, :, :].flip(
+        dims=(x_dim, y_dim)
+    )
+
+    left_nerf_densities, left_nerf_points = get_nerf_densities_and_points(
+        left_nerf_grid_inputs
+    )
+    right_nerf_densities, right_nerf_points = get_nerf_densities_and_points(
+        right_nerf_grid_inputs
+    )
+
+    # Flip which side is left and right
+    if flip_left_right_randomly:
+        flip = torch.rand((cfg.dataloader.batch_size,)) > 0.5
+        left_nerf_densities, right_nerf_densities = (
+            torch.where(
+                flip[:, None, None, None], right_nerf_densities, left_nerf_densities
+            ),
+            torch.where(
+                flip[:, None, None, None], left_nerf_densities, right_nerf_densities
+            ),
+        )
+        left_nerf_points, right_nerf_points = (
+            torch.where(
+                flip[:, None, None, None, None], right_nerf_points, left_nerf_points
+            ),
+            torch.where(
+                flip[:, None, None, None, None], left_nerf_points, right_nerf_points
+            ),
+        )
+
+    # Extract global params
+    left_global_params = get_global_params(left_nerf_points)
+    right_global_params = get_global_params(right_nerf_points)
+
+    # Preprocess densities
+    preprocess_type_to_fn = {
+        PreprocessDensityType.DENSITY: lambda x: x,
+        PreprocessDensityType.ALPHA: preprocess_to_alpha,
+        PreprocessDensityType.WEIGHT: preprocess_to_weight,
+    }
+    preprocess_density_fn = preprocess_type_to_fn[preprocess_density_type]
+    left_nerf_densities = preprocess_density_fn(left_nerf_densities)
+    right_nerf_densities = preprocess_density_fn(right_nerf_densities)
+
+    # Invariance transformations
+    if add_invariance_transformations:
+        left_global_params, right_global_params = invariance_transformation(
+            left_global_params, right_global_params
+        )
+
+    return [
+        (left_nerf_densities, left_global_params),
+        (right_nerf_densities, right_global_params),
+    ]
+
 
 
 # %%
@@ -752,296 +1041,6 @@ if cfg.visualize_data:
     create_datapoint_plotly_fig(
         loader=val_loader, datapoint_name=Phase.VAL.name.lower(), save_to_wandb=True
     )
-
-# %%
-# REMOVE THIS
-create_datapoint_plotly_fig(
-    loader=val_loader, datapoint_name=Phase.VAL.name.lower(), save_to_wandb=True
-)
-
-
-# %%
-@localscope.mfc(
-    allowed=[
-        "cfg",
-        "NUM_PTS_X",
-        "NUM_PTS_Y",
-        "NUM_PTS_Z",
-        "NUM_XYZ",
-        "NUM_CHANNELS",
-        "NERF_DENSITY_START_IDX",
-        "NERF_DENSITY_END_IDX",
-        "NERF_COORDINATE_START_IDX",
-        "NERF_COORDINATE_END_IDX",
-    ]
-)
-def get_nerf_densities_and_points(nerf_grid_inputs: torch.Tensor):
-    assert (
-        len(nerf_grid_inputs.shape) == 5
-        and nerf_grid_inputs.shape[0] == cfg.dataloader.batch_size
-        and nerf_grid_inputs.shape[1] == NUM_CHANNELS
-        and nerf_grid_inputs.shape[2] in [NUM_PTS_X // 2, NUM_PTS_X]
-        and nerf_grid_inputs.shape[3] == NUM_PTS_Y
-        and nerf_grid_inputs.shape[4] == NUM_PTS_Z
-    )
-
-    assert torch.is_tensor(nerf_grid_inputs)
-
-    nerf_densities = nerf_grid_inputs[:, NERF_DENSITY_START_IDX:NERF_DENSITY_END_IDX]
-    nerf_points = nerf_grid_inputs[:, NERF_COORDINATE_START_IDX:NERF_COORDINATE_END_IDX]
-
-    return nerf_densities, nerf_points
-
-
-@localscope.mfc(
-    allowed=[
-        "cfg",
-        "NUM_PTS_X",
-        "NUM_PTS_Y",
-        "NUM_PTS_Z",
-        "NUM_XYZ",
-    ]
-)
-def get_global_params(nerf_points: torch.Tensor):
-    assert (
-        len(nerf_points.shape) == 5
-        and nerf_points.shape[0] == cfg.dataloader.batch_size
-        and nerf_points.shape[1] == NUM_XYZ
-        and nerf_points.shape[2] in [NUM_PTS_X // 2, NUM_PTS_X]
-        and nerf_points.shape[3] == NUM_PTS_Y
-        and nerf_points.shape[4] == NUM_PTS_Z
-    )
-    assert torch.is_tensor(nerf_points)
-
-    new_origin_x_idx, new_origin_y_idx, new_origin_z_idx = (
-        0,
-        NUM_PTS_Y // 2,
-        NUM_PTS_Z // 2,
-    )
-
-    new_origin = nerf_points[:, :, new_origin_x_idx, new_origin_y_idx, new_origin_z_idx]
-    assert new_origin.shape == (cfg.dataloader.batch_size, NUM_XYZ)
-
-    new_x_axis = nn.functional.normalize(
-        nerf_points[:, new_origin_x_idx + 1, new_origin_y_idx, new_origin_z_idx]
-        - new_origin,
-        dim=-1,
-    )
-    new_y_axis = nn.functional.normalize(
-        nerf_points[:, new_origin_x_idx, new_origin_y_idx + 1, new_origin_z_idx]
-        - new_origin,
-        dim=-1,
-    )
-    new_z_axis = nn.functional.normalize(
-        nerf_points[:, new_origin_x_idx, new_origin_y_idx, new_origin_z_idx + 1]
-        - new_origin,
-        dim=-1,
-    )
-
-    assert torch.isclose(torch.cross(new_x_axis, new_y_axis, dim=-1), new_z_axis).all()
-
-    # new_z_axis is implicit from the cross product of new_x_axis and new_y_axis
-    return new_origin, new_x_axis, new_y_axis
-
-
-@localscope.mfc(
-    allowed=[
-        "cfg",
-        "NUM_XYZ",
-    ]
-)
-def invariance_transformation(left_global_params: Tuple[torch.Tensor, ...], right_global_params: Tuple[torch.Tensor, ...]):
-    left_origin, left_x_axis, left_y_axis = left_global_params
-    right_origin, right_x_axis, right_y_axis = right_global_params
-
-    assert (
-        left_origin.shape
-        == right_origin.shape
-        == left_x_axis.shape
-        == right_x_axis.shape
-        == left_y_axis.shape
-        == right_y_axis.shape
-        == (cfg.dataloader.batch_size, NUM_XYZ)
-    )
-
-    # Always do rotation wrt left
-    # Get azimuth angle of left_origin
-    azimuth_angle = torch.atan2(left_origin[:, 1], left_origin[:, 0])
-
-    # Reverse azimuth angle around z to get back to xz plane (left_origin_y = 0)
-    # This handles invariance in both xy and yaw (angle around z)
-    transformation_matrix_around_z = torch.tensor(
-        [
-            [torch.cos(-azimuth_angle), -torch.sin(-azimuth_angle), 0, 0],
-            [torch.sin(-azimuth_angle), torch.cos(-azimuth_angle), 0, 0],
-            [0, 0, 1, 0],
-            [0, 0, 0, 1],
-        ]
-    )
-
-    @localscope.mfc
-    def transform(transformation_matrix, point):
-        assert transformation_matrix.shape == (4, 4)
-        assert point.shape == (cfg.dataloader.batch_size, 3)
-
-        transformed_point = transformation_matrix @ torch.cat(
-            [point, torch.tensor([1.0])]
-        )
-
-        return transformed_point[:, :3]
-
-    # Transform all
-    left_origin = transform(transformation_matrix_around_z, left_origin)
-    left_x_axis = transform(transformation_matrix_around_z, left_x_axis)
-    left_y_axis = transform(transformation_matrix_around_z, left_y_axis)
-    right_origin = transform(transformation_matrix_around_z, right_origin)
-    right_x_axis = transform(transformation_matrix_around_z, right_x_axis)
-    right_y_axis = transform(transformation_matrix_around_z, right_y_axis)
-
-    assert torch.all(
-        torch.isclose(left_origin[:, 1], torch.zeros_like(left_origin[:, 1]))
-    )  # left_origin_y = 0
-
-    USE_POLAR_ANGLE = False
-    if USE_POLAR_ANGLE:
-        # Always do rotation wrt left
-        # Get polar angle of left_origin
-        polar_angle = torch.atan2(
-            torch.sqrt(left_origin[0] ** 2 + left_origin[1] ** 2), left_origin[2]
-        )
-
-        # Angle between x axis and left_origin
-        polar_angle = torch.pi / 2 - polar_angle
-
-        # Rotation around y, positive to bring down to z = 0
-        transformation_matrix_around_y = torch.tensor(
-            [
-                [torch.cos(polar_angle), 0, torch.sin(polar_angle), 0],
-                [0, 1, 0, 0],
-                [-torch.sin(polar_angle), 0, torch.cos(polar_angle), 0],
-                [0, 0, 0, 1],
-            ]
-        )
-
-        # Transform all
-        left_origin = transform(transformation_matrix_around_y, left_origin)
-        left_x_axis = transform(transformation_matrix_around_y, left_x_axis)
-        left_y_axis = transform(transformation_matrix_around_y, left_y_axis)
-        right_origin = transform(transformation_matrix_around_y, right_origin)
-        right_x_axis = transform(transformation_matrix_around_y, right_x_axis)
-        right_y_axis = transform(transformation_matrix_around_y, right_y_axis)
-
-        assert torch.all(
-            torch.isclose(left_origin[:, 2], torch.zeros_like(left_origin[:, 2]))
-        )  # left_origin_z = 0
-
-    # To handle additional invariance, we can reflect around planes of symmetry
-    # xy plane probably doesn't make sense, as gravity affects this axis
-    # yz is handled already by the rotation around z
-    # xz plane is probably the best choice, as there is symmetry around moving left and right
-
-    # Reflect around xz plane
-    REFLECT_AROUND_XZ_PLANE_RANDOMLY = False
-    if REFLECT_AROUND_XZ_PLANE_RANDOMLY:
-        reflect = torch.rand((cfg.dataloader.batch_size,)) > 0.5
-        left_origin = torch.where(
-            reflect[:, None], left_origin * torch.tensor([1, -1, 1]), left_origin
-        )
-        left_x_axis = torch.where(
-            reflect[:, None], left_x_axis * torch.tensor([1, -1, 1]), left_x_axis
-        )
-        left_y_axis = torch.where(
-            reflect[:, None], left_y_axis * torch.tensor([1, -1, 1]), left_y_axis
-        )
-        right_origin = torch.where(
-            reflect[:, None], right_origin * torch.tensor([1, -1, 1]), right_origin
-        )
-        right_x_axis = torch.where(
-            reflect[:, None], right_x_axis * torch.tensor([1, -1, 1]), right_x_axis
-        )
-        right_y_axis = torch.where(
-            reflect[:, None], right_y_axis * torch.tensor([1, -1, 1]), right_y_axis
-        )
-
-    # y-axis gives you the orientation around the approach direction, which may not be important
-    REMOVE_Y_AXIS = False
-    if REMOVE_Y_AXIS:
-        return left_origin, left_x_axis, right_origin, right_x_axis
-    return (
-        left_origin,
-        left_x_axis,
-        left_y_axis,
-        right_origin,
-        right_x_axis,
-        right_y_axis,
-    )
-
-
-@localscope.mfc(
-    allowed=[
-        "cfg",
-        "INPUT_EXAMPLE_SHAPE",
-        "NUM_PTS_X",
-    ]
-)
-def preprocess_nerf_grid_inputs(nerf_grid_inputs: torch.Tensor):
-    assert nerf_grid_inputs.shape == (
-        cfg.dataloader.batch_size,
-        *INPUT_EXAMPLE_SHAPE,
-    )
-    assert torch.is_tensor(nerf_grid_inputs)
-
-    # Split into left and right
-    # Need to rotate the right side around the z-axis, so that the x-axis is pointing toward the left
-    # so need to flip the x and y axes
-    num_pts_per_side = NUM_PTS_X // 2
-    x_dim, y_dim = -3, -2
-    left_nerf_grid_inputs = nerf_grid_inputs[:, :, :num_pts_per_side, :, :]
-    right_nerf_grid_inputs = nerf_grid_inputs[:, :, -num_pts_per_side:, :, :].flip(
-        dims=(x_dim, y_dim)
-    )
-
-    left_nerf_densities, left_nerf_points = get_nerf_densities_and_points(
-        left_nerf_grid_inputs
-    )
-    right_nerf_densities, right_nerf_points = get_nerf_densities_and_points(
-        right_nerf_grid_inputs
-    )
-
-    FLIP_LEFT_RIGHT_RANDOMLY = False
-    if FLIP_LEFT_RIGHT_RANDOMLY:
-        flip = torch.rand((cfg.dataloader.batch_size,)) > 0.5
-        left_nerf_densities, right_nerf_densities = (
-            torch.where(
-                flip[:, None, None, None], right_nerf_densities, left_nerf_densities
-            ),
-            torch.where(
-                flip[:, None, None, None], left_nerf_densities, right_nerf_densities
-            ),
-        )
-        left_nerf_points, right_nerf_points = (
-            torch.where(
-                flip[:, None, None, None, None], right_nerf_points, left_nerf_points
-            ),
-            torch.where(
-                flip[:, None, None, None, None], left_nerf_points, right_nerf_points
-            ),
-        )
-
-    left_global_params = get_global_params(left_nerf_points)
-    right_global_params = get_global_params(right_nerf_points)
-
-    ADD_INVARIANCE_TRANSFORMATIONS = False
-    if ADD_INVARIANCE_TRANSFORMATIONS:
-        left_global_params, right_global_params = invariance_transformation(
-            left_global_params, right_global_params
-        )
-
-    return [
-        (left_nerf_densities, left_global_params),
-        (right_nerf_densities, right_global_params),
-    ]
-
 
 # %% [markdown]
 # # Visualize Dataset Distribution
@@ -1371,7 +1370,11 @@ def conv_encoder(
 
 # %%
 class NeRF_to_Grasp_Success_Model(nn.Module):
-    def __init__(self, input_example_shape: Tuple[int, ...], neural_network_config: NeuralNetworkConfig):
+    def __init__(
+        self,
+        input_example_shape: Tuple[int, ...],
+        neural_network_config: NeuralNetworkConfig,
+    ):
         super().__init__()
         self.input_example_shape = input_example_shape
         self.neural_network_config = neural_network_config

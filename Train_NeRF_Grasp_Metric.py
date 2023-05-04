@@ -967,9 +967,36 @@ fig.tight_layout()
 wandb.log({"Left Nerf Densities": fig})
 
 # %%
-# need to be in shape (num_imgs, C, H, W) and be np.uint8 in [0, 255]
-wandb_video = (np.array(images).reshape(num_imgs, 1, height, width) * 255).astype(np.uint8)
+# need to be in shape (num_imgs, 3, H, W) and be np.uint8 in [0, 255]
+wandb_video = (np.array(images).reshape(num_imgs, 1, height, width).repeat(repeats=3, axis=1) * 255).astype(np.uint8)
 wandb.log({"Left Nerf Densities Video": wandb.Video(wandb_video, fps=4, format="mp4")})
+
+# %%
+# Create 1D visualization
+left_max_density = left_nerf_density.max(axis=(1, 2))
+right_nerf_density = right_nerf_densities[idx].cpu().numpy().transpose(0, 2, 1)  # Tranpose because z is last, but should be height
+right_max_density = right_nerf_density.max(axis=(1, 2))
+max_density = np.concatenate([left_max_density, right_max_density[::-1]])
+plt.plot(max_density)
+plt.title("Max Alpha")
+plt.xlabel(f"Idx (Left = 0, Right = {len(max_density) - 1})")
+plt.ylabel("Max Alpha")
+
+# %%
+create_datapoint_plotly_fig(
+    dataset=val_dataset, datapoint_name=Phase.VAL.name.lower(), save_to_wandb=True
+)
+# %%
+val_dataset.indices[0]
+
+# %%
+create_detailed_plot_with_mesh(
+    full_dataset=full_dataset, idx_to_visualize=1174768, save_to_wandb=True
+)
+
+
+# %%
+# TODO: END REMOVE
 
 # %%
 print(f"Train loader size: {len(train_loader)}")

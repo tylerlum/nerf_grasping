@@ -352,9 +352,10 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
     # @localscope.mfc  # ValueError: Cell is empty
     def __init__(
         self,
-        input_hdf5_filepath,
-        load_nerf_grid_inputs_in_ram=False,
-        load_grasp_successes_in_ram=False,
+        input_hdf5_filepath: str,
+        max_num_data_points: Optional[int] = None,
+        load_nerf_grid_inputs_in_ram: bool = False,
+        load_grasp_successes_in_ram: bool = False,
     ):
         super().__init__()
         self.input_hdf5_filepath = input_hdf5_filepath
@@ -363,10 +364,8 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
         self.hdf5_file = None
 
         with h5py.File(self.input_hdf5_filepath, "r") as hdf5_file:
-            self.len = (
-                hdf5_file.attrs["num_data_points"]
-                if "num_data_points" in hdf5_file.attrs
-                else hdf5_file["/grasp_success"].shape[0]
+            self.len = self._set_length(
+                hdf5_file=hdf5_file, max_num_data_points=max_num_data_points
             )
 
             # Check that the data is in the expected format
@@ -374,20 +373,37 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
             assert hdf5_file["/nerf_grid_input"].shape[1:] == INPUT_EXAMPLE_SHAPE
 
             # This is usually too big for RAM
-            if load_nerf_grid_inputs_in_ram:
-                self.nerf_grid_inputs = torch.from_numpy(
-                    hdf5_file["/nerf_grid_input"][()]
-                ).float()
-            else:
-                self.nerf_grid_inputs = None
+            self.nerf_grid_inputs = (
+                torch.from_numpy(hdf5_file["/nerf_grid_input"][()]).float()
+                if load_nerf_grid_inputs_in_ram
+                else None
+            )
 
             # This is small enough to fit in RAM
-            if load_grasp_successes_in_ram:
-                self.grasp_successes = torch.from_numpy(
-                    hdf5_file["/grasp_success"][()]
-                ).long()
-            else:
-                self.grasp_successes = None
+            self.grasp_successes = (
+                torch.from_numpy(hdf5_file["/grasp_success"][()]).long()
+                if load_grasp_successes_in_ram
+                else None
+            )
+
+    @localscope.mfc
+    def _set_length(self, hdf5_file: h5py.File, max_num_data_points: Optional[int]):
+        length = (
+            hdf5_file.attrs["num_data_points"]
+            if "num_data_points" in hdf5_file.attrs
+            else hdf5_file["/grasp_success"].shape[0]
+        )
+        if length != hdf5_file["/grasp_success"].shape[0]:
+            print(
+                f"WARNING: num_data_points = {length} != grasp_success.shape[0] = {hdf5_file['/grasp_success'].shape[0]}"
+            )
+
+        # Constrain length of dataset if max_num_data_points is set
+        if max_num_data_points is not None:
+            print(f"Constraining dataset length to {max_num_data_points}")
+            length = max_num_data_points
+
+        return length
 
     @localscope.mfc
     def __len__(self):
@@ -411,21 +427,17 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
                 rdcc_nslots=4_000,
             )
 
-        if self.nerf_grid_inputs is not None:
-            nerf_grid_input = self.nerf_grid_inputs[idx]
-        else:
-            nerf_grid_input = torch.from_numpy(
-                self.hdf5_file["/nerf_grid_input"][idx]
-            ).float()
+        nerf_grid_input = (
+            torch.from_numpy(self.hdf5_file["/nerf_grid_input"][idx]).float()
+            if self.nerf_grid_inputs is None
+            else self.nerf_grid_inputs[idx]
+        )
 
-        if self.grasp_successes is not None:
-            grasp_success = self.grasp_successes[idx]
-        else:
-            grasp_success = torch.from_numpy(
-                np.array(
-                    self.hdf5_file["/grasp_success"][idx]
-                )  # Otherwise would be a scalar
-            ).long()
+        grasp_success = (
+            torch.from_numpy(self.hdf5_file["/grasp_success"][idx]).long()
+            if self.grasp_successes is None
+            else self.grasp_successes[idx]
+        )
 
         assert nerf_grid_input.shape == INPUT_EXAMPLE_SHAPE
         assert grasp_success.shape == ()

@@ -1479,6 +1479,7 @@ fig.show()
 
 # %%
 theta = torch.atan2(left_finger_origin[1], left_finger_origin[0])
+
 # theta += torch.tensor(np.pi / 2)
 transformation_matrix = torch.tensor([
     [torch.cos(-theta), -torch.sin(-theta), 0, 0],
@@ -1535,6 +1536,58 @@ def distance_point_to_line(point, line_point1, line_point2):
     return distance
 print(f'distance_point_to_line(origin, left_finger_origin, left_finger_origin + left_finger_x_axis) = {distance_point_to_line(origin, left_finger_origin, left_finger_origin + left_finger_x_axis)}')
 print(f"distance_point_to_line(origin, new_left_finger_origin, new_left_finger_origin + new_left_finger_x_axis) = {distance_point_to_line(origin, new_left_finger_origin, new_left_finger_origin + new_left_finger_x_axis)}")
+
+
+# %%
+phi = torch.atan2(torch.sqrt(left_finger_origin[0]**2 + left_finger_origin[1]**2), left_finger_origin[2])
+print(f"phi = {phi}")
+# phi = torch.pi / 2 - phi
+
+# Rotation around y
+phi_transformation_matrix = torch.tensor([
+    [torch.cos(-phi), 0, torch.sin(-phi), 0],
+    [0, 1, 0, 0],
+    [-torch.sin(-phi), 0, torch.cos(-phi), 0],
+    [0, 0, 0, 1]
+])
+
+fig = go.Figure(layout=layout)
+traces = []
+traces += get_xyz_axes(origin=origin, x_axis=x_axis, y_axis=y_axis, z_axis=z_axis, name="original")
+traces += get_xyz_axes(origin=left_finger_origin, x_axis=left_rotation_matrix @ x_axis, y_axis=left_rotation_matrix @ y_axis, z_axis=left_rotation_matrix @ z_axis, name="left finger", length=0.1)
+
+new_left_finger_origin = transformation_matrix @ torch.cat([left_finger_origin, torch.tensor([1.0])])
+new_left_finger_origin = new_left_finger_origin[:3]
+new_left_finger_origin_2 = torch.tensor([torch.norm(left_finger_origin[:2]), 0, left_finger_origin[2]])
+new_left_finger_x_axis = transformation_matrix @ torch.cat([left_finger_x_axis, torch.tensor([0.0])])
+new_left_finger_y_axis = transformation_matrix @ torch.cat([left_finger_y_axis, torch.tensor([0.0])])
+new_left_finger_z_axis = transformation_matrix @ torch.cat([left_finger_z_axis, torch.tensor([0.0])])
+new_left_finger_x_axis = new_left_finger_x_axis[:3]
+new_left_finger_y_axis = new_left_finger_y_axis[:3]
+new_left_finger_z_axis = new_left_finger_z_axis[:3]
+
+traces += get_xyz_axes(origin=new_left_finger_origin, x_axis=new_left_finger_x_axis, y_axis=new_left_finger_y_axis, z_axis=new_left_finger_z_axis, name="left finger rotated around z", length=0.1)
+
+phi_adjusted_left_finger_origin = phi_transformation_matrix @ torch.cat([left_finger_origin, torch.tensor([1.0])])
+phi_adjusted_left_finger_x_axis = phi_transformation_matrix @ torch.cat([left_finger_x_axis, torch.tensor([0.0])])
+phi_adjusted_left_finger_y_axis = phi_transformation_matrix @ torch.cat([left_finger_y_axis, torch.tensor([0.0])])
+phi_adjusted_left_finger_z_axis = phi_transformation_matrix @ torch.cat([left_finger_z_axis, torch.tensor([0.0])])
+phi_adjusted_left_finger_origin = phi_adjusted_left_finger_origin[:3]
+phi_adjusted_left_finger_x_axis = phi_adjusted_left_finger_x_axis[:3]
+phi_adjusted_left_finger_y_axis = phi_adjusted_left_finger_y_axis[:3]
+phi_adjusted_left_finger_z_axis = phi_adjusted_left_finger_z_axis[:3]
+
+traces += get_xyz_axes(origin=phi_adjusted_left_finger_origin, x_axis=phi_adjusted_left_finger_x_axis, y_axis=phi_adjusted_left_finger_y_axis, z_axis=phi_adjusted_left_finger_z_axis, name="left finger rotated around y", length=0.1)
+
+for trace in traces:
+    fig.add_trace(trace)
+
+fig.show()
+
+print(f'distance_point_to_line(origin, left_finger_origin, left_finger_origin + left_finger_x_axis) = {distance_point_to_line(origin, left_finger_origin, left_finger_origin + left_finger_x_axis)}')
+print(f"distance_point_to_line(origin, new_left_finger_origin, new_left_finger_origin + new_left_finger_x_axis) = {distance_point_to_line(origin, new_left_finger_origin, new_left_finger_origin + new_left_finger_x_axis)}")
+print(f"distance_point_to_line(origin, phi_adjusted_left_finger_origin, phi_adjusted_left_finger_origin + phi_adjusted_left_finger_x_axis) = {distance_point_to_line(origin, phi_adjusted_left_finger_origin, phi_adjusted_left_finger_origin + phi_adjusted_left_finger_x_axis)}")
+
 
 
 

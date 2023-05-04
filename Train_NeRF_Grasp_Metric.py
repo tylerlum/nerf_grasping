@@ -1039,12 +1039,6 @@ if cfg.visualize_data:
         dataset=val_dataset, datapoint_name=Phase.VAL.name.lower(), save_to_wandb=True
     )
 
-# %%
-# TODO: REMOVE
-create_datapoint_plotly_fig(
-    dataset=val_dataset, datapoint_name=Phase.VAL.name.lower(), save_to_wandb=False
-)
-
 
 # %%
 @localscope.mfc
@@ -1095,7 +1089,9 @@ def create_plotly_mesh(obj_filepath, scale=1.0, offset=None, color="lightpink"):
 # %%
 @localscope.mfc
 def create_detailed_plot_with_mesh(
-    full_dataset: NeRFGrid_To_GraspSuccess_HDF5_Dataset, idx_to_visualize: int = 0, save_to_wandb: bool = False
+    full_dataset: NeRFGrid_To_GraspSuccess_HDF5_Dataset,
+    idx_to_visualize: int = 0,
+    save_to_wandb: bool = False,
 ):
     # Hacky function that reads from both the input dataset and the acronym dataset
     # To create a detailed plot with the mesh and the grasp
@@ -1170,14 +1166,27 @@ def create_detailed_plot_with_mesh(
     )
 
     if save_to_wandb:
-        wandb_log_plotly_fig(plotly_fig=fig, title=f"Detailed Mesh Plot idx={idx_to_visualize}")
+        wandb_log_plotly_fig(
+            plotly_fig=fig, title=f"Detailed Mesh Plot idx={idx_to_visualize}"
+        )
 
     return fig
 
 
 # %%
 if cfg.visualize_data:
-    create_detailed_plot_with_mesh(full_dataset=full_dataset, idx_to_visualize=0, save_to_wandb=True)
+    create_datapoint_plotly_fig(
+        dataset=full_dataset,
+        datapoint_name="full",
+        idx_to_visualize=0,
+        save_to_wandb=True,
+    )
+
+# %%
+if cfg.visualize_data:
+    create_detailed_plot_with_mesh(
+        full_dataset=full_dataset, idx_to_visualize=0, save_to_wandb=True
+    )
 
 # %%
 

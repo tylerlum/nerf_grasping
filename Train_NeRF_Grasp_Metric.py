@@ -1540,8 +1540,10 @@ print(f"distance_point_to_line(origin, new_left_finger_origin, new_left_finger_o
 
 # %%
 phi = torch.atan2(torch.sqrt(left_finger_origin[0]**2 + left_finger_origin[1]**2), left_finger_origin[2])
+# phi = torch.atan2(left_finger_origin[2], torch.sqrt(left_finger_origin[0]**2 + left_finger_origin[1]**2))
 print(f"phi = {phi}")
-# phi = torch.pi / 2 - phi
+# phi = -phi
+phi = - (torch.pi / 2 - phi)
 
 # Rotation around y
 phi_transformation_matrix = torch.tensor([
@@ -1587,8 +1589,12 @@ fig.show()
 print(f'distance_point_to_line(origin, left_finger_origin, left_finger_origin + left_finger_x_axis) = {distance_point_to_line(origin, left_finger_origin, left_finger_origin + left_finger_x_axis)}')
 print(f"distance_point_to_line(origin, new_left_finger_origin, new_left_finger_origin + new_left_finger_x_axis) = {distance_point_to_line(origin, new_left_finger_origin, new_left_finger_origin + new_left_finger_x_axis)}")
 print(f"distance_point_to_line(origin, phi_adjusted_left_finger_origin, phi_adjusted_left_finger_origin + phi_adjusted_left_finger_x_axis) = {distance_point_to_line(origin, phi_adjusted_left_finger_origin, phi_adjusted_left_finger_origin + phi_adjusted_left_finger_x_axis)}")
-
-
+print(f"torch.norm(phi_adjusted_left_finger_origin) = {torch.norm(phi_adjusted_left_finger_origin)}")
+print(f"torch.norm(new_left_finger_origin) = {torch.norm(new_left_finger_origin)}")
+print(f"torch.norm(left_finger_origin) = {torch.norm(left_finger_origin)}")
+print(f"phi_adjusted_left_finger_origin = {phi_adjusted_left_finger_origin}")
+print(f"new_left_finger_origin = {new_left_finger_origin}")
+print(f"left_finger_origin = {left_finger_origin}")
 
 
 

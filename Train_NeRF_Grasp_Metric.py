@@ -548,7 +548,9 @@ def get_nerf_densities_and_points(nerf_grid_inputs: torch.Tensor):
 
     assert torch.is_tensor(nerf_grid_inputs)
 
-    nerf_densities = nerf_grid_inputs[:, NERF_DENSITY_START_IDX:NERF_DENSITY_END_IDX]
+    nerf_densities = nerf_grid_inputs[
+        :, NERF_DENSITY_START_IDX:NERF_DENSITY_END_IDX
+    ].squeeze(dim=1)
     nerf_points = nerf_grid_inputs[:, NERF_COORDINATE_START_IDX:NERF_COORDINATE_END_IDX]
 
     return nerf_densities, nerf_points
@@ -746,13 +748,7 @@ def invariance_transformation(
     )
 
 
-@localscope.mfc(
-    allowed=[
-        "cfg",
-        "INPUT_EXAMPLE_SHAPE",
-        "NUM_PTS_X",
-    ]
-)
+@localscope.mfc(allowed=["cfg", "INPUT_EXAMPLE_SHAPE", "NUM_PTS_X", "NUM_XYZ"])
 def preprocess_nerf_grid_inputs(
     nerf_grid_inputs: torch.Tensor,
     flip_left_right_randomly: bool = False,
@@ -830,12 +826,12 @@ def preprocess_nerf_grid_inputs(
             remove_y_axis=remove_y_axis,
         )
 
-    # Stack global params into a single tensor
+    # Concatenate global params into a single tensor
     assert len(left_global_params) == len(right_global_params)
     assert all([param.shape == (batch_size, NUM_XYZ) for param in left_global_params])
     assert all([param.shape == (batch_size, NUM_XYZ) for param in right_global_params])
-    left_global_params = torch.stack(left_global_params, dim=1)
-    right_global_params = torch.stack(right_global_params, dim=1)
+    left_global_params = torch.cat(left_global_params, dim=1)
+    right_global_params = torch.cat(right_global_params, dim=1)
 
     return [
         (left_nerf_densities, left_global_params),
@@ -899,12 +895,14 @@ def custom_collate_fn(batch):
         reflect_around_xz_plane_randomly=cfg.preprocess.reflect_around_xz_plane_randomly,
         remove_y_axis=cfg.preprocess.remove_y_axis,
     )
-    print(f"left_nerf_densities.shape: {left_nerf_densities.shape}")
-    print(f"left_global_params.shape: {left_global_params.shape}")
-    print(f"right_nerf_densities.shape: {right_nerf_densities.shape}")
-    print(f"right_global_params.shape: {right_global_params.shape}")
 
-    return batch
+    return (
+        (
+            (left_nerf_densities, left_global_params),
+            (right_nerf_densities, right_global_params),
+        ),
+        grasp_successes,
+    )
 
 
 # %%
@@ -935,8 +933,43 @@ test_loader = DataLoader(
 
 # %%
 # TODO REMOVE
-xx, yy = next(iter(train_loader))
+(
+    (left_nerf_densities, left_global_params),
+    (right_nerf_densities, right_global_params),
+), grasp_successes = next(iter(val_loader))
+print("DONE")
 
+# %%
+left_nerf_densities.shape, left_global_params.shape, right_nerf_densities.shape, right_global_params.shape, grasp_successes.shape
+
+# %%
+# Visualize nerf densities
+import matplotlib.pyplot as plt
+idx = 0
+left_nerf_density = left_nerf_densities[idx].cpu().numpy().transpose(0, 2, 1)  # Tranpose because z is last, but should be height
+num_imgs, height, width = left_nerf_density.shape
+images = [left_nerf_density[i] for i in range(num_imgs)]
+num_rows = math.ceil(math.sqrt(num_imgs))
+num_cols = math.ceil(num_imgs / num_rows)
+
+fig, axes = plt.subplots(num_rows, num_cols, figsize=(20, 20))
+for i, ax in enumerate(axes.flatten()):
+    ax.axis("off")
+
+    if i >= num_imgs:
+        continue
+
+    ax.imshow(images[i])
+    ax.set_title(f"Image {i}")
+
+fig.suptitle("Left Nerf Densities")
+fig.tight_layout()
+wandb.log({"Left Nerf Densities": fig})
+
+# %%
+# need to be in shape (num_imgs, C, H, W) and be np.uint8 in [0, 255]
+wandb_video = (np.array(images).reshape(num_imgs, 1, height, width) * 255).astype(np.uint8)
+wandb.log({"Left Nerf Densities Video": wandb.Video(wandb_video, fps=4, format="mp4")})
 
 # %%
 print(f"Train loader size: {len(train_loader)}")

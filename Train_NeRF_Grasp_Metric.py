@@ -44,7 +44,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum, auto
 from functools import partial
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import h5py
 import numpy as np
@@ -416,7 +416,7 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
             "NERF_DENSITY_END_IDX",
         ]
     )
-    def __getitem__(self, idx):
+    def __getitem__(self, idx: int):
         if self.hdf5_file is None:
             # Hope to speed up with rdcc params
             self.hdf5_file = h5py.File(
@@ -453,7 +453,7 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
     ]
 )
 @torch.no_grad()
-def preprocess_to_alpha(nerf_densities):
+def preprocess_to_alpha(nerf_densities: torch.Tensor):
     # alpha = 1 - exp(-delta * sigma)
     #       = probability of collision within this segment starting from beginning of segment
     return 1.0 - torch.exp(-DELTA * nerf_densities)
@@ -469,14 +469,14 @@ def preprocess_to_alpha(nerf_densities):
     ]
 )
 @torch.no_grad()
-def preprocess_to_weight(nerf_densities):
+def preprocess_to_weight(nerf_densities: torch.Tensor):
     # alpha_j = 1 - exp(-delta_j * sigma_j)
     #         = probability of collision within this segment starting from beginning of segment
     # weight_j = alpha_j * (1 - alpha_{j-1}) * ... * (1 - alpha_1))
     #          = probability of collision within j-th segment starting from left edge
 
-    @localscope.mfc  # TODO: Had error, should fix
-    def compute_weight(alpha):
+    @localscope.mfc
+    def compute_weight(alpha: torch.Tensor):
         # [1 - alpha_1, (1 - alpha_1) * (1 - alpha_2), ..., (1 - alpha_1) * ... * (1 - alpha_{NUM_PTS_X}))]
         cumprod_1_minus_alpha_from_left = (1 - alpha).cumprod(dim=x_axis_dim)
 
@@ -606,7 +606,7 @@ class Phase(Enum):
 
 # %%
 @localscope.mfc
-def wandb_log_plotly_fig(plotly_fig, title, group_name="plotly"):
+def wandb_log_plotly_fig(plotly_fig: go.Figure, title: str, group_name: str = "plotly"):
     if wandb.run is None:
         print("Not logging plotly fig to wandb because wandb.run is None")
         return
@@ -651,7 +651,7 @@ def get_isaac_origin_lines():
 
 
 @localscope.mfc(allowed=["NUM_XYZ"])
-def get_colored_points_scatter(points, colors):
+def get_colored_points_scatter(points: torch.Tensor, colors: torch.Tensor):
     assert len(points.shape) == 2 and points.shape[1] == NUM_XYZ
     assert len(colors.shape) == 1
 
@@ -764,20 +764,18 @@ create_datapoint_plotly_fig(
 @localscope.mfc(
     allowed=[
         "cfg",
-        "INPUT_EXAMPLE_SHAPE",
-        "NERF_DENSITY_START_IDX",
-        "NERF_DENSITY_END_IDX",
         "NUM_PTS_X",
         "NUM_PTS_Y",
         "NUM_PTS_Z",
-        "NUM_DENSITY",
         "NUM_XYZ",
         "NUM_CHANNELS",
+        "NERF_DENSITY_START_IDX",
+        "NERF_DENSITY_END_IDX",
         "NERF_COORDINATE_START_IDX",
         "NERF_COORDINATE_END_IDX",
     ]
 )
-def get_nerf_densities_and_points(nerf_grid_inputs):
+def get_nerf_densities_and_points(nerf_grid_inputs: torch.Tensor):
     assert (
         len(nerf_grid_inputs.shape) == 5
         and nerf_grid_inputs.shape[0] == cfg.dataloader.batch_size
@@ -798,27 +796,20 @@ def get_nerf_densities_and_points(nerf_grid_inputs):
 @localscope.mfc(
     allowed=[
         "cfg",
-        "INPUT_EXAMPLE_SHAPE",
-        "NERF_DENSITY_START_IDX",
-        "NERF_DENSITY_END_IDX",
         "NUM_PTS_X",
         "NUM_PTS_Y",
         "NUM_PTS_Z",
-        "NUM_DENSITY",
         "NUM_XYZ",
-        "NUM_CHANNELS",
-        "NERF_COORDINATE_START_IDX",
-        "NERF_COORDINATE_END_IDX",
     ]
 )
-def get_global_params(nerf_points):
+def get_global_params(nerf_points: torch.Tensor):
     assert (
-        len(nerf_grid_inputs.shape) == 5
-        and nerf_grid_inputs.shape[0] == cfg.dataloader.batch_size
-        and nerf_grid_inputs.shape[1] == NUM_XYZ
-        and nerf_grid_inputs.shape[2] in [NUM_PTS_X // 2, NUM_PTS_X]
-        and nerf_grid_inputs.shape[3] == NUM_PTS_Y
-        and nerf_grid_inputs.shape[4] == NUM_PTS_Z
+        len(nerf_points.shape) == 5
+        and nerf_points.shape[0] == cfg.dataloader.batch_size
+        and nerf_points.shape[1] == NUM_XYZ
+        and nerf_points.shape[2] in [NUM_PTS_X // 2, NUM_PTS_X]
+        and nerf_points.shape[3] == NUM_PTS_Y
+        and nerf_points.shape[4] == NUM_PTS_Z
     )
     assert torch.is_tensor(nerf_points)
 
@@ -856,19 +847,10 @@ def get_global_params(nerf_points):
 @localscope.mfc(
     allowed=[
         "cfg",
-        "INPUT_EXAMPLE_SHAPE",
-        "NERF_DENSITY_START_IDX",
-        "NERF_DENSITY_END_IDX",
-        "NUM_PTS_X",
-        "NUM_PTS_Y",
-        "NUM_PTS_Z",
-        "NUM_DENSITY",
         "NUM_XYZ",
-        "NERF_COORDINATE_START_IDX",
-        "NERF_COORDINATE_END_IDX",
     ]
 )
-def invariance_transformation(left_global_params, right_global_params):
+def invariance_transformation(left_global_params: Tuple[torch.Tensor, ...], right_global_params: Tuple[torch.Tensor, ...]):
     left_origin, left_x_axis, left_y_axis = left_global_params
     right_origin, right_x_axis, right_y_axis = right_global_params
 
@@ -999,18 +981,10 @@ def invariance_transformation(left_global_params, right_global_params):
     allowed=[
         "cfg",
         "INPUT_EXAMPLE_SHAPE",
-        "NERF_DENSITY_START_IDX",
-        "NERF_DENSITY_END_IDX",
         "NUM_PTS_X",
-        "NUM_PTS_Y",
-        "NUM_PTS_Z",
-        "NUM_DENSITY",
-        "NUM_XYZ",
-        "NERF_COORDINATE_START_IDX",
-        "NERF_COORDINATE_END_IDX",
     ]
 )
-def preprocess_nerf_grid_inputs(nerf_grid_inputs):
+def preprocess_nerf_grid_inputs(nerf_grid_inputs: torch.Tensor):
     assert nerf_grid_inputs.shape == (
         cfg.dataloader.batch_size,
         *INPUT_EXAMPLE_SHAPE,
@@ -1258,9 +1232,9 @@ if cfg.visualize_data:
 # %%
 @localscope.mfc
 def mlp(
-    num_inputs,
-    num_outputs,
-    hidden_layers,
+    num_inputs: int,
+    num_outputs: int,
+    hidden_layers: List[int],
     activation=nn.ReLU,
     output_activation=nn.Identity,
 ):
@@ -1273,30 +1247,30 @@ def mlp(
 
 
 class Mean(nn.Module):
-    def __init__(self, dim):
+    def __init__(self, dim: int):
         super().__init__()
         self.dim = dim
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor):
         return torch.mean(x, dim=self.dim)
 
 
 class Max(nn.Module):
-    def __init__(self, dim):
+    def __init__(self, dim: int):
         super().__init__()
         self.dim = dim
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor):
         return torch.max(x, dim=self.dim)
 
 
 @localscope.mfc
 def conv_encoder(
-    input_shape,
-    conv_channels,
-    pool_type=PoolType.MAX,
-    dropout_prob=0.0,
-    conv_output_to_1d=ConvOutputTo1D.FLATTEN,
+    input_shape: Tuple[int, ...],
+    conv_channels: List[int],
+    pool_type: PoolType = PoolType.MAX,
+    dropout_prob: float = 0.0,
+    conv_output_to_1d: ConvOutputTo1D = ConvOutputTo1D.FLATTEN,
     activation=nn.ReLU,
 ):
     # Input: Either (n_channels, n_dims) or (n_channels, height, width) or (n_channels, depth, height, width)
@@ -1397,7 +1371,7 @@ def conv_encoder(
 
 # %%
 class NeRF_to_Grasp_Success_Model(nn.Module):
-    def __init__(self, input_example_shape, neural_network_config: NeuralNetworkConfig):
+    def __init__(self, input_example_shape: Tuple[int, ...], neural_network_config: NeuralNetworkConfig):
         super().__init__()
         self.input_example_shape = input_example_shape
         self.neural_network_config = neural_network_config
@@ -1427,17 +1401,17 @@ class NeRF_to_Grasp_Success_Model(nn.Module):
         )
 
     @localscope.mfc
-    def forward(self, x):
+    def forward(self, x: torch.Tensor):
         x = self.conv(x)
         x = self.mlp(x)
         return x
 
     @localscope.mfc
-    def get_success_logits(self, x):
+    def get_success_logits(self, x: torch.Tensor):
         return self.forward(x)
 
     @localscope.mfc
-    def get_success_probability(self, x):
+    def get_success_probability(self, x: torch.Tensor):
         return nn.functional.softmax(self.get_success_logits(x), dim=-1)
 
 

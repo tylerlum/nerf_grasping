@@ -339,6 +339,7 @@ NUM_CHANNELS = NUM_XYZ + NUM_DENSITY
 INPUT_EXAMPLE_SHAPE = (NUM_CHANNELS, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
 NERF_COORDINATE_START_IDX, NERF_COORDINATE_END_IDX = 0, 3
 NERF_DENSITY_START_IDX, NERF_DENSITY_END_IDX = 3, 4
+DELTA = 0.001  # 1mm between grid points
 
 assert NERF_COORDINATE_END_IDX == NERF_COORDINATE_START_IDX + NUM_XYZ
 assert NERF_DENSITY_END_IDX == NERF_DENSITY_START_IDX + NUM_DENSITY
@@ -453,6 +454,7 @@ def preprocess_to_density(nerf_grid_input):
         "INPUT_EXAMPLE_SHAPE",
         "NERF_DENSITY_START_IDX",
         "NERF_DENSITY_END_IDX",
+        "DELTA",
     ]
 )
 @torch.no_grad()
@@ -461,11 +463,9 @@ def preprocess_to_alpha(nerf_grid_input):
     #       = probability of collision within this segment starting from beginning of segment
     assert nerf_grid_input.shape == INPUT_EXAMPLE_SHAPE
 
-    delta = 0.001  # 1mm
-
     # alpha
     nerf_grid_input[NERF_DENSITY_START_IDX:NERF_DENSITY_END_IDX] = 1 - torch.exp(
-        -nerf_grid_input[NERF_DENSITY_START_IDX:NERF_DENSITY_END_IDX] * delta
+        -nerf_grid_input[NERF_DENSITY_START_IDX:NERF_DENSITY_END_IDX] * DELTA
     )
     return nerf_grid_input
 
@@ -477,6 +477,7 @@ def preprocess_to_alpha(nerf_grid_input):
         "NERF_DENSITY_START_IDX",
         "NERF_DENSITY_END_IDX",
         "NUM_PTS_X",
+        "DELTA",
     ]
 )
 @torch.no_grad()
@@ -512,12 +513,11 @@ def preprocess_to_weight(nerf_grid_input):
 
     assert nerf_grid_input.shape == INPUT_EXAMPLE_SHAPE
 
-    delta = 0.001  # 1mm
     x_axis_dim = 1
 
     # [alpha_1, alpha_2, ..., alpha_{NUM_PTS_X}]
     alpha = 1.0 - torch.exp(
-        -nerf_grid_input[NERF_DENSITY_START_IDX:NERF_DENSITY_END_IDX] * delta
+        -nerf_grid_input[NERF_DENSITY_START_IDX:NERF_DENSITY_END_IDX] * DELTA
     )
 
     # left_weight_j = alpha_j * (1 - alpha_{j-1}) * ... * (1 - alpha_1))
@@ -790,6 +790,303 @@ create_datapoint_plotly_fig(
     loader=val_loader, datapoint_name=Phase.VAL.name.lower(), save_to_wandb=True
 )
 
+
+# %%
+@localscope.mfc(
+    allowed=[
+        "cfg",
+        "INPUT_EXAMPLE_SHAPE",
+        "NERF_DENSITY_START_IDX",
+        "NERF_DENSITY_END_IDX",
+        "NUM_PTS_X",
+        "NUM_PTS_Y",
+        "NUM_PTS_Z",
+        "NUM_DENSITY",
+        "NUM_XYZ",
+        "NUM_CHANNELS",
+        "NERF_COORDINATE_START_IDX",
+        "NERF_COORDINATE_END_IDX",
+    ]
+)
+def get_nerf_densities_and_points(nerf_grid_inputs):
+    assert (
+        len(nerf_grid_inputs.shape) == 5
+        and nerf_grid_inputs.shape[0] == cfg.dataloader.batch_size
+        and nerf_grid_inputs.shape[1] == NUM_CHANNELS
+        and nerf_grid_inputs.shape[2] in [NUM_PTS_X // 2, NUM_PTS_X]
+        and nerf_grid_inputs.shape[3] == NUM_PTS_Y
+        and nerf_grid_inputs.shape[4] == NUM_PTS_Z
+    )
+
+    assert torch.is_tensor(nerf_grid_inputs)
+
+    nerf_densities = nerf_grid_inputs[:, NERF_DENSITY_START_IDX:NERF_DENSITY_END_IDX]
+    nerf_points = nerf_grid_inputs[:, NERF_COORDINATE_START_IDX:NERF_COORDINATE_END_IDX]
+
+    return nerf_densities, nerf_points
+
+
+@localscope.mfc(
+    allowed=[
+        "cfg",
+        "INPUT_EXAMPLE_SHAPE",
+        "NERF_DENSITY_START_IDX",
+        "NERF_DENSITY_END_IDX",
+        "NUM_PTS_X",
+        "NUM_PTS_Y",
+        "NUM_PTS_Z",
+        "NUM_DENSITY",
+        "NUM_XYZ",
+        "NUM_CHANNELS",
+        "NERF_COORDINATE_START_IDX",
+        "NERF_COORDINATE_END_IDX",
+    ]
+)
+def get_global_params(nerf_points):
+    assert (
+        len(nerf_grid_inputs.shape) == 5
+        and nerf_grid_inputs.shape[0] == cfg.dataloader.batch_size
+        and nerf_grid_inputs.shape[1] == NUM_XYZ
+        and nerf_grid_inputs.shape[2] in [NUM_PTS_X // 2, NUM_PTS_X]
+        and nerf_grid_inputs.shape[3] == NUM_PTS_Y
+        and nerf_grid_inputs.shape[4] == NUM_PTS_Z
+    )
+    assert torch.is_tensor(nerf_points)
+
+    new_origin_x_idx, new_origin_y_idx, new_origin_z_idx = (
+        0,
+        NUM_PTS_Y // 2,
+        NUM_PTS_Z // 2,
+    )
+
+    new_origin = nerf_points[:, :, new_origin_x_idx, new_origin_y_idx, new_origin_z_idx]
+    assert new_origin.shape == (cfg.dataloader.batch_size, NUM_XYZ)
+
+    new_x_axis = nn.functional.normalize(
+        nerf_points[:, new_origin_x_idx + 1, new_origin_y_idx, new_origin_z_idx]
+        - new_origin,
+        dim=-1,
+    )
+    new_y_axis = nn.functional.normalize(
+        nerf_points[:, new_origin_x_idx, new_origin_y_idx + 1, new_origin_z_idx]
+        - new_origin,
+        dim=-1,
+    )
+    new_z_axis = nn.functional.normalize(
+        nerf_points[:, new_origin_x_idx, new_origin_y_idx, new_origin_z_idx + 1]
+        - new_origin,
+        dim=-1,
+    )
+
+    assert torch.isclose(torch.cross(new_x_axis, new_y_axis, dim=-1), new_z_axis).all()
+
+    # new_z_axis is implicit from the cross product of new_x_axis and new_y_axis
+    return new_origin, new_x_axis, new_y_axis
+
+
+@localscope.mfc(
+    allowed=[
+        "cfg",
+        "INPUT_EXAMPLE_SHAPE",
+        "NERF_DENSITY_START_IDX",
+        "NERF_DENSITY_END_IDX",
+        "NUM_PTS_X",
+        "NUM_PTS_Y",
+        "NUM_PTS_Z",
+        "NUM_DENSITY",
+        "NUM_XYZ",
+        "NERF_COORDINATE_START_IDX",
+        "NERF_COORDINATE_END_IDX",
+    ]
+)
+def invariance_transformation(left_global_params, right_global_params):
+    left_origin, left_x_axis, left_y_axis = left_global_params
+    right_origin, right_x_axis, right_y_axis = right_global_params
+
+    assert (
+        left_origin.shape
+        == right_origin.shape
+        == left_x_axis.shape
+        == right_x_axis.shape
+        == left_y_axis.shape
+        == right_y_axis.shape
+        == (cfg.dataloader.batch_size, NUM_XYZ)
+    )
+
+    # Always do rotation wrt left
+    # Get azimuth angle of left_origin
+    azimuth_angle = torch.atan2(left_origin[:, 1], left_origin[:, 0])
+
+    # Reverse azimuth angle around z to get back to xz plane (left_origin_y = 0)
+    # This handles invariance in both xy and yaw (angle around z)
+    transformation_matrix_around_z = torch.tensor(
+        [
+            [torch.cos(-azimuth_angle), -torch.sin(-azimuth_angle), 0, 0],
+            [torch.sin(-azimuth_angle), torch.cos(-azimuth_angle), 0, 0],
+            [0, 0, 1, 0],
+            [0, 0, 0, 1],
+        ]
+    )
+
+    @localscope.mfc
+    def transform(transformation_matrix, point):
+        assert transformation_matrix.shape == (4, 4)
+        assert point.shape == (cfg.dataloader.batch_size, 3)
+
+        transformed_point = transformation_matrix @ torch.cat(
+            [point, torch.tensor([1.0])]
+        )
+
+        return transformed_point[:, :3]
+
+    # Transform all
+    left_origin = transform(transformation_matrix_around_z, left_origin)
+    left_x_axis = transform(transformation_matrix_around_z, left_x_axis)
+    left_y_axis = transform(transformation_matrix_around_z, left_y_axis)
+    right_origin = transform(transformation_matrix_around_z, right_origin)
+    right_x_axis = transform(transformation_matrix_around_z, right_x_axis)
+    right_y_axis = transform(transformation_matrix_around_z, right_y_axis)
+
+    assert torch.all(torch.isclose(left_origin[:, 1], torch.zeros_like(left_origin[:, 1])))  # left_origin_y = 0
+
+    USE_POLAR_ANGLE = False
+    if USE_POLAR_ANGLE:
+        # Always do rotation wrt left
+        # Get polar angle of left_origin
+        polar_angle = torch.atan2(
+            torch.sqrt(left_origin[0] ** 2 + left_origin[1] ** 2), left_origin[2]
+        )
+
+        # Angle between x axis and left_origin
+        polar_angle = (torch.pi / 2 - polar_angle)
+
+        # Rotation around y, positive to bring down to z = 0
+        transformation_matrix_around_y = torch.tensor(
+            [
+                [torch.cos(polar_angle), 0, torch.sin(polar_angle), 0],
+                [0, 1, 0, 0],
+                [-torch.sin(polar_angle), 0, torch.cos(polar_angle), 0],
+                [0, 0, 0, 1],
+            ]
+        )
+
+        # Transform all
+        left_origin = transform(transformation_matrix_around_y, left_origin)
+        left_x_axis = transform(transformation_matrix_around_y, left_x_axis)
+        left_y_axis = transform(transformation_matrix_around_y, left_y_axis)
+        right_origin = transform(transformation_matrix_around_y, right_origin)
+        right_x_axis = transform(transformation_matrix_around_y, right_x_axis)
+        right_y_axis = transform(transformation_matrix_around_y, right_y_axis)
+
+        assert torch.all(torch.isclose(left_origin[:, 2], torch.zeros_like(left_origin[:, 2])))  # left_origin_z = 0
+
+    # To handle additional invariance, we can reflect around planes of symmetry
+    # xy plane probably doesn't make sense, as gravity affects this axis
+    # yz is handled already by the rotation around z
+    # xz plane is probably the best choice, as there is symmetry around moving left and right
+
+    # Reflect around xz plane
+    REFLECT_AROUND_XZ_PLANE_RANDOMLY = False
+    if REFLECT_AROUND_XZ_PLANE_RANDOMLY:
+        reflect = torch.rand((cfg.dataloader.batch_size,)) > 0.5
+        left_origin = torch.where(
+            reflect[:, None], left_origin * torch.tensor([1, -1, 1]), left_origin
+        )
+        left_x_axis = torch.where(
+            reflect[:, None], left_x_axis * torch.tensor([1, -1, 1]), left_x_axis
+        )
+        left_y_axis = torch.where(
+            reflect[:, None], left_y_axis * torch.tensor([1, -1, 1]), left_y_axis
+        )
+        right_origin = torch.where(
+            reflect[:, None], right_origin * torch.tensor([1, -1, 1]), right_origin
+        )
+        right_x_axis = torch.where(
+            reflect[:, None], right_x_axis * torch.tensor([1, -1, 1]), right_x_axis
+        )
+        right_y_axis = torch.where(
+            reflect[:, None], right_y_axis * torch.tensor([1, -1, 1]), right_y_axis
+        )
+
+    # y-axis gives you the orientation around the approach direction, which may not be important
+    REMOVE_Y_AXIS = False
+    if REMOVE_Y_AXIS:
+        return left_origin, left_x_axis, right_origin, right_x_axis
+    return left_origin, left_x_axis, left_y_axis, right_origin, right_x_axis, right_y_axis
+
+
+@localscope.mfc(
+    allowed=[
+        "cfg",
+        "INPUT_EXAMPLE_SHAPE",
+        "NERF_DENSITY_START_IDX",
+        "NERF_DENSITY_END_IDX",
+        "NUM_PTS_X",
+        "NUM_PTS_Y",
+        "NUM_PTS_Z",
+        "NUM_DENSITY",
+        "NUM_XYZ",
+        "NERF_COORDINATE_START_IDX",
+        "NERF_COORDINATE_END_IDX",
+    ]
+)
+def preprocess_nerf_grid_inputs(nerf_grid_inputs):
+    assert nerf_grid_inputs.shape == (
+        cfg.dataloader.batch_size,
+        *INPUT_EXAMPLE_SHAPE,
+    )
+    assert torch.is_tensor(nerf_grid_inputs)
+
+    # Split into left and right
+    # Need to rotate the right side around the z-axis, so that the x-axis is pointing toward the left
+    # so need to flip the x and y axes
+    num_pts_per_side = NUM_PTS_X // 2
+    x_dim, y_dim = -3, -2
+    left_nerf_grid_inputs = nerf_grid_inputs[:, :, :num_pts_per_side, :, :]
+    right_nerf_grid_inputs = nerf_grid_inputs[:, :, -num_pts_per_side:, :, :].flip(
+        dims=(x_dim, y_dim)
+    )
+
+    left_nerf_densities, left_nerf_points = get_nerf_densities_and_points(
+        left_nerf_grid_inputs
+    )
+    right_nerf_densities, right_nerf_points = get_nerf_densities_and_points(
+        right_nerf_grid_inputs
+    )
+
+    FLIP_LEFT_RIGHT_RANDOMLY = False
+    if FLIP_LEFT_RIGHT_RANDOMLY:
+        flip = torch.rand((cfg.dataloader.batch_size,)) > 0.5
+        left_nerf_densities, right_nerf_densities = (
+            torch.where(
+                flip[:, None, None, None], right_nerf_densities, left_nerf_densities
+            ),
+            torch.where(
+                flip[:, None, None, None], left_nerf_densities, right_nerf_densities
+            ),
+        )
+        left_nerf_points, right_nerf_points = (
+            torch.where(
+                flip[:, None, None, None, None], right_nerf_points, left_nerf_points
+            ),
+            torch.where(
+                flip[:, None, None, None, None], left_nerf_points, right_nerf_points
+            ),
+        )
+
+    left_global_params = get_global_params(left_nerf_points)
+    right_global_params = get_global_params(right_nerf_points)
+
+    ADD_INVARIANCE_TRANSFORMATIONS = False
+    if ADD_INVARIANCE_TRANSFORMATIONS:
+        left_global_params, right_global_params = invariance_transformation(left_global_params, right_global_params)
+
+    return [
+        (left_nerf_densities, left_global_params),
+        (right_nerf_densities, right_global_params),
+    ]
+
+
 # %%
 idx_to_visualize = 0
 datapoint_name = "TYLER'S"
@@ -895,10 +1192,12 @@ def R_to_rpy(R):
     yaw = torch.atan2(R[1, 0] / torch.cos(pitch), R[0, 0] / torch.cos(pitch))
     return roll, pitch, yaw
 
+
 @localscope.mfc
 def R_to_rpy_2(R):
     assert R.shape == (3, 3)
     from scipy.spatial.transform import Rotation
+
     R = R.cpu().numpy()
     rpy = Rotation.from_matrix(R).as_euler("xyz", degrees=False)
     return rpy
@@ -907,9 +1206,9 @@ def R_to_rpy_2(R):
 @localscope.mfc
 def rpy_to_R(roll, pitch, yaw):
     from scipy.spatial.transform import Rotation
+
     R = Rotation.from_euler("xyz", [roll, pitch, yaw], degrees=False).as_matrix()
     return torch.from_numpy(R).float()
-
 
 
 left_rotation_rpy = R_to_rpy(left_rotation_matrix)
@@ -932,8 +1231,6 @@ print(f"left_rotation_matrix_with_yaw: {left_rotation_matrix_with_yaw}")
 print(f"right_rotation_matrix_with_yaw: {right_rotation_matrix_with_yaw}")
 print(f"left_rotation_matrix_without_yaw: {left_rotation_matrix_without_yaw}")
 print(f"right_rotation_matrix_without_yaw: {right_rotation_matrix_without_yaw}")
-
-
 
 
 @localscope.mfc(allowed=["NUM_XYZ"])
@@ -997,33 +1294,48 @@ fig.add_trace(colored_points_scatter)
 #     left_finger_origin, left_finger_x_axis, left_finger_y_axis, "left_finger"
 # ):
 #     fig.add_trace(trace)
-# 
+#
 # for trace in create_ray_origin_direction(
 #     right_finger_origin, right_finger_x_axis, right_finger_y_axis, "right_finger"
 # ):
 #     fig.add_trace(trace)
 
-adjusted_left_finger_origin = torch.tensor([torch.norm(left_finger_origin[:2]), 0.0, left_finger_origin[2]])
-adjusted_right_finger_origin = torch.tensor([torch.norm(right_finger_origin[:2]), 0.0, right_finger_origin[2]])
+adjusted_left_finger_origin = torch.tensor(
+    [torch.norm(left_finger_origin[:2]), 0.0, left_finger_origin[2]]
+)
+adjusted_right_finger_origin = torch.tensor(
+    [torch.norm(right_finger_origin[:2]), 0.0, right_finger_origin[2]]
+)
 for trace in create_ray_origin_direction(
-    adjusted_left_finger_origin, torch.matmul(left_rotation_matrix_without_yaw, world_x_axis), torch.matmul(left_rotation_matrix_without_yaw, world_y_axis), "left_finger_without_yaw"
+    adjusted_left_finger_origin,
+    torch.matmul(left_rotation_matrix_without_yaw, world_x_axis),
+    torch.matmul(left_rotation_matrix_without_yaw, world_y_axis),
+    "left_finger_without_yaw",
 ):
     fig.add_trace(trace)
 for trace in create_ray_origin_direction(
-    adjusted_right_finger_origin, torch.matmul(right_rotation_matrix_without_yaw, world_x_axis), torch.matmul(right_rotation_matrix_without_yaw, world_y_axis), "right_finger_without_yaw"
+    adjusted_right_finger_origin,
+    torch.matmul(right_rotation_matrix_without_yaw, world_x_axis),
+    torch.matmul(right_rotation_matrix_without_yaw, world_y_axis),
+    "right_finger_without_yaw",
 ):
     fig.add_trace(trace)
 
 for trace in create_ray_origin_direction(
-    left_finger_origin, torch.matmul(left_rotation_matrix_with_yaw, world_x_axis), torch.matmul(left_rotation_matrix_with_yaw, world_y_axis), "left_finger_with_yaw"
+    left_finger_origin,
+    torch.matmul(left_rotation_matrix_with_yaw, world_x_axis),
+    torch.matmul(left_rotation_matrix_with_yaw, world_y_axis),
+    "left_finger_with_yaw",
 ):
     fig.add_trace(trace)
 
 for trace in create_ray_origin_direction(
-    right_finger_origin, torch.matmul(right_rotation_matrix_with_yaw, world_x_axis), torch.matmul(right_rotation_matrix_with_yaw, world_y_axis), "right_finger_with_yaw"
+    right_finger_origin,
+    torch.matmul(right_rotation_matrix_with_yaw, world_x_axis),
+    torch.matmul(right_rotation_matrix_with_yaw, world_y_axis),
+    "right_finger_with_yaw",
 ):
     fig.add_trace(trace)
-
 
 
 fig.update_layout(legend_orientation="h")
@@ -1034,8 +1346,8 @@ fig.show()
 from scipy.spatial.transform import Rotation
 
 
-R = Rotation.from_euler('xyz', [20, 70, 0], degrees=True)
-R2 = Rotation.from_euler('xyz', [20, 70, 30], degrees=True)
+R = Rotation.from_euler("xyz", [20, 70, 0], degrees=True)
+R2 = Rotation.from_euler("xyz", [20, 70, 30], degrees=True)
 # R = R2
 
 
@@ -1044,6 +1356,7 @@ R2 = Rotation.from_euler('xyz', [20, 70, 30], degrees=True)
 fig = go.Figure(layout=layout)
 for line in isaac_origin_lines:
     fig.add_trace(line)
+
 
 @localscope.mfc
 def get_xyz_lines(rotation_matrix, name, colors):
@@ -1080,6 +1393,7 @@ def get_xyz_lines(rotation_matrix, name, colors):
     )
     return rotated_x_line, rotated_y_line, rotated_z_line
 
+
 xyz_lines = get_xyz_lines(R.as_matrix(), "R", ("red", "red", "red"))
 for line in xyz_lines:
     fig.add_trace(line)
@@ -1089,13 +1403,13 @@ for line in xyz_lines2:
     fig.add_trace(line)
 
 R2_inv = R2.inv()
-R2_euler = R2_inv.as_euler('zyx', degrees=True)
+R2_euler = R2_inv.as_euler("zyx", degrees=True)
 print(f"R2_euler: {R2_euler}")
 R2_euler_only_yaw = np.array([0.0, 0.0, R2_euler[0]])
 
-R3 = Rotation.from_euler('xyz', R2_euler_only_yaw, degrees=True)
+R3 = Rotation.from_euler("xyz", R2_euler_only_yaw, degrees=True)
 
-xyz_lines3 = get_xyz_lines((R3*R2).as_matrix(), "R3@R2", ("green", "green", "green"))
+xyz_lines3 = get_xyz_lines((R3 * R2).as_matrix(), "R3@R2", ("green", "green", "green"))
 for line in xyz_lines3:
     fig.add_trace(line)
 
@@ -1110,60 +1424,70 @@ ray_d = ray_d / torch.norm(ray_d) * ray_d_len
 fig = go.Figure(layout=layout)
 
 traces = []
-traces.append(go.Scatter3d(
-    x=[ray_o[0]],
-    y=[ray_o[1]],
-    z=[ray_o[2]],
-    mode="markers",
-    marker=dict(size=5, color="red"),
-    name="ray origin",
-))
-traces.append(go.Scatter3d(
-    x=[ray_o[0], ray_o[0]+ray_d[0]],
-    y=[ray_o[1], ray_o[1]+ray_d[1]],
-    z=[ray_o[2], ray_o[2]+ray_d[2]],
-    mode="lines",
-    line=dict(width=2, color="red"),
-    name="ray direction",
-))
+traces.append(
+    go.Scatter3d(
+        x=[ray_o[0]],
+        y=[ray_o[1]],
+        z=[ray_o[2]],
+        mode="markers",
+        marker=dict(size=5, color="red"),
+        name="ray origin",
+    )
+)
+traces.append(
+    go.Scatter3d(
+        x=[ray_o[0], ray_o[0] + ray_d[0]],
+        y=[ray_o[1], ray_o[1] + ray_d[1]],
+        z=[ray_o[2], ray_o[2] + ray_d[2]],
+        mode="lines",
+        line=dict(width=2, color="red"),
+        name="ray direction",
+    )
+)
 
 traces.extend(isaac_origin_lines)
 
 # Get theta and phi
 theta = torch.atan2(ray_o[1], ray_o[0])
-phi = torch.atan2(torch.sqrt(ray_o[0]**2 + ray_o[1]**2), ray_o[2])
+phi = torch.atan2(torch.sqrt(ray_o[0] ** 2 + ray_o[1] ** 2), ray_o[2])
 print(f"theta: {torch.rad2deg(theta)}")
 print(f"phi: {torch.rad2deg(phi)}")
 
 # Get adjusted ray origin and ray direction
-theta_rotation_matrix = torch.tensor([
-    [torch.cos(-theta), -torch.sin(-theta), 0.0],
-    [torch.sin(-theta), torch.cos(-theta), 0.0],
-    [0.0, 0.0, 1.0],
-])
+theta_rotation_matrix = torch.tensor(
+    [
+        [torch.cos(-theta), -torch.sin(-theta), 0.0],
+        [torch.sin(-theta), torch.cos(-theta), 0.0],
+        [0.0, 0.0, 1.0],
+    ]
+)
 adjusted_ray_o = theta_rotation_matrix @ ray_o
 print(f"adjusted_ray_o: {adjusted_ray_o}")
 
 adjusted_ray_d = theta_rotation_matrix @ ray_d
 print(f"adjusted_ray_d: {adjusted_ray_d}")
 
-traces.append(go.Scatter3d(
-    x=[adjusted_ray_o[0]],
-    y=[adjusted_ray_o[1]],
-    z=[adjusted_ray_o[2]],
-    mode="markers",
-    marker=dict(size=5, color="blue"),
-    name="adjusted ray origin",
-))
+traces.append(
+    go.Scatter3d(
+        x=[adjusted_ray_o[0]],
+        y=[adjusted_ray_o[1]],
+        z=[adjusted_ray_o[2]],
+        mode="markers",
+        marker=dict(size=5, color="blue"),
+        name="adjusted ray origin",
+    )
+)
 
-traces.append(go.Scatter3d(
-    x=[adjusted_ray_o[0], adjusted_ray_o[0]+adjusted_ray_d[0]],
-    y=[adjusted_ray_o[1], adjusted_ray_o[1]+adjusted_ray_d[1]],
-    z=[adjusted_ray_o[2], adjusted_ray_o[2]+adjusted_ray_d[2]],
-    mode="lines",
-    line=dict(width=2, color="blue"),
-    name="adjusted ray direction",
-))
+traces.append(
+    go.Scatter3d(
+        x=[adjusted_ray_o[0], adjusted_ray_o[0] + adjusted_ray_d[0]],
+        y=[adjusted_ray_o[1], adjusted_ray_o[1] + adjusted_ray_d[1]],
+        z=[adjusted_ray_o[2], adjusted_ray_o[2] + adjusted_ray_d[2]],
+        mode="lines",
+        line=dict(width=2, color="blue"),
+        name="adjusted ray direction",
+    )
+)
 
 
 print(f"tip = {adjusted_ray_o + adjusted_ray_d}")
@@ -1171,11 +1495,11 @@ print(f"other tip = {ray_o + ray_d}")
 print(f"other other tip = {theta_rotation_matrix @ (ray_o + ray_d)}")
 
 theta_prime = torch.atan2(adjusted_ray_d[1], adjusted_ray_d[0])
-phi_prime = torch.atan2(torch.sqrt(adjusted_ray_d[0]**2 + adjusted_ray_d[1]**2), adjusted_ray_d[2])
+phi_prime = torch.atan2(
+    torch.sqrt(adjusted_ray_d[0] ** 2 + adjusted_ray_d[1] ** 2), adjusted_ray_d[2]
+)
 print(f"theta_prime: {torch.rad2deg(theta_prime)}")
 print(f"phi_prime: {torch.rad2deg(phi_prime)}")
-
-
 
 
 for trace in traces:
@@ -1295,16 +1619,36 @@ def get_xyz_axes(origin, x_axis, y_axis, z_axis, name, length=0.04):
     )
     return traces
 
+
 fig = go.Figure(layout=layout)
 traces = []
-traces += get_xyz_axes(origin=np.array([0, 0, 0]), x_axis=np.array([1.0, 0.0, 0.0]), y_axis=np.array([0.0, 1.0, 0.0]), z_axis=np.array([0.0, 0.0, 1.0]), name="default")
-traces += get_xyz_axes(origin=left_finger_origin, x_axis=left_finger_x_axis, y_axis=left_finger_y_axis, z_axis=left_finger_z_axis, name="left finger")
-traces += get_xyz_axes(origin=right_finger_origin, x_axis=right_finger_x_axis, y_axis=right_finger_y_axis, z_axis=right_finger_z_axis, name="right finger")
+traces += get_xyz_axes(
+    origin=np.array([0, 0, 0]),
+    x_axis=np.array([1.0, 0.0, 0.0]),
+    y_axis=np.array([0.0, 1.0, 0.0]),
+    z_axis=np.array([0.0, 0.0, 1.0]),
+    name="default",
+)
+traces += get_xyz_axes(
+    origin=left_finger_origin,
+    x_axis=left_finger_x_axis,
+    y_axis=left_finger_y_axis,
+    z_axis=left_finger_z_axis,
+    name="left finger",
+)
+traces += get_xyz_axes(
+    origin=right_finger_origin,
+    x_axis=right_finger_x_axis,
+    y_axis=right_finger_y_axis,
+    z_axis=right_finger_z_axis,
+    name="right finger",
+)
 for trace in traces:
     fig.add_trace(trace)
 fig.show()
 
 # %%
+
 
 @localscope.mfc(allowed=["NUM_XYZ"])
 def get_params(ray_o, ray_d, y_axis):
@@ -1313,6 +1657,7 @@ def get_params(ray_o, ray_d, y_axis):
     z_axis = torch.cross(x_axis, y_axis)
     R = torch.stack([x_axis, y_axis, z_axis], dim=1)
     from scipy.spatial.transform import Rotation
+
     rpy = Rotation.from_matrix(R.cpu().numpy()).as_euler("xyz")
     ypr = Rotation.from_matrix(R.cpu().numpy()).as_euler("zyx")
     print(f"rpy: {rpy}")
@@ -1320,28 +1665,40 @@ def get_params(ray_o, ray_d, y_axis):
 
     # ray_d is x_axis
     rho = torch.norm(ray_o)
-    theta  = torch.atan2(ray_o[1], ray_o[0])
-    phi = torch.atan2(torch.sqrt(ray_o[0]**2 + ray_o[1]**2), ray_o[2])
+    theta = torch.atan2(ray_o[1], ray_o[0])
+    phi = torch.atan2(torch.sqrt(ray_o[0] ** 2 + ray_o[1] ** 2), ray_o[2])
     print(f"rho: {rho}")
     print(f"theta: {theta}")
     print(f"phi: {phi}")
 
     # From theta
-    rotation_matrix = torch.tensor([
-        [torch.cos(-theta), -torch.sin(-theta), 0],
-        [torch.sin(-theta), torch.cos(-theta), 0],
-        [0, 0, 1],
-    ])
+    rotation_matrix = torch.tensor(
+        [
+            [torch.cos(-theta), -torch.sin(-theta), 0],
+            [torch.sin(-theta), torch.cos(-theta), 0],
+            [0, 0, 1],
+        ]
+    )
     adjusted_ray_o = rotation_matrix @ ray_o
     adjusted_ray_d = rotation_matrix @ ray_d
 
     theta_prime = torch.atan2(adjusted_ray_d[1], adjusted_ray_d[0])
-    phi_prime = torch.atan2(torch.sqrt(adjusted_ray_d[0]**2 + adjusted_ray_d[1]**2), adjusted_ray_d[2])
+    phi_prime = torch.atan2(
+        torch.sqrt(adjusted_ray_d[0] ** 2 + adjusted_ray_d[1] ** 2), adjusted_ray_d[2]
+    )
+
 
 from scipy.spatial.transform import Rotation
-left_R = torch.stack([left_finger_x_axis, left_finger_y_axis, left_finger_z_axis], dim=1)
-left_rotation_around_x = torch.tensor(Rotation.from_matrix(left_R.cpu().numpy()).as_euler("xyz")[0]).float()
-left_rotation_around_x_2 = torch.tensor(Rotation.from_matrix(left_R.cpu().numpy()).as_euler("zyx")[-1]).float()
+
+left_R = torch.stack(
+    [left_finger_x_axis, left_finger_y_axis, left_finger_z_axis], dim=1
+)
+left_rotation_around_x = torch.tensor(
+    Rotation.from_matrix(left_R.cpu().numpy()).as_euler("xyz")[0]
+).float()
+left_rotation_around_x_2 = torch.tensor(
+    Rotation.from_matrix(left_R.cpu().numpy()).as_euler("zyx")[-1]
+).float()
 print(f"left_rotation_around_x: {np.rad2deg(left_rotation_around_x)}")
 print(f"left_rotation_around_x_2: {np.rad2deg(left_rotation_around_x_2)}")
 
@@ -1356,9 +1713,19 @@ print(f"left_rotation_around_x_2: {np.rad2deg(left_rotation_around_x_2)}")
 #     [0, torch.sin(-left_rotation_around_x_2), torch.cos(-left_rotation_around_x_2)],
 # ])
 # left_rotation_matrix_around_x = torch.from_numpy(Rotation.from_rotvec(-left_rotation_around_x.cpu().numpy() * left_finger_x_axis.cpu().numpy()).as_matrix()).float()
-left_rotation_matrix_around_x = torch.from_numpy(Rotation.from_rotvec(-left_rotation_around_x_2.cpu().numpy() * left_finger_x_axis.cpu().numpy()).as_matrix()).float()
+left_rotation_matrix_around_x = torch.from_numpy(
+    Rotation.from_rotvec(
+        -left_rotation_around_x_2.cpu().numpy() * left_finger_x_axis.cpu().numpy()
+    ).as_matrix()
+).float()
 
-traces += get_xyz_axes(origin=left_finger_origin, x_axis=left_rotation_matrix_around_x @ left_finger_x_axis, y_axis=left_rotation_matrix_around_x @ left_finger_y_axis, z_axis=left_rotation_matrix_around_x @ left_finger_z_axis, name="left finger rotated around x")
+traces += get_xyz_axes(
+    origin=left_finger_origin,
+    x_axis=left_rotation_matrix_around_x @ left_finger_x_axis,
+    y_axis=left_rotation_matrix_around_x @ left_finger_y_axis,
+    z_axis=left_rotation_matrix_around_x @ left_finger_z_axis,
+    name="left finger rotated around x",
+)
 for trace in traces:
     fig.add_trace(trace)
 fig.show()
@@ -1376,16 +1743,33 @@ print(f"type(left_rotation_around_x): {type(left_rotation_around_x)}")
 # Rotation about y will make the new x-axis a linear combination of the old x and z axes
 # This makes the new z-axis a linear combination of the old x and z axes
 # Actually, let's formulate this as a axis angle rotation
-left_rotation_matrix = torch.stack([left_finger_x_axis, left_finger_y_axis, left_finger_z_axis], dim=1)
-left_rotation_rotvec = torch.tensor(Rotation.from_matrix(left_rotation_matrix.cpu().numpy()).as_rotvec()).float()
+left_rotation_matrix = torch.stack(
+    [left_finger_x_axis, left_finger_y_axis, left_finger_z_axis], dim=1
+)
+left_rotation_rotvec = torch.tensor(
+    Rotation.from_matrix(left_rotation_matrix.cpu().numpy()).as_rotvec()
+).float()
 # origin, x_axis, y_axis, z_axis = np.array([0, 0, 0]), np.array([1.0, 0.0, 0.0]), np.array([0.0, 1.0, 0.0]), np.array([0.0, 0.0, 1.0])
-origin, x_axis, y_axis, z_axis = torch.tensor([0, 0, 0]), torch.tensor([1.0, 0.0, 0.0]), torch.tensor([0.0, 1.0, 0.0]), torch.tensor([0.0, 0.0, 1.0])
+origin, x_axis, y_axis, z_axis = (
+    torch.tensor([0, 0, 0]),
+    torch.tensor([1.0, 0.0, 0.0]),
+    torch.tensor([0.0, 1.0, 0.0]),
+    torch.tensor([0.0, 0.0, 1.0]),
+)
 print(f"left_rotation_rotvec: {torch.rad2deg(left_rotation_rotvec)}")
 
 fig = go.Figure(layout=layout)
 traces = []
-traces += get_xyz_axes(origin=origin, x_axis=x_axis, y_axis=y_axis, z_axis=z_axis, name="original")
-traces += get_xyz_axes(origin=left_finger_origin, x_axis=left_rotation_matrix @ x_axis, y_axis=left_rotation_matrix @ y_axis, z_axis=left_rotation_matrix @ z_axis, name="left finger")
+traces += get_xyz_axes(
+    origin=origin, x_axis=x_axis, y_axis=y_axis, z_axis=z_axis, name="original"
+)
+traces += get_xyz_axes(
+    origin=left_finger_origin,
+    x_axis=left_rotation_matrix @ x_axis,
+    y_axis=left_rotation_matrix @ y_axis,
+    z_axis=left_rotation_matrix @ z_axis,
+    name="left finger",
+)
 for trace in traces:
     fig.add_trace(trace)
 fig.show()
@@ -1394,26 +1778,47 @@ fig.show()
 theta = torch.atan2(left_finger_origin[1], left_finger_origin[0])
 
 # theta += torch.tensor(np.pi / 2)
-transformation_matrix = torch.tensor([
-    [torch.cos(-theta), -torch.sin(-theta), 0, 0],
-    [torch.sin(-theta), torch.cos(-theta), 0, 0],
-    [0, 0, 1, 0],
-    [0, 0, 0, 1],
-])
+transformation_matrix = torch.tensor(
+    [
+        [torch.cos(-theta), -torch.sin(-theta), 0, 0],
+        [torch.sin(-theta), torch.cos(-theta), 0, 0],
+        [0, 0, 1, 0],
+        [0, 0, 0, 1],
+    ]
+)
 fig = go.Figure(layout=layout)
 traces = []
-traces += get_xyz_axes(origin=origin, x_axis=x_axis, y_axis=y_axis, z_axis=z_axis, name="original")
-traces += get_xyz_axes(origin=left_finger_origin, x_axis=left_rotation_matrix @ x_axis, y_axis=left_rotation_matrix @ y_axis, z_axis=left_rotation_matrix @ z_axis, name="left finger", length=0.1)
+traces += get_xyz_axes(
+    origin=origin, x_axis=x_axis, y_axis=y_axis, z_axis=z_axis, name="original"
+)
+traces += get_xyz_axes(
+    origin=left_finger_origin,
+    x_axis=left_rotation_matrix @ x_axis,
+    y_axis=left_rotation_matrix @ y_axis,
+    z_axis=left_rotation_matrix @ z_axis,
+    name="left finger",
+    length=0.1,
+)
 # traces += get_xyz_axes(origin=torch.tensor([torch.norm(left_finger_origin[:2]), 0, left_finger_origin[2]]), x_axis=rotation_matrix @ left_finger_x_axis, y_axis=rotation_matrix @ left_finger_y_axis, z_axis=rotation_matrix @ left_finger_z_axis, name="left finger rotated around z")
 # traces += get_xyz_axes(origin=torch.tensor([torch.norm(left_finger_origin[:2]), 0, left_finger_origin[2]]), x_axis=left_finger_x_axis @ rotation_matrix, y_axis=left_finger_y_axis @ rotation_matrix, z_axis=left_finger_z_axis @ rotation_matrix, name="left finger rotated around z")
-new_left_finger_origin = transformation_matrix @ torch.cat([left_finger_origin, torch.tensor([1.0])])
+new_left_finger_origin = transformation_matrix @ torch.cat(
+    [left_finger_origin, torch.tensor([1.0])]
+)
 new_left_finger_origin = new_left_finger_origin[:3]
-new_left_finger_origin_2 = torch.tensor([torch.norm(left_finger_origin[:2]), 0, left_finger_origin[2]])
+new_left_finger_origin_2 = torch.tensor(
+    [torch.norm(left_finger_origin[:2]), 0, left_finger_origin[2]]
+)
 print(f"new_left_finger_origin = {new_left_finger_origin}")
 print(f"new_left_finger_origin_2 = {new_left_finger_origin_2}")
-new_left_finger_x_axis = transformation_matrix @ torch.cat([left_finger_x_axis, torch.tensor([0.0])])
-new_left_finger_y_axis = transformation_matrix @ torch.cat([left_finger_y_axis, torch.tensor([0.0])])
-new_left_finger_z_axis = transformation_matrix @ torch.cat([left_finger_z_axis, torch.tensor([0.0])])
+new_left_finger_x_axis = transformation_matrix @ torch.cat(
+    [left_finger_x_axis, torch.tensor([0.0])]
+)
+new_left_finger_y_axis = transformation_matrix @ torch.cat(
+    [left_finger_y_axis, torch.tensor([0.0])]
+)
+new_left_finger_z_axis = transformation_matrix @ torch.cat(
+    [left_finger_z_axis, torch.tensor([0.0])]
+)
 new_left_finger_x_axis = new_left_finger_x_axis[:3]
 new_left_finger_y_axis = new_left_finger_y_axis[:3]
 new_left_finger_z_axis = new_left_finger_z_axis[:3]
@@ -1423,86 +1828,154 @@ print(f"new_left_finger_y_axis = {new_left_finger_y_axis}")
 print(f"new_left_finger_z_axis = {new_left_finger_z_axis}")
 
 # traces += get_xyz_axes(origin=new_left_finger_origin, x_axis=left_finger_x_axis, y_axis=left_finger_y_axis, z_axis=left_finger_z_axis, name="left finger rotated around z")
-traces += get_xyz_axes(origin=new_left_finger_origin, x_axis=new_left_finger_x_axis, y_axis=new_left_finger_y_axis, z_axis=new_left_finger_z_axis, name="left finger rotated around z", length=0.1)
+traces += get_xyz_axes(
+    origin=new_left_finger_origin,
+    x_axis=new_left_finger_x_axis,
+    y_axis=new_left_finger_y_axis,
+    z_axis=new_left_finger_z_axis,
+    name="left finger rotated around z",
+    length=0.1,
+)
 for trace in traces:
     fig.add_trace(trace)
 fig.show()
+
 
 @localscope.mfc
 def distance_point_to_line(point, line_point1, line_point2):
     # Calculate the vector between the two points on the line
     line_vec = line_point2 - line_point1
-    
+
     # Calculate the vector between the point and the first point on the line
     point_vec = point - line_point1
-    
+
     # Calculate the projection of point_vec onto line_vec
     # This gives us the distance of the point from the line
     projection = torch.dot(point_vec, line_vec) / torch.dot(line_vec, line_vec)
-    
+
     # Calculate the closest point on the line to the given point
     closest_point = line_point1 + projection * line_vec
-    
+
     # Calculate the distance between the closest point and the given point
     distance = torch.norm(point - closest_point)
-    
+
     return distance
-print(f'distance_point_to_line(origin, left_finger_origin, left_finger_origin + left_finger_x_axis) = {distance_point_to_line(origin, left_finger_origin, left_finger_origin + left_finger_x_axis)}')
-print(f"distance_point_to_line(origin, new_left_finger_origin, new_left_finger_origin + new_left_finger_x_axis) = {distance_point_to_line(origin, new_left_finger_origin, new_left_finger_origin + new_left_finger_x_axis)}")
+
+
+print(
+    f"distance_point_to_line(origin, left_finger_origin, left_finger_origin + left_finger_x_axis) = {distance_point_to_line(origin, left_finger_origin, left_finger_origin + left_finger_x_axis)}"
+)
+print(
+    f"distance_point_to_line(origin, new_left_finger_origin, new_left_finger_origin + new_left_finger_x_axis) = {distance_point_to_line(origin, new_left_finger_origin, new_left_finger_origin + new_left_finger_x_axis)}"
+)
 
 
 # %%
-phi = torch.atan2(torch.sqrt(left_finger_origin[0]**2 + left_finger_origin[1]**2), left_finger_origin[2])
+phi = torch.atan2(
+    torch.sqrt(left_finger_origin[0] ** 2 + left_finger_origin[1] ** 2),
+    left_finger_origin[2],
+)
 # phi = torch.atan2(left_finger_origin[2], torch.sqrt(left_finger_origin[0]**2 + left_finger_origin[1]**2))
 print(f"phi = {phi}")
 # phi = -phi
-phi = - (torch.pi / 2 - phi)
+phi = -(torch.pi / 2 - phi)
 
 # Rotation around y
-phi_transformation_matrix = torch.tensor([
-    [torch.cos(-phi), 0, torch.sin(-phi), 0],
-    [0, 1, 0, 0],
-    [-torch.sin(-phi), 0, torch.cos(-phi), 0],
-    [0, 0, 0, 1]
-])
+phi_transformation_matrix = torch.tensor(
+    [
+        [torch.cos(-phi), 0, torch.sin(-phi), 0],
+        [0, 1, 0, 0],
+        [-torch.sin(-phi), 0, torch.cos(-phi), 0],
+        [0, 0, 0, 1],
+    ]
+)
 
 fig = go.Figure(layout=layout)
 traces = []
-traces += get_xyz_axes(origin=origin, x_axis=x_axis, y_axis=y_axis, z_axis=z_axis, name="original")
-traces += get_xyz_axes(origin=left_finger_origin, x_axis=left_rotation_matrix @ x_axis, y_axis=left_rotation_matrix @ y_axis, z_axis=left_rotation_matrix @ z_axis, name="left finger", length=0.1)
+traces += get_xyz_axes(
+    origin=origin, x_axis=x_axis, y_axis=y_axis, z_axis=z_axis, name="original"
+)
+traces += get_xyz_axes(
+    origin=left_finger_origin,
+    x_axis=left_rotation_matrix @ x_axis,
+    y_axis=left_rotation_matrix @ y_axis,
+    z_axis=left_rotation_matrix @ z_axis,
+    name="left finger",
+    length=0.1,
+)
 
-new_left_finger_origin = transformation_matrix @ torch.cat([left_finger_origin, torch.tensor([1.0])])
+new_left_finger_origin = transformation_matrix @ torch.cat(
+    [left_finger_origin, torch.tensor([1.0])]
+)
 new_left_finger_origin = new_left_finger_origin[:3]
-new_left_finger_origin_2 = torch.tensor([torch.norm(left_finger_origin[:2]), 0, left_finger_origin[2]])
-new_left_finger_x_axis = transformation_matrix @ torch.cat([left_finger_x_axis, torch.tensor([0.0])])
-new_left_finger_y_axis = transformation_matrix @ torch.cat([left_finger_y_axis, torch.tensor([0.0])])
-new_left_finger_z_axis = transformation_matrix @ torch.cat([left_finger_z_axis, torch.tensor([0.0])])
+new_left_finger_origin_2 = torch.tensor(
+    [torch.norm(left_finger_origin[:2]), 0, left_finger_origin[2]]
+)
+new_left_finger_x_axis = transformation_matrix @ torch.cat(
+    [left_finger_x_axis, torch.tensor([0.0])]
+)
+new_left_finger_y_axis = transformation_matrix @ torch.cat(
+    [left_finger_y_axis, torch.tensor([0.0])]
+)
+new_left_finger_z_axis = transformation_matrix @ torch.cat(
+    [left_finger_z_axis, torch.tensor([0.0])]
+)
 new_left_finger_x_axis = new_left_finger_x_axis[:3]
 new_left_finger_y_axis = new_left_finger_y_axis[:3]
 new_left_finger_z_axis = new_left_finger_z_axis[:3]
 
-traces += get_xyz_axes(origin=new_left_finger_origin, x_axis=new_left_finger_x_axis, y_axis=new_left_finger_y_axis, z_axis=new_left_finger_z_axis, name="left finger rotated around z", length=0.1)
+traces += get_xyz_axes(
+    origin=new_left_finger_origin,
+    x_axis=new_left_finger_x_axis,
+    y_axis=new_left_finger_y_axis,
+    z_axis=new_left_finger_z_axis,
+    name="left finger rotated around z",
+    length=0.1,
+)
 
-phi_adjusted_left_finger_origin = phi_transformation_matrix @ torch.cat([new_left_finger_origin, torch.tensor([1.0])])
-phi_adjusted_left_finger_x_axis = phi_transformation_matrix @ torch.cat([new_left_finger_x_axis, torch.tensor([0.0])])
-phi_adjusted_left_finger_y_axis = phi_transformation_matrix @ torch.cat([new_left_finger_y_axis, torch.tensor([0.0])])
-phi_adjusted_left_finger_z_axis = phi_transformation_matrix @ torch.cat([new_left_finger_z_axis, torch.tensor([0.0])])
+phi_adjusted_left_finger_origin = phi_transformation_matrix @ torch.cat(
+    [new_left_finger_origin, torch.tensor([1.0])]
+)
+phi_adjusted_left_finger_x_axis = phi_transformation_matrix @ torch.cat(
+    [new_left_finger_x_axis, torch.tensor([0.0])]
+)
+phi_adjusted_left_finger_y_axis = phi_transformation_matrix @ torch.cat(
+    [new_left_finger_y_axis, torch.tensor([0.0])]
+)
+phi_adjusted_left_finger_z_axis = phi_transformation_matrix @ torch.cat(
+    [new_left_finger_z_axis, torch.tensor([0.0])]
+)
 phi_adjusted_left_finger_origin = phi_adjusted_left_finger_origin[:3]
 phi_adjusted_left_finger_x_axis = phi_adjusted_left_finger_x_axis[:3]
 phi_adjusted_left_finger_y_axis = phi_adjusted_left_finger_y_axis[:3]
 phi_adjusted_left_finger_z_axis = phi_adjusted_left_finger_z_axis[:3]
 
-traces += get_xyz_axes(origin=phi_adjusted_left_finger_origin, x_axis=phi_adjusted_left_finger_x_axis, y_axis=phi_adjusted_left_finger_y_axis, z_axis=phi_adjusted_left_finger_z_axis, name="left finger rotated around y", length=0.1)
+traces += get_xyz_axes(
+    origin=phi_adjusted_left_finger_origin,
+    x_axis=phi_adjusted_left_finger_x_axis,
+    y_axis=phi_adjusted_left_finger_y_axis,
+    z_axis=phi_adjusted_left_finger_z_axis,
+    name="left finger rotated around y",
+    length=0.1,
+)
 
 for trace in traces:
     fig.add_trace(trace)
 
 fig.show()
 
-print(f'distance_point_to_line(origin, left_finger_origin, left_finger_origin + left_finger_x_axis) = {distance_point_to_line(origin, left_finger_origin, left_finger_origin + left_finger_x_axis)}')
-print(f"distance_point_to_line(origin, new_left_finger_origin, new_left_finger_origin + new_left_finger_x_axis) = {distance_point_to_line(origin, new_left_finger_origin, new_left_finger_origin + new_left_finger_x_axis)}")
-print(f"distance_point_to_line(origin, phi_adjusted_left_finger_origin, phi_adjusted_left_finger_origin + phi_adjusted_left_finger_x_axis) = {distance_point_to_line(origin, phi_adjusted_left_finger_origin, phi_adjusted_left_finger_origin + phi_adjusted_left_finger_x_axis)}")
-print(f"torch.norm(phi_adjusted_left_finger_origin) = {torch.norm(phi_adjusted_left_finger_origin)}")
+print(
+    f"distance_point_to_line(origin, left_finger_origin, left_finger_origin + left_finger_x_axis) = {distance_point_to_line(origin, left_finger_origin, left_finger_origin + left_finger_x_axis)}"
+)
+print(
+    f"distance_point_to_line(origin, new_left_finger_origin, new_left_finger_origin + new_left_finger_x_axis) = {distance_point_to_line(origin, new_left_finger_origin, new_left_finger_origin + new_left_finger_x_axis)}"
+)
+print(
+    f"distance_point_to_line(origin, phi_adjusted_left_finger_origin, phi_adjusted_left_finger_origin + phi_adjusted_left_finger_x_axis) = {distance_point_to_line(origin, phi_adjusted_left_finger_origin, phi_adjusted_left_finger_origin + phi_adjusted_left_finger_x_axis)}"
+)
+print(
+    f"torch.norm(phi_adjusted_left_finger_origin) = {torch.norm(phi_adjusted_left_finger_origin)}"
+)
 print(f"torch.norm(new_left_finger_origin) = {torch.norm(new_left_finger_origin)}")
 print(f"torch.norm(left_finger_origin) = {torch.norm(left_finger_origin)}")
 print(f"phi_adjusted_left_finger_origin = {phi_adjusted_left_finger_origin}")
@@ -1510,15 +1983,9 @@ print(f"new_left_finger_origin = {new_left_finger_origin}")
 print(f"left_finger_origin = {left_finger_origin}")
 
 
-
-
-
 # %%
 
 exit()  # TODO REMOVE
-
-
-
 
 
 # %% [markdown]

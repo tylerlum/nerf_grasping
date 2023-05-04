@@ -107,9 +107,6 @@ class PreprocessType(Enum):
     DENSITY = auto()
     ALPHA = auto()
     WEIGHT = auto()
-    WEIGHT_V2 = (
-        auto()
-    )  # Both WEIGHT and WEIGHT_V2 should be the same, just need to double check
 
 
 @dataclass
@@ -493,87 +490,6 @@ def preprocess_to_weight(nerf_grid_input):
     # right_weight_j = alpha_j * (1 - alpha_{j+1}) * ... * (1 - alpha_{NUM_PTS_X}))
     #          = probability of collision within j-th segment starting from right edge
 
-    assert nerf_grid_input.shape == INPUT_EXAMPLE_SHAPE
-
-    delta = 0.001  # 1mm
-    x_axis_dim = 1
-
-    # [alpha_1, alpha_2, ..., alpha_{NUM_PTS_X}]
-    alpha = 1.0 - torch.exp(
-        -nerf_grid_input[NERF_DENSITY_START_IDX:NERF_DENSITY_END_IDX] * delta
-    )
-
-    # [1 - alpha_1, (1 - alpha_1) * (1 - alpha_2), ..., (1 - alpha_1) * ... * (1 - alpha_{NUM_PTS_X}))]
-    cumprod_1_minus_alpha_from_left = (1 - alpha).cumprod(dim=x_axis_dim)
-
-    # [(1 - alpha_{NUM_PTS_X}) * ... * (1 - alpha_1), ..., (1 - alpha_{NUM_PTS_X}) * (1 - alpha_{NUM_PTS_X-1}), 1 - alpha_{NUM_PTS_X})]
-    cumprod_1_minus_alpha_from_right = (
-        (1 - alpha.flip(dims=(x_axis_dim,)))
-        .cumprod(dim=x_axis_dim)
-        .flip(dims=(x_axis_dim,))
-    )
-
-    # [1, 1 - alpha_1, (1 - alpha_1) * (1 - alpha_2), ..., (1 - alpha_1) * ... * (1 - alpha_{NUM_PTS_X-1}))]
-    cumprod_1_minus_alpha_from_left_shifted = torch.cat(
-        [
-            torch.ones_like(
-                cumprod_1_minus_alpha_from_left[:, :1],
-                dtype=nerf_grid_input.dtype,
-                device=nerf_grid_input.device,
-            ),
-            cumprod_1_minus_alpha_from_left[:, :-1],
-        ],
-        dim=x_axis_dim,
-    )
-
-    # [(1 - alpha_{NUM_PTS_X}) * ... * (1 - alpha_2), ..., (1 - alpha_{NUM_PTS_X}) * (1 - alpha_{NUM_PTS_X-1}), 1 - alpha_{NUM_PTS_X}, 1]
-    cumprod_1_minus_alpha_from_right_shifted = torch.cat(
-        [
-            cumprod_1_minus_alpha_from_right[:, 1:],
-            torch.ones_like(
-                cumprod_1_minus_alpha_from_right[:, :1],
-                dtype=nerf_grid_input.dtype,
-                device=nerf_grid_input.device,
-            ),
-        ],
-        dim=x_axis_dim,
-    )
-
-    # left_weight_j = alpha_j * (1 - alpha_{j-1}) * ... * (1 - alpha_1))
-    left_weight = alpha * cumprod_1_minus_alpha_from_left_shifted
-
-    # right_weight_j = alpha_j * (1 - alpha_{j+1}) * ... * (1 - alpha_{NUM_PTS_X})
-    right_weight = alpha * cumprod_1_minus_alpha_from_right_shifted
-
-    midpoint_idx = NUM_PTS_X // 2
-    nerf_grid_input[
-        NERF_DENSITY_START_IDX:NERF_DENSITY_END_IDX, :midpoint_idx
-    ] = left_weight[:, :midpoint_idx]
-    nerf_grid_input[
-        NERF_DENSITY_START_IDX:NERF_DENSITY_END_IDX, midpoint_idx:
-    ] = right_weight[:, midpoint_idx:]
-
-    return nerf_grid_input
-
-
-@localscope.mfc(
-    allowed=[
-        "ctx_factory",  # global from torch.no_grad
-        "INPUT_EXAMPLE_SHAPE",
-        "NERF_DENSITY_START_IDX",
-        "NERF_DENSITY_END_IDX",
-        "NUM_PTS_X",
-    ]
-)
-@torch.no_grad()
-def preprocess_to_weight_v2(nerf_grid_input):
-    # alpha_j = 1 - exp(-delta_j * sigma_j)
-    #       = probability of collision within this segment starting from beginning of segment
-    # left_weight_j = alpha_j * (1 - alpha_{j-1}) * ... * (1 - alpha_1))
-    #          = probability of collision within j-th segment starting from left edge
-    # right_weight_j = alpha_j * (1 - alpha_{j+1}) * ... * (1 - alpha_{NUM_PTS_X}))
-    #          = probability of collision within j-th segment starting from right edge
-
     # @localscope.mfc  # TODO: Had error, should fix
     def compute_left_weight(alpha):
         # [1 - alpha_1, (1 - alpha_1) * (1 - alpha_2), ..., (1 - alpha_1) * ... * (1 - alpha_{NUM_PTS_X}))]
@@ -630,7 +546,6 @@ preprocess_type_to_fn = {
     PreprocessType.DENSITY: preprocess_to_density,
     PreprocessType.ALPHA: preprocess_to_alpha,
     PreprocessType.WEIGHT: preprocess_to_weight,
-    PreprocessType.WEIGHT_V2: preprocess_to_weight_v2,
 }
 
 preprocess_fn = preprocess_type_to_fn[cfg.dataloader.preprocess_type]
@@ -1570,10 +1485,10 @@ new_left_finger_z_axis = new_left_finger_z_axis[:3]
 
 traces += get_xyz_axes(origin=new_left_finger_origin, x_axis=new_left_finger_x_axis, y_axis=new_left_finger_y_axis, z_axis=new_left_finger_z_axis, name="left finger rotated around z", length=0.1)
 
-phi_adjusted_left_finger_origin = phi_transformation_matrix @ torch.cat([left_finger_origin, torch.tensor([1.0])])
-phi_adjusted_left_finger_x_axis = phi_transformation_matrix @ torch.cat([left_finger_x_axis, torch.tensor([0.0])])
-phi_adjusted_left_finger_y_axis = phi_transformation_matrix @ torch.cat([left_finger_y_axis, torch.tensor([0.0])])
-phi_adjusted_left_finger_z_axis = phi_transformation_matrix @ torch.cat([left_finger_z_axis, torch.tensor([0.0])])
+phi_adjusted_left_finger_origin = phi_transformation_matrix @ torch.cat([new_left_finger_origin, torch.tensor([1.0])])
+phi_adjusted_left_finger_x_axis = phi_transformation_matrix @ torch.cat([new_left_finger_x_axis, torch.tensor([0.0])])
+phi_adjusted_left_finger_y_axis = phi_transformation_matrix @ torch.cat([new_left_finger_y_axis, torch.tensor([0.0])])
+phi_adjusted_left_finger_z_axis = phi_transformation_matrix @ torch.cat([new_left_finger_z_axis, torch.tensor([0.0])])
 phi_adjusted_left_finger_origin = phi_adjusted_left_finger_origin[:3]
 phi_adjusted_left_finger_x_axis = phi_adjusted_left_finger_x_axis[:3]
 phi_adjusted_left_finger_y_axis = phi_adjusted_left_finger_y_axis[:3]

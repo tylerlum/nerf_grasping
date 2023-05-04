@@ -21,9 +21,17 @@ dataloader:
   batch_size: 128
   num_workers: 8
   pin_memory: True
-  preprocess_density_type: "ALPHA"
   load_nerf_grid_inputs_in_ram: False
   load_grasp_successes_in_ram: False
+
+preprocess:
+  flip_left_right_randomly: False
+  density_type: "ALPHA"
+  add_invariance_transformations: False
+  rotate_polar_angle: False
+  reflect_around_xz_plane_randomly: False
+  remove_y_axis: False
+
 
 training:
   grad_clip_val: 1.0

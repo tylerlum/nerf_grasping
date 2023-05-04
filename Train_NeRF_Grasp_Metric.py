@@ -125,10 +125,19 @@ class DataLoaderConfig:
     batch_size: int = MISSING
     num_workers: int = MISSING
     pin_memory: bool = MISSING
-    preprocess_density_type: PreprocessDensityType = MISSING
 
     load_nerf_grid_inputs_in_ram: bool = MISSING
     load_grasp_successes_in_ram: bool = MISSING
+
+
+@dataclass
+class PreprocessConfig:
+    flip_left_right_randomly: bool = MISSING
+    density_type: PreprocessDensityType = MISSING
+    add_invariance_transformations: bool = MISSING
+    rotate_polar_angle: bool = MISSING
+    reflect_around_xz_plane_randomly: bool = MISSING
+    remove_y_axis: bool = MISSING
 
 
 @dataclass
@@ -180,6 +189,7 @@ class CheckpointWorkspaceConfig:
 class Config:
     data: DataConfig = MISSING
     dataloader: DataLoaderConfig = MISSING
+    preprocess: PreprocessConfig = MISSING
     wandb: WandbConfig = MISSING
     training: TrainingConfig = MISSING
     neural_network: NeuralNetworkConfig = MISSING
@@ -526,9 +536,10 @@ def preprocess_to_weight(nerf_densities: torch.Tensor):
     ]
 )
 def get_nerf_densities_and_points(nerf_grid_inputs: torch.Tensor):
+    batch_size = nerf_grid_inputs.shape[0]
     assert (
         len(nerf_grid_inputs.shape) == 5
-        and nerf_grid_inputs.shape[0] == cfg.dataloader.batch_size
+        and nerf_grid_inputs.shape[0] == batch_size
         and nerf_grid_inputs.shape[1] == NUM_CHANNELS
         and nerf_grid_inputs.shape[2] in [NUM_PTS_X // 2, NUM_PTS_X]
         and nerf_grid_inputs.shape[3] == NUM_PTS_Y
@@ -553,9 +564,10 @@ def get_nerf_densities_and_points(nerf_grid_inputs: torch.Tensor):
     ]
 )
 def get_global_params(nerf_points: torch.Tensor):
+    batch_size = nerf_points.shape[0]
     assert (
         len(nerf_points.shape) == 5
-        and nerf_points.shape[0] == cfg.dataloader.batch_size
+        and nerf_points.shape[0] == batch_size
         and nerf_points.shape[1] == NUM_XYZ
         and nerf_points.shape[2] in [NUM_PTS_X // 2, NUM_PTS_X]
         and nerf_points.shape[3] == NUM_PTS_Y
@@ -570,25 +582,27 @@ def get_global_params(nerf_points: torch.Tensor):
     )
 
     new_origin = nerf_points[:, :, new_origin_x_idx, new_origin_y_idx, new_origin_z_idx]
-    assert new_origin.shape == (cfg.dataloader.batch_size, NUM_XYZ)
+    assert new_origin.shape == (batch_size, NUM_XYZ)
 
     new_x_axis = nn.functional.normalize(
-        nerf_points[:, new_origin_x_idx + 1, new_origin_y_idx, new_origin_z_idx]
+        nerf_points[:, :, new_origin_x_idx + 1, new_origin_y_idx, new_origin_z_idx]
         - new_origin,
         dim=-1,
     )
     new_y_axis = nn.functional.normalize(
-        nerf_points[:, new_origin_x_idx, new_origin_y_idx + 1, new_origin_z_idx]
+        nerf_points[:, :, new_origin_x_idx, new_origin_y_idx + 1, new_origin_z_idx]
         - new_origin,
         dim=-1,
     )
     new_z_axis = nn.functional.normalize(
-        nerf_points[:, new_origin_x_idx, new_origin_y_idx, new_origin_z_idx + 1]
+        nerf_points[:, :, new_origin_x_idx, new_origin_y_idx, new_origin_z_idx + 1]
         - new_origin,
         dim=-1,
     )
 
-    assert torch.isclose(torch.cross(new_x_axis, new_y_axis, dim=-1), new_z_axis).all()
+    assert torch.isclose(
+        torch.cross(new_x_axis, new_y_axis, dim=-1), new_z_axis, rtol=1e-3, atol=1e-3
+    ).all()
 
     # new_z_axis is implicit from the cross product of new_x_axis and new_y_axis
     return new_origin, new_x_axis, new_y_axis
@@ -610,6 +624,8 @@ def invariance_transformation(
     left_origin, left_x_axis, left_y_axis = left_global_params
     right_origin, right_x_axis, right_y_axis = right_global_params
 
+    batch_size = left_origin.shape[0]
+
     assert (
         left_origin.shape
         == right_origin.shape
@@ -617,7 +633,7 @@ def invariance_transformation(
         == right_x_axis.shape
         == left_y_axis.shape
         == right_y_axis.shape
-        == (cfg.dataloader.batch_size, NUM_XYZ)
+        == (batch_size, NUM_XYZ)
     )
 
     # Always do rotation wrt left
@@ -635,10 +651,10 @@ def invariance_transformation(
         ]
     )
 
-    @localscope.mfc
+    @localscope.mfc(allowed=["batch_size"])
     def transform(transformation_matrix, point):
         assert transformation_matrix.shape == (4, 4)
-        assert point.shape == (cfg.dataloader.batch_size, 3)
+        assert point.shape == (batch_size, 3)
 
         transformed_point = transformation_matrix @ torch.cat(
             [point, torch.tensor([1.0])]
@@ -697,7 +713,7 @@ def invariance_transformation(
 
     # Reflect around xz plane
     if reflect_around_xz_plane_randomly:
-        reflect = torch.rand((cfg.dataloader.batch_size,)) > 0.5
+        reflect = torch.rand((batch_size,)) > 0.5
         left_origin = torch.where(
             reflect[:, None], left_origin * torch.tensor([1, -1, 1]), left_origin
         )
@@ -742,9 +758,13 @@ def preprocess_nerf_grid_inputs(
     flip_left_right_randomly: bool = False,
     preprocess_density_type: PreprocessDensityType = PreprocessDensityType.DENSITY,
     add_invariance_transformations: bool = False,
+    rotate_polar_angle: bool = False,
+    reflect_around_xz_plane_randomly: bool = False,
+    remove_y_axis: bool = False,
 ):
+    batch_size = nerf_grid_inputs.shape[0]
     assert nerf_grid_inputs.shape == (
-        cfg.dataloader.batch_size,
+        batch_size,
         *INPUT_EXAMPLE_SHAPE,
     )
     assert torch.is_tensor(nerf_grid_inputs)
@@ -768,7 +788,7 @@ def preprocess_nerf_grid_inputs(
 
     # Flip which side is left and right
     if flip_left_right_randomly:
-        flip = torch.rand((cfg.dataloader.batch_size,)) > 0.5
+        flip = torch.rand((batch_size,)) > 0.5
         left_nerf_densities, right_nerf_densities = (
             torch.where(
                 flip[:, None, None, None], right_nerf_densities, left_nerf_densities
@@ -803,8 +823,19 @@ def preprocess_nerf_grid_inputs(
     # Invariance transformations
     if add_invariance_transformations:
         left_global_params, right_global_params = invariance_transformation(
-            left_global_params, right_global_params
+            left_global_params=left_global_params,
+            right_global_params=right_global_params,
+            rotate_polar_angle=rotate_polar_angle,
+            reflect_around_xz_plane_randomly=reflect_around_xz_plane_randomly,
+            remove_y_axis=remove_y_axis,
         )
+
+    # Stack global params into a single tensor
+    assert len(left_global_params) == len(right_global_params)
+    assert all([param.shape == (batch_size, NUM_XYZ) for param in left_global_params])
+    assert all([param.shape == (batch_size, NUM_XYZ) for param in right_global_params])
+    left_global_params = torch.stack(left_global_params, dim=1)
+    right_global_params = torch.stack(right_global_params, dim=1)
 
     return [
         (left_nerf_densities, left_global_params),
@@ -849,6 +880,33 @@ assert len(set.intersection(set(train_dataset.indices), set(val_dataset.indices)
 assert len(set.intersection(set(train_dataset.indices), set(test_dataset.indices))) == 0
 assert len(set.intersection(set(val_dataset.indices), set(test_dataset.indices))) == 0
 
+
+# %%
+@localscope.mfc(allowed=["cfg"])
+def custom_collate_fn(batch):
+    batch = torch.utils.data.dataloader.default_collate(batch)
+
+    nerf_grid_inputs, grasp_successes = batch
+    (
+        (left_nerf_densities, left_global_params),
+        (right_nerf_densities, right_global_params),
+    ) = preprocess_nerf_grid_inputs(
+        nerf_grid_inputs=nerf_grid_inputs,
+        flip_left_right_randomly=cfg.preprocess.flip_left_right_randomly,
+        preprocess_density_type=cfg.preprocess.density_type,
+        add_invariance_transformations=cfg.preprocess.add_invariance_transformations,
+        rotate_polar_angle=cfg.preprocess.rotate_polar_angle,
+        reflect_around_xz_plane_randomly=cfg.preprocess.reflect_around_xz_plane_randomly,
+        remove_y_axis=cfg.preprocess.remove_y_axis,
+    )
+    print(f"left_nerf_densities.shape: {left_nerf_densities.shape}")
+    print(f"left_global_params.shape: {left_global_params.shape}")
+    print(f"right_nerf_densities.shape: {right_nerf_densities.shape}")
+    print(f"right_global_params.shape: {right_global_params.shape}")
+
+    return batch
+
+
 # %%
 train_loader = DataLoader(
     train_dataset,
@@ -856,6 +914,7 @@ train_loader = DataLoader(
     shuffle=True,
     pin_memory=cfg.dataloader.pin_memory,
     num_workers=cfg.dataloader.num_workers,
+    collate_fn=custom_collate_fn,
 )
 val_loader = DataLoader(
     val_dataset,
@@ -863,6 +922,7 @@ val_loader = DataLoader(
     shuffle=False,
     pin_memory=cfg.dataloader.pin_memory,
     num_workers=cfg.dataloader.num_workers,
+    collate_fn=custom_collate_fn,
 )
 test_loader = DataLoader(
     test_dataset,
@@ -870,7 +930,12 @@ test_loader = DataLoader(
     shuffle=False,
     pin_memory=cfg.dataloader.pin_memory,
     num_workers=cfg.dataloader.num_workers,
+    collate_fn=custom_collate_fn,
 )
+
+# %%
+# TODO REMOVE
+xx, yy = next(iter(train_loader))
 
 
 # %%

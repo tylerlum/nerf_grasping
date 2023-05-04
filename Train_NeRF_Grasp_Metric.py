@@ -198,7 +198,7 @@ config_store.store(name="config", node=Config)
 
 # %%
 if is_notebook():
-    arguments = ["data.input_dataset_path=nerf_acronym_grasp_success_dataset_608_categories.h5"]
+    arguments = []
 else:
     arguments = sys.argv[1:]
     print(f"arguments = {arguments}")
@@ -206,7 +206,6 @@ else:
 
 # %%
 from hydra.errors import ConfigCompositionException
-from omegaconf.errors import ValidationError
 
 try:
     with initialize(version_base="1.1", config_path="Train_NeRF_Grasp_Metric_cfg"):
@@ -326,7 +325,6 @@ wandb.init(
     id=wandb_run_id,
     resume="never" if cfg.checkpoint_workspace.force_no_resume else "allow",
     reinit=True,
-    # settings=wandb.Settings(start_method="fork"),  # Fix for wandb init error, but stops wandb from logging
 )
 
 # %% [markdown]

@@ -1028,7 +1028,9 @@ def create_datapoint_plotly_fig(
 # %%
 if cfg.visualize_data:
     create_datapoint_plotly_fig(
-        dataset=train_dataset, datapoint_name=Phase.TRAIN.name.lower(), save_to_wandb=True
+        dataset=train_dataset,
+        datapoint_name=Phase.TRAIN.name.lower(),
+        save_to_wandb=True,
     )
 
 # %%
@@ -1043,9 +1045,10 @@ create_datapoint_plotly_fig(
     dataset=val_dataset, datapoint_name=Phase.VAL.name.lower(), save_to_wandb=False
 )
 
+
 # %%
 @localscope.mfc
-def plot_obj(obj_filepath, scale=1.0, offset=None, color="lightpink", return_mesh=False):
+def create_plotly_mesh(obj_filepath, scale=1.0, offset=None, color="lightpink"):
     if offset is None:
         offset = np.zeros(3)
 
@@ -1086,30 +1089,12 @@ def plot_obj(obj_filepath, scale=1.0, offset=None, color="lightpink", return_mes
         name=f"Mesh: {os.path.basename(obj_filepath)}",
     )
 
-    # Create the layout
-    coordinates = "Mesh Centroid Centered Coordinates"
-    layout = go.Layout(
-        scene=dict(xaxis=dict(title="X"), yaxis=dict(title="Y"), zaxis=dict(title="Z")),
-        showlegend=True,
-        title=f"Mesh: {os.path.basename(obj_filepath)} ({coordinates})",
-        width=800,
-        height=800,
-    )
-
-    # Create the figure
-    fig = go.Figure(data=[mesh], layout=layout)
-
-    if return_mesh:
-        return fig, mesh
-
-    # Return the figure
-    return fig
-
+    return mesh
 
 
 # %%
 
-idx = 2300
+idx = 69340
 with h5py.File(input_dataset_full_path, "r") as hdf5_file:
     nerf_grid_input = np.array(
         hdf5_file["/nerf_grid_input"][idx]
@@ -1122,9 +1107,10 @@ with h5py.File(input_dataset_full_path, "r") as hdf5_file:
     acronym_filepath = os.path.join(acronym_root_dir, acronym_filename)
     with h5py.File(acronym_filepath, "r") as acronym_hdf5_file:
         mesh_root_dir = "assets/objects"
-        mesh_filename = acronym_hdf5_file['object/file'][()].decode("utf-8")
+        mesh_filename = acronym_hdf5_file["object/file"][()].decode("utf-8")
         mesh_filepath = os.path.join(mesh_root_dir, mesh_filename)
         import trimesh
+
         mesh = trimesh.load(mesh_filepath, force="mesh")
         mesh_scale = float(acronym_hdf5_file["object/scale"][()])
         mesh_centroid = np.array(mesh.centroid) * mesh_scale
@@ -1135,18 +1121,37 @@ LEFT_TIP_POSITION_GRASP_FRAME = np.array(
 RIGHT_TIP_POSITION_GRASP_FRAME = np.array(
     [-4.10000000e-02, -7.27595772e-12, 1.12169998e-01]
 )
-left_tip = np.matmul(grasp_transform, np.concatenate([LEFT_TIP_POSITION_GRASP_FRAME, [1.0]]))[:3] - mesh_centroid
-right_tip = np.matmul(grasp_transform, np.concatenate([RIGHT_TIP_POSITION_GRASP_FRAME, [1.0]]))[:3] - mesh_centroid
+left_tip = (
+    np.matmul(grasp_transform, np.concatenate([LEFT_TIP_POSITION_GRASP_FRAME, [1.0]]))[
+        :3
+    ]
+    - mesh_centroid
+)
+right_tip = (
+    np.matmul(grasp_transform, np.concatenate([RIGHT_TIP_POSITION_GRASP_FRAME, [1.0]]))[
+        :3
+    ]
+    - mesh_centroid
+)
 
 
-        # grasp = np.array(acronym_hdf5_file["/grasp"][grasp_idx])
-        # grasp_success = np.array(acronym_hdf5_file["/grasp_success"][grasp_idx])
+# grasp = np.array(acronym_hdf5_file["/grasp"][grasp_idx])
+# grasp_success = np.array(acronym_hdf5_file["/grasp_success"][grasp_idx])
 
 fig = create_datapoint_plotly_fig(
-    dataset=val_dataset, datapoint_name=Phase.VAL.name.lower(), save_to_wandb=False, idx_to_visualize=idx,
+    dataset=full_dataset,
+    datapoint_name="full data",
+    save_to_wandb=False,
+    idx_to_visualize=idx,
 )
-_, mesh = plot_obj(obj_filepath=mesh_filepath, scale=mesh_scale, offset=-mesh_centroid, color="lightpink", return_mesh=True)
-fig.add_trace(mesh)
+fig.add_trace(
+    create_plotly_mesh(
+        obj_filepath=mesh_filepath,
+        scale=mesh_scale,
+        offset=-mesh_centroid,
+        color="lightpink",
+    )
+)
 
 # Draw line from left_tip to right_tip
 fig.add_trace(
@@ -1162,6 +1167,85 @@ fig.add_trace(
 
 fig.show()
 
+
+# %%
+@localscope.mfc
+def create_detailed_plot_with_mesh(
+    full_dataset: NeRFGrid_To_GraspSuccess_HDF5_Dataset, idx_to_visualize: int = 0
+):
+    # Hacky function that reads from both the input dataset and the acronym dataset
+    # To create a detailed plot with the mesh and the grasp
+    fig = create_datapoint_plotly_fig(
+        dataset=full_dataset,
+        datapoint_name="full data",
+        save_to_wandb=False,
+        idx_to_visualize=idx_to_visualize,
+    )
+
+    ACRONYM_ROOT_DIR = "/juno/u/tylerlum/github_repos/acronym/data/grasps"
+    MESH_ROOT_DIR = "assets/objects"
+    LEFT_TIP_POSITION_GRASP_FRAME = np.array(
+        [4.10000000e-02, -7.27595772e-12, 1.12169998e-01]
+    )
+    RIGHT_TIP_POSITION_GRASP_FRAME = np.array(
+        [-4.10000000e-02, -7.27595772e-12, 1.12169998e-01]
+    )
+
+    # Get acronym filename and grasp transform from input dataset
+    with h5py.File(full_dataset.input_dataset_full_path, "r") as hdf5_file:
+        acronym_filename = hdf5_file["/acronym_filename"][idx_to_visualize].decode("utf-8")
+        grasp_transform = np.array(hdf5_file["/grasp_transform"][idx_to_visualize])
+
+    # Get mesh info from acronym dataset
+    acronym_filepath = os.path.join(ACRONYM_ROOT_DIR, acronym_filename)
+    with h5py.File(acronym_filepath, "r") as acronym_hdf5_file:
+        mesh_filename = acronym_hdf5_file["object/file"][()].decode("utf-8")
+        mesh_filepath = os.path.join(MESH_ROOT_DIR, mesh_filename)
+
+        import trimesh
+
+        mesh = trimesh.load(mesh_filepath, force="mesh")
+        mesh_scale = float(acronym_hdf5_file["object/scale"][()])
+        mesh_centroid = np.array(mesh.centroid) * mesh_scale
+
+    left_tip = (
+        np.matmul(
+            grasp_transform, np.concatenate([LEFT_TIP_POSITION_GRASP_FRAME, [1.0]])
+        )[:3]
+        - mesh_centroid
+    )
+    right_tip = (
+        np.matmul(
+            grasp_transform, np.concatenate([RIGHT_TIP_POSITION_GRASP_FRAME, [1.0]])
+        )[:3]
+        - mesh_centroid
+    )
+
+    # Draw mesh, ensure -centroid offset so that mesh centroid is centered at origin
+    fig.add_trace(
+        create_plotly_mesh(
+            obj_filepath=mesh_filepath,
+            scale=mesh_scale,
+            offset=-mesh_centroid,
+            color="lightpink",
+        )
+    )
+
+    # Draw line from left_tip to right_tip
+    fig.add_trace(
+        go.Scatter3d(
+            x=[left_tip[0], right_tip[0]],
+            y=[left_tip[1], right_tip[1]],
+            z=[left_tip[2], right_tip[2]],
+            mode="lines",
+            line=dict(color="red", width=10),
+            name="Grasp (should align with query points)",
+        )
+    )
+    return fig
+
+# %%
+fig = create_detailed_plot_with_mesh(full_dataset=full_dataset, idx_to_visualize=0)
 
 # %%
 

@@ -1465,7 +1465,8 @@ print(f"type(left_rotation_around_x): {type(left_rotation_around_x)}")
 # Actually, let's formulate this as a axis angle rotation
 left_rotation_matrix = torch.stack([left_finger_x_axis, left_finger_y_axis, left_finger_z_axis], dim=1)
 left_rotation_rotvec = torch.tensor(Rotation.from_matrix(left_rotation_matrix.cpu().numpy()).as_rotvec()).float()
-origin, x_axis, y_axis, z_axis = np.array([0, 0, 0]), np.array([1.0, 0.0, 0.0]), np.array([0.0, 1.0, 0.0]), np.array([0.0, 0.0, 1.0])
+# origin, x_axis, y_axis, z_axis = np.array([0, 0, 0]), np.array([1.0, 0.0, 0.0]), np.array([0.0, 1.0, 0.0]), np.array([0.0, 0.0, 1.0])
+origin, x_axis, y_axis, z_axis = torch.tensor([0, 0, 0]), torch.tensor([1.0, 0.0, 0.0]), torch.tensor([0.0, 1.0, 0.0]), torch.tensor([0.0, 0.0, 1.0])
 print(f"left_rotation_rotvec: {torch.rad2deg(left_rotation_rotvec)}")
 
 fig = go.Figure(layout=layout)
@@ -1478,7 +1479,7 @@ fig.show()
 
 # %%
 theta = torch.atan2(left_finger_origin[1], left_finger_origin[0])
-theta += torch.tensor(np.pi / 2)
+# theta += torch.tensor(np.pi / 2)
 transformation_matrix = torch.tensor([
     [torch.cos(-theta), -torch.sin(-theta), 0, 0],
     [torch.sin(-theta), torch.cos(-theta), 0, 0],
@@ -1488,22 +1489,27 @@ transformation_matrix = torch.tensor([
 fig = go.Figure(layout=layout)
 traces = []
 traces += get_xyz_axes(origin=origin, x_axis=x_axis, y_axis=y_axis, z_axis=z_axis, name="original")
-traces += get_xyz_axes(origin=left_finger_origin, x_axis=left_rotation_matrix @ x_axis, y_axis=left_rotation_matrix @ y_axis, z_axis=left_rotation_matrix @ z_axis, name="left finger")
+traces += get_xyz_axes(origin=left_finger_origin, x_axis=left_rotation_matrix @ x_axis, y_axis=left_rotation_matrix @ y_axis, z_axis=left_rotation_matrix @ z_axis, name="left finger", length=0.1)
 # traces += get_xyz_axes(origin=torch.tensor([torch.norm(left_finger_origin[:2]), 0, left_finger_origin[2]]), x_axis=rotation_matrix @ left_finger_x_axis, y_axis=rotation_matrix @ left_finger_y_axis, z_axis=rotation_matrix @ left_finger_z_axis, name="left finger rotated around z")
 # traces += get_xyz_axes(origin=torch.tensor([torch.norm(left_finger_origin[:2]), 0, left_finger_origin[2]]), x_axis=left_finger_x_axis @ rotation_matrix, y_axis=left_finger_y_axis @ rotation_matrix, z_axis=left_finger_z_axis @ rotation_matrix, name="left finger rotated around z")
 new_left_finger_origin = transformation_matrix @ torch.cat([left_finger_origin, torch.tensor([1.0])])
+new_left_finger_origin = new_left_finger_origin[:3]
 new_left_finger_origin_2 = torch.tensor([torch.norm(left_finger_origin[:2]), 0, left_finger_origin[2]])
 print(f"new_left_finger_origin = {new_left_finger_origin}")
 print(f"new_left_finger_origin_2 = {new_left_finger_origin_2}")
 new_left_finger_x_axis = transformation_matrix @ torch.cat([left_finger_x_axis, torch.tensor([0.0])])
 new_left_finger_y_axis = transformation_matrix @ torch.cat([left_finger_y_axis, torch.tensor([0.0])])
 new_left_finger_z_axis = transformation_matrix @ torch.cat([left_finger_z_axis, torch.tensor([0.0])])
+new_left_finger_x_axis = new_left_finger_x_axis[:3]
+new_left_finger_y_axis = new_left_finger_y_axis[:3]
+new_left_finger_z_axis = new_left_finger_z_axis[:3]
+
 print(f"new_left_finger_x_axis = {new_left_finger_x_axis}")
 print(f"new_left_finger_y_axis = {new_left_finger_y_axis}")
 print(f"new_left_finger_z_axis = {new_left_finger_z_axis}")
 
 # traces += get_xyz_axes(origin=new_left_finger_origin, x_axis=left_finger_x_axis, y_axis=left_finger_y_axis, z_axis=left_finger_z_axis, name="left finger rotated around z")
-traces += get_xyz_axes(origin=new_left_finger_origin, x_axis=new_left_finger_x_axis, y_axis=new_left_finger_y_axis, z_axis=new_left_finger_z_axis, name="left finger rotated around z")
+traces += get_xyz_axes(origin=new_left_finger_origin, x_axis=new_left_finger_x_axis, y_axis=new_left_finger_y_axis, z_axis=new_left_finger_z_axis, name="left finger rotated around z", length=0.1)
 for trace in traces:
     fig.add_trace(trace)
 fig.show()
@@ -1527,6 +1533,8 @@ def distance_point_to_line(point, line_point1, line_point2):
     distance = torch.norm(point - closest_point)
     
     return distance
+print(f'distance_point_to_line(origin, left_finger_origin, left_finger_origin + left_finger_x_axis) = {distance_point_to_line(origin, left_finger_origin, left_finger_origin + left_finger_x_axis)}')
+print(f"distance_point_to_line(origin, new_left_finger_origin, new_left_finger_origin + new_left_finger_x_axis) = {distance_point_to_line(origin, new_left_finger_origin, new_left_finger_origin + new_left_finger_x_axis)}")
 
 
 

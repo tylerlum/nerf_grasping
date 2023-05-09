@@ -241,6 +241,8 @@ class ResNet1D(nn.Module):
     ):
         super(ResNet1D, self).__init__()
 
+        self.in_channels = in_channels
+        self.seq_len = seq_len
         self.verbose = verbose
         self.n_block = n_block
         self.kernel_size = kernel_size
@@ -311,7 +313,7 @@ class ResNet1D(nn.Module):
         # self.softmax = nn.Softmax(dim=1)
 
         # COMPUTE OUTPUT SIZES FILM START
-        example_x = torch.zeros(1, in_channels, seq_len)  # TODO: HARDCODED
+        example_x = torch.zeros(1, self.in_channels, self.seq_len)
 
         # Copy first part of forward pass
         example_x = self.first_block_conv(example_x)
@@ -321,8 +323,10 @@ class ResNet1D(nn.Module):
         # Each block outputs a number of planes (related to the in_channels and base_filters)
         self.num_planes_per_block = []
         for i, block in enumerate(self.basicblock_list):
-            # TODO REMOVE
-            print(f"block {i}, in_channels: {block.in_channels}, out_channels: {block.out_channels}, downsample: {block.downsample}")
+            if self.verbose:
+                print(
+                    f"block {i}, in_channels: {block.in_channels}, out_channels: {block.out_channels}, downsample: {block.downsample}"
+                )
 
             # Perform forward pass and store output sizes
             example_x = block(example_x)
@@ -330,8 +334,18 @@ class ResNet1D(nn.Module):
             self.num_planes_per_block.append(num_planes)
 
         # This is an important attribute to define how many FiLM params are needed
-        self.num_film_params = sum([num_planes for num_planes in self.num_planes_per_block])
+        self.num_film_params = sum(
+            [num_planes for num_planes in self.num_planes_per_block]
+        )
         # COMPUTE OUTPUT SIZES FILM END
+
+        self.pool = nn.AdaptiveAvgPool1d(
+            output_size=1
+        )  # TODO: Make it changeable parameter
+
+        example_x = torch.zeros(1, self.in_channels, self.seq_len)
+        example_output = self(example_x)
+        self.output_dim = example_output.shape[1]
 
     def forward(self, x, beta=None, gamma=None):
         out = x
@@ -368,8 +382,16 @@ class ResNet1D(nn.Module):
                 end_idx = start_idx + num_planes
 
                 # beta_i.shape == gamma_i.shape == (batch_size, num_planes, 1)
-                beta_i = beta[:, start_idx:end_idx].reshape(-1, num_planes, 1) if beta is not None else None
-                gamma_i = gamma[:, start_idx:end_idx].reshape(-1, num_planes, 1) if gamma is not None else None
+                beta_i = (
+                    beta[:, start_idx:end_idx].reshape(-1, num_planes, 1)
+                    if beta is not None
+                    else None
+                )
+                gamma_i = (
+                    gamma[:, start_idx:end_idx].reshape(-1, num_planes, 1)
+                    if gamma is not None
+                    else None
+                )
 
                 out = block(out, beta=beta_i, gamma=gamma_i)
 
@@ -379,7 +401,11 @@ class ResNet1D(nn.Module):
         if self.use_bn:
             out = self.final_bn(out)
         out = self.final_relu(out)
-        out = out.mean(-1)
+
+        # Custom pooling
+        out = self.pool(out)
+        out = torch.flatten(out, 1)
+
         if self.verbose:
             print("final pooling", out.shape)
         # out = self.do(out)
@@ -391,3 +417,52 @@ class ResNet1D(nn.Module):
             print("softmax", out.shape)
 
         return out
+
+
+if __name__ == "__main__":
+    from torchinfo import summary
+
+    # Create encoder
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    in_channels, seq_len = 3, 100
+    verbose = False
+    img_encoder = ResNet1D(
+        in_channels=in_channels,
+        seq_len=seq_len,
+        base_filters=64,
+        kernel_size=3,
+        stride=1,
+        groups=1,
+        n_block=4,
+        n_classes=10,
+        downsample_gap=2,
+        increasefilter_gap=2,
+        use_do=False,
+        verbose=verbose,
+    ).to(device)
+    print(f"Input shape: (batch_size, {in_channels}, {seq_len})")
+    print(f"Output shape: (batch_size, {img_encoder.output_dim})")
+    print(f"Number of FiLM params: {img_encoder.num_film_params}")
+    print()
+
+    # Summary comparison
+    print("~" * 100)
+    print("Summary of FiLM resnet 1d:")
+    print("~" * 100)
+    summary(img_encoder, input_size=(1, in_channels, seq_len), depth=float("inf"), device=device)
+    print()
+
+    # Compare output with reference encoder
+    example_input = torch.rand(1, in_channels, seq_len, device=device)
+    example_output = img_encoder(example_input)
+    print(f"Output shape: {example_output.shape}")
+
+    # Compare output with defined beta and gamma
+    example_output_with_film = img_encoder(
+        example_input,
+        beta=torch.zeros(1, img_encoder.num_film_params, device=device),
+        gamma=torch.ones(1, img_encoder.num_film_params, device=device),
+    )
+    print(
+        f"Output difference with defined beta=0 and gamma=1: {torch.norm(example_output - example_output_with_film)}"
+    )

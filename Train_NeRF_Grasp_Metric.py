@@ -44,7 +44,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum, auto
 from functools import partial
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Type
 import matplotlib.pyplot as plt
 
 import h5py
@@ -887,10 +887,27 @@ assert len(set.intersection(set(val_dataset.indices), set(test_dataset.indices))
 
 
 # %%
+# Create custom class to store a batch
+@dataclass
+class BatchData:
+    left_nerf_densities: torch.Tensor
+    left_global_params: torch.Tensor
+    right_nerf_densities: torch.Tensor
+    right_global_params: torch.Tensor
+    grasp_successes: torch.Tensor
+
+    @localscope.mfc
+    def to(self, device):
+        self.left_nerf_densities = self.left_nerf_densities.to(device)
+        self.left_global_params = self.left_global_params.to(device)
+        self.right_nerf_densities = self.right_nerf_densities.to(device)
+        self.right_global_params = self.right_global_params.to(device)
+        self.grasp_successes = self.grasp_successes.to(device)
+
+
+# %%
 @localscope.mfc(allowed=["cfg"])
-def custom_collate_fn(
-    batch: List[Tuple[torch.Tensor, torch.Tensor]]
-) -> Tuple[Tuple[Tuple[torch.Tensor, ...], Tuple[torch.Tensor, ...]], torch.Tensor]:
+def custom_collate_fn(batch: List[Tuple[torch.Tensor, torch.Tensor]]) -> BatchData:
     batch = torch.utils.data.dataloader.default_collate(batch)
 
     nerf_grid_inputs, grasp_successes = batch
@@ -907,12 +924,12 @@ def custom_collate_fn(
         remove_y_axis=cfg.preprocess.remove_y_axis,
     )
 
-    return (
-        (
-            (left_nerf_densities, left_global_params),
-            (right_nerf_densities, right_global_params),
-        ),
-        grasp_successes,
+    return BatchData(
+        left_nerf_densities=left_nerf_densities,
+        left_global_params=left_global_params,
+        right_nerf_densities=right_nerf_densities,
+        right_global_params=right_global_params,
+        grasp_successes=grasp_successes,
     )
 
 
@@ -943,17 +960,17 @@ test_loader = DataLoader(
 )
 
 # %%
-# TODO: Maybe remove this global variable
-(
-    (left_nerf_densities, left_global_params),
-    (right_nerf_densities, right_global_params),
-), grasp_successes = next(iter(val_loader))
+example_batch_data = next(iter(val_loader))
+
 
 # %%
-print(f"left_nerf_densities.shape: {left_nerf_densities.shape}")
-print(f"left_global_params.shape: {left_global_params.shape}")
-print(f"right_nerf_densities.shape: {right_nerf_densities.shape}")
-print(f"right_global_params.shape: {right_global_params.shape}")
+example_batch_data
+
+# %%
+print(f"left_nerf_densities.shape: {example_batch_data.left_nerf_densities.shape}")
+print(f"left_global_params.shape: {example_batch_data.left_global_params.shape}")
+print(f"right_nerf_densities.shape: {example_batch_data.right_nerf_densities.shape}")
+print(f"right_global_params.shape: {example_batch_data.right_global_params.shape}")
 
 
 # %%
@@ -1000,7 +1017,7 @@ def visualize_nerf_density_imgs(
 # %%
 if cfg.visualize_data:
     visualize_nerf_density_imgs(
-        left_nerf_densities,
+        example_batch_data.left_nerf_densities,
         idx_to_visualize=0,
         name="Left Nerf Densities Grid",
         save_to_wandb=True,
@@ -1009,7 +1026,7 @@ if cfg.visualize_data:
 # %%
 if cfg.visualize_data:
     visualize_nerf_density_imgs(
-        right_nerf_densities,
+        example_batch_data.right_nerf_densities,
         idx_to_visualize=0,
         name="Right Nerf Densities Grid",
         save_to_wandb=True,
@@ -1051,7 +1068,7 @@ def visualize_nerf_videos(
 # %%
 if cfg.visualize_data:
     visualize_nerf_videos(
-        left_nerf_densities,
+        example_batch_data.left_nerf_densities,
         idx_to_visualize=0,
         name="Left Nerf Densities Video",
         save_to_wandb=True,
@@ -1060,7 +1077,7 @@ if cfg.visualize_data:
 # %%
 if cfg.visualize_data:
     visualize_nerf_videos(
-        right_nerf_densities,
+        example_batch_data.right_nerf_densities,
         idx_to_visualize=0,
         name="Right Nerf Densities Video",
         save_to_wandb=True,
@@ -1120,8 +1137,8 @@ def visualize_1D_max_nerf_density(
 # %%
 if cfg.visualize_data:
     visualize_1D_max_nerf_density(
-        left_nerf_densities,
-        right_nerf_densities,
+        example_batch_data.left_nerf_densities,
+        example_batch_data.right_nerf_densities,
         idx_to_visualize=0,
         name="Max Nerf Density",
         save_to_wandb=True,
@@ -1517,41 +1534,37 @@ if cfg.visualize_data:
         "tqdm",
     ]
 )
-def create_nerf_grid_input_distribution_figs(
-    train_loader: DataLoader, save_to_wandb: bool = False
+def create_batch_input_distribution_figs(
+    train_loader: DataLoader,
+    save_to_wandb: bool = False,
+    max_num_batches: Optional[int] = None,
 ) -> Tuple[go.Figure, go.Figure]:
-    nerf_coordinate_mins, nerf_coordinate_means, nerf_coordinate_maxs = [], [], []
     nerf_density_mins, nerf_density_means, nerf_density_maxs = [], [], []
-    for nerf_grid_inputs, _ in tqdm(
-        train_loader, desc="Calculating nerf_grid_inputs dataset statistics"
-    ):
-        assert nerf_grid_inputs.shape[1:] == INPUT_EXAMPLE_SHAPE
-        nerf_coordinates = nerf_grid_inputs[
-            :, NERF_COORDINATE_START_IDX:NERF_COORDINATE_END_IDX
-        ]
-        nerf_densities = nerf_grid_inputs[
-            :, NERF_DENSITY_START_IDX:NERF_DENSITY_END_IDX
-        ]
+    nerf_global_param_mins, nerf_global_param_means, nerf_global_param_maxs = [], [], []
 
-        nerf_coordinate_mins.append(nerf_coordinates.min().item())
-        nerf_coordinate_means.append(nerf_coordinates.mean().item())
-        nerf_coordinate_maxs.append(nerf_coordinates.max().item())
+    for batch_idx, batch_data in tqdm(
+        enumerate(train_loader),
+        desc="Calculating batch input dataset statistics",
+        total=len(train_loader),
+    ):
+        if max_num_batches is not None and batch_idx >= max_num_batches:
+            break
+
+        batch_data: BatchData = batch_data
+        nerf_densities = torch.stack(
+            [batch_data.left_nerf_densities, batch_data.right_nerf_densities], dim=1
+        )
+        nerf_global_params = torch.stack(
+            [batch_data.left_global_params, batch_data.right_global_params], dim=1
+        )
 
         nerf_density_mins.append(nerf_densities.min().item())
         nerf_density_means.append(nerf_densities.mean().item())
         nerf_density_maxs.append(nerf_densities.max().item())
 
-    nerf_coordinate_mins, nerf_coordinate_means, nerf_coordinate_maxs = (
-        np.array(nerf_coordinate_mins),
-        np.array(nerf_coordinate_means),
-        np.array(nerf_coordinate_maxs),
-    )
-    nerf_coordinate_min = nerf_coordinate_mins.min()
-    nerf_coordinate_mean = nerf_coordinate_means.mean()
-    nerf_coordinate_max = nerf_coordinate_maxs.max()
-    print(f"nerf_coordinate_min: {nerf_coordinate_min}")
-    print(f"nerf_coordinate_mean: {nerf_coordinate_mean}")
-    print(f"nerf_coordinate_max: {nerf_coordinate_max}")
+        nerf_global_param_mins.append(nerf_global_params.min().item())
+        nerf_global_param_means.append(nerf_global_params.mean().item())
+        nerf_global_param_maxs.append(nerf_global_params.max().item())
 
     nerf_density_mins, nerf_density_means, nerf_density_maxs = (
         np.array(nerf_density_mins),
@@ -1565,32 +1578,17 @@ def create_nerf_grid_input_distribution_figs(
     print(f"nerf_density_mean: {nerf_density_mean}")
     print(f"nerf_density_max: {nerf_density_max}")
 
-    # Coordinates
-    coordinates_fig = go.Figure(
-        data=[
-            go.Histogram(
-                x=nerf_coordinate_mins,
-                name="Min",
-                marker_color="blue",
-            ),
-            go.Histogram(
-                x=nerf_coordinate_means,
-                name="Mean",
-                marker_color="orange",
-            ),
-            go.Histogram(
-                x=nerf_coordinate_maxs,
-                name="Max",
-                marker_color="green",
-            ),
-        ],
-        layout=go.Layout(
-            title="Distribution of nerf_coordinates (Aggregated to Fit in RAM)",
-            xaxis=dict(title="nerf_coordinates"),
-            yaxis=dict(title="Frequency"),
-            barmode="overlay",
-        ),
+    nerf_global_param_mins, nerf_global_param_means, nerf_global_param_maxs = (
+        np.array(nerf_global_param_mins),
+        np.array(nerf_global_param_means),
+        np.array(nerf_global_param_maxs),
     )
+    nerf_global_param_min = nerf_global_param_mins.min()
+    nerf_global_param_mean = nerf_global_param_means.mean()
+    nerf_global_param_max = nerf_global_param_maxs.max()
+    print(f"nerf_global_param_min: {nerf_global_param_min}")
+    print(f"nerf_global_param_mean: {nerf_global_param_mean}")
+    print(f"nerf_global_param_max: {nerf_global_param_max}")
 
     # Density
     density_fig = go.Figure(
@@ -1619,21 +1617,50 @@ def create_nerf_grid_input_distribution_figs(
         ),
     )
 
+    # Global Params
+    global_param_fig = go.Figure(
+        data=[
+            go.Histogram(
+                x=nerf_global_param_mins,
+                name="Min",
+                marker_color="blue",
+            ),
+            go.Histogram(
+                x=nerf_global_param_means,
+                name="Mean",
+                marker_color="orange",
+            ),
+            go.Histogram(
+                x=nerf_global_param_maxs,
+                name="Max",
+                marker_color="green",
+            ),
+        ],
+        layout=go.Layout(
+            title="Distribution of nerf_global_params (Aggregated to Fit in RAM)",
+            xaxis=dict(title="nerf_global_params"),
+            yaxis=dict(title="Frequency"),
+            barmode="overlay",
+        ),
+    )
+
     if save_to_wandb:
-        wandb_log_plotly_fig(
-            plotly_fig=coordinates_fig, title="Distribution of nerf_coordinates"
-        )
         wandb_log_plotly_fig(
             plotly_fig=density_fig, title="Distribution of nerf_densities"
         )
+        wandb_log_plotly_fig(
+            plotly_fig=global_param_fig, title="Distribution of nerf_global_params"
+        )
 
-    return coordinates_fig, density_fig
+    return density_fig, global_param_fig
 
 
 # %%
 if cfg.visualize_data:
-    create_nerf_grid_input_distribution_figs(
-        train_loader=train_loader, save_to_wandb=True
+    create_batch_input_distribution_figs(
+        train_loader=train_loader,
+        save_to_wandb=True,
+        max_num_batches=50,
     )
 
 
@@ -1869,7 +1896,6 @@ print(f"nerf_to_grasp_success_model = {nerf_to_grasp_success_model}")
 print(f"optimizer = {optimizer}")
 
 # %%
-example_batch_nerf_input, _ = next(iter(train_loader))
 example_batch_nerf_input = example_batch_nerf_input.to(device)
 print(f"example_batch_nerf_input.shape = {example_batch_nerf_input.shape}")
 
@@ -1881,6 +1907,7 @@ summary(
 )
 
 # %%
+# TODO: Update left right batch data
 example_batch_nerf_input, _ = next(iter(train_loader))
 example_batch_nerf_input = example_batch_nerf_input.requires_grad_(True).to(device)
 example_grasp_success_prediction = nerf_to_grasp_success_model(example_batch_nerf_input)
@@ -1960,7 +1987,9 @@ def create_dataloader_subset(
         ),
         pin_memory=original_dataloader.pin_memory,
         num_workers=original_dataloader.num_workers,
+        collate_fn=custom_collate_fn,
     )
+
     return dataloader
 
 
@@ -2003,18 +2032,20 @@ def iterate_through_dataloader(
         all_predictions, all_ground_truths = [], []
 
         end_time = time.time()
-        for nerf_grid_inputs, grasp_successes in (pbar := tqdm(dataloader)):
+        for batch_data in (pbar := tqdm(dataloader)):
             dataload_time_taken = time.time() - end_time
 
             # Forward pass
             start_forward_pass_time = time.time()
-            nerf_grid_inputs = nerf_grid_inputs.to(device)
-            grasp_successes = grasp_successes.to(device)
-
+            batch_data: BatchData = batch_data
+            batch_data = batch_data.to(device)
+            # TODO: update for left/right
             grasp_success_logits = nerf_to_grasp_success_model.get_success_logits(
-                nerf_grid_inputs
+                batch_data.nerf_grid_inputs
             )
-            ce_loss = ce_loss_fn(input=grasp_success_logits, target=grasp_successes)
+            ce_loss = ce_loss_fn(
+                input=grasp_success_logits, target=batch_data.grasp_successes
+            )
             total_loss = ce_loss
             forward_pass_time_taken = time.time() - start_forward_pass_time
 
@@ -2168,47 +2199,6 @@ def iterate_through_dataloader(
             print(f"WARNING: grad_name = {grad_name} will not be logged")
 
     return
-
-
-# %%
-@torch.no_grad()
-@localscope.mfc(allowed=["tqdm"])
-def plot_confusion_matrix(
-    phase: Phase,
-    dataloader: DataLoader,
-    nerf_to_grasp_success_model: NeRF_to_Grasp_Success_Model,
-    device: str,
-    wandb_log_dict: Dict[str, Any],
-) -> None:
-    # TODO: This is very slow and wasteful if we already compute all these in the other iterate_through_dataloader function calls
-    preds, ground_truths = [], []
-    for nerf_grid_inputs, grasp_successes in (pbar := tqdm(dataloader)):
-        nerf_grid_inputs = nerf_grid_inputs.to(device)
-        pbar.set_description(f"{phase.name.lower()} Confusion Matrix")
-        pred = (
-            nerf_to_grasp_success_model.get_success_probability(nerf_grid_inputs)
-            .argmax(axis=1)
-            .tolist()
-        )
-        ground_truth = grasp_successes.tolist()
-        preds, ground_truths = preds + pred, ground_truths + ground_truth
-
-    wandb_log_dict[
-        f"{phase.name.lower()}_confusion_matrix"
-    ] = wandb.plot.confusion_matrix(
-        preds=preds,
-        y_true=ground_truths,
-        class_names=["Fail", "Success"],
-        title=f"{phase.name.lower()} Confusion Matrix",
-    )
-
-    preds = torch.tensor(preds)
-    ground_truths = torch.tensor(ground_truths)
-    num_correct = torch.sum(preds == ground_truths).item()
-    num_datapoints = len(preds)
-    wandb_log_dict[f"{phase.name.lower()}_accuracy"] = (
-        num_correct / num_datapoints * 100
-    )
 
 
 # %% [markdown]

@@ -3,6 +3,7 @@ import torch.nn as nn
 from typing import List, Tuple
 # from torchvision.models import resnet18, ResNet18_Weights
 from FiLM_resnet import resnet18, ResNet18_Weights
+from FiLM_resnet_1d import ResNet1D
 from torchvision.transforms import Resize, Lambda
 from enum import Enum, auto
 
@@ -273,6 +274,61 @@ class ConvEncoder2D(nn.Module):
         assert x.shape == (batch_size, self.output_dim)
 
         return x
+
+class ConvEncoder1D(nn.Module):
+    def __init__(self, input_shape):
+        # input_shape: (n_channels, seq_len)
+        self.input_shape = input_shape
+
+        assert len(input_shape) == 2
+        n_channels, seq_len = input_shape
+
+        # Create architecture
+        # TODO: Customize final pooling method (avg pool, channel/spatial pool, spatial softmax, etc.)
+        self.USE_RESNET = True
+        if self.USE_RESNET:
+            self.conv_1d = ResNet1D(in_channels=n_channels,
+                                    base_filters=64,
+                                    kernel_size=3,
+                                    stride=1,
+                                    groups=1,
+                                    n_block=4,
+                                    n_classes=1,
+                                    downsample_gap=2,
+                                    increasefilter_gap=2,
+                                    use_do=False,)  # TODO IMPLEMENT
+            # Set equivalent pooling setting
+            # self.conv_2d.avgpool = nn.AdaptiveAvgPool2d(output_size=(1, 1))
+            # self.conv_2d.fc = nn.Identity()
+        else:
+            self.conv_1d = conv_encoder(
+                input_shape=input_shape,
+                conv_channels=[32, 64, 128, 256],
+                pool_type=PoolType.MAX,
+                dropout_prob=0.0,
+                conv_output_to_1d=ConvOutputTo1D.FLATTEN,
+                activation=nn.ReLU,
+            )
+
+        # Compute output shape
+        example_input = torch.randn(1, *input_shape)
+        example_output = self.conv_1d(example_input)
+        assert len(example_output.shape) == 2
+        self.output_dim = example_output.shape[1]
+
+    def forward(self, x, beta=None, gamma=None):
+        # x: (batch_size, n_channels, seq_len)
+        assert len(x.shape) == 3
+        batch_size, _, _ = x.shape
+
+        if not self.USE_RESNET and (beta is not None or gamma is not None):
+            raise ValueError("FiLM not supported for non-ResNet architecture")
+
+        x = self.conv_1d(x, beta=beta, gamma=gamma)
+        assert x.shape == (batch_size, self.output_dim)
+
+        return x
+
 
 
 class CNN_2D_to_1D(nn.Module):

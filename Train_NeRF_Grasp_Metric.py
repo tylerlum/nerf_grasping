@@ -1574,7 +1574,7 @@ def create_batch_input_distribution_fig(
     axes[1].set_xlabel("Global Param")
     axes[1].set_ylabel("Frequency")
 
-    title = f"Distribution of Inputs ({max_num_batches}/{len(train_loader)} batches)"
+    title = f"Distribution of Inputs ({max_num_batches} of {len(train_loader)} batches)"
     fig.suptitle(title)
 
     fig.tight_layout()

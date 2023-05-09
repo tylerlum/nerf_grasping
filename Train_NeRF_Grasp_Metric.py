@@ -964,9 +964,6 @@ example_batch_data = next(iter(val_loader))
 
 
 # %%
-example_batch_data
-
-# %%
 print(f"left_nerf_densities.shape: {example_batch_data.left_nerf_densities.shape}")
 print(f"left_global_params.shape: {example_batch_data.left_global_params.shape}")
 print(f"right_nerf_densities.shape: {example_batch_data.right_nerf_densities.shape}")
@@ -1009,6 +1006,7 @@ def visualize_nerf_density_imgs(
     fig.tight_layout()
 
     if save_to_wandb:
+        print(f"Saving {name} to wandb")
         wandb.log({name: fig})
 
     return fig
@@ -1060,8 +1058,11 @@ def visualize_nerf_videos(
         np.array(images).reshape(num_imgs, 1, height, width).repeat(repeats=3, axis=1)
         * 255
     ).astype(np.uint8)
+
     if save_to_wandb:
-        wandb.log({name: wandb.Video(wandb_video, fps=10, format="mp4")})
+        print(f"Saving {name} to wandb")
+        wandb.log({name: wandb.Video(wandb_video, fps=fps, format="mp4")})
+
     return wandb_video
 
 
@@ -1129,6 +1130,7 @@ def visualize_1D_max_nerf_density(
     fig.tight_layout()
 
     if save_to_wandb:
+        print(f"Saving {name} to wandb")
         wandb.log({name: fig})
 
     return fig
@@ -1296,7 +1298,9 @@ def create_datapoint_plotly_fig(
     fig.update_layout(legend_orientation="h")
 
     if save_to_wandb:
+        print(f"Saving {datapoint_name} datapoint to wandb")
         wandb_log_plotly_fig(plotly_fig=fig, title=f"{datapoint_name}_datapoint")
+
     return fig
 
 
@@ -1443,6 +1447,7 @@ def create_detailed_plot_with_mesh(
     )
 
     if save_to_wandb:
+        print(f"Saving detailed mesh plot to wandb")
         wandb_log_plotly_fig(
             plotly_fig=fig, title=f"Detailed Mesh Plot idx={idx_to_visualize}"
         )
@@ -1474,7 +1479,7 @@ if cfg.visualize_data:
 @localscope.mfc
 def create_grasp_success_distribution_fig(
     train_dataset: Subset, input_dataset_full_path: str, save_to_wandb: bool = False
-) -> Optional[go.Figure]:
+) -> Optional[plt.Figure]:
     try:
         print("Loading grasp success data for grasp success distribution...")
         t1 = time.time()
@@ -1489,25 +1494,17 @@ def create_grasp_success_distribution_fig(
         t4 = time.time()
         print(f"Extracted training indices in {t4 - t3:.2f} s")
 
-        # Plot histogram in plotly
-        fig = go.Figure(
-            data=[
-                go.Histogram(
-                    x=grasp_successes_np,
-                    name="Grasp Successes",
-                    marker_color="blue",
-                ),
-            ],
-            layout=go.Layout(
-                title="Distribution of Grasp Successes",
-                xaxis=dict(title="Grasp Success"),
-                yaxis=dict(title="Frequency"),
-            ),
-        )
+        # Plot histogram
+        fig, ax = plt.subplots(figsize=(20, 10))
+        ax.hist(grasp_successes_np, bins=100)
+        ax.set_title("Distribution of Grasp Successes")
+        ax.set_xlabel("Grasp Success")
+        ax.set_ylabel("Frequency")
+
         if save_to_wandb:
-            wandb_log_plotly_fig(
-                plotly_fig=fig, title="Distribution of Grasp Successes"
-            )
+            print("Saving grasp success distribution to wandb")
+            wandb.log({"Distribution of Grasp Successes": fig})
+
         return fig
 
     except Exception as e:
@@ -1534,130 +1531,64 @@ if cfg.visualize_data:
         "tqdm",
     ]
 )
-def create_batch_input_distribution_figs(
+def create_batch_input_distribution_fig(
     train_loader: DataLoader,
     save_to_wandb: bool = False,
     max_num_batches: Optional[int] = None,
-) -> Tuple[go.Figure, go.Figure]:
-    nerf_density_mins, nerf_density_means, nerf_density_maxs = [], [], []
-    nerf_global_param_mins, nerf_global_param_means, nerf_global_param_maxs = [], [], []
+) -> plt.Figure:
+    nerf_densities, nerf_global_params = [], []
+    max_num_batches = max_num_batches if max_num_batches is not None else len(train_loader)
+    max_num_batches = min(max_num_batches, len(train_loader))  # Ensure max_num_batches is not too large
 
     for batch_idx, batch_data in tqdm(
         enumerate(train_loader),
         desc="Calculating batch input dataset statistics",
-        total=len(train_loader),
+        total=max_num_batches,
     ):
-        if max_num_batches is not None and batch_idx >= max_num_batches:
+        if batch_idx >= max_num_batches:
             break
 
         batch_data: BatchData = batch_data
-        nerf_densities = torch.stack(
-            [batch_data.left_nerf_densities, batch_data.right_nerf_densities], dim=1
-        )
-        nerf_global_params = torch.stack(
-            [batch_data.left_global_params, batch_data.right_global_params], dim=1
-        )
+        nerf_densities.extend(batch_data.left_nerf_densities.flatten().tolist())
+        nerf_densities.extend(batch_data.right_nerf_densities.flatten().tolist())
+        nerf_global_params.extend(batch_data.left_global_params.flatten().tolist())
+        nerf_global_params.extend(batch_data.right_global_params.flatten().tolist())
 
-        nerf_density_mins.append(nerf_densities.min().item())
-        nerf_density_means.append(nerf_densities.mean().item())
-        nerf_density_maxs.append(nerf_densities.max().item())
+    nerf_densities, nerf_global_params = np.array(nerf_densities), np.array(nerf_global_params)
+    print(f"nerf_density_min: {nerf_densities.min()}")
+    print(f"nerf_density_mean: {nerf_densities.mean()}")
+    print(f"nerf_density_max: {nerf_densities.max()}")
+    print(f"nerf_global_param_min: {nerf_global_params.min()}")
+    print(f"nerf_global_param_mean: {nerf_global_params.mean()}")
+    print(f"nerf_global_param_max: {nerf_global_params.max()}")
 
-        nerf_global_param_mins.append(nerf_global_params.min().item())
-        nerf_global_param_means.append(nerf_global_params.mean().item())
-        nerf_global_param_maxs.append(nerf_global_params.max().item())
+    fig, axes = plt.subplots(1, 2, figsize=(20, 10))
+    axes = axes.flatten()
+    axes[0].hist(nerf_densities, bins=100)
+    axes[0].set_title("Distribution of nerf_densities")
+    axes[0].set_xlabel("Density")
+    axes[0].set_ylabel("Frequency")
 
-    nerf_density_mins, nerf_density_means, nerf_density_maxs = (
-        np.array(nerf_density_mins),
-        np.array(nerf_density_means),
-        np.array(nerf_density_maxs),
-    )
-    nerf_density_min = nerf_density_mins.min()
-    nerf_density_mean = nerf_density_means.mean()
-    nerf_density_max = nerf_density_maxs.max()
-    print(f"nerf_density_min: {nerf_density_min}")
-    print(f"nerf_density_mean: {nerf_density_mean}")
-    print(f"nerf_density_max: {nerf_density_max}")
+    axes[1].hist(nerf_global_params, bins=100)
+    axes[1].set_title("Distribution of nerf_global_params")
+    axes[1].set_xlabel("Global Param")
+    axes[1].set_ylabel("Frequency")
 
-    nerf_global_param_mins, nerf_global_param_means, nerf_global_param_maxs = (
-        np.array(nerf_global_param_mins),
-        np.array(nerf_global_param_means),
-        np.array(nerf_global_param_maxs),
-    )
-    nerf_global_param_min = nerf_global_param_mins.min()
-    nerf_global_param_mean = nerf_global_param_means.mean()
-    nerf_global_param_max = nerf_global_param_maxs.max()
-    print(f"nerf_global_param_min: {nerf_global_param_min}")
-    print(f"nerf_global_param_mean: {nerf_global_param_mean}")
-    print(f"nerf_global_param_max: {nerf_global_param_max}")
+    title = f"Distribution of Inputs ({max_num_batches}/{len(train_loader)} batches)"
+    fig.suptitle(title)
 
-    # Density
-    density_fig = go.Figure(
-        data=[
-            go.Histogram(
-                x=nerf_density_mins,
-                name="Min",
-                marker_color="blue",
-            ),
-            go.Histogram(
-                x=nerf_density_means,
-                name="Mean",
-                marker_color="orange",
-            ),
-            go.Histogram(
-                x=nerf_density_maxs,
-                name="Max",
-                marker_color="green",
-            ),
-        ],
-        layout=go.Layout(
-            title="Distribution of nerf_densities (Aggregated to Fit in RAM)",
-            xaxis=dict(title="nerf_densities"),
-            yaxis=dict(title="Frequency"),
-            barmode="overlay",
-        ),
-    )
-
-    # Global Params
-    global_param_fig = go.Figure(
-        data=[
-            go.Histogram(
-                x=nerf_global_param_mins,
-                name="Min",
-                marker_color="blue",
-            ),
-            go.Histogram(
-                x=nerf_global_param_means,
-                name="Mean",
-                marker_color="orange",
-            ),
-            go.Histogram(
-                x=nerf_global_param_maxs,
-                name="Max",
-                marker_color="green",
-            ),
-        ],
-        layout=go.Layout(
-            title="Distribution of nerf_global_params (Aggregated to Fit in RAM)",
-            xaxis=dict(title="nerf_global_params"),
-            yaxis=dict(title="Frequency"),
-            barmode="overlay",
-        ),
-    )
+    fig.tight_layout()
 
     if save_to_wandb:
-        wandb_log_plotly_fig(
-            plotly_fig=density_fig, title="Distribution of nerf_densities"
-        )
-        wandb_log_plotly_fig(
-            plotly_fig=global_param_fig, title="Distribution of nerf_global_params"
-        )
+        print("Saving batch input distribution to wandb")
+        wandb.log({title: fig})
 
-    return density_fig, global_param_fig
+    return fig
 
 
 # %%
 if cfg.visualize_data:
-    create_batch_input_distribution_figs(
+    create_batch_input_distribution_fig(
         train_loader=train_loader,
         save_to_wandb=True,
         max_num_batches=50,

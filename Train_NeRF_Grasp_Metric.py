@@ -45,6 +45,7 @@ from datetime import datetime
 from enum import Enum, auto
 from functools import partial
 from typing import Any, Dict, List, Optional, Tuple
+import matplotlib.pyplot as plt
 
 import h5py
 import numpy as np
@@ -244,7 +245,7 @@ if cfg.dry_run:
 
 # %%
 @localscope.mfc
-def set_seed(seed):
+def set_seed(seed) -> None:
     random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
@@ -367,7 +368,7 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
         max_num_data_points: Optional[int] = None,
         load_nerf_grid_inputs_in_ram: bool = False,
         load_grasp_successes_in_ram: bool = False,
-    ):
+    ) -> None:
         super().__init__()
         self.input_hdf5_filepath = input_hdf5_filepath
 
@@ -398,7 +399,9 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
             )
 
     @localscope.mfc
-    def _set_length(self, hdf5_file: h5py.File, max_num_data_points: Optional[int]):
+    def _set_length(
+        self, hdf5_file: h5py.File, max_num_data_points: Optional[int]
+    ) -> int:
         length = (
             hdf5_file.attrs["num_data_points"]
             if "num_data_points" in hdf5_file.attrs
@@ -417,7 +420,7 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
         return length
 
     @localscope.mfc
-    def __len__(self):
+    def __len__(self) -> int:
         return self.len
 
     @localscope.mfc(
@@ -427,7 +430,7 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
             "NERF_DENSITY_END_IDX",
         ]
     )
-    def __getitem__(self, idx: int):
+    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
         if self.hdf5_file is None:
             # Hope to speed up with rdcc params
             self.hdf5_file = h5py.File(
@@ -464,7 +467,7 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
     ]
 )
 @torch.no_grad()
-def preprocess_to_alpha(nerf_densities: torch.Tensor):
+def preprocess_to_alpha(nerf_densities: torch.Tensor) -> torch.Tensor:
     # alpha = 1 - exp(-delta * sigma)
     #       = probability of collision within this segment starting from beginning of segment
     return 1.0 - torch.exp(-DELTA * nerf_densities)
@@ -480,14 +483,15 @@ def preprocess_to_alpha(nerf_densities: torch.Tensor):
     ]
 )
 @torch.no_grad()
-def preprocess_to_weight(nerf_densities: torch.Tensor):
+def preprocess_to_weight(nerf_densities: torch.Tensor) -> torch.Tensor:
     # alpha_j = 1 - exp(-delta_j * sigma_j)
     #         = probability of collision within this segment starting from beginning of segment
     # weight_j = alpha_j * (1 - alpha_{j-1}) * ... * (1 - alpha_1))
     #          = probability of collision within j-th segment starting from left edge
 
     @localscope.mfc
-    def compute_weight(alpha: torch.Tensor):
+    def compute_weight(alpha: torch.Tensor) -> torch.Tensor:
+        x_axis_dim = -3
         # [1 - alpha_1, (1 - alpha_1) * (1 - alpha_2), ..., (1 - alpha_1) * ... * (1 - alpha_{NUM_PTS_X}))]
         cumprod_1_minus_alpha_from_left = (1 - alpha).cumprod(dim=x_axis_dim)
 
@@ -509,7 +513,6 @@ def preprocess_to_weight(nerf_densities: torch.Tensor):
         return weight
 
     assert nerf_densities.shape[-3:] == (NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
-    x_axis_dim = -3
 
     # [alpha_1, alpha_2, ..., alpha_{NUM_PTS_X}]
     alpha = preprocess_to_alpha(nerf_densities)
@@ -535,7 +538,9 @@ def preprocess_to_weight(nerf_densities: torch.Tensor):
         "NERF_COORDINATE_END_IDX",
     ]
 )
-def get_nerf_densities_and_points(nerf_grid_inputs: torch.Tensor):
+def get_nerf_densities_and_points(
+    nerf_grid_inputs: torch.Tensor,
+) -> Tuple[torch.Tensor, torch.Tensor]:
     batch_size = nerf_grid_inputs.shape[0]
     assert (
         len(nerf_grid_inputs.shape) == 5
@@ -565,7 +570,9 @@ def get_nerf_densities_and_points(nerf_grid_inputs: torch.Tensor):
         "NUM_XYZ",
     ]
 )
-def get_global_params(nerf_points: torch.Tensor):
+def get_global_params(
+    nerf_points: torch.Tensor,
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     batch_size = nerf_points.shape[0]
     assert (
         len(nerf_points.shape) == 5
@@ -622,7 +629,7 @@ def invariance_transformation(
     rotate_polar_angle: bool = False,
     reflect_around_xz_plane_randomly: bool = False,
     remove_y_axis: bool = False,
-):
+) -> Tuple[torch.Tensor, ...]:
     left_origin, left_x_axis, left_y_axis = left_global_params
     right_origin, right_x_axis, right_y_axis = right_global_params
 
@@ -654,7 +661,9 @@ def invariance_transformation(
     )
 
     @localscope.mfc(allowed=["batch_size"])
-    def transform(transformation_matrix, point):
+    def transform(
+        transformation_matrix: torch.Tensor, point: torch.Tensor
+    ) -> torch.Tensor:
         assert transformation_matrix.shape == (4, 4)
         assert point.shape == (batch_size, 3)
 
@@ -757,7 +766,7 @@ def preprocess_nerf_grid_inputs(
     rotate_polar_angle: bool = False,
     reflect_around_xz_plane_randomly: bool = False,
     remove_y_axis: bool = False,
-):
+) -> Tuple[Tuple[torch.Tensor, ...], Tuple[torch.Tensor, ...]]:
     batch_size = nerf_grid_inputs.shape[0]
     assert nerf_grid_inputs.shape == (
         batch_size,
@@ -833,10 +842,10 @@ def preprocess_nerf_grid_inputs(
     left_global_params = torch.cat(left_global_params, dim=1)
     right_global_params = torch.cat(right_global_params, dim=1)
 
-    return [
+    return (
         (left_nerf_densities, left_global_params),
         (right_nerf_densities, right_global_params),
-    ]
+    )
 
 
 # %%
@@ -879,7 +888,9 @@ assert len(set.intersection(set(val_dataset.indices), set(test_dataset.indices))
 
 # %%
 @localscope.mfc(allowed=["cfg"])
-def custom_collate_fn(batch):
+def custom_collate_fn(
+    batch: List[Tuple[torch.Tensor, torch.Tensor]]
+) -> Tuple[Tuple[Tuple[torch.Tensor, ...], Tuple[torch.Tensor, ...]], torch.Tensor]:
     batch = torch.utils.data.dataloader.default_collate(batch)
 
     nerf_grid_inputs, grasp_successes = batch
@@ -932,102 +943,564 @@ test_loader = DataLoader(
 )
 
 # %%
-# TODO REMOVE
+# TODO: Maybe remove this global variable
 (
     (left_nerf_densities, left_global_params),
     (right_nerf_densities, right_global_params),
 ), grasp_successes = next(iter(val_loader))
-print("DONE")
 
 # %%
-left_nerf_densities.shape, left_global_params.shape, right_nerf_densities.shape, right_global_params.shape, grasp_successes.shape
-
-# %%
-# Visualize nerf densities
-import matplotlib.pyplot as plt
-idx = 0
-left_nerf_density = left_nerf_densities[idx].cpu().numpy().transpose(0, 2, 1)  # Tranpose because z is last, but should be height
-num_imgs, height, width = left_nerf_density.shape
-images = [left_nerf_density[i] for i in range(num_imgs)]
-num_rows = math.ceil(math.sqrt(num_imgs))
-num_cols = math.ceil(num_imgs / num_rows)
-
-fig, axes = plt.subplots(num_rows, num_cols, figsize=(20, 20))
-for i, ax in enumerate(axes.flatten()):
-    ax.axis("off")
-
-    if i >= num_imgs:
-        continue
-
-    ax.imshow(images[i])
-    ax.set_title(f"Image {i}")
-
-fig.suptitle("Left Nerf Densities")
-fig.tight_layout()
-wandb.log({"Left Nerf Densities": fig})
-
-# %%
-# Visualize nerf densities
-import matplotlib.pyplot as plt
-idx = 0
-right_nerf_density = right_nerf_densities[idx].cpu().numpy().transpose(0, 2, 1)  # Tranpose because z is last, but should be height
-num_imgs, height, width = right_nerf_density.shape
-images = [right_nerf_density[i] for i in range(num_imgs)]
-num_rows = math.ceil(math.sqrt(num_imgs))
-num_cols = math.ceil(num_imgs / num_rows)
-
-fig, axes = plt.subplots(num_rows, num_cols, figsize=(20, 20))
-for i, ax in enumerate(axes.flatten()):
-    ax.axis("off")
-
-    if i >= num_imgs:
-        continue
-
-    ax.imshow(images[i])
-    ax.set_title(f"Image {i}")
-
-fig.suptitle("Right Nerf Densities")
-fig.tight_layout()
-wandb.log({"Right Nerf Densities": fig})
-
-# %%
-# need to be in shape (num_imgs, 3, H, W) and be np.uint8 in [0, 255]
-wandb_video = (np.array(images).reshape(num_imgs, 1, height, width).repeat(repeats=3, axis=1) * 255).astype(np.uint8)
-wandb.log({"Left Nerf Densities Video": wandb.Video(wandb_video, fps=4, format="mp4")})
-
-# %%
-# need to be in shape (num_imgs, 3, H, W) and be np.uint8 in [0, 255]
-wandb_video = (np.array(images).reshape(num_imgs, 1, height, width).repeat(repeats=3, axis=1) * 255).astype(np.uint8)
-wandb.log({"Right Nerf Densities Video": wandb.Video(wandb_video, fps=4, format="mp4")})
+print(f"left_nerf_densities.shape: {left_nerf_densities.shape}")
+print(f"left_global_params.shape: {left_global_params.shape}")
+print(f"right_nerf_densities.shape: {right_nerf_densities.shape}")
+print(f"right_global_params.shape: {right_global_params.shape}")
 
 
 # %%
-# Create 1D visualization
-left_max_density = left_nerf_density.max(axis=(1, 2))
-right_nerf_density = right_nerf_densities[idx].cpu().numpy().transpose(0, 2, 1)  # Tranpose because z is last, but should be height
-right_max_density = right_nerf_density.max(axis=(1, 2))
-max_density = np.concatenate([left_max_density, right_max_density[::-1]])
-plt.plot(range(len(left_max_density)), left_max_density)
-plt.plot(range(len(right_max_density)), right_max_density)
-plt.title("Max Alpha")
-plt.xlabel(f"Idx (Left = 0, Right = {len(max_density) - 1})")
-plt.ylabel("Max Alpha")
+@localscope.mfc(allowed=["NUM_PTS_X", "NUM_PTS_Y", "NUM_PTS_Z"])
+def visualize_nerf_density_imgs(
+    nerf_densities: torch.Tensor,
+    idx_to_visualize: int = 0,
+    name: str = "Nerf Densities Grid",
+    save_to_wandb: bool = False,
+) -> plt.Figure:
+    nerf_density = nerf_densities[idx_to_visualize]
+    assert nerf_density.shape == (NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
+
+    # Visualize nerf densities
+    nerf_density = (
+        nerf_density.cpu().numpy().transpose(0, 2, 1)
+    )  # Tranpose because z is last, but should be height
+    num_imgs, height, width = nerf_density.shape
+
+    # Create grid of images
+    images = [nerf_density[i] for i in range(num_imgs)]
+    num_rows = math.ceil(math.sqrt(num_imgs))
+    num_cols = math.ceil(num_imgs / num_rows)
+
+    fig, axes = plt.subplots(num_rows, num_cols, figsize=(20, 20))
+    for i, ax in enumerate(axes.flatten()):
+        ax.axis("off")
+
+        if i >= num_imgs:
+            continue
+
+        ax.imshow(images[i])
+        ax.set_title(f"Image {i}")
+
+    fig.suptitle(name)
+    fig.tight_layout()
+
+    if save_to_wandb:
+        wandb.log({name: fig})
+
+    return fig
+
 
 # %%
-create_datapoint_plotly_fig(
-    dataset=val_dataset, datapoint_name=Phase.VAL.name.lower(), save_to_wandb=True
+if cfg.visualize_data:
+    visualize_nerf_density_imgs(
+        left_nerf_densities,
+        idx_to_visualize=0,
+        name="Left Nerf Densities Grid",
+        save_to_wandb=True,
+    )
+
+# %%
+if cfg.visualize_data:
+    visualize_nerf_density_imgs(
+        right_nerf_densities,
+        idx_to_visualize=0,
+        name="Right Nerf Densities Grid",
+        save_to_wandb=True,
+    )
+
+
+# %%
+# %%
+@localscope.mfc(allowed=["NUM_PTS_X", "NUM_PTS_Y", "NUM_PTS_Z"])
+def visualize_nerf_videos(
+    nerf_densities: torch.Tensor,
+    idx_to_visualize: int = 0,
+    name: str = "Nerf Densities Video",
+    save_to_wandb: bool = False,
+) -> np.ndarray:
+    nerf_density = nerf_densities[idx_to_visualize]
+    assert nerf_density.shape == (NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
+
+    # Visualize nerf densities
+    nerf_density = (
+        nerf_density.cpu().numpy().transpose(0, 2, 1)
+    )  # Tranpose because z is last, but should be height
+    num_imgs, height, width = nerf_density.shape
+
+    # Create grid of images
+    images = [nerf_density[i] for i in range(num_imgs)]
+
+    # need to be in shape (num_imgs, 3, H, W) and be np.uint8 in [0, 255]
+    wandb_video = (
+        np.array(images).reshape(num_imgs, 1, height, width).repeat(repeats=3, axis=1)
+        * 255
+    ).astype(np.uint8)
+    if save_to_wandb:
+        wandb.log({name: wandb.Video(wandb_video, fps=4, format="mp4")})
+    return wandb_video
+
+
+# %%
+if cfg.visualize_data:
+    visualize_nerf_videos(
+        left_nerf_densities,
+        idx_to_visualize=0,
+        name="Left Nerf Densities Video",
+        save_to_wandb=True,
+    )
+
+# %%
+if cfg.visualize_data:
+    visualize_nerf_videos(
+        right_nerf_densities,
+        idx_to_visualize=0,
+        name="Right Nerf Densities Video",
+        save_to_wandb=True,
+    )
+
+
+# %%
+@localscope.mfc(allowed=["NUM_PTS_X", "NUM_PTS_Y", "NUM_PTS_Z"])
+def visualize_1D_max_nerf_density(
+    left_nerf_densities: torch.Tensor,
+    right_nerf_densities: torch.Tensor,
+    idx_to_visualize: int = 0,
+    name: str = "Max Nerf Density",
+    save_to_wandb: bool = False,
+) -> plt.Figure:
+    # Create 1D visualization
+    left_nerf_density = left_nerf_densities[idx_to_visualize]
+    right_nerf_density = right_nerf_densities[idx_to_visualize]
+    assert left_nerf_density.shape == (NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
+    assert right_nerf_density.shape == (NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
+
+    # Visualize nerf densities
+    left_nerf_density = (
+        left_nerf_density.cpu().numpy().transpose(0, 2, 1)
+    )  # Tranpose because z is last, but should be height
+    right_nerf_density = (
+        right_nerf_density.cpu().numpy().transpose(0, 2, 1)
+    )  # Tranpose because z is last, but should be height
+    num_imgs, _, _ = left_nerf_density.shape
+
+    # Get maxes from both sides
+    left_max_density = left_nerf_density.max(axis=(1, 2))
+    right_max_density = right_nerf_density.max(axis=(1, 2))
+    left_range = range(len(left_max_density))
+    right_range = range(
+        len(left_max_density), len(left_max_density) + len(right_max_density)
+    )
+    max_density = np.concatenate(
+        [left_max_density, right_max_density[::-1]]
+    )  # Reverse right side so they align
+
+    fig, ax = plt.subplots(figsize=(20, 10))
+    ax.plot(left_range, left_max_density, label="left finger")
+    ax.plot(right_range, right_max_density[::-1], label="right finger")
+    ax.set_title(name)
+    ax.set_xlabel(f"Idx (Left = 0, Right = {len(max_density) - 1})")
+    ax.set_ylabel(name)
+    ax.legend()
+    fig.tight_layout()
+
+    if save_to_wandb:
+        wandb.log({name: fig})
+
+    return fig
+
+
+# %%
+if cfg.visualize_data:
+    visualize_1D_max_nerf_density(
+        left_nerf_densities,
+        right_nerf_densities,
+        idx_to_visualize=0,
+        name="Max Nerf Density",
+        save_to_wandb=True,
+    )
+
+# %%
+print(f"Train loader size: {len(train_loader)}")
+print(f"Val loader size: {len(val_loader)}")
+print(f"Test loader size: {len(test_loader)}")
+
+# %%
+assert math.ceil(len(train_dataset) / cfg.dataloader.batch_size) == len(train_loader)
+assert math.ceil(len(val_dataset) / cfg.dataloader.batch_size) == len(val_loader)
+assert math.ceil(len(test_dataset) / cfg.dataloader.batch_size) == len(test_loader)
+
+# %% [markdown]
+# # Visualize Datapoint
+
+# %%
+
+
+class Phase(Enum):
+    TRAIN = auto()
+    VAL = auto()
+    TEST = auto()
+
+
+# %%
+@localscope.mfc
+def wandb_log_plotly_fig(
+    plotly_fig: go.Figure, title: str, group_name: str = "plotly"
+) -> None:
+    if wandb.run is None:
+        print("Not logging plotly fig to wandb because wandb.run is None")
+        return
+
+    path_to_plotly_html = f"{wandb.run.dir}/{title}.html"
+    print(f"Saving to {path_to_plotly_html}")
+
+    plotly_fig.write_html(path_to_plotly_html)
+    wandb_table = wandb.Table(columns=[title])
+    wandb_table.add_data(wandb.Html(path_to_plotly_html))
+    if group_name is not None:
+        wandb.log({f"{group_name}/{title}": wandb_table})
+    else:
+        wandb.log({title: wandb_table})
+    print(f"Successfully logged {title} to wandb")
+
+
+# %%
+@localscope.mfc
+def get_isaac_origin_lines() -> List[go.Scatter3d]:
+    x_line_np = np.array([[0.0, 0.0, 0.0], [0.1, 0.0, 0.0]])
+    y_line_np = np.array([[0.0, 0.0, 0.0], [0.0, 0.1, 0.0]])
+    z_line_np = np.array([[0.0, 0.0, 0.0], [0.0, 0.0, 0.1]])
+
+    lines = []
+    for line_np, name, color in [
+        (x_line_np, "X", "red"),
+        (y_line_np, "Y", "green"),
+        (z_line_np, "Z", "blue"),
+    ]:
+        lines.append(
+            go.Scatter3d(
+                x=line_np[:, 0],
+                y=line_np[:, 1],
+                z=line_np[:, 2],
+                mode="lines",
+                line=dict(width=2, color=color),
+                name=f"Isaac Origin {name} Axis",
+            )
+        )
+    return lines
+
+
+@localscope.mfc(allowed=["NUM_XYZ"])
+def get_colored_points_scatter(
+    points: torch.Tensor, colors: torch.Tensor
+) -> go.Scatter3d:
+    assert len(points.shape) == 2 and points.shape[1] == NUM_XYZ
+    assert len(colors.shape) == 1
+
+    # Use plotly to make scatter3d plot
+    scatter = go.Scatter3d(
+        x=points[:, 0],
+        y=points[:, 1],
+        z=points[:, 2],
+        mode="markers",
+        marker=dict(
+            size=5,
+            color=colors,
+            colorscale="viridis",
+            colorbar=dict(title="Density Scale"),
+        ),
+        name="Query Point Densities",
+    )
+
+    return scatter
+
+
+# %%
+@localscope.mfc(
+    allowed=[
+        "INPUT_EXAMPLE_SHAPE",
+        "NUM_DENSITY",
+        "NUM_PTS_X",
+        "NUM_PTS_Y",
+        "NUM_PTS_Z",
+        "NERF_DENSITY_START_IDX",
+        "NERF_DENSITY_END_IDX",
+        "NUM_XYZ",
+        "NERF_COORDINATE_START_IDX",
+        "NERF_COORDINATE_END_IDX",
+    ]
 )
-# %%
-val_dataset.indices[0]
+def create_datapoint_plotly_fig(
+    dataset: NeRFGrid_To_GraspSuccess_HDF5_Dataset,
+    datapoint_name: str,
+    idx_to_visualize: int = 0,
+    save_to_wandb: bool = False,
+) -> go.Figure:
+    nerf_grid_input, grasp_success = dataset[idx_to_visualize]
+
+    assert nerf_grid_input.shape == INPUT_EXAMPLE_SHAPE
+    assert len(np.array(grasp_success).shape) == 0
+
+    nerf_densities = nerf_grid_input[
+        NERF_DENSITY_START_IDX:NERF_DENSITY_END_IDX, :, :, :
+    ]
+    assert nerf_densities.shape == (NUM_DENSITY, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
+
+    nerf_points = nerf_grid_input[
+        NERF_COORDINATE_START_IDX:NERF_COORDINATE_END_IDX
+    ].permute(1, 2, 3, 0)
+    assert nerf_points.shape == (NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z, NUM_XYZ)
+
+    isaac_origin_lines = get_isaac_origin_lines()
+    colored_points_scatter = get_colored_points_scatter(
+        nerf_points.reshape(-1, NUM_XYZ), nerf_densities.reshape(-1)
+    )
+
+    layout = go.Layout(
+        scene=dict(xaxis=dict(title="X"), yaxis=dict(title="Y"), zaxis=dict(title="Z")),
+        showlegend=True,
+        title=f"{datapoint_name} datapoint: success={grasp_success}",
+        width=800,
+        height=800,
+    )
+
+    # Create the figure
+    fig = go.Figure(layout=layout)
+    for line in isaac_origin_lines:
+        fig.add_trace(line)
+    fig.add_trace(colored_points_scatter)
+    fig.update_layout(legend_orientation="h")
+
+    if save_to_wandb:
+        wandb_log_plotly_fig(plotly_fig=fig, title=f"{datapoint_name}_datapoint")
+    return fig
+
 
 # %%
-create_detailed_plot_with_mesh(
-    full_dataset=full_dataset, idx_to_visualize=1174768, save_to_wandb=True
-)
+if cfg.visualize_data:
+    create_datapoint_plotly_fig(
+        dataset=train_dataset,
+        datapoint_name=Phase.TRAIN.name.lower(),
+        save_to_wandb=True,
+    )
+
+# %%
+if cfg.visualize_data:
+    create_datapoint_plotly_fig(
+        dataset=val_dataset, datapoint_name=Phase.VAL.name.lower(), save_to_wandb=True
+    )
 
 
 # %%
-# TODO: END REMOVE
+@localscope.mfc
+def create_plotly_mesh(
+    obj_filepath, scale=1.0, offset=None, color="lightpink"
+) -> go.Mesh3d:
+    if offset is None:
+        offset = np.zeros(3)
+
+    # Read in the OBJ file
+    with open(obj_filepath, "r") as f:
+        lines = f.readlines()
+
+    # Extract the vertex coordinates and faces from the OBJ file
+    vertices = []
+    faces = []
+    for line in lines:
+        if line.startswith("v "):
+            vertex = [float(i) * scale for i in line.split()[1:4]]
+            vertices.append(vertex)
+        elif line.startswith("f "):
+            face = [int(i.split("/")[0]) - 1 for i in line.split()[1:4]]
+            faces.append(face)
+
+    # Convert the vertex coordinates and faces to numpy arrays
+    vertices = np.array(vertices)
+    faces = np.array(faces)
+
+    assert len(vertices.shape) == 2 and vertices.shape[1] == 3
+    assert len(faces.shape) == 2 and faces.shape[1] == 3
+
+    vertices += offset.reshape(1, 3)
+
+    # Create the mesh3d trace
+    mesh = go.Mesh3d(
+        x=vertices[:, 0],
+        y=vertices[:, 1],
+        z=vertices[:, 2],
+        i=faces[:, 0],
+        j=faces[:, 1],
+        k=faces[:, 2],
+        color=color,
+        opacity=0.5,
+        name=f"Mesh: {os.path.basename(obj_filepath)}",
+    )
+
+    return mesh
+
+
+# %%
+@localscope.mfc
+def create_detailed_plot_with_mesh(
+    full_dataset: NeRFGrid_To_GraspSuccess_HDF5_Dataset,
+    idx_to_visualize: int = 0,
+    save_to_wandb: bool = False,
+) -> go.Figure:
+    # Hacky function that reads from both the input dataset and the acronym dataset
+    # To create a detailed plot with the mesh and the grasp
+    fig = create_datapoint_plotly_fig(
+        dataset=full_dataset,
+        datapoint_name="full data",
+        save_to_wandb=False,
+        idx_to_visualize=idx_to_visualize,
+    )
+
+    ACRONYM_ROOT_DIR = "/juno/u/tylerlum/github_repos/acronym/data/grasps"
+    MESH_ROOT_DIR = "assets/objects"
+    LEFT_TIP_POSITION_GRASP_FRAME = np.array(
+        [4.10000000e-02, -7.27595772e-12, 1.12169998e-01]
+    )
+    RIGHT_TIP_POSITION_GRASP_FRAME = np.array(
+        [-4.10000000e-02, -7.27595772e-12, 1.12169998e-01]
+    )
+
+    # Get acronym filename and grasp transform from input dataset
+    with h5py.File(full_dataset.input_hdf5_filepath, "r") as hdf5_file:
+        acronym_filename = hdf5_file["/acronym_filename"][idx_to_visualize].decode(
+            "utf-8"
+        )
+        grasp_transform = np.array(hdf5_file["/grasp_transform"][idx_to_visualize])
+
+    # Get mesh info from acronym dataset
+    acronym_filepath = os.path.join(ACRONYM_ROOT_DIR, acronym_filename)
+    with h5py.File(acronym_filepath, "r") as acronym_hdf5_file:
+        mesh_filename = acronym_hdf5_file["object/file"][()].decode("utf-8")
+        mesh_filepath = os.path.join(MESH_ROOT_DIR, mesh_filename)
+
+        import trimesh
+
+        mesh = trimesh.load(mesh_filepath, force="mesh")
+        mesh_scale = float(acronym_hdf5_file["object/scale"][()])
+        mesh_centroid = np.array(mesh.centroid) * mesh_scale
+
+    left_tip = (
+        np.matmul(
+            grasp_transform, np.concatenate([LEFT_TIP_POSITION_GRASP_FRAME, [1.0]])
+        )[:3]
+        - mesh_centroid
+    )
+    right_tip = (
+        np.matmul(
+            grasp_transform, np.concatenate([RIGHT_TIP_POSITION_GRASP_FRAME, [1.0]])
+        )[:3]
+        - mesh_centroid
+    )
+
+    # Draw mesh, ensure -centroid offset so that mesh centroid is centered at origin
+    fig.add_trace(
+        create_plotly_mesh(
+            obj_filepath=mesh_filepath,
+            scale=mesh_scale,
+            offset=-mesh_centroid,
+            color="lightpink",
+        )
+    )
+
+    # Draw line from left_tip to right_tip
+    fig.add_trace(
+        go.Scatter3d(
+            x=[left_tip[0], right_tip[0]],
+            y=[left_tip[1], right_tip[1]],
+            z=[left_tip[2], right_tip[2]],
+            mode="lines",
+            line=dict(color="red", width=10),
+            name="Grasp (should align with query points)",
+        )
+    )
+
+    if save_to_wandb:
+        wandb_log_plotly_fig(
+            plotly_fig=fig, title=f"Detailed Mesh Plot idx={idx_to_visualize}"
+        )
+
+    return fig
+
+
+# %%
+if cfg.visualize_data:
+    create_datapoint_plotly_fig(
+        dataset=full_dataset,
+        datapoint_name="full",
+        idx_to_visualize=0,
+        save_to_wandb=True,
+    )
+
+# %%
+if cfg.visualize_data:
+    create_detailed_plot_with_mesh(
+        full_dataset=full_dataset, idx_to_visualize=0, save_to_wandb=True
+    )
+
+# %%
+
+# TODO: END OF NEW
+
+# %% [markdown]
+# # Visualize Dataset Distribution
+
+
+# %%
+@localscope.mfc
+def create_grasp_success_distribution_fig(
+    train_dataset: Subset, input_dataset_full_path: str, save_to_wandb: bool = False
+) -> Optional[go.Figure]:
+    try:
+        with h5py.File(input_dataset_full_path, "r") as hdf5_file:
+            grasp_successes_np = np.array(
+                hdf5_file["/grasp_success"][
+                    sorted(train_dataset.indices)
+                ]  # Must be ascending
+            )
+
+        # Plot histogram in plotly
+        fig = go.Figure(
+            data=[
+                go.Histogram(
+                    x=grasp_successes_np,
+                    name="Grasp Successes",
+                    marker_color="blue",
+                ),
+            ],
+            layout=go.Layout(
+                title="Distribution of Grasp Successes",
+                xaxis=dict(title="Grasp Success"),
+                yaxis=dict(title="Frequency"),
+            ),
+        )
+        if save_to_wandb:
+            wandb_log_plotly_fig(
+                plotly_fig=fig, title="Distribution of Grasp Successes"
+            )
+        return fig
+
+    except Exception as e:
+        print(f"Error: {e}")
+        print("Skipping visualization of grasp success distribution")
+
+
+if cfg.visualize_data:
+    create_grasp_success_distribution_fig(
+        train_dataset=train_dataset,
+        input_dataset_full_path=input_dataset_full_path,
+        save_to_wandb=True,
+    )
+
 
 # %%
 print(f"Train loader size: {len(train_loader)}")
@@ -1344,10 +1817,6 @@ if cfg.visualize_data:
         full_dataset=full_dataset, idx_to_visualize=0, save_to_wandb=True
     )
 
-# %%
-
-# TODO: END OF NEW
-
 # %% [markdown]
 # # Visualize Dataset Distribution
 
@@ -1412,514 +1881,7 @@ if cfg.visualize_data:
 )
 def create_nerf_grid_input_distribution_figs(
     train_loader: DataLoader, save_to_wandb: bool = False
-):
-    nerf_coordinate_mins, nerf_coordinate_means, nerf_coordinate_maxs = [], [], []
-    nerf_density_mins, nerf_density_means, nerf_density_maxs = [], [], []
-    for nerf_grid_inputs, _ in tqdm(
-        train_loader, desc="Calculating nerf_grid_inputs dataset statistics"
-    ):
-        assert nerf_grid_inputs.shape[1:] == INPUT_EXAMPLE_SHAPE
-        nerf_coordinates = nerf_grid_inputs[
-            :, NERF_COORDINATE_START_IDX:NERF_COORDINATE_END_IDX
-        ]
-        nerf_densities = nerf_grid_inputs[
-            :, NERF_DENSITY_START_IDX:NERF_DENSITY_END_IDX
-        ]
-
-        nerf_coordinate_mins.append(nerf_coordinates.min().item())
-        nerf_coordinate_means.append(nerf_coordinates.mean().item())
-        nerf_coordinate_maxs.append(nerf_coordinates.max().item())
-
-        nerf_density_mins.append(nerf_densities.min().item())
-        nerf_density_means.append(nerf_densities.mean().item())
-        nerf_density_maxs.append(nerf_densities.max().item())
-
-    nerf_coordinate_mins, nerf_coordinate_means, nerf_coordinate_maxs = (
-        np.array(nerf_coordinate_mins),
-        np.array(nerf_coordinate_means),
-        np.array(nerf_coordinate_maxs),
-    )
-    nerf_coordinate_min = nerf_coordinate_mins.min()
-    nerf_coordinate_mean = nerf_coordinate_means.mean()
-    nerf_coordinate_max = nerf_coordinate_maxs.max()
-    print(f"nerf_coordinate_min: {nerf_coordinate_min}")
-    print(f"nerf_coordinate_mean: {nerf_coordinate_mean}")
-    print(f"nerf_coordinate_max: {nerf_coordinate_max}")
-
-    nerf_density_mins, nerf_density_means, nerf_density_maxs = (
-        np.array(nerf_density_mins),
-        np.array(nerf_density_means),
-        np.array(nerf_density_maxs),
-    )
-    nerf_density_min = nerf_density_mins.min()
-    nerf_density_mean = nerf_density_means.mean()
-    nerf_density_max = nerf_density_maxs.max()
-    print(f"nerf_density_min: {nerf_density_min}")
-    print(f"nerf_density_mean: {nerf_density_mean}")
-    print(f"nerf_density_max: {nerf_density_max}")
-
-    # Coordinates
-    coordinates_fig = go.Figure(
-        data=[
-            go.Histogram(
-                x=nerf_coordinate_mins,
-                name="Min",
-                marker_color="blue",
-            ),
-            go.Histogram(
-                x=nerf_coordinate_means,
-                name="Mean",
-                marker_color="orange",
-            ),
-            go.Histogram(
-                x=nerf_coordinate_maxs,
-                name="Max",
-                marker_color="green",
-            ),
-        ],
-        layout=go.Layout(
-            title="Distribution of nerf_coordinates (Aggregated to Fit in RAM)",
-            xaxis=dict(title="nerf_coordinates"),
-            yaxis=dict(title="Frequency"),
-            barmode="overlay",
-        ),
-    )
-
-    # Density
-    density_fig = go.Figure(
-        data=[
-            go.Histogram(
-                x=nerf_density_mins,
-                name="Min",
-                marker_color="blue",
-            ),
-            go.Histogram(
-                x=nerf_density_means,
-                name="Mean",
-                marker_color="orange",
-            ),
-            go.Histogram(
-                x=nerf_density_maxs,
-                name="Max",
-                marker_color="green",
-            ),
-
-# %%
-# need to be in shape (num_imgs, 3, H, W) and be np.uint8 in [0, 255]
-wandb_video = (np.array(images).reshape(num_imgs, 1, height, width).repeat(repeats=3, axis=1) * 255).astype(np.uint8)
-wandb.log({"Left Nerf Densities Video": wandb.Video(wandb_video, fps=4, format="mp4")})
-
-# %%
-# Create 1D visualization
-left_max_density = left_nerf_density.max(axis=(1, 2))
-right_nerf_density = right_nerf_densities[idx].cpu().numpy().transpose(0, 2, 1)  # Tranpose because z is last, but should be height
-right_max_density = right_nerf_density.max(axis=(1, 2))
-max_density = np.concatenate([left_max_density, right_max_density[::-1]])
-plt.plot(max_density)
-plt.title("Max Alpha")
-plt.xlabel(f"Idx (Left = 0, Right = {len(max_density) - 1})")
-plt.ylabel("Max Alpha")
-
-# %%
-create_datapoint_plotly_fig(
-    dataset=val_dataset, datapoint_name=Phase.VAL.name.lower(), save_to_wandb=True
-)
-# %%
-val_dataset.indices[0]
-
-# %%
-create_detailed_plot_with_mesh(
-    full_dataset=full_dataset, idx_to_visualize=1174768, save_to_wandb=True
-)
-
-
-# %%
-# TODO: END REMOVE
-
-# %%
-print(f"Train loader size: {len(train_loader)}")
-print(f"Val loader size: {len(val_loader)}")
-print(f"Test loader size: {len(test_loader)}")
-
-# %%
-assert math.ceil(len(train_dataset) / cfg.dataloader.batch_size) == len(train_loader)
-assert math.ceil(len(val_dataset) / cfg.dataloader.batch_size) == len(val_loader)
-assert math.ceil(len(test_dataset) / cfg.dataloader.batch_size) == len(test_loader)
-
-# %% [markdown]
-# # Visualize Datapoint
-
-# %%
-
-
-class Phase(Enum):
-    TRAIN = auto()
-    VAL = auto()
-    TEST = auto()
-
-
-# %%
-@localscope.mfc
-def wandb_log_plotly_fig(plotly_fig: go.Figure, title: str, group_name: str = "plotly"):
-    if wandb.run is None:
-        print("Not logging plotly fig to wandb because wandb.run is None")
-        return
-
-    path_to_plotly_html = f"{wandb.run.dir}/{title}.html"
-    print(f"Saving to {path_to_plotly_html}")
-
-    plotly_fig.write_html(path_to_plotly_html)
-    wandb_table = wandb.Table(columns=[title])
-    wandb_table.add_data(wandb.Html(path_to_plotly_html))
-    if group_name is not None:
-        wandb.log({f"{group_name}/{title}": wandb_table})
-    else:
-        wandb.log({title: wandb_table})
-    print(f"Successfully logged {title} to wandb")
-
-
-# %%
-@localscope.mfc
-def get_isaac_origin_lines():
-    x_line_np = np.array([[0.0, 0.0, 0.0], [0.1, 0.0, 0.0]])
-    y_line_np = np.array([[0.0, 0.0, 0.0], [0.0, 0.1, 0.0]])
-    z_line_np = np.array([[0.0, 0.0, 0.0], [0.0, 0.0, 0.1]])
-
-    lines = []
-    for line_np, name, color in [
-        (x_line_np, "X", "red"),
-        (y_line_np, "Y", "green"),
-        (z_line_np, "Z", "blue"),
-    ]:
-        lines.append(
-            go.Scatter3d(
-                x=line_np[:, 0],
-                y=line_np[:, 1],
-                z=line_np[:, 2],
-                mode="lines",
-                line=dict(width=2, color=color),
-                name=f"Isaac Origin {name} Axis",
-            )
-        )
-    return lines
-
-
-@localscope.mfc(allowed=["NUM_XYZ"])
-def get_colored_points_scatter(points: torch.Tensor, colors: torch.Tensor):
-    assert len(points.shape) == 2 and points.shape[1] == NUM_XYZ
-    assert len(colors.shape) == 1
-
-    # Use plotly to make scatter3d plot
-    scatter = go.Scatter3d(
-        x=points[:, 0],
-        y=points[:, 1],
-        z=points[:, 2],
-        mode="markers",
-        marker=dict(
-            size=5,
-            color=colors,
-            colorscale="viridis",
-            colorbar=dict(title="Density Scale"),
-        ),
-        name="Query Point Densities",
-    )
-
-    return scatter
-
-
-# %%
-@localscope.mfc(
-    allowed=[
-        "INPUT_EXAMPLE_SHAPE",
-        "NUM_DENSITY",
-        "NUM_PTS_X",
-        "NUM_PTS_Y",
-        "NUM_PTS_Z",
-        "NERF_DENSITY_START_IDX",
-        "NERF_DENSITY_END_IDX",
-        "NUM_XYZ",
-        "NERF_COORDINATE_START_IDX",
-        "NERF_COORDINATE_END_IDX",
-    ]
-)
-def create_datapoint_plotly_fig(
-    dataset: NeRFGrid_To_GraspSuccess_HDF5_Dataset,
-    datapoint_name: str,
-    idx_to_visualize: int = 0,
-    save_to_wandb: bool = False,
-) -> go.Figure:
-    nerf_grid_input, grasp_success = dataset[idx_to_visualize]
-
-    assert nerf_grid_input.shape == INPUT_EXAMPLE_SHAPE
-    assert len(np.array(grasp_success).shape) == 0
-
-    nerf_densities = nerf_grid_input[
-        NERF_DENSITY_START_IDX:NERF_DENSITY_END_IDX, :, :, :
-    ]
-    assert nerf_densities.shape == (NUM_DENSITY, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
-
-    nerf_points = nerf_grid_input[
-        NERF_COORDINATE_START_IDX:NERF_COORDINATE_END_IDX
-    ].permute(1, 2, 3, 0)
-    assert nerf_points.shape == (NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z, NUM_XYZ)
-
-    isaac_origin_lines = get_isaac_origin_lines()
-    colored_points_scatter = get_colored_points_scatter(
-        nerf_points.reshape(-1, NUM_XYZ), nerf_densities.reshape(-1)
-    )
-
-    layout = go.Layout(
-        scene=dict(xaxis=dict(title="X"), yaxis=dict(title="Y"), zaxis=dict(title="Z")),
-        showlegend=True,
-        title=f"{datapoint_name} datapoint: success={grasp_success}",
-        width=800,
-        height=800,
-    )
-
-    # Create the figure
-    fig = go.Figure(layout=layout)
-    for line in isaac_origin_lines:
-        fig.add_trace(line)
-    fig.add_trace(colored_points_scatter)
-    fig.update_layout(legend_orientation="h")
-
-    if save_to_wandb:
-        wandb_log_plotly_fig(plotly_fig=fig, title=f"{datapoint_name}_datapoint")
-    return fig
-
-
-# %%
-if cfg.visualize_data:
-    create_datapoint_plotly_fig(
-        dataset=train_dataset,
-        datapoint_name=Phase.TRAIN.name.lower(),
-        save_to_wandb=True,
-    )
-
-# %%
-if cfg.visualize_data:
-    create_datapoint_plotly_fig(
-        dataset=val_dataset, datapoint_name=Phase.VAL.name.lower(), save_to_wandb=True
-    )
-
-
-# %%
-@localscope.mfc
-def create_plotly_mesh(obj_filepath, scale=1.0, offset=None, color="lightpink"):
-    if offset is None:
-        offset = np.zeros(3)
-
-    # Read in the OBJ file
-    with open(obj_filepath, "r") as f:
-        lines = f.readlines()
-
-    # Extract the vertex coordinates and faces from the OBJ file
-    vertices = []
-    faces = []
-    for line in lines:
-        if line.startswith("v "):
-            vertex = [float(i) * scale for i in line.split()[1:4]]
-            vertices.append(vertex)
-        elif line.startswith("f "):
-            face = [int(i.split("/")[0]) - 1 for i in line.split()[1:4]]
-            faces.append(face)
-
-    # Convert the vertex coordinates and faces to numpy arrays
-    vertices = np.array(vertices)
-    faces = np.array(faces)
-
-    assert len(vertices.shape) == 2 and vertices.shape[1] == 3
-    assert len(faces.shape) == 2 and faces.shape[1] == 3
-
-    vertices += offset.reshape(1, 3)
-
-    # Create the mesh3d trace
-    mesh = go.Mesh3d(
-        x=vertices[:, 0],
-        y=vertices[:, 1],
-        z=vertices[:, 2],
-        i=faces[:, 0],
-        j=faces[:, 1],
-        k=faces[:, 2],
-        color=color,
-        opacity=0.5,
-        name=f"Mesh: {os.path.basename(obj_filepath)}",
-    )
-
-    return mesh
-
-
-# %%
-@localscope.mfc
-def create_detailed_plot_with_mesh(
-    full_dataset: NeRFGrid_To_GraspSuccess_HDF5_Dataset,
-    idx_to_visualize: int = 0,
-    save_to_wandb: bool = False,
-):
-    # Hacky function that reads from both the input dataset and the acronym dataset
-    # To create a detailed plot with the mesh and the grasp
-    fig = create_datapoint_plotly_fig(
-        dataset=full_dataset,
-        datapoint_name="full data",
-        save_to_wandb=False,
-        idx_to_visualize=idx_to_visualize,
-    )
-
-    ACRONYM_ROOT_DIR = "/juno/u/tylerlum/github_repos/acronym/data/grasps"
-    MESH_ROOT_DIR = "assets/objects"
-    LEFT_TIP_POSITION_GRASP_FRAME = np.array(
-        [4.10000000e-02, -7.27595772e-12, 1.12169998e-01]
-    )
-    RIGHT_TIP_POSITION_GRASP_FRAME = np.array(
-        [-4.10000000e-02, -7.27595772e-12, 1.12169998e-01]
-    )
-
-    # Get acronym filename and grasp transform from input dataset
-    with h5py.File(full_dataset.input_hdf5_filepath, "r") as hdf5_file:
-        acronym_filename = hdf5_file["/acronym_filename"][idx_to_visualize].decode(
-            "utf-8"
-        )
-        grasp_transform = np.array(hdf5_file["/grasp_transform"][idx_to_visualize])
-
-    # Get mesh info from acronym dataset
-    acronym_filepath = os.path.join(ACRONYM_ROOT_DIR, acronym_filename)
-    with h5py.File(acronym_filepath, "r") as acronym_hdf5_file:
-        mesh_filename = acronym_hdf5_file["object/file"][()].decode("utf-8")
-        mesh_filepath = os.path.join(MESH_ROOT_DIR, mesh_filename)
-
-        import trimesh
-
-        mesh = trimesh.load(mesh_filepath, force="mesh")
-        mesh_scale = float(acronym_hdf5_file["object/scale"][()])
-        mesh_centroid = np.array(mesh.centroid) * mesh_scale
-
-    left_tip = (
-        np.matmul(
-            grasp_transform, np.concatenate([LEFT_TIP_POSITION_GRASP_FRAME, [1.0]])
-        )[:3]
-        - mesh_centroid
-    )
-    right_tip = (
-        np.matmul(
-            grasp_transform, np.concatenate([RIGHT_TIP_POSITION_GRASP_FRAME, [1.0]])
-        )[:3]
-        - mesh_centroid
-    )
-
-    # Draw mesh, ensure -centroid offset so that mesh centroid is centered at origin
-    fig.add_trace(
-        create_plotly_mesh(
-            obj_filepath=mesh_filepath,
-            scale=mesh_scale,
-            offset=-mesh_centroid,
-            color="lightpink",
-        )
-    )
-
-    # Draw line from left_tip to right_tip
-    fig.add_trace(
-        go.Scatter3d(
-            x=[left_tip[0], right_tip[0]],
-            y=[left_tip[1], right_tip[1]],
-            z=[left_tip[2], right_tip[2]],
-            mode="lines",
-            line=dict(color="red", width=10),
-            name="Grasp (should align with query points)",
-        )
-    )
-
-    if save_to_wandb:
-        wandb_log_plotly_fig(
-            plotly_fig=fig, title=f"Detailed Mesh Plot idx={idx_to_visualize}"
-        )
-
-    return fig
-
-
-# %%
-if cfg.visualize_data:
-    create_datapoint_plotly_fig(
-        dataset=full_dataset,
-        datapoint_name="full",
-        idx_to_visualize=0,
-        save_to_wandb=True,
-    )
-
-# %%
-if cfg.visualize_data:
-    create_detailed_plot_with_mesh(
-        full_dataset=full_dataset, idx_to_visualize=0, save_to_wandb=True
-    )
-
-# %%
-
-# TODO: END OF NEW
-
-# %% [markdown]
-# # Visualize Dataset Distribution
-
-
-# %%
-@localscope.mfc
-def create_grasp_success_distribution_fig(
-    train_dataset: Subset, input_dataset_full_path: str, save_to_wandb: bool = False
-):
-    try:
-        with h5py.File(input_dataset_full_path, "r") as hdf5_file:
-            grasp_successes_np = np.array(
-                hdf5_file["/grasp_success"][
-                    sorted(train_dataset.indices)
-                ]  # Must be ascending
-            )
-
-        # Plot histogram in plotly
-        fig = go.Figure(
-            data=[
-                go.Histogram(
-                    x=grasp_successes_np,
-                    name="Grasp Successes",
-                    marker_color="blue",
-                ),
-            ],
-            layout=go.Layout(
-                title="Distribution of Grasp Successes",
-                xaxis=dict(title="Grasp Success"),
-                yaxis=dict(title="Frequency"),
-            ),
-        )
-        if save_to_wandb:
-            wandb_log_plotly_fig(
-                plotly_fig=fig, title="Distribution of Grasp Successes"
-            )
-        return fig
-
-    except Exception as e:
-        print(f"Error: {e}")
-        print("Skipping visualization of grasp success distribution")
-
-
-if cfg.visualize_data:
-    create_grasp_success_distribution_fig(
-        train_dataset=train_dataset,
-        input_dataset_full_path=input_dataset_full_path,
-        save_to_wandb=True,
-    )
-
-
-# %%
-@localscope.mfc(
-    allowed=[
-        "INPUT_EXAMPLE_SHAPE",
-        "NERF_COORDINATE_START_IDX",
-        "NERF_COORDINATE_END_IDX",
-        "NERF_DENSITY_START_IDX",
-        "NERF_DENSITY_END_IDX",
-        "tqdm",
-    ]
-)
-def create_nerf_grid_input_distribution_figs(
-    train_loader: DataLoader, save_to_wandb: bool = False
-):
+) -> Tuple[go.Figure, go.Figure]:
     nerf_coordinate_mins, nerf_coordinate_means, nerf_coordinate_maxs = [], [], []
     nerf_density_mins, nerf_density_means, nerf_density_maxs = [], [], []
     for nerf_grid_inputs, _ in tqdm(
@@ -2049,7 +2011,7 @@ def mlp(
     hidden_layers: List[int],
     activation=nn.ReLU,
     output_activation=nn.Identity,
-):
+) -> nn.Sequential:
     layers = []
     layer_sizes = [num_inputs] + hidden_layers + [num_outputs]
     for i in range(len(layer_sizes) - 1):
@@ -2059,20 +2021,20 @@ def mlp(
 
 
 class Mean(nn.Module):
-    def __init__(self, dim: int):
+    def __init__(self, dim: int) -> None:
         super().__init__()
         self.dim = dim
 
-    def forward(self, x: torch.Tensor):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         return torch.mean(x, dim=self.dim)
 
 
 class Max(nn.Module):
-    def __init__(self, dim: int):
+    def __init__(self, dim: int) -> None:
         super().__init__()
         self.dim = dim
 
-    def forward(self, x: torch.Tensor):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         return torch.max(x, dim=self.dim)
 
 
@@ -2084,7 +2046,7 @@ def conv_encoder(
     dropout_prob: float = 0.0,
     conv_output_to_1d: ConvOutputTo1D = ConvOutputTo1D.FLATTEN,
     activation=nn.ReLU,
-):
+) -> nn.Module:
     # Input: Either (n_channels, n_dims) or (n_channels, height, width) or (n_channels, depth, height, width)
 
     # Validate input
@@ -2187,7 +2149,7 @@ class NeRF_to_Grasp_Success_Model(nn.Module):
         self,
         input_example_shape: Tuple[int, ...],
         neural_network_config: NeuralNetworkConfig,
-    ):
+    ) -> None:
         super().__init__()
         self.input_example_shape = input_example_shape
         self.neural_network_config = neural_network_config
@@ -2217,17 +2179,17 @@ class NeRF_to_Grasp_Success_Model(nn.Module):
         )
 
     @localscope.mfc
-    def forward(self, x: torch.Tensor):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.conv(x)
         x = self.mlp(x)
         return x
 
     @localscope.mfc
-    def get_success_logits(self, x: torch.Tensor):
+    def get_success_logits(self, x: torch.Tensor) -> torch.Tensor:
         return self.forward(x)
 
     @localscope.mfc
-    def get_success_probability(self, x: torch.Tensor):
+    def get_success_probability(self, x: torch.Tensor) -> torch.Tensor:
         return nn.functional.softmax(self.get_success_logits(x), dim=-1)
 
 
@@ -2317,7 +2279,7 @@ def save_checkpoint(
     epoch: int,
     nerf_to_grasp_success_model: NeRF_to_Grasp_Success_Model,
     optimizer: torch.optim.Optimizer,
-):
+) -> None:
     checkpoint_filepath = os.path.join(
         checkpoint_workspace_dir_path, f"checkpoint_{epoch:04}.pt"
     )
@@ -2378,7 +2340,7 @@ def iterate_through_dataloader(
     log_grad: bool = False,
     gather_predictions: bool = False,
     log_confusion_matrix: bool = False,
-):
+) -> None:
     assert phase in [Phase.TRAIN, Phase.VAL, Phase.TEST]
     if phase == Phase.TRAIN:
         nerf_to_grasp_success_model.train()
@@ -2579,7 +2541,7 @@ def plot_confusion_matrix(
     nerf_to_grasp_success_model: NeRF_to_Grasp_Success_Model,
     device: str,
     wandb_log_dict: Dict[str, Any],
-):
+) -> None:
     # TODO: This is very slow and wasteful if we already compute all these in the other iterate_through_dataloader function calls
     preds, ground_truths = [], []
     for nerf_grid_inputs, grasp_successes in (pbar := tqdm(dataloader)):
@@ -2627,7 +2589,7 @@ def run_training_loop(
     optimizer: torch.optim.Optimizer,
     start_epoch: int,
     checkpoint_workspace_dir_path: str,
-):
+) -> None:
     training_loop_base_description = "Training Loop"
     for epoch in (
         pbar := tqdm(
@@ -2738,7 +2700,9 @@ wandb.watch(nerf_to_grasp_success_model, log="gradients", log_freq=100)
 
 # %%
 @localscope.mfc
-def compute_class_weight_np(train_dataset: Subset, input_dataset_full_path: str):
+def compute_class_weight_np(
+    train_dataset: Subset, input_dataset_full_path: str
+) -> np.ndarray:
     try:
         print("Loading grasp success data for class weighting...")
         t1 = time.time()

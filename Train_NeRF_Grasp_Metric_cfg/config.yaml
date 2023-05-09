@@ -9,8 +9,8 @@ wandb:
   job_type: ""
 
 data:
-  frac_val: 0.25
-  frac_test: 0.15
+  frac_val: 0.1
+  frac_test: 0.1
   frac_train: ${eval:1 - ${data.frac_val} - ${data.frac_test}}
   # input_dataset_root_dir: "/scr1/tylerlum"
   input_dataset_root_dir: "/juno/u/tylerlum/github_repos/nerf_grasping/nerf_acronym_grasp_success_datasets"
@@ -31,7 +31,6 @@ preprocess:
   rotate_polar_angle: False
   reflect_around_xz_plane_randomly: False
   remove_y_axis: False
-
 
 training:
   grad_clip_val: 1.0

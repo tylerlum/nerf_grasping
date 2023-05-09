@@ -965,7 +965,7 @@ def visualize_nerf_density_imgs(
     save_to_wandb: bool = False,
 ) -> plt.Figure:
     nerf_density = nerf_densities[idx_to_visualize]
-    assert nerf_density.shape == (NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
+    assert nerf_density.shape == (NUM_PTS_X // 2, NUM_PTS_Y, NUM_PTS_Z)
 
     # Visualize nerf densities
     nerf_density = (
@@ -1024,9 +1024,10 @@ def visualize_nerf_videos(
     idx_to_visualize: int = 0,
     name: str = "Nerf Densities Video",
     save_to_wandb: bool = False,
+    fps: int = 10,
 ) -> np.ndarray:
     nerf_density = nerf_densities[idx_to_visualize]
-    assert nerf_density.shape == (NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
+    assert nerf_density.shape == (NUM_PTS_X // 2, NUM_PTS_Y, NUM_PTS_Z)
 
     # Visualize nerf densities
     nerf_density = (
@@ -1043,7 +1044,7 @@ def visualize_nerf_videos(
         * 255
     ).astype(np.uint8)
     if save_to_wandb:
-        wandb.log({name: wandb.Video(wandb_video, fps=4, format="mp4")})
+        wandb.log({name: wandb.Video(wandb_video, fps=10, format="mp4")})
     return wandb_video
 
 
@@ -1078,8 +1079,8 @@ def visualize_1D_max_nerf_density(
     # Create 1D visualization
     left_nerf_density = left_nerf_densities[idx_to_visualize]
     right_nerf_density = right_nerf_densities[idx_to_visualize]
-    assert left_nerf_density.shape == (NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
-    assert right_nerf_density.shape == (NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
+    assert left_nerf_density.shape == (NUM_PTS_X // 2, NUM_PTS_Y, NUM_PTS_Z)
+    assert right_nerf_density.shape == (NUM_PTS_X // 2, NUM_PTS_Y, NUM_PTS_Z)
 
     # Visualize nerf densities
     left_nerf_density = (
@@ -1447,9 +1448,6 @@ if cfg.visualize_data:
         full_dataset=full_dataset, idx_to_visualize=0, save_to_wandb=True
     )
 
-# %%
-
-# TODO: END OF NEW
 
 # %% [markdown]
 # # Visualize Dataset Distribution
@@ -1461,12 +1459,18 @@ def create_grasp_success_distribution_fig(
     train_dataset: Subset, input_dataset_full_path: str, save_to_wandb: bool = False
 ) -> Optional[go.Figure]:
     try:
+        print("Loading grasp success data for grasp success distribution...")
+        t1 = time.time()
         with h5py.File(input_dataset_full_path, "r") as hdf5_file:
-            grasp_successes_np = np.array(
-                hdf5_file["/grasp_success"][
-                    sorted(train_dataset.indices)
-                ]  # Must be ascending
-            )
+            grasp_successes_np = np.array(hdf5_file["/grasp_success"][()])
+        t2 = time.time()
+        print(f"Loaded grasp success data in {t2 - t1:.2f} s")
+
+        print("Extracting training indices...")
+        t3 = time.time()
+        grasp_successes_np = grasp_successes_np[train_dataset.indices]
+        t4 = time.time()
+        print(f"Extracted training indices in {t4 - t3:.2f} s")
 
         # Plot histogram in plotly
         fig = go.Figure(
@@ -1500,6 +1504,7 @@ if cfg.visualize_data:
         input_dataset_full_path=input_dataset_full_path,
         save_to_wandb=True,
     )
+
 
 # %%
 @localscope.mfc(

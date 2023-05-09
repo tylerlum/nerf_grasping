@@ -288,6 +288,7 @@ class ConvEncoder1D(nn.Module):
         self.USE_RESNET = True
         if self.USE_RESNET:
             self.conv_1d = ResNet1D(in_channels=n_channels,
+                                    seq_len=seq_len,
                                     base_filters=64,
                                     kernel_size=3,
                                     stride=1,
@@ -296,7 +297,8 @@ class ConvEncoder1D(nn.Module):
                                     n_classes=1,
                                     downsample_gap=2,
                                     increasefilter_gap=2,
-                                    use_do=False,)  # TODO IMPLEMENT
+                                    use_do=False,
+                                    verbose=False)
             # Set equivalent pooling setting
             # self.conv_2d.avgpool = nn.AdaptiveAvgPool2d(output_size=(1, 1))
             # self.conv_2d.fc = nn.Identity()

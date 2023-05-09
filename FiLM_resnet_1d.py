@@ -341,11 +341,7 @@ class ResNet1D(nn.Module):
 
         self.pool = nn.AdaptiveAvgPool1d(
             output_size=1
-        )  # TODO: Make it changeable parameter
-
-        example_x = torch.zeros(1, self.in_channels, self.seq_len)
-        example_output = self(example_x)
-        self.output_dim = example_output.shape[1]
+        )
 
     def forward(self, x, beta=None, gamma=None):
         out = x
@@ -424,7 +420,7 @@ if __name__ == "__main__":
 
     # Create encoder
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    in_channels, seq_len = 3, 100
+    batch_size, in_channels, seq_len = 1, 3, 100
     verbose = False
     img_encoder = ResNet1D(
         in_channels=in_channels,
@@ -440,8 +436,8 @@ if __name__ == "__main__":
         use_do=False,
         verbose=verbose,
     ).to(device)
-    print(f"Input shape: (batch_size, {in_channels}, {seq_len})")
-    print(f"Output shape: (batch_size, {img_encoder.output_dim})")
+    input_shape = (batch_size, in_channels, seq_len)
+    print(f"Input shape: {input_shape}")
     print(f"Number of FiLM params: {img_encoder.num_film_params}")
     print()
 
@@ -449,19 +445,19 @@ if __name__ == "__main__":
     print("~" * 100)
     print("Summary of FiLM resnet 1d:")
     print("~" * 100)
-    summary(img_encoder, input_size=(1, in_channels, seq_len), depth=float("inf"), device=device)
+    summary(img_encoder, input_size=input_shape, depth=float("inf"), device=device)
     print()
 
     # Compare output with reference encoder
-    example_input = torch.rand(1, in_channels, seq_len, device=device)
+    example_input = torch.rand(*input_shape, device=device)
     example_output = img_encoder(example_input)
     print(f"Output shape: {example_output.shape}")
 
     # Compare output with defined beta and gamma
     example_output_with_film = img_encoder(
         example_input,
-        beta=torch.zeros(1, img_encoder.num_film_params, device=device),
-        gamma=torch.ones(1, img_encoder.num_film_params, device=device),
+        beta=torch.zeros(batch_size, img_encoder.num_film_params, device=device),
+        gamma=torch.ones(batch_size, img_encoder.num_film_params, device=device),
     )
     print(
         f"Output difference with defined beta=0 and gamma=1: {torch.norm(example_output - example_output_with_film)}"

@@ -744,6 +744,8 @@ class General2DTo1DClassifier(nn.Module):
         conv_encoder_2d_embed_dim: int = 32,
         concat_conditioning_before_1d: bool = False,
         concat_conditioning_after_1d: bool = False,
+        conv_encoder_2d_mlp_hidden_layers: List[int] = [64, 64],
+        head_mlp_hidden_layers: List[int] = [64, 64],
     ) -> None:
         # input_shape: (seq_len, height, width)
         super().__init__()
@@ -779,7 +781,7 @@ class General2DTo1DClassifier(nn.Module):
         self.fc = mlp(
             num_inputs=self.conv_encoder_2d.output_dim,
             num_outputs=conv_encoder_2d_embed_dim,
-            hidden_layers=[64, 64],
+            hidden_layers=conv_encoder_2d_mlp_hidden_layers,
         )
 
         # Before 1D
@@ -847,7 +849,9 @@ class General2DTo1DClassifier(nn.Module):
 
         # Head
         self.head = mlp(
-            num_inputs=self.head_num_inputs, num_outputs=2, hidden_layers=[64, 64]
+            num_inputs=self.head_num_inputs,
+            num_outputs=2,
+            hidden_layers=head_mlp_hidden_layers,
         )
 
     def forward(
@@ -860,27 +864,41 @@ class General2DTo1DClassifier(nn.Module):
             self.conditioning_dim,
         )
 
-        # Conv 2d (batch_size, n_fingers, seq_len, height, width) => (batch_size, n_fingers, seq_len, output_dim)
+        # Conv 2d (batch_size, n_fingers, seq_len, height, width) => (batch_size, n_fingers, seq_len, self.conv_encoder_2d.output_dim)
         # OOM if do all at once
         AVOID_OOM = True
         if AVOID_OOM:
             x = x.reshape(batch_size * n_fingers, seq_len, 1, height, width)
             conditioning_repeated = (
-                conditioning.repeat(n_fingers, 1) if conditioning is not None else None
+                conditioning.repeat(n_fingers, 1)
+                if conditioning is not None and self.use_conditioning_2d
+                else None
             )
             temp_list = []
             for seq_i in range(seq_len):
                 temp = self.conv_encoder_2d(
-                    x[:, seq_i : (seq_i + 1), :, :], conditioning=conditioning_repeated
+                    x[:, seq_i], conditioning=conditioning_repeated
+                )
+                assert temp.shape == (
+                    batch_size * n_fingers,
+                    self.conv_encoder_2d.output_dim,
                 )
                 temp_list.append(temp)
-            x = torch.stack(temp_list, dim=2)
+            x = torch.stack(temp_list, dim=1)
+            assert x.shape == (
+                batch_size * n_fingers,
+                seq_len,
+                self.conv_encoder_2d.output_dim,
+            )
+            x = x.reshape(
+                batch_size, n_fingers, seq_len, self.conv_encoder_2d.output_dim
+            )
             del temp_list  # TODO: Do we need this?
         else:
             x = x.reshape(batch_size * n_fingers * seq_len, 1, height, width)
             conditioning_repeated = (
                 conditioning.repeat(n_fingers * seq_len, 1)
-                if conditioning is not None
+                if conditioning is not None and self.use_conditioning_2d
                 else None
             )
             x = self.conv_encoder_2d(x, conditioning=conditioning_repeated)
@@ -901,7 +919,7 @@ class General2DTo1DClassifier(nn.Module):
             self.conv_encoder_2d_embed_dim,
         )
 
-        # Before 1d operations
+        # Before 1d operations (batch_size, n_fingers, seq_len, self.conv_encoder_2d_embed_dim) => (batch_size, self.encoder_1d_seq_len, self.encoder_1d_input_dim)
         if self.merge_fingers_method == MergeFingersMethod.MULTIPLY_BEFORE_1D:
             x = x.prod(dim=1)
         elif self.merge_fingers_method == MergeFingersMethod.ADD_BEFORE_1D:
@@ -915,14 +933,14 @@ class General2DTo1DClassifier(nn.Module):
                 batch_size,
                 seq_len,
                 n_fingers,
-                self.conv_encoder_2d.output_dim,
+                self.conv_encoder_2d_embed_dim,
             )
             x = x.reshape(
-                batch_size, seq_len, n_fingers * self.conv_encoder_2d.output_dim
+                batch_size, seq_len, n_fingers * self.conv_encoder_2d_embed_dim
             )
         elif self.merge_fingers_method == MergeFingersMethod.CONCAT_BEFORE_1D_TIME_WISE:
             x = x.reshape(
-                batch_size, n_fingers * seq_len, self.conv_encoder_2d.output_dim
+                batch_size, n_fingers * seq_len, self.conv_encoder_2d_embed_dim
             )
         elif self.merge_fingers_method == MergeFingersMethod.ATTENTION_BEFORE_1D:
             # HACK: Assumes n_fingers == 2 so can do attention between the two
@@ -943,8 +961,8 @@ class General2DTo1DClassifier(nn.Module):
                 == (batch_size, self.conv_encoder_2d_embed_dim, seq_len)
             )
             x = self.attention_before_1d(left_finger, conditioning=right_finger)
-            assert x.shape == (batch_size, seq_len * self.conv_encoder_2d_embed_dim)
-            x = x.reshape(batch_size, seq_len, self.conv_encoder_2d_embed_dim).permute(
+            assert x.shape == (batch_size, self.conv_encoder_2d_embed_dim * seq_len)
+            x = x.reshape(batch_size, self.conv_encoder_2d_embed_dim, seq_len).permute(
                 0, 2, 1
             )
         elif self.merge_fingers_method in [
@@ -954,7 +972,7 @@ class General2DTo1DClassifier(nn.Module):
         ]:
             # Process fingers individually
             x = x.reshape(
-                batch_size * n_fingers, seq_len, self.conv_encoder_2d.output_dim
+                batch_size * n_fingers, seq_len, self.conv_encoder_2d_embed_dim
             )
         else:
             raise ValueError(
@@ -967,29 +985,40 @@ class General2DTo1DClassifier(nn.Module):
             and conditioning is not None
             and self.conditioning_dim is not None
         ):
-            conditioning = conditioning.reshape(
+            temp_batch_size = x.shape[0]
+            n_repeat_batch = temp_batch_size // batch_size
+            assert n_repeat_batch * batch_size == temp_batch_size
+            conditioning_repeated = conditioning.reshape(
                 batch_size, 1, self.conditioning_dim
-            ).repeat(1, self.encoder_1d_seq_len, 1)
-            assert conditioning.shape == (
-                batch_size,
+            ).repeat(n_repeat_batch, self.encoder_1d_seq_len, 1)
+            assert conditioning_repeated.shape == (
+                temp_batch_size,
                 self.encoder_1d_seq_len,
                 self.conditioning_dim,
             )
-            x = torch.cat([x, conditioning], dim=-1)
+            x = torch.cat([x, conditioning_repeated], dim=-1)
 
         assert len(x.shape) == 3 and x.shape[1:] == (
             self.encoder_1d_seq_len,
             self.encoder_1d_input_dim,
         )
 
-        # 1d
-        # Need to permute to (batch_size, n_channels, seq_len) for 1d encoder
+        # 1d (batch_size, self.encoder_1d_seq_len, self.encoder_1d_input_dim) => (batch_size, self.head_num_inputs)
+        # Need to have (batch_size, n_channels, seq_len) for 1d encoder
         x = x.permute(0, 2, 1)
         assert len(x.shape) == 3 and x.shape[1:] == (
             self.encoder_1d_input_dim,
             self.encoder_1d_seq_len,
         )
-        x = self.encoder_1d(x, conditioning=conditioning)
+        temp_batch_size = x.shape[0]
+        n_repeat_batch = temp_batch_size // batch_size
+        assert n_repeat_batch * batch_size == temp_batch_size
+        conditioning_repeated = (
+            conditioning.repeat(n_repeat_batch, 1)
+            if conditioning is not None and self.use_conditioning_1d
+            else None
+        )
+        x = self.encoder_1d(x, conditioning=conditioning_repeated)
         assert len(x.shape) == 2 and x.shape[1] == self.encoder_1d.output_dim
 
         # After 1d operations
@@ -1176,78 +1205,127 @@ class Conv2DtoTransformer1D(nn.Module):
 
 
 if __name__ == "__main__":
-    from torchinfo import summary
+    from ipdb import launch_ipdb_on_exception
 
-    # Create model
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    batch_size, n_channels, height, width = (
-        5,
-        10,
-        30,
-        40,
-    )  # WARNING: Easy to OOM
-    conv_2d_to_conv_1d = Conv2DtoConv1D(input_shape=(n_channels, height, width)).to(
-        device
-    )
+    with launch_ipdb_on_exception():
+        from torchinfo import summary
 
-    example_input = torch.randn(batch_size, n_channels, height, width, device=device)
-    example_output = conv_2d_to_conv_1d(example_input)
-    print("Conv2DtoConv1D")
-    print("=" * 80)
-    print(f"example_input.shape = {example_input.shape}")
-    print(f"example_output.shape = {example_output.shape}")
-    print()
+        # Create model
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        batch_size, seq_len, height, width = (
+            4,
+            10,
+            30,
+            40,
+        )  # WARNING: Easy to OOM
+        conv_2d_to_conv_1d = Conv2DtoConv1D(input_shape=(seq_len, height, width)).to(
+            device
+        )
 
-    # Create model 2
-    conditioning_dim = 10
-    conv_2d_to_conv_1d_film = Conv2DtoConv1D(
-        input_shape=(n_channels, height, width),
-        conditioning_dim=conditioning_dim,
-    ).to(device)
-    example_conditioning = torch.randn(batch_size, conditioning_dim, device=device)
-    example_film_output = conv_2d_to_conv_1d_film(example_input, example_conditioning)
-    print("Conv2DtoConv1D FiLM")
-    print("=" * 80)
-    print(f"example_input.shape = {example_input.shape}")
-    print(f"example_conditioning.shape = {example_conditioning.shape}")
-    print(f"example_film_output.shape = {example_film_output.shape}")
-    print()
+        example_input = torch.randn(batch_size, seq_len, height, width, device=device)
+        example_output = conv_2d_to_conv_1d(example_input)
+        print("Conv2DtoConv1D")
+        print("=" * 80)
+        print(f"example_input.shape = {example_input.shape}")
+        print(f"example_output.shape = {example_output.shape}")
+        print()
 
-    # Create model 3
-    conditioning_dim = 10
-    conv_2d_to_transformer_1d = Conv2DtoTransformer1D(
-        input_shape=(n_channels, height, width)
-    ).to(device)
-    example_transformer_output = conv_2d_to_transformer_1d(example_input)
-    print("Conv2DtoTransformer1D")
-    print("=" * 80)
-    print(f"example_input.shape = {example_input.shape}")
-    print(f"example_transformer_output.shape = {example_transformer_output.shape}")
-    print()
+        # Create model 2
+        conditioning_dim = 10
+        conv_2d_to_conv_1d_film = Conv2DtoConv1D(
+            input_shape=(seq_len, height, width),
+            conditioning_dim=conditioning_dim,
+        ).to(device)
+        example_conditioning = torch.randn(batch_size, conditioning_dim, device=device)
+        example_film_output = conv_2d_to_conv_1d_film(
+            example_input, example_conditioning
+        )
+        print("Conv2DtoConv1D FiLM")
+        print("=" * 80)
+        print(f"example_input.shape = {example_input.shape}")
+        print(f"example_conditioning.shape = {example_conditioning.shape}")
+        print(f"example_film_output.shape = {example_film_output.shape}")
+        print()
 
-    # Create model 4
-    conditioning_dim = 10
-    conv_2d_to_transformer_1d_conditioned = Conv2DtoTransformer1D(
-        input_shape=(n_channels, height, width),
-        conditioning_dim=conditioning_dim,
-    ).to(device)
-    example_transformer_output_conditioned = conv_2d_to_transformer_1d_conditioned(
-        example_input, example_conditioning
-    )
-    print("Conv2DtoTransformer1D Conditioned")
-    print("=" * 80)
-    print(f"example_input.shape = {example_input.shape}")
-    print(f"example_conditioning.shape = {example_conditioning.shape}")
-    print(
-        f"example_transformer_output_conditioned.shape = {example_transformer_output_conditioned.shape}"
-    )
-    print()
+        # Create model 3
+        conditioning_dim = 10
+        conv_2d_to_transformer_1d = Conv2DtoTransformer1D(
+            input_shape=(seq_len, height, width)
+        ).to(device)
+        example_transformer_output = conv_2d_to_transformer_1d(example_input)
+        print("Conv2DtoTransformer1D")
+        print("=" * 80)
+        print(f"example_input.shape = {example_input.shape}")
+        print(f"example_transformer_output.shape = {example_transformer_output.shape}")
+        print()
 
-    # Create model 5
-    model = General2DTo1DClassifier(
-        input_shape=(n_channels, height, width),
-        n_fingers=2,
-        conditioning_dim=conditioning_dim,
-        use_conditioning_2d=True,
-        use_conditioning_1d=True,
-    )
+        # Create model 4
+        conditioning_dim = 10
+        conv_2d_to_transformer_1d_conditioned = Conv2DtoTransformer1D(
+            input_shape=(seq_len, height, width),
+            conditioning_dim=conditioning_dim,
+        ).to(device)
+        example_transformer_output_conditioned = conv_2d_to_transformer_1d_conditioned(
+            example_input, example_conditioning
+        )
+        print("Conv2DtoTransformer1D Conditioned")
+        print("=" * 80)
+        print(f"example_input.shape = {example_input.shape}")
+        print(f"example_conditioning.shape = {example_conditioning.shape}")
+        print(
+            f"example_transformer_output_conditioned.shape = {example_transformer_output_conditioned.shape}"
+        )
+        print()
+
+        n_fingers = 2
+        example_input = torch.randn(
+            batch_size, n_fingers, seq_len, height, width, device=device
+        )
+
+        # Create model 5
+        general_model = General2DTo1DClassifier(
+            input_shape=(seq_len, height, width),
+            n_fingers=2,
+            conditioning_dim=conditioning_dim,
+            use_conditioning_2d=True,
+            use_conditioning_1d=True,
+            merge_fingers_method=MergeFingersMethod.CONCAT_AFTER_1D,
+            encoder_1d_type=Encoder1DType.CONV,
+            conv_encoder_2d_embed_dim=32,
+            concat_conditioning_before_1d=True,
+            concat_conditioning_after_1d=True,
+            conv_encoder_2d_mlp_hidden_layers=[64, 64],
+            head_mlp_hidden_layers=[64, 64],
+        ).to(device)
+
+        example_output = general_model(example_input, example_conditioning)
+        print("General2DTo1DClassifier CNN")
+        print("=" * 80)
+        print(f"example_input.shape = {example_input.shape}")
+        print(f"example_conditioning.shape = {example_conditioning.shape}")
+        print(f"example_output.shape = {example_output.shape}")
+        print()
+
+        # Create model 6
+        general_model_2 = General2DTo1DClassifier(
+            input_shape=(seq_len, height, width),
+            n_fingers=2,
+            conditioning_dim=conditioning_dim,
+            use_conditioning_2d=True,
+            use_conditioning_1d=False,
+            merge_fingers_method=MergeFingersMethod.ATTENTION_BEFORE_1D,
+            encoder_1d_type=Encoder1DType.TRANSFORMER,
+            conv_encoder_2d_embed_dim=32,
+            concat_conditioning_before_1d=False,
+            concat_conditioning_after_1d=True,
+            conv_encoder_2d_mlp_hidden_layers=[64, 64],
+            head_mlp_hidden_layers=[64, 64],
+        ).to(device)
+
+        example_output = general_model_2(example_input, example_conditioning)
+        print("General2DTo1DClassifier Transformer")
+        print("=" * 80)
+        print(f"example_input.shape = {example_input.shape}")
+        print(f"example_conditioning.shape = {example_conditioning.shape}")
+        print(f"example_output.shape = {example_output.shape}")
+        print()

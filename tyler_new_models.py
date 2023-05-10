@@ -213,6 +213,7 @@ class ConvEncoder2D(nn.Module):
     def __init__(
         self,
         input_shape: Tuple[int, int, int],
+        conditioning_dim: Optional[int] = None,
         use_resnet: bool = True,
         use_pretrained: bool = True,
         pooling_method: ConvOutputTo1D = ConvOutputTo1D.FLATTEN,
@@ -221,6 +222,7 @@ class ConvEncoder2D(nn.Module):
 
         # input_shape: (n_channels, height, width)
         self.input_shape = input_shape
+        self.conditioning_dim = conditioning_dim
         self.use_resnet = use_resnet
         self.use_pretrained = use_pretrained
         self.pooling_method = pooling_method
@@ -229,7 +231,7 @@ class ConvEncoder2D(nn.Module):
         n_channels, height, width = input_shape
         assert n_channels == 1
 
-        # Create architecture
+        # Create conv architecture
         if self.use_resnet:
             # TODO: Properly config
             weights = ResNet18_Weights.DEFAULT if self.use_pretrained else None
@@ -255,24 +257,42 @@ class ConvEncoder2D(nn.Module):
                 activation=nn.ReLU,
             )
 
+        # Create FiLM generator
+        if self.conditioning_dim is not None and self.num_film_params is not None:
+            # TODO: Properly config
+            self.film_generator = FiLMGenerator(
+                film_input_dim=self.conditioning_dim,
+                num_params_to_film=self.num_film_params,
+                hidden_layers=[64, 64],
+            )
+
     def forward(
         self,
         x: torch.Tensor,
-        beta: Optional[torch.Tensor] = None,
-        gamma: Optional[torch.Tensor] = None,
+        conditioning: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         # x: (batch_size, n_channels, height, width)
         assert len(x.shape) == 4
         batch_size, _, _, _ = x.shape
 
+        # Ensure valid use of film
+        assert (conditioning is None and self.conditioning_dim is None) or (
+            conditioning is not None
+            and self.conditioning_dim is not None
+            and conditioning.shape == (batch_size, self.conditioning_dim)
+        )
+
+        # FiLM
+        if conditioning is not None:
+            beta, gamma = self.film_generator(conditioning)
+            assert (
+                beta.shape == gamma.shape == (batch_size, self.conv_2d.num_film_params)
+            )
+        else:
+            beta, gamma = None, None
+
+        # Conv
         x = self.img_preprocess(x)
-
-        if beta is not None or gamma is not None:
-            if self.num_film_params is None:
-                raise ValueError("FiLM not supported for non-ResNet architecture")
-            assert beta is None or beta.shape == (batch_size, self.num_film_params)
-            assert gamma is None or gamma.shape == (batch_size, self.num_film_params)
-
         x = self.conv_2d(x, beta=beta, gamma=gamma)
         assert len(x.shape) == 2 and x.shape[0] == batch_size
 
@@ -280,7 +300,11 @@ class ConvEncoder2D(nn.Module):
 
     @property
     def num_film_params(self) -> Optional[int]:
-        return self.conv_2d.num_film_params if self.use_resnet else None
+        return (
+            self.conv_2d.num_film_params
+            if hasattr(self.conv_2d, "num_film_params")
+            else None
+        )
 
     @cached_property
     def output_dim(self) -> int:
@@ -295,6 +319,7 @@ class ConvEncoder1D(nn.Module):
     def __init__(
         self,
         input_shape: Tuple[int, int],
+        conditioning_dim: Optional[int] = None,
         use_resnet: bool = True,
         pooling_method: ConvOutputTo1D = ConvOutputTo1D.FLATTEN,
     ) -> None:
@@ -302,13 +327,14 @@ class ConvEncoder1D(nn.Module):
 
         # input_shape: (n_channels, seq_len)
         self.input_shape = input_shape
+        self.conditioning_dim = conditioning_dim
         self.use_resnet = use_resnet
         self.pooling_method = pooling_method
 
         assert len(input_shape) == 2
         n_channels, seq_len = input_shape
 
-        # Create architecture
+        # Create conv architecture
         if self.use_resnet:
             # TODO: Properly config
             self.conv_1d = ResNet1D(
@@ -339,22 +365,41 @@ class ConvEncoder1D(nn.Module):
                 activation=nn.ReLU,
             )
 
+        # Create FiLM generator
+        if self.conditioning_dim is not None and self.num_film_params is not None:
+            # TODO: Properly config
+            self.film_generator = FiLMGenerator(
+                film_input_dim=self.conditioning_dim,
+                num_params_to_film=self.num_film_params,
+                hidden_layers=[64, 64],
+            )
+
     def forward(
         self,
         x: torch.Tensor,
-        beta: Optional[torch.Tensor] = None,
-        gamma: Optional[torch.Tensor] = None,
+        conditioning: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         # x: (batch_size, n_channels, seq_len)
         assert len(x.shape) == 3
         batch_size, _, _ = x.shape
 
-        if beta is not None or gamma is not None:
-            if self.num_film_params is None:
-                raise ValueError("FiLM not supported for non-ResNet architecture")
-            assert beta is None or beta.shape == (batch_size, self.num_film_params)
-            assert gamma is None or gamma.shape == (batch_size, self.num_film_params)
+        # Ensure valid use of film
+        assert (conditioning is None and self.conditioning_dim is None) or (
+            conditioning is not None
+            and self.conditioning_dim is not None
+            and conditioning.shape == (batch_size, self.conditioning_dim)
+        )
 
+        # FiLM
+        if conditioning is not None:
+            beta, gamma = self.film_generator(conditioning)
+            assert (
+                beta.shape == gamma.shape == (batch_size, self.conv_1d.num_film_params)
+            )
+        else:
+            beta, gamma = None, None
+
+        # Conv
         x = self.conv_1d(x, beta=beta, gamma=gamma)
         assert len(x.shape) == 2 and x.shape[0] == batch_size
 
@@ -377,11 +422,11 @@ class Conv2DtoConv1D(nn.Module):
     def __init__(
         self,
         input_shape: Tuple[int, int, int],
-        conditioning_input_dim: Optional[int] = None,
+        conditioning_dim: Optional[int] = None,
     ) -> None:
         super().__init__()
         self.input_shape = input_shape
-        self.conditioning_input_dim = conditioning_input_dim
+        self.conditioning_dim = conditioning_dim
         assert len(input_shape) == 3
 
         n_channels, height, width = input_shape
@@ -390,87 +435,42 @@ class Conv2DtoConv1D(nn.Module):
         # Create conv encoders
         self.n_channels_for_conv_2d = 1
         self.conv_encoder_2d = ConvEncoder2D(
-            input_shape=(self.n_channels_for_conv_2d, height, width)
+            input_shape=(self.n_channels_for_conv_2d, height, width),
+            conditioning_dim=self.conditioning_dim,
         )
         self.conv_encoder_1d = ConvEncoder1D(
-            input_shape=(self.conv_encoder_2d.output_dim, seq_len)
+            input_shape=(self.conv_encoder_2d.output_dim, seq_len),
+            conditioning_dim=self.conditioning_dim,
         )
 
-        # Create film generators
-        if self.conditioning_input_dim is not None:
-            assert (
-                self.conv_encoder_2d.num_film_params is not None
-                and self.conv_encoder_1d.num_film_params is not None
-            )
-
-            self.film_generator_2d = FiLMGenerator(
-                film_input_dim=self.conditioning_input_dim,
-                num_params_to_film=self.conv_encoder_2d.num_film_params,
-                hidden_layers=[64, 64],
-            )
-            self.film_generator_1d = FiLMGenerator(
-                film_input_dim=self.conditioning_input_dim,
-                num_params_to_film=self.conv_encoder_1d.num_film_params,
-                hidden_layers=[64, 64],
-            )
-
     def forward(
-        self, x: torch.Tensor, conditioning_input: Optional[torch.Tensor] = None
+        self, x: torch.Tensor, conditioning: Optional[torch.Tensor] = None
     ) -> torch.Tensor:
         assert len(x.shape) == 4
         batch_size, n_channels, height, width = x.shape
         seq_len = n_channels
 
         # Ensure valid use of film
-        assert (self.conditioning_input_dim is None and conditioning_input is None) or (
-            self.conditioning_input_dim is not None
-            and conditioning_input is not None
-            and conditioning_input.shape == (batch_size, self.conditioning_input_dim)
+        assert (self.conditioning_dim is None and conditioning is None) or (
+            self.conditioning_dim is not None
+            and conditioning is not None
+            and conditioning.shape == (batch_size, self.conditioning_dim)
         )
 
-        ## Conv 2d
+        # Conv 2d
         # Reshape to (batch_size * seq_len, n_channels, height, width)
         # TODO: this can easily OOM, probably find a nice way around this
         x = x.reshape(batch_size * seq_len, self.n_channels_for_conv_2d, height, width)
-        if conditioning_input is not None:
-            beta_2d, gamma_2d = self.film_generator_2d(conditioning_input)
-            assert (
-                beta_2d.shape
-                == gamma_2d.shape
-                == (batch_size, self.conv_encoder_2d.num_film_params)
-            )
-
-            beta_2d = (
-                beta_2d.reshape(batch_size, 1, self.conv_encoder_2d.num_film_params)
-                .repeat(1, seq_len, 1)
-                .reshape(batch_size * seq_len, self.conv_encoder_2d.num_film_params)
-            )
-            gamma_2d = (
-                gamma_2d.reshape(batch_size, 1, self.conv_encoder_2d.num_film_params)
-                .repeat(1, seq_len, 1)
-                .reshape(batch_size * seq_len, self.conv_encoder_2d.num_film_params)
-            )
-            x = self.conv_encoder_2d(x, beta=beta_2d, gamma=gamma_2d)
-        else:
-            x = self.conv_encoder_2d(x)
+        x = self.conv_encoder_2d(x, conditioning)
         assert x.shape == (batch_size * seq_len, self.conv_encoder_2d.output_dim)
 
-        ## Conv 1d
+        # Conv 1d
         # Reshape to (batch_size, output_dim, seq_len)
         x = x.reshape(batch_size, seq_len, self.conv_encoder_2d.output_dim).permute(
             (0, 2, 1)
         )
         assert x.shape == (batch_size, self.conv_encoder_2d.output_dim, seq_len)
-        if conditioning_input is not None:
-            beta_1d, gamma_1d = self.film_generator_1d(conditioning_input)
-            assert (
-                beta_1d.shape
-                == gamma_1d.shape
-                == (batch_size, self.conv_encoder_1d.num_film_params)
-            )
-            x = self.conv_encoder_1d(x, beta=beta_1d, gamma=gamma_1d)
-        else:
-            x = self.conv_encoder_1d(x)
+        x = self.conv_encoder_1d(x, conditioning)
         assert len(x.shape) == 2 and x.shape[0] == batch_size
 
         return x
@@ -484,7 +484,7 @@ class TransformerEncoder1D(nn.Module):
     def __init__(
         self,
         input_shape: Tuple[int, int],
-        condition_input_dim: Optional[int] = None,
+        conditioning_dim: Optional[int] = None,
         pooling_method: ConvOutputTo1D = ConvOutputTo1D.FLATTEN,
         n_emb: int = 128,
         p_drop_emb: float = 0.1,
@@ -494,7 +494,7 @@ class TransformerEncoder1D(nn.Module):
 
         # input_shape: (n_channels, seq_len)
         self.input_shape = input_shape
-        self.condition_input_dim = condition_input_dim
+        self.conditioning_dim = conditioning_dim
         self.pooling_method = pooling_method
         self.n_emb = n_emb
 
@@ -517,7 +517,7 @@ class TransformerEncoder1D(nn.Module):
             encoder_layer=encoder_layer, num_layers=4
         )
 
-        if condition_input_dim is not None:
+        if conditioning_dim is not None:
             # Decoder
             self.decoder_input_emb = nn.Linear(n_channels, n_emb)
             self.decoder_pos_emb = Summer(PositionalEncoding1D(channels=n_emb))
@@ -545,20 +545,24 @@ class TransformerEncoder1D(nn.Module):
         n_channels, seq_len = self.input_shape
         assert x.shape == (batch_size, n_channels, seq_len)
 
-        assert (conditioning is not None and self.condition_input_dim is not None) or (
-            conditioning is None and self.condition_input_dim is None
-        )
-        if conditioning is not None and self.condition_input_dim is not None:
-            assert conditioning.shape == (batch_size, self.condition_input_dim)
+        assert (
+            conditioning is not None and self.conditioning_dim is not None
+        ) or (conditioning is None and self.conditioning_dim is None)
+        if conditioning is not None and self.conditioning_dim is not None:
+            assert conditioning.shape == (batch_size, self.conditioning_dim)
 
             # Condition encoder
             # Need to repeat conditioning to match seq_len
             conditioning = conditioning.reshape(
                 batch_size,
                 1,
-                self.condition_input_dim,
+                self.conditioning_dim,
             ).repeat(1, seq_len, 1)
-            assert conditioning.shape == (batch_size, seq_len, self.condition_input_dim)
+            assert conditioning.shape == (
+                batch_size,
+                seq_len,
+                self.conditioning_dim,
+            )
             conditioning = self._encoder(conditioning)
             assert conditioning.shape == (batch_size, seq_len, self.n_emb)
 
@@ -615,8 +619,8 @@ class TransformerEncoder1D(nn.Module):
         # Compute output shape
         example_input = torch.randn(1, *self.input_shape)
         example_conditioning = (
-            torch.randn(1, self.condition_input_dim)
-            if self.condition_input_dim is not None
+            torch.randn(1, self.conditioning_dim)
+            if self.conditioning_dim is not None
             else None
         )
         example_output = self(example_input, conditioning=example_conditioning)
@@ -627,20 +631,21 @@ class TransformerEncoder1D(nn.Module):
     def encoder_input_dim(self) -> int:
         n_channels, _ = self.input_shape
         return (
-            self.condition_input_dim
-            if self.condition_input_dim is not None
+            self.conditioning_dim
+            if self.conditioning_dim is not None
             else n_channels
         )
+
 
 class Conv2DtoTransformer1D(nn.Module):
     def __init__(
         self,
         input_shape: Tuple[int, int, int],
-        conditioning_input_dim: Optional[int] = None,
+        conditioning_dim: Optional[int] = None,
     ) -> None:
         super().__init__()
         self.input_shape = input_shape
-        self.conditioning_input_dim = conditioning_input_dim
+        self.conditioning_dim = conditioning_dim
         assert len(input_shape) == 3
 
         n_channels, height, width = input_shape
@@ -649,61 +654,33 @@ class Conv2DtoTransformer1D(nn.Module):
         # Create conv encoders
         self.n_channels_for_conv_2d = 1
         self.conv_encoder_2d = ConvEncoder2D(
-            input_shape=(self.n_channels_for_conv_2d, height, width)
+            input_shape=(self.n_channels_for_conv_2d, height, width),
+            conditioning_dim=conditioning_dim,
         )
         self.transformer_encoder_1d = TransformerEncoder1D(
-            input_shape=(self.conv_encoder_2d.output_dim, seq_len), condition_input_dim=conditioning_input_dim
+            input_shape=(self.conv_encoder_2d.output_dim, seq_len),
+            conditioning_dim=conditioning_dim,
         )
 
-        # Create film generators
-        if self.conditioning_input_dim is not None:
-            assert self.conv_encoder_2d.num_film_params is not None
-
-            self.film_generator_2d = FiLMGenerator(
-                film_input_dim=self.conditioning_input_dim,
-                num_params_to_film=self.conv_encoder_2d.num_film_params,
-                hidden_layers=[64, 64],
-            )
-
     def forward(
-        self, x: torch.Tensor, conditioning_input: Optional[torch.Tensor] = None
+        self, x: torch.Tensor, conditioning: Optional[torch.Tensor] = None
     ) -> torch.Tensor:
         assert len(x.shape) == 4
         batch_size, n_channels, height, width = x.shape
         seq_len = n_channels
 
         # Ensure valid use of conditioning
-        assert (self.conditioning_input_dim is None and conditioning_input is None) or (
-            self.conditioning_input_dim is not None
-            and conditioning_input is not None
-            and conditioning_input.shape == (batch_size, self.conditioning_input_dim)
+        assert (self.conditioning_dim is None and conditioning is None) or (
+            self.conditioning_dim is not None
+            and conditioning is not None
+            and conditioning.shape == (batch_size, self.conditioning_dim)
         )
 
         ## Conv 2d
         # Reshape to (batch_size * seq_len, n_channels, height, width)
         # TODO: this can easily OOM, probably find a nice way around this
         x = x.reshape(batch_size * seq_len, self.n_channels_for_conv_2d, height, width)
-        if conditioning_input is not None:
-            beta_2d, gamma_2d = self.film_generator_2d(conditioning_input)
-            assert (
-                beta_2d.shape
-                == gamma_2d.shape
-                == (batch_size, self.conv_encoder_2d.num_film_params)
-            )
-
-            beta_2d = (
-                beta_2d.reshape(batch_size, 1, self.conv_encoder_2d.num_film_params)
-                .repeat(1, seq_len, 1)
-                .reshape(batch_size * seq_len, self.conv_encoder_2d.num_film_params)
-            )
-            gamma_2d = (
-                gamma_2d.reshape(batch_size, 1, self.conv_encoder_2d.num_film_params)
-                .repeat(1, seq_len, 1)
-                .reshape(batch_size * seq_len, self.conv_encoder_2d.num_film_params)
-            )
-            x = self.conv_encoder_2d(x, beta=beta_2d, gamma=gamma_2d)
-        else:
-            x = self.conv_encoder_2d(x)
+        x = self.conv_encoder_2d(x, conditioning=conditioning)
         assert x.shape == (batch_size * seq_len, self.conv_encoder_2d.output_dim)
 
         ## Transformer 1d
@@ -712,7 +689,7 @@ class Conv2DtoTransformer1D(nn.Module):
             (0, 2, 1)
         )
         assert x.shape == (batch_size, self.conv_encoder_2d.output_dim, seq_len)
-        x = self.transformer_encoder_1d(x, conditioning=conditioning_input)
+        x = self.transformer_encoder_1d(x, conditioning=conditioning)
         assert len(x.shape) == 2 and x.shape[0] == batch_size
 
         return x
@@ -720,8 +697,6 @@ class Conv2DtoTransformer1D(nn.Module):
     @property
     def output_dim(self) -> int:
         return self.transformer_encoder_1d.output_dim
-
-
 
 
 if __name__ == "__main__":
@@ -735,7 +710,9 @@ if __name__ == "__main__":
         30,
         40,
     )  # WARNING: Easy to OOM
-    conv_2d_to_conv_1d = Conv2DtoConv1D(input_shape=(n_channels, height, width)).to(device)
+    conv_2d_to_conv_1d = Conv2DtoConv1D(input_shape=(n_channels, height, width)).to(
+        device
+    )
 
     example_input = torch.randn(batch_size, n_channels, height, width, device=device)
     example_output = conv_2d_to_conv_1d(example_input)
@@ -746,21 +723,26 @@ if __name__ == "__main__":
     print()
 
     # Create model 2
-    conditioning_input_dim = 10
+    conditioning_dim = 10
     conv_2d_to_conv_1d_film = Conv2DtoConv1D(
-        input_shape=(n_channels, height, width), conditioning_input_dim=conditioning_input_dim
+        input_shape=(n_channels, height, width),
+        conditioning_dim=conditioning_dim,
     ).to(device)
-    example_conditioning_input = torch.randn(batch_size, conditioning_input_dim, device=device)
-    example_film_output = conv_2d_to_conv_1d_film(example_input, example_conditioning_input)
+    example_conditioning = torch.randn(
+        batch_size, conditioning_dim, device=device
+    )
+    example_film_output = conv_2d_to_conv_1d_film(
+        example_input, example_conditioning
+    )
     print("Conv2DtoConv1D FiLM")
     print("=" * 80)
     print(f"example_input.shape = {example_input.shape}")
-    print(f"example_conditioning_input.shape = {example_conditioning_input.shape}")
+    print(f"example_conditioning.shape = {example_conditioning.shape}")
     print(f"example_film_output.shape = {example_film_output.shape}")
     print()
 
     # Create model 3
-    conditioning_input_dim = 10
+    conditioning_dim = 10
     conv_2d_to_transformer_1d = Conv2DtoTransformer1D(
         input_shape=(n_channels, height, width)
     ).to(device)
@@ -772,14 +754,19 @@ if __name__ == "__main__":
     print()
 
     # Create model 4
-    conditioning_input_dim = 10
+    conditioning_dim = 10
     conv_2d_to_transformer_1d_conditioned = Conv2DtoTransformer1D(
-        input_shape=(n_channels, height, width), conditioning_input_dim=conditioning_input_dim
+        input_shape=(n_channels, height, width),
+        conditioning_dim=conditioning_dim,
     ).to(device)
-    example_transformer_output_conditioned = conv_2d_to_transformer_1d_conditioned(example_input, example_conditioning_input)
+    example_transformer_output_conditioned = conv_2d_to_transformer_1d_conditioned(
+        example_input, example_conditioning
+    )
     print("Conv2DtoTransformer1D Conditioned")
     print("=" * 80)
     print(f"example_input.shape = {example_input.shape}")
-    print(f"example_conditioning_input.shape = {example_conditioning_input.shape}")
-    print(f"example_transformer_output_conditioned.shape = {example_transformer_output_conditioned.shape}")
+    print(f"example_conditioning.shape = {example_conditioning.shape}")
+    print(
+        f"example_transformer_output_conditioned.shape = {example_transformer_output_conditioned.shape}"
+    )
     print()

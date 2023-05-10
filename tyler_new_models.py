@@ -275,7 +275,7 @@ class ConvEncoder2D(nn.Module):
         assert len(x.shape) == 4
         batch_size, _, _, _ = x.shape
 
-        # Ensure valid use of film
+        # Ensure valid use of conditioning
         assert (conditioning is None and self.conditioning_dim is None) or (
             conditioning is not None
             and self.conditioning_dim is not None
@@ -310,7 +310,12 @@ class ConvEncoder2D(nn.Module):
     def output_dim(self) -> int:
         # Compute output shape
         example_input = torch.randn(1, *self.input_shape)
-        example_output = self(example_input)
+        example_conditioning = (
+            torch.randn(1, self.conditioning_dim)
+            if self.conditioning_dim is not None
+            else None
+        )
+        example_output = self(example_input, conditioning=example_conditioning)
         assert len(example_output.shape) == 2
         return example_output.shape[1]
 
@@ -383,7 +388,7 @@ class ConvEncoder1D(nn.Module):
         assert len(x.shape) == 3
         batch_size, _, _ = x.shape
 
-        # Ensure valid use of film
+        # Ensure valid use of conditioning
         assert (conditioning is None and self.conditioning_dim is None) or (
             conditioning is not None
             and self.conditioning_dim is not None
@@ -413,7 +418,12 @@ class ConvEncoder1D(nn.Module):
     def output_dim(self) -> int:
         # Compute output shape
         example_input = torch.randn(1, *self.input_shape)
-        example_output = self(example_input)
+        example_conditioning = (
+            torch.randn(1, self.conditioning_dim)
+            if self.conditioning_dim is not None
+            else None
+        )
+        example_output = self(example_input, conditioning=example_conditioning)
         assert len(example_output.shape) == 2
         return example_output.shape[1]
 
@@ -436,11 +446,11 @@ class Conv2DtoConv1D(nn.Module):
         self.n_channels_for_conv_2d = 1
         self.conv_encoder_2d = ConvEncoder2D(
             input_shape=(self.n_channels_for_conv_2d, height, width),
-            conditioning_dim=self.conditioning_dim,
+            conditioning_dim=conditioning_dim,
         )
         self.conv_encoder_1d = ConvEncoder1D(
             input_shape=(self.conv_encoder_2d.output_dim, seq_len),
-            conditioning_dim=self.conditioning_dim,
+            conditioning_dim=conditioning_dim,
         )
 
     def forward(
@@ -450,7 +460,7 @@ class Conv2DtoConv1D(nn.Module):
         batch_size, n_channels, height, width = x.shape
         seq_len = n_channels
 
-        # Ensure valid use of film
+        # Ensure valid use of conditioning
         assert (self.conditioning_dim is None and conditioning is None) or (
             self.conditioning_dim is not None
             and conditioning is not None
@@ -461,7 +471,11 @@ class Conv2DtoConv1D(nn.Module):
         # Reshape to (batch_size * seq_len, n_channels, height, width)
         # TODO: this can easily OOM, probably find a nice way around this
         x = x.reshape(batch_size * seq_len, self.n_channels_for_conv_2d, height, width)
-        x = self.conv_encoder_2d(x, conditioning)
+        if conditioning is not None:
+            conditioning_repeated = conditioning.repeat(seq_len, 1)
+            x = self.conv_encoder_2d(x, conditioning=conditioning_repeated)
+        else:
+            x = self.conv_encoder_2d(x)
         assert x.shape == (batch_size * seq_len, self.conv_encoder_2d.output_dim)
 
         # Conv 1d
@@ -470,7 +484,7 @@ class Conv2DtoConv1D(nn.Module):
             (0, 2, 1)
         )
         assert x.shape == (batch_size, self.conv_encoder_2d.output_dim, seq_len)
-        x = self.conv_encoder_1d(x, conditioning)
+        x = self.conv_encoder_1d(x, conditioning=conditioning)
         assert len(x.shape) == 2 and x.shape[0] == batch_size
 
         return x
@@ -676,14 +690,18 @@ class Conv2DtoTransformer1D(nn.Module):
             and conditioning.shape == (batch_size, self.conditioning_dim)
         )
 
-        ## Conv 2d
+        # Conv 2d
         # Reshape to (batch_size * seq_len, n_channels, height, width)
         # TODO: this can easily OOM, probably find a nice way around this
         x = x.reshape(batch_size * seq_len, self.n_channels_for_conv_2d, height, width)
-        x = self.conv_encoder_2d(x, conditioning=conditioning)
+        if conditioning is not None:
+            conditioning_repeated = conditioning.repeat(seq_len, 1)
+            x = self.conv_encoder_2d(x, conditioning=conditioning_repeated)
+        else:
+            x = self.conv_encoder_2d(x)
         assert x.shape == (batch_size * seq_len, self.conv_encoder_2d.output_dim)
 
-        ## Transformer 1d
+        # Transformer 1d
         # Reshape to (batch_size, output_dim, seq_len)
         x = x.reshape(batch_size, seq_len, self.conv_encoder_2d.output_dim).permute(
             (0, 2, 1)

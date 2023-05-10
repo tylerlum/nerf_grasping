@@ -70,7 +70,7 @@ from torchinfo import summary
 from torchviz import make_dot
 from wandb.util import generate_id
 from torch.profiler import profile, record_function, ProfilerActivity
-
+from tyler_new_models import PoolType, ConvOutputTo1D, mlp, conv_encoder
 
 import wandb
 
@@ -155,19 +155,6 @@ class TrainingConfig:
     confusion_matrix_freq: int = MISSING
     save_confusion_matrix_on_epoch_0: bool = MISSING
     use_dataloader_subset: bool = MISSING
-
-
-class ConvOutputTo1D(Enum):
-    FLATTEN = auto()  # (N, C, H, W) -> (N, C*H*W)
-    AVG_POOL_SPATIAL = auto()  # (N, C, H, W) -> (N, C, 1, 1) -> (N, C)
-    AVG_POOL_CHANNEL = auto()  # (N, C, H, W) -> (N, 1, H, W) -> (N, H*W)
-    MAX_POOL_SPATIAL = auto()  # (N, C, H, W) -> (N, C, 1, 1) -> (N, C)
-    MAX_POOL_CHANNEL = auto()  # (N, C, H, W) -> (N, 1, H, W) -> (N, H*W)
-
-
-class PoolType(Enum):
-    MAX = auto()
-    AVG = auto()
 
 
 @dataclass
@@ -1597,147 +1584,6 @@ if cfg.visualize_data:
 
 # %% [markdown]
 # # Create Neural Network Model
-
-
-# %%
-@localscope.mfc
-def mlp(
-    num_inputs: int,
-    num_outputs: int,
-    hidden_layers: List[int],
-    activation=nn.ReLU,
-    output_activation=nn.Identity,
-) -> nn.Sequential:
-    layers = []
-    layer_sizes = [num_inputs] + hidden_layers + [num_outputs]
-    for i in range(len(layer_sizes) - 1):
-        act = activation if i < len(layer_sizes) - 2 else output_activation
-        layers += [nn.Linear(layer_sizes[i], layer_sizes[i + 1]), act()]
-    return nn.Sequential(*layers)
-
-
-class Mean(nn.Module):
-    def __init__(self, dim: int) -> None:
-        super().__init__()
-        self.dim = dim
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return torch.mean(x, dim=self.dim)
-
-
-class Max(nn.Module):
-    def __init__(self, dim: int) -> None:
-        super().__init__()
-        self.dim = dim
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return torch.max(x, dim=self.dim)
-
-
-@localscope.mfc
-def conv_encoder(
-    input_shape: Tuple[int, ...],
-    conv_channels: List[int],
-    pool_type: PoolType = PoolType.MAX,
-    dropout_prob: float = 0.0,
-    conv_output_to_1d: ConvOutputTo1D = ConvOutputTo1D.FLATTEN,
-    activation=nn.ReLU,
-) -> nn.Module:
-    # Input: Either (n_channels, n_dims) or (n_channels, height, width) or (n_channels, depth, height, width)
-
-    # Validate input
-    assert 2 <= len(input_shape) <= 4
-    n_input_channels = input_shape[0]
-    n_spatial_dims = len(input_shape[1:])
-
-    # Layers for different input sizes
-    n_spatial_dims_to_conv_layer_map = {1: nn.Conv1d, 2: nn.Conv2d, 3: nn.Conv3d}
-    n_spatial_dims_to_maxpool_layer_map = {
-        1: nn.MaxPool1d,
-        2: nn.MaxPool2d,
-        3: nn.MaxPool3d,
-    }
-    n_spatial_dims_to_avgpool_layer_map = {
-        1: nn.AvgPool1d,
-        2: nn.AvgPool2d,
-        3: nn.AvgPool3d,
-    }
-    n_spatial_dims_to_dropout_layer_map = {
-        # 1: nn.Dropout1d,  # Not in some versions of torch
-        2: nn.Dropout2d,
-        3: nn.Dropout3d,
-    }
-    n_spatial_dims_to_adaptivemaxpool_layer_map = {
-        1: nn.AdaptiveMaxPool1d,
-        2: nn.AdaptiveMaxPool2d,
-        3: nn.AdaptiveMaxPool3d,
-    }
-    n_spatial_dims_to_adaptiveavgpool_layer_map = {
-        1: nn.AdaptiveMaxPool1d,
-        2: nn.AdaptiveMaxPool2d,
-        3: nn.AdaptiveMaxPool3d,
-    }
-
-    # Setup layer types
-    conv_layer = n_spatial_dims_to_conv_layer_map[n_spatial_dims]
-    if pool_type == PoolType.MAX:
-        pool_layer = n_spatial_dims_to_maxpool_layer_map[n_spatial_dims]
-    elif pool_type == PoolType.AVG:
-        pool_layer = n_spatial_dims_to_avgpool_layer_map[n_spatial_dims]
-    else:
-        raise ValueError(f"Invalid pool_type = {pool_type}")
-    dropout_layer = n_spatial_dims_to_dropout_layer_map[n_spatial_dims]
-
-    # Conv layers
-    layers = []
-    n_channels = [n_input_channels] + conv_channels
-    for i in range(len(n_channels) - 1):
-        layers += [
-            conv_layer(
-                in_channels=n_channels[i],
-                out_channels=n_channels[i + 1],
-                kernel_size=3,
-                stride=1,
-                padding="same",
-            ),
-            activation(),
-            pool_layer(kernel_size=2, stride=2),
-        ]
-        if dropout_prob != 0.0:
-            layers += [dropout_layer(p=dropout_prob)]
-
-    # Convert from (n_channels, X) => (Y,)
-    if conv_output_to_1d == ConvOutputTo1D.FLATTEN:
-        layers.append(nn.Flatten(start_dim=1))
-    elif conv_output_to_1d == ConvOutputTo1D.AVG_POOL_SPATIAL:
-        adaptiveavgpool_layer = n_spatial_dims_to_adaptiveavgpool_layer_map[
-            n_spatial_dims
-        ]
-        layers.append(
-            adaptiveavgpool_layer(output_size=tuple([1 for _ in range(n_spatial_dims)]))
-        )
-        layers.append(nn.Flatten(start_dim=1))
-    elif conv_output_to_1d == ConvOutputTo1D.MAX_POOL_SPATIAL:
-        adaptivemaxpool_layer = n_spatial_dims_to_adaptivemaxpool_layer_map[
-            n_spatial_dims
-        ]
-        layers.append(
-            adaptivemaxpool_layer(output_size=tuple([1 for _ in range(n_spatial_dims)]))
-        )
-        layers.append(nn.Flatten(start_dim=1))
-    elif conv_output_to_1d == ConvOutputTo1D.AVG_POOL_CHANNEL:
-        channel_dim = 1
-        layers.append(Mean(dim=channel_dim))
-        layers.append(nn.Flatten(start_dim=1))
-    elif conv_output_to_1d == ConvOutputTo1D.MAX_POOL_CHANNEL:
-        channel_dim = 1
-        layers.append(Max(dim=channel_dim))
-        layers.append(nn.Flatten(start_dim=1))
-    else:
-        raise ValueError(f"Invalid conv_output_to_1d = {conv_output_to_1d}")
-
-    return nn.Sequential(*layers)
-
 
 # %%
 class NeRF_to_Grasp_Success_Model(nn.Module):

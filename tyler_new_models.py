@@ -4,7 +4,7 @@ from typing import List, Tuple
 # from torchvision.models import resnet18, ResNet18_Weights
 from FiLM_resnet import resnet18, ResNet18_Weights
 from FiLM_resnet_1d import ResNet1D
-from torchvision.transforms import Resize, Lambda
+from torchvision.transforms import Resize, Lambda, Compose
 from enum import Enum, auto
 
 
@@ -219,6 +219,8 @@ class ConvEncoder2D(nn.Module):
     """
 
     def __init__(self, input_shape):
+        super().__init__()
+
         # input_shape: (n_channels, height, width)
         self.input_shape = input_shape
 
@@ -232,14 +234,13 @@ class ConvEncoder2D(nn.Module):
         self.USE_PRETRAINED = True
         if self.USE_RESNET:
             weights = ResNet18_Weights.DEFAULT if self.USE_PRETRAINED else None
-            weights_transforms = ResNet18_Weights.transforms() if self.USE_PRETRAINED else []
+            weights_transforms = weights.transforms() if self.USE_PRETRAINED else []
             # TODO: ensure transform is correct
-            self.img_preprocess = nn.Sequential(
-
+            self.img_preprocess = Compose([
                 Resize((height, width)),
-                Lambda(lambda x: x.repeat(3, 1, 1)),
-                *weights_transforms,
-            )
+                Lambda(lambda x: x.repeat(1, 3, 1, 1)),
+                weights_transforms,
+            ])
             self.conv_2d = resnet18(weights=weights)
             self.conv_2d.avgpool = nn.AdaptiveAvgPool2d(output_size=(1, 1))
             self.conv_2d.fc = nn.Identity()
@@ -277,6 +278,8 @@ class ConvEncoder2D(nn.Module):
 
 class ConvEncoder1D(nn.Module):
     def __init__(self, input_shape):
+        super().__init__()
+
         # input_shape: (n_channels, seq_len)
         self.input_shape = input_shape
 
@@ -300,8 +303,8 @@ class ConvEncoder1D(nn.Module):
                                     use_do=False,
                                     verbose=False)
             # Set equivalent pooling setting
-            # self.conv_2d.avgpool = nn.AdaptiveAvgPool2d(output_size=(1, 1))
-            # self.conv_2d.fc = nn.Identity()
+            self.conv_1d.avgpool = nn.AdaptiveAvgPool1d(output_size=1)
+            self.conv_1d.fc = nn.Identity()
         else:
             self.conv_1d = conv_encoder(
                 input_shape=input_shape,
@@ -332,85 +335,53 @@ class ConvEncoder1D(nn.Module):
         return x
 
 
-
-class CNN_2D_to_1D(nn.Module):
+class Conv2Dto1D(nn.Module):
     def __init__(self, input_shape):
         super().__init__()
         self.input_shape = input_shape
-        assert len(input_shape) == 3
-        n_channels, height, width = input_shape
+        assert len(input_shape) == 4
+        n_channels, depth, height, width = input_shape
+        assert n_channels == 1
 
-        USE_RESNET = True
-        USE_PRETRAINED = True
-        if USE_RESNET:
-            weights = ResNet18_Weights.DEFAULT if USE_PRETRAINED else None
-            weights_transforms = ResNet18_Weights.transforms() if USE_PRETRAINED else []
-            self.img_preprocess = nn.Sequential(
-                Resize((height, width)),
-                Lambda(lambda x: x.repeat(3, 1, 1)),
-                *weights_transforms,
-            )
-            self.cnn_2d = resnet18(weights=weights)
-            self.cnn_2d.fc = nn.Identity()
-        else:
-            self.img_preprocess = nn.Identity()
-            self.cnn_2d = conv_encoder(
-                input_shape=input_shape,
-                conv_channels=[32, 64, 128, 256],
-                pool_type=PoolType.MAX,
-                dropout_prob=0.0,
-                conv_output_to_1d=ConvOutputTo1D.FLATTEN,
-                activation=nn.ReLU,
-            )
+        seq_len = n_channels * depth
 
-        example_input = torch.randn(1, *input_shape)
-        example_output = self.cnn_2d(self.img_preprocess(example_input))
-        assert len(example_output.shape) == 2
-        output_dim = example_output.shape[1]
-
-        self.cnn_1d = conv_encoder(
-            input_shape=(output_dim, n_channels),
-            conv_channels=[32, 64, 128, 256],
-            pool_type=PoolType.MAX,
-            dropout_prob=0.0,
-            conv_output_to_1d=ConvOutputTo1D.FLATTEN,
-            activation=nn.ReLU,
-        )
-
-        example_input_2 = torch.randn(1, output_dim, n_channels)
-        example_output_2 = self.cnn_1d(example_input_2)
-        output_dim_2 = example_output_2.shape[1]
-
-        NUM_OUTPUTS = 128
-        self.fc = mlp(
-            num_inputs=output_dim_2, num_outputs=NUM_OUTPUTS, hidden_layers=[256, 256]
-        )
+        self.n_channels_for_conv_2d = 1
+        self.conv_encoder_2d = ConvEncoder2D(input_shape=(self.n_channels_for_conv_2d, height, width))
+        self.conv_encoder_1d = ConvEncoder1D(input_shape=(self.conv_encoder_2d.output_dim, seq_len))
+        self.output_dim = self.conv_encoder_1d.output_dim
 
     def forward(self, x):
         assert len(x.shape) == 5
         batch_size, n_channels, depth, height, width = x.shape
+        assert n_channels == 1
 
-        x = x.reshape(batch_size * n_channels, depth, height, width)
-        x = self.img_preprocess(x)
-        x = self.cnn_2d(x)
-        x = x.permute(1, 0, 2).contiguous()
-        x = self.cnn_1d(x)
+        seq_len = n_channels * depth
+
+        # Conv 2d
+        x = x.reshape(batch_size * seq_len, self.n_channels_for_conv_2d, height, width)
+        x = self.conv_encoder_2d(x)
+        assert x.shape == (batch_size * seq_len, self.conv_encoder_2d.output_dim)
+
+        # Reshape to (batch_size, seq_len, output_dim)
+        x = x.reshape(batch_size, seq_len, self.conv_encoder_2d.output_dim).permute((0, 2, 1))
+        assert x.shape == (batch_size, self.conv_encoder_2d.output_dim, seq_len)
+
+        # Conv 1d
+        x = self.conv_encoder_1d(x)
+        assert x.shape == (batch_size, self.output_dim)
+
         return x
 
 
-class Merger(nn.Module):
-    def __init__(self):
-        super().__init__()
+if __name__ == "__main__":
+    from torchinfo import summary
 
-    def forward(self, x):
-        return x
+    # Create model
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    batch_size, n_channels, depth, height, width = 5, 1, 81, 30, 40
+    conv_2d_to_1d = Conv2Dto1D(input_shape=(n_channels, depth, height, width)).to(device)
 
-
-class CNN_3D(nn.Module):
-    def __init__(self, input_shape):
-        super().__init__()
-        self.input_shape = input_shape
-        assert len(input_shape) == 3
-
-    def forward(self, x):
-        return x
+    example_input = torch.randn(batch_size, n_channels, depth, height, width).to(device)
+    example_output = conv_2d_to_1d(example_input)
+    print(f"example_input.shape = {example_input.shape}")
+    print(f"example_output.shape = {example_output.shape}")

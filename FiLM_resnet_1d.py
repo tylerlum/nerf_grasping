@@ -309,7 +309,7 @@ class ResNet1D(nn.Module):
         self.final_bn = nn.BatchNorm1d(out_channels)
         self.final_relu = nn.ReLU(inplace=True)
         # self.do = nn.Dropout(p=0.5)
-        self.dense = nn.Linear(out_channels, n_classes)
+        self.fc = nn.Linear(out_channels, n_classes)
         # self.softmax = nn.Softmax(dim=1)
 
         # COMPUTE OUTPUT SIZES FILM START
@@ -339,7 +339,7 @@ class ResNet1D(nn.Module):
         )
         # COMPUTE OUTPUT SIZES FILM END
 
-        self.pool = nn.AdaptiveAvgPool1d(
+        self.avgpool = nn.AdaptiveAvgPool1d(
             output_size=1
         )
 
@@ -399,13 +399,13 @@ class ResNet1D(nn.Module):
         out = self.final_relu(out)
 
         # Custom pooling
-        out = self.pool(out)
+        out = self.avgpool(out)
         out = torch.flatten(out, 1)
 
         if self.verbose:
             print("final pooling", out.shape)
         # out = self.do(out)
-        out = self.dense(out)
+        out = self.fc(out)
         if self.verbose:
             print("dense", out.shape)
         # out = self.softmax(out)

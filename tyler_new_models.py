@@ -1,10 +1,11 @@
 import torch
 import torch.nn as nn
-from typing import List, Tuple
+from typing import List, Tuple, Optional
+
 # from torchvision.models import resnet18, ResNet18_Weights
 from FiLM_resnet import resnet18, ResNet18_Weights
 from FiLM_resnet_1d import ResNet1D
-from torchvision.transforms import Resize, Lambda, Compose
+from torchvision.transforms import Lambda, Compose
 from enum import Enum, auto
 
 
@@ -161,7 +162,9 @@ def conv_encoder(
 class FiLMGenerator(nn.Module):
     num_beta_gamma = 2  # one scale and one bias
 
-    def __init__(self, film_input_dim, num_params_to_film, hidden_layers):
+    def __init__(
+        self, film_input_dim: int, num_params_to_film: int, hidden_layers: List[int]
+    ) -> None:
         super().__init__()
         self.film_input_dim = film_input_dim
         self.num_params_to_film = num_params_to_film
@@ -173,7 +176,7 @@ class FiLMGenerator(nn.Module):
             hidden_layers=hidden_layers,
         )
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         assert len(x.shape) == 2
         assert x.shape[1] == self.film_input_dim
         batch_size = x.shape[0]
@@ -218,7 +221,7 @@ class ConvEncoder2D(nn.Module):
         torch.Size([32, 512])
     """
 
-    def __init__(self, input_shape):
+    def __init__(self, input_shape: Tuple[int, int, int]) -> None:
         super().__init__()
 
         # input_shape: (n_channels, height, width)
@@ -236,11 +239,12 @@ class ConvEncoder2D(nn.Module):
             weights = ResNet18_Weights.DEFAULT if self.USE_PRETRAINED else None
             weights_transforms = weights.transforms() if self.USE_PRETRAINED else []
             # TODO: ensure transform is correct
-            self.img_preprocess = Compose([
-                Resize((height, width)),
-                Lambda(lambda x: x.repeat(1, 3, 1, 1)),
-                weights_transforms,
-            ])
+            self.img_preprocess = Compose(
+                [
+                    Lambda(lambda x: x.repeat(1, 3, 1, 1)),
+                    weights_transforms,
+                ]
+            )
             self.conv_2d = resnet18(weights=weights)
             self.conv_2d.avgpool = nn.AdaptiveAvgPool2d(output_size=(1, 1))
             self.conv_2d.fc = nn.Identity()
@@ -260,24 +264,34 @@ class ConvEncoder2D(nn.Module):
         example_output = self.conv_2d(self.img_preprocess(example_input))
         assert len(example_output.shape) == 2
         self.output_dim = example_output.shape[1]
+        self.num_film_params = self.conv_2d.num_film_params if self.USE_RESNET else None
 
-    def forward(self, x, beta=None, gamma=None):
+    def forward(
+        self,
+        x: torch.Tensor,
+        beta: Optional[torch.Tensor] = None,
+        gamma: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
         # x: (batch_size, n_channels, height, width)
         assert len(x.shape) == 4
         batch_size, _, _, _ = x.shape
 
         x = self.img_preprocess(x)
-        
-        if not self.USE_RESNET and (beta is not None or gamma is not None):
-            raise ValueError("FiLM not supported for non-ResNet architecture")
+
+        if beta is not None or gamma is not None:
+            if self.num_film_params is None:
+                raise ValueError("FiLM not supported for non-ResNet architecture")
+            assert beta is None or beta.shape == (batch_size, self.num_film_params)
+            assert gamma is None or gamma.shape == (batch_size, self.num_film_params)
 
         x = self.conv_2d(x, beta=beta, gamma=gamma)
         assert x.shape == (batch_size, self.output_dim)
 
         return x
 
+
 class ConvEncoder1D(nn.Module):
-    def __init__(self, input_shape):
+    def __init__(self, input_shape: Tuple[int, int]) -> None:
         super().__init__()
 
         # input_shape: (n_channels, seq_len)
@@ -290,18 +304,20 @@ class ConvEncoder1D(nn.Module):
         # TODO: Customize final pooling method (avg pool, channel/spatial pool, spatial softmax, etc.)
         self.USE_RESNET = True
         if self.USE_RESNET:
-            self.conv_1d = ResNet1D(in_channels=n_channels,
-                                    seq_len=seq_len,
-                                    base_filters=64,
-                                    kernel_size=3,
-                                    stride=1,
-                                    groups=1,
-                                    n_block=4,
-                                    n_classes=1,
-                                    downsample_gap=2,
-                                    increasefilter_gap=2,
-                                    use_do=False,
-                                    verbose=False)
+            self.conv_1d = ResNet1D(
+                in_channels=n_channels,
+                seq_len=seq_len,
+                base_filters=64,
+                kernel_size=3,
+                stride=1,
+                groups=1,
+                n_block=4,
+                n_classes=1,
+                downsample_gap=2,
+                increasefilter_gap=2,
+                use_do=False,
+                verbose=False,
+            )
             # Set equivalent pooling setting
             self.conv_1d.avgpool = nn.AdaptiveAvgPool1d(output_size=1)
             self.conv_1d.fc = nn.Identity()
@@ -320,14 +336,23 @@ class ConvEncoder1D(nn.Module):
         example_output = self.conv_1d(example_input)
         assert len(example_output.shape) == 2
         self.output_dim = example_output.shape[1]
+        self.num_film_params = self.conv_1d.num_film_params if self.USE_RESNET else None
 
-    def forward(self, x, beta=None, gamma=None):
+    def forward(
+        self,
+        x: torch.Tensor,
+        beta: Optional[torch.Tensor] = None,
+        gamma: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
         # x: (batch_size, n_channels, seq_len)
         assert len(x.shape) == 3
         batch_size, _, _ = x.shape
 
-        if not self.USE_RESNET and (beta is not None or gamma is not None):
-            raise ValueError("FiLM not supported for non-ResNet architecture")
+        if beta is not None or gamma is not None:
+            if self.num_film_params is None:
+                raise ValueError("FiLM not supported for non-ResNet architecture")
+            assert beta is None or beta.shape == (batch_size, self.num_film_params)
+            assert gamma is None or gamma.shape == (batch_size, self.num_film_params)
 
         x = self.conv_1d(x, beta=beta, gamma=gamma)
         assert x.shape == (batch_size, self.output_dim)
@@ -336,7 +361,7 @@ class ConvEncoder1D(nn.Module):
 
 
 class Conv2Dto1D(nn.Module):
-    def __init__(self, input_shape):
+    def __init__(self, input_shape: Tuple[int, int, int, int]) -> None:
         super().__init__()
         self.input_shape = input_shape
         assert len(input_shape) == 4
@@ -346,11 +371,15 @@ class Conv2Dto1D(nn.Module):
         seq_len = n_channels * depth
 
         self.n_channels_for_conv_2d = 1
-        self.conv_encoder_2d = ConvEncoder2D(input_shape=(self.n_channels_for_conv_2d, height, width))
-        self.conv_encoder_1d = ConvEncoder1D(input_shape=(self.conv_encoder_2d.output_dim, seq_len))
+        self.conv_encoder_2d = ConvEncoder2D(
+            input_shape=(self.n_channels_for_conv_2d, height, width)
+        )
+        self.conv_encoder_1d = ConvEncoder1D(
+            input_shape=(self.conv_encoder_2d.output_dim, seq_len)
+        )
         self.output_dim = self.conv_encoder_1d.output_dim
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         assert len(x.shape) == 5
         batch_size, n_channels, depth, height, width = x.shape
         assert n_channels == 1
@@ -363,11 +392,96 @@ class Conv2Dto1D(nn.Module):
         assert x.shape == (batch_size * seq_len, self.conv_encoder_2d.output_dim)
 
         # Reshape to (batch_size, seq_len, output_dim)
-        x = x.reshape(batch_size, seq_len, self.conv_encoder_2d.output_dim).permute((0, 2, 1))
+        x = x.reshape(batch_size, seq_len, self.conv_encoder_2d.output_dim).permute(
+            (0, 2, 1)
+        )
         assert x.shape == (batch_size, self.conv_encoder_2d.output_dim, seq_len)
 
         # Conv 1d
         x = self.conv_encoder_1d(x)
+        assert x.shape == (batch_size, self.output_dim)
+
+        return x
+
+
+class Conv2Dto1DFiLM(nn.Module):
+    def __init__(
+        self, input_shape: Tuple[int, int, int, int], film_input_dim: int
+    ) -> None:
+        super().__init__()
+        self.input_shape = input_shape
+        self.film_input_dim = film_input_dim
+        assert len(input_shape) == 4
+        n_channels, depth, height, width = input_shape
+        assert n_channels == 1
+
+        seq_len = n_channels * depth
+
+        self.n_channels_for_conv_2d = 1
+        self.conv_encoder_2d = ConvEncoder2D(
+            input_shape=(self.n_channels_for_conv_2d, height, width)
+        )
+        self.conv_encoder_1d = ConvEncoder1D(
+            input_shape=(self.conv_encoder_2d.output_dim, seq_len)
+        )
+        self.output_dim = self.conv_encoder_1d.output_dim
+
+        self.film_generator_2d = FiLMGenerator(
+            film_input_dim=film_input_dim,
+            num_params_to_film=self.conv_encoder_2d.num_film_params,
+            hidden_layers=[64, 64],
+        )
+        self.film_generator_1d = FiLMGenerator(
+            film_input_dim=film_input_dim,
+            num_params_to_film=self.conv_encoder_1d.num_film_params,
+            hidden_layers=[64, 64],
+        )
+
+    def forward(self, x: torch.Tensor, film_input: torch.Tensor) -> torch.Tensor:
+        assert len(x.shape) == 5
+        batch_size, n_channels, depth, height, width = x.shape
+        assert n_channels == 1
+
+        assert film_input.shape == (batch_size, self.film_generator_2d.film_input_dim)
+
+        # Conv 2d
+        beta_2d, gamma_2d = self.film_generator_2d(film_input)
+        assert (
+            beta_2d.shape
+            == gamma_2d.shape
+            == (batch_size, self.conv_encoder_2d.num_film_params)
+        )
+
+        seq_len = n_channels * depth
+        x = x.reshape(batch_size * seq_len, self.n_channels_for_conv_2d, height, width)
+        beta_2d = (
+            beta_2d.reshape(batch_size, 1, self.conv_encoder_2d.num_film_params)
+            .repeat(1, seq_len, 1)
+            .reshape(batch_size * seq_len, self.conv_encoder_2d.num_film_params)
+        )
+        gamma_2d = (
+            gamma_2d.reshape(batch_size, 1, self.conv_encoder_2d.num_film_params)
+            .repeat(1, seq_len, 1)
+            .reshape(batch_size * seq_len, self.conv_encoder_2d.num_film_params)
+        )
+
+        x = self.conv_encoder_2d(x, beta=beta_2d, gamma=gamma_2d)
+        assert x.shape == (batch_size * seq_len, self.conv_encoder_2d.output_dim)
+
+        # Reshape to (batch_size, seq_len, output_dim)
+        x = x.reshape(batch_size, seq_len, self.conv_encoder_2d.output_dim).permute(
+            (0, 2, 1)
+        )
+        assert x.shape == (batch_size, self.conv_encoder_2d.output_dim, seq_len)
+
+        # Conv 1d
+        beta_1d, gamma_1d = self.film_generator_1d(film_input)
+        assert (
+            beta_1d.shape
+            == gamma_1d.shape
+            == (batch_size, self.conv_encoder_1d.num_film_params)
+        )
+        x = self.conv_encoder_1d(x, beta=beta_1d, gamma=gamma_1d)
         assert x.shape == (batch_size, self.output_dim)
 
         return x
@@ -378,10 +492,32 @@ if __name__ == "__main__":
 
     # Create model
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    batch_size, n_channels, depth, height, width = 5, 1, 81, 30, 40
-    conv_2d_to_1d = Conv2Dto1D(input_shape=(n_channels, depth, height, width)).to(device)
+    # batch_size, n_channels, depth, height, width = 5, 1, 81, 30, 40
+    batch_size, n_channels, depth, height, width = 5, 1, 10, 30, 40
+    conv_2d_to_1d = Conv2Dto1D(input_shape=(n_channels, depth, height, width)).to(
+        device
+    )
 
-    example_input = torch.randn(batch_size, n_channels, depth, height, width).to(device)
+    example_input = torch.randn(
+        batch_size, n_channels, depth, height, width, device=device
+    )
     example_output = conv_2d_to_1d(example_input)
+    print("Conv2Dto1D")
+    print("=" * 80)
     print(f"example_input.shape = {example_input.shape}")
     print(f"example_output.shape = {example_output.shape}")
+    print()
+
+    # Create model 2
+    film_input_dim = 10
+    conv_2d_to_1d_film = Conv2Dto1DFiLM(
+        input_shape=(n_channels, depth, height, width), film_input_dim=film_input_dim
+    ).to(device)
+    example_film_input = torch.randn(batch_size, film_input_dim, device=device)
+    example_film_output = conv_2d_to_1d_film(example_input, example_film_input)
+    print("Conv2Dto1DFiLM")
+    print("=" * 80)
+    print(f"example_input.shape = {example_input.shape}")
+    print(f"example_film_input.shape = {example_film_input.shape}")
+    print(f"example_film_output.shape = {example_film_output.shape}")
+    print()

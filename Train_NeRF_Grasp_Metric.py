@@ -1788,7 +1788,6 @@ class NeRF_to_Grasp_Success_Model(nn.Module):
     def get_success_probability(self, x: torch.Tensor) -> torch.Tensor:
         return nn.functional.softmax(self.get_success_logits(x), dim=-1)
 
-
 # %%
 device = "cuda" if torch.cuda.is_available() else "cpu"
 

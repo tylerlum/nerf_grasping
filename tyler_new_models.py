@@ -3,13 +3,12 @@ import torch.nn as nn
 from typing import List, Tuple, Optional
 from dataclasses import dataclass
 from omegaconf import MISSING
-
-# from torchvision.models import resnet18, ResNet18_Weights
 from FiLM_resnet import resnet18, ResNet18_Weights
 from FiLM_resnet_1d import ResNet1D
 from torchvision.transforms import Lambda, Compose
 from enum import Enum, auto
-from functools import partial
+from functools import partial, cached_property
+from positional_encodings.torch_encodings import PositionalEncoding1D, Summer
 
 
 class ConvOutputTo1D(Enum):
@@ -256,13 +255,6 @@ class ConvEncoder2D(nn.Module):
                 activation=nn.ReLU,
             )
 
-        # Compute output shape
-        example_input = torch.randn(1, *input_shape)
-        example_output = self.conv_2d(self.img_preprocess(example_input))
-        assert len(example_output.shape) == 2
-        self.output_dim = example_output.shape[1]
-        self.num_film_params = self.conv_2d.num_film_params if self.use_resnet else None
-
     def forward(
         self,
         x: torch.Tensor,
@@ -282,9 +274,21 @@ class ConvEncoder2D(nn.Module):
             assert gamma is None or gamma.shape == (batch_size, self.num_film_params)
 
         x = self.conv_2d(x, beta=beta, gamma=gamma)
-        assert x.shape == (batch_size, self.output_dim)
+        assert len(x.shape) == 2 and x.shape[0] == batch_size
 
         return x
+
+    @property
+    def num_film_params(self) -> Optional[int]:
+        return self.conv_2d.num_film_params if self.use_resnet else None
+
+    @cached_property
+    def output_dim(self) -> int:
+        # Compute output shape
+        example_input = torch.randn(1, *self.input_shape)
+        example_output = self(example_input)
+        assert len(example_output.shape) == 2
+        return example_output.shape[1]
 
 
 class ConvEncoder1D(nn.Module):
@@ -335,13 +339,6 @@ class ConvEncoder1D(nn.Module):
                 activation=nn.ReLU,
             )
 
-        # Compute output shape
-        example_input = torch.randn(1, *input_shape)
-        example_output = self.conv_1d(example_input)
-        assert len(example_output.shape) == 2
-        self.output_dim = example_output.shape[1]
-        self.num_film_params = self.conv_1d.num_film_params if self.use_resnet else None
-
     def forward(
         self,
         x: torch.Tensor,
@@ -359,9 +356,21 @@ class ConvEncoder1D(nn.Module):
             assert gamma is None or gamma.shape == (batch_size, self.num_film_params)
 
         x = self.conv_1d(x, beta=beta, gamma=gamma)
-        assert x.shape == (batch_size, self.output_dim)
+        assert len(x.shape) == 2 and x.shape[0] == batch_size
 
         return x
+
+    @property
+    def num_film_params(self) -> Optional[int]:
+        return self.conv_1d.num_film_params if self.use_resnet else None
+
+    @cached_property
+    def output_dim(self) -> int:
+        # Compute output shape
+        example_input = torch.randn(1, *self.input_shape)
+        example_output = self(example_input)
+        assert len(example_output.shape) == 2
+        return example_output.shape[1]
 
 
 class Conv2Dto1D(nn.Module):
@@ -386,7 +395,6 @@ class Conv2Dto1D(nn.Module):
         self.conv_encoder_1d = ConvEncoder1D(
             input_shape=(self.conv_encoder_2d.output_dim, seq_len)
         )
-        self.output_dim = self.conv_encoder_1d.output_dim
 
         # Create film generators
         if self.film_input_dim is not None:
@@ -421,7 +429,7 @@ class Conv2Dto1D(nn.Module):
 
         ## Conv 2d
         # Reshape to (batch_size * seq_len, n_channels, height, width)
-        # TODO: this can easily overflow, probably find a nice way around this
+        # TODO: this can easily OOM, probably find a nice way around this
         x = x.reshape(batch_size * seq_len, self.n_channels_for_conv_2d, height, width)
         if film_input is not None:
             beta_2d, gamma_2d = self.film_generator_2d(film_input)
@@ -462,9 +470,206 @@ class Conv2Dto1D(nn.Module):
             x = self.conv_encoder_1d(x, beta=beta_1d, gamma=gamma_1d)
         else:
             x = self.conv_encoder_1d(x)
-        assert x.shape == (batch_size, self.output_dim)
+        assert len(x.shape) == 2 and x.shape[0] == batch_size
 
         return x
+
+    @property
+    def output_dim(self) -> int:
+        return self.conv_encoder_1d.output_dim
+
+
+class TransformerEncoder1D(nn.Module):
+    def __init__(
+        self,
+        input_shape: Tuple[int, int],
+        pooling_method: ConvOutputTo1D = ConvOutputTo1D.FLATTEN,
+        n_emb: int = 128,
+        p_drop_emb: float = 0.1,
+        p_drop_attn: float = 0.1,
+    ) -> None:
+        super().__init__()
+
+        # input_shape: (n_channels, seq_len)
+        self.input_shape = input_shape
+        self.pooling_method = pooling_method
+        self.n_emb = n_emb
+
+        n_channels, seq_len = input_shape
+
+        # Encoder
+        self.input_emb = nn.Linear(n_channels, n_emb)
+        self.pos_emb = Summer(PositionalEncoding1D(channels=n_emb))
+        self.drop_emb = nn.Dropout(p=p_drop_emb)
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=n_emb,
+            nhead=4,
+            dim_feedforward=4 * n_emb,
+            dropout=p_drop_attn,
+            activation="gelu",
+            batch_first=True,
+            norm_first=True,
+        )
+        self.transformer_encoder = nn.TransformerEncoder(
+            encoder_layer=encoder_layer, num_layers=4
+        )
+        self.ln_f = nn.LayerNorm(n_emb)
+        self.pool = CONV_1D_OUTPUT_TO_1D_MAP[self.pooling_method]()
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        expected_n_channels, expected_seq_len = self.input_shape
+        batch_size, n_channels, seq_len = x.shape
+        assert n_channels == expected_n_channels and seq_len == expected_seq_len
+
+        # Need to permute to (batch_size, seq_len, n_channels) for transformer
+        x = x.permute(0, 2, 1)
+        x = self.input_emb(x)  # (batch_size, seq_len, n_emb)
+        assert x.shape == (batch_size, seq_len, self.n_emb)
+        x = self.pos_emb(x)  # (batch_size, seq_len, n_emb)
+        assert x.shape == (batch_size, seq_len, self.n_emb)
+        x = self.drop_emb(x)
+        assert x.shape == (batch_size, seq_len, self.n_emb)
+        x = self.transformer_encoder(x)
+        assert x.shape == (batch_size, seq_len, self.n_emb)
+        x = self.ln_f(x)
+        assert x.shape == (batch_size, seq_len, self.n_emb)
+
+        # Need to permute to (batch_size, n_channels, seq_len) for pooling
+        x = x.permute(0, 2, 1)
+        x = self.pool(x)
+        assert len(x.shape) == 2 and x.shape[0] == batch_size
+
+        return x
+
+    @cached_property
+    def output_dim(self) -> int:
+        # Compute output shape
+        example_input = torch.randn(1, *self.input_shape)
+        example_output = self(example_input)
+        assert len(example_output.shape) == 2
+        return example_output.shape[1]
+
+
+class TransformerEncoderDecoder1D(nn.Module):
+    def __init__(
+        self,
+        input_shape: Tuple[int, int],
+        condition_input_dim: int,
+        pooling_method: ConvOutputTo1D = ConvOutputTo1D.FLATTEN,
+        n_emb: int = 128,
+        p_drop_emb: float = 0.1,
+        p_drop_attn: float = 0.1,
+    ) -> None:
+        super().__init__()
+
+        # input_shape: (n_channels, seq_len)
+        self.input_shape = input_shape
+        self.condition_input_dim = condition_input_dim
+        self.pooling_method = pooling_method
+        self.n_emb = n_emb
+
+        n_channels, seq_len = input_shape
+
+        # Condition encoder
+        self.condition_input_emb = nn.Linear(condition_input_dim, n_emb)
+        self.condition_pos_emb = Summer(PositionalEncoding1D(channels=n_emb))
+        self.condition_drop_emb = nn.Dropout(p=p_drop_emb)
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=n_emb,
+            nhead=4,
+            dim_feedforward=4 * n_emb,
+            dropout=p_drop_attn,
+            activation="gelu",
+            batch_first=True,
+            norm_first=True,
+        )
+        self.transformer_encoder = nn.TransformerEncoder(
+            encoder_layer=encoder_layer, num_layers=4
+        )
+
+        # Decoder
+        self.input_emb = nn.Linear(n_channels, n_emb)
+        self.pos_emb = Summer(PositionalEncoding1D(channels=n_emb))
+        self.drop_emb = nn.Dropout(p=p_drop_emb)
+        decoder_layer = nn.TransformerDecoderLayer(
+            d_model=n_emb,
+            nhead=4,
+            dim_feedforward=4 * n_emb,
+            dropout=p_drop_attn,
+            activation="gelu",
+            batch_first=True,
+            norm_first=True,
+        )
+        self.transformer_decoder = nn.TransformerDecoder(
+            decoder_layer=decoder_layer, num_layers=4
+        )
+
+        self.ln_f = nn.LayerNorm(n_emb)
+        self.pool = CONV_1D_OUTPUT_TO_1D_MAP[self.pooling_method]()
+
+    def forward(self, x: torch.Tensor, conditioning: torch.Tensor) -> torch.Tensor:
+        batch_size = x.shape[0]
+        n_channels, seq_len = self.input_shape
+        assert x.shape == (batch_size, n_channels, seq_len)
+        assert conditioning.shape == (batch_size, self.condition_input_dim)
+
+        ## Condition encoder
+        # Need to repeat conditioning to match seq_len
+        conditioning = conditioning.reshape(
+            batch_size, self.condition_input_dim, 1
+        ).repeat(1, 1, seq_len)
+        assert conditioning.shape == (batch_size, self.condition_input_dim, seq_len)
+        conditioning = self._encoder(conditioning)
+        assert conditioning.shape == (batch_size, seq_len, self.n_emb)
+
+        ## Decoder
+        x = self._decoder(x, conditioning)
+        assert x.shape == (batch_size, seq_len, self.n_emb)
+
+        x = self.ln_f(x)
+        assert x.shape == (batch_size, seq_len, self.n_emb)
+
+        # Need to permute to (batch_size, n_channels, seq_len) for pooling
+        x = x.permute(0, 2, 1)
+        x = self.pool(x)
+        assert len(x.shape) == 2 and x.shape[0] == batch_size
+
+        return x
+
+    def _encoder(self, x: torch.Tensor) -> torch.Tensor:
+        batch_size = x.shape[0]
+        n_channels, seq_len = self.input_shape
+        assert x.shape == (batch_size, n_channels, seq_len)
+
+        # Need to permute to (batch_size, seq_len, n_channels) for transformer
+        x = x.permute(0, 2, 1)
+        x = self.input_emb(x)
+        x = self.pos_emb(x)
+        x = self.drop_emb(x)
+        x = self.transformer_encoder(x)
+
+        return x
+
+    def _decoder(self, x: torch.Tensor, conditioning: torch.Tensor) -> torch.Tensor:
+        batch_size = x.shape[0]
+        n_channels, seq_len = self.input_shape
+        assert x.shape == conditioning.shape == (batch_size, n_channels, seq_len)
+
+        # Need to permute to (batch_size, seq_len, n_channels) for transformer
+        x = x.permute(0, 2, 1)
+        x = self.condition_input_emb(x)
+        x = self.condition_pos_emb(x)
+        x = self.condition_drop_emb(x)
+        x = self.transformer_decoder(tgt=x, memory=conditioning)
+        return x
+
+    @cached_property
+    def output_dim(self) -> int:
+        # Compute output shape
+        example_input = torch.randn(1, *self.input_shape)
+        example_output = self(example_input)
+        assert len(example_output.shape) == 2
+        return example_output.shape[1]
 
 
 if __name__ == "__main__":
@@ -478,13 +683,9 @@ if __name__ == "__main__":
         30,
         40,
     )  # WARNING: Easy to OOM
-    conv_2d_to_1d = Conv2Dto1D(input_shape=(n_channels, height, width)).to(
-        device
-    )
+    conv_2d_to_1d = Conv2Dto1D(input_shape=(n_channels, height, width)).to(device)
 
-    example_input = torch.randn(
-        batch_size, n_channels, height, width, device=device
-    )
+    example_input = torch.randn(batch_size, n_channels, height, width, device=device)
     example_output = conv_2d_to_1d(example_input)
     print("Conv2Dto1D")
     print("=" * 80)
@@ -496,6 +697,19 @@ if __name__ == "__main__":
     film_input_dim = 10
     conv_2d_to_1d_film = Conv2Dto1D(
         input_shape=(n_channels, height, width), film_input_dim=film_input_dim
+    ).to(device)
+    example_film_input = torch.randn(batch_size, film_input_dim, device=device)
+    example_film_output = conv_2d_to_1d_film(example_input, example_film_input)
+    print("Conv2Dto1DFiLM")
+    print("=" * 80)
+    print(f"example_input.shape = {example_input.shape}")
+    print(f"example_film_input.shape = {example_film_input.shape}")
+    print(f"example_film_output.shape = {example_film_output.shape}")
+    print()
+
+    # Create model 3
+    conv_2d_to_1d_film = TransformerEncoder1D(
+        input_shape=(n_channels, height, width)
     ).to(device)
     example_film_input = torch.randn(batch_size, film_input_dim, device=device)
     example_film_output = conv_2d_to_1d_film(example_input, example_film_input)

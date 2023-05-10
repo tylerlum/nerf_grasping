@@ -483,77 +483,6 @@ class TransformerEncoder1D(nn.Module):
     def __init__(
         self,
         input_shape: Tuple[int, int],
-        pooling_method: ConvOutputTo1D = ConvOutputTo1D.FLATTEN,
-        n_emb: int = 128,
-        p_drop_emb: float = 0.1,
-        p_drop_attn: float = 0.1,
-    ) -> None:
-        super().__init__()
-
-        # input_shape: (n_channels, seq_len)
-        self.input_shape = input_shape
-        self.pooling_method = pooling_method
-        self.n_emb = n_emb
-
-        n_channels, seq_len = input_shape
-
-        # Encoder
-        self.input_emb = nn.Linear(n_channels, n_emb)
-        self.pos_emb = Summer(PositionalEncoding1D(channels=n_emb))
-        self.drop_emb = nn.Dropout(p=p_drop_emb)
-        encoder_layer = nn.TransformerEncoderLayer(
-            d_model=n_emb,
-            nhead=4,
-            dim_feedforward=4 * n_emb,
-            dropout=p_drop_attn,
-            activation="gelu",
-            batch_first=True,
-            norm_first=True,
-        )
-        self.transformer_encoder = nn.TransformerEncoder(
-            encoder_layer=encoder_layer, num_layers=4
-        )
-        self.ln_f = nn.LayerNorm(n_emb)
-        self.pool = CONV_1D_OUTPUT_TO_1D_MAP[self.pooling_method]()
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        expected_n_channels, expected_seq_len = self.input_shape
-        batch_size, n_channels, seq_len = x.shape
-        assert n_channels == expected_n_channels and seq_len == expected_seq_len
-
-        # Need to permute to (batch_size, seq_len, n_channels) for transformer
-        x = x.permute(0, 2, 1)
-        x = self.input_emb(x)  # (batch_size, seq_len, n_emb)
-        assert x.shape == (batch_size, seq_len, self.n_emb)
-        x = self.pos_emb(x)  # (batch_size, seq_len, n_emb)
-        assert x.shape == (batch_size, seq_len, self.n_emb)
-        x = self.drop_emb(x)
-        assert x.shape == (batch_size, seq_len, self.n_emb)
-        x = self.transformer_encoder(x)
-        assert x.shape == (batch_size, seq_len, self.n_emb)
-        x = self.ln_f(x)
-        assert x.shape == (batch_size, seq_len, self.n_emb)
-
-        # Need to permute to (batch_size, n_channels, seq_len) for pooling
-        x = x.permute(0, 2, 1)
-        x = self.pool(x)
-        assert len(x.shape) == 2 and x.shape[0] == batch_size
-
-        return x
-
-    @cached_property
-    def output_dim(self) -> int:
-        # Compute output shape
-        example_input = torch.randn(1, *self.input_shape)
-        example_output = self(example_input)
-        assert len(example_output.shape) == 2
-        return example_output.shape[1]
-
-
-class TransformerEncoderDecoder1D(nn.Module):
-    def __init__(
-        self,
-        input_shape: Tuple[int, int],
         condition_input_dim: Optional[int] = None,
         pooling_method: ConvOutputTo1D = ConvOutputTo1D.FLATTEN,
         n_emb: int = 128,
@@ -608,28 +537,39 @@ class TransformerEncoderDecoder1D(nn.Module):
         self.ln_f = nn.LayerNorm(n_emb)
         self.pool = CONV_1D_OUTPUT_TO_1D_MAP[self.pooling_method]()
 
-    def forward(self, x: torch.Tensor, conditioning: Optional[torch.Tensor] = None) -> torch.Tensor:
+    def forward(
+        self, x: torch.Tensor, conditioning: Optional[torch.Tensor] = None
+    ) -> torch.Tensor:
         batch_size = x.shape[0]
         n_channels, seq_len = self.input_shape
         assert x.shape == (batch_size, n_channels, seq_len)
 
-        assert (conditioning is not None and self.condition_input_dim is not None) or (conditioning is None and self.condition_input_dim is None)
+        assert (conditioning is not None and self.condition_input_dim is not None) or (
+            conditioning is None and self.condition_input_dim is None
+        )
         if conditioning is not None and self.condition_input_dim is not None:
             assert conditioning.shape == (batch_size, self.condition_input_dim)
 
-            ## Condition encoder
+            # Condition encoder
             # Need to repeat conditioning to match seq_len
             conditioning = conditioning.reshape(
-                batch_size, self.condition_input_dim, 1
-            ).repeat(1, 1, seq_len)
-            assert conditioning.shape == (batch_size, self.condition_input_dim, seq_len)
+                batch_size,
+                1,
+                self.condition_input_dim,
+            ).repeat(1, seq_len, 1)
+            assert conditioning.shape == (batch_size, seq_len, self.condition_input_dim)
             conditioning = self._encoder(conditioning)
             assert conditioning.shape == (batch_size, seq_len, self.n_emb)
 
-            ## Decoder
+            # Decoder
+            x = x.permute(0, 2, 1)
+            assert x.shape == (batch_size, seq_len, n_channels)
             x = self._decoder(x, conditioning)
             assert x.shape == (batch_size, seq_len, self.n_emb)
         else:
+            # Encoder
+            x = x.permute(0, 2, 1)
+            assert x.shape == (batch_size, seq_len, n_channels)
             x = self._encoder(x)
             assert x.shape == (batch_size, seq_len, self.n_emb)
 
@@ -648,8 +588,6 @@ class TransformerEncoderDecoder1D(nn.Module):
         _, seq_len = self.input_shape
         assert x.shape == (batch_size, seq_len, self.encoder_input_dim)
 
-        # Need to permute to (batch_size, seq_len, n_channels) for transformer
-        x = x.permute(0, 2, 1)
         x = self.encoder_input_emb(x)
         x = self.encoder_pos_emb(x)
         x = self.encoder_drop_emb(x)
@@ -662,8 +600,6 @@ class TransformerEncoderDecoder1D(nn.Module):
         n_channels, seq_len = self.input_shape
         assert x.shape == (batch_size, seq_len, n_channels)
 
-        # Need to permute to (batch_size, seq_len, n_channels) for transformer
-        x = x.permute(0, 2, 1)
         x = self.decoder_input_emb(x)
         x = self.decoder_pos_emb(x)
         x = self.decoder_drop_emb(x)
@@ -675,7 +611,11 @@ class TransformerEncoderDecoder1D(nn.Module):
     def output_dim(self) -> int:
         # Compute output shape
         example_input = torch.randn(1, *self.input_shape)
-        example_conditioning = torch.randn(1, self.condition_input_dim) if self.condition_input_dim is not None else None
+        example_conditioning = (
+            torch.randn(1, self.condition_input_dim)
+            if self.condition_input_dim is not None
+            else None
+        )
         example_output = self(example_input, conditioning=example_conditioning)
         assert len(example_output.shape) == 2
         return example_output.shape[1]
@@ -683,7 +623,11 @@ class TransformerEncoderDecoder1D(nn.Module):
     @property
     def encoder_input_dim(self) -> int:
         n_channels, _ = self.input_shape
-        return self.condition_input_dim if self.condition_input_dim is not None else n_channels
+        return (
+            self.condition_input_dim
+            if self.condition_input_dim is not None
+            else n_channels
+        )
 
 
 if __name__ == "__main__":

@@ -1,12 +1,15 @@
 import torch
 import torch.nn as nn
 from typing import List, Tuple, Optional
+from dataclasses import dataclass
+from omegaconf import MISSING
 
 # from torchvision.models import resnet18, ResNet18_Weights
 from FiLM_resnet import resnet18, ResNet18_Weights
 from FiLM_resnet_1d import ResNet1D
 from torchvision.transforms import Lambda, Compose
 from enum import Enum, auto
+from functools import partial
 
 
 class ConvOutputTo1D(Enum):
@@ -54,6 +57,22 @@ class Max(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return torch.max(x, dim=self.dim)
 
+
+CHANNEL_DIM = 1
+CONV_2D_OUTPUT_TO_1D_MAP = {
+    ConvOutputTo1D.FLATTEN: nn.Identity,
+    ConvOutputTo1D.AVG_POOL_SPATIAL: partial(nn.AdaptiveAvgPool2d, output_size=(1, 1)),
+    ConvOutputTo1D.AVG_POOL_CHANNEL: partial(Mean, dim=CHANNEL_DIM),
+    ConvOutputTo1D.MAX_POOL_SPATIAL: partial(nn.AdaptiveMaxPool2d, output_size=(1, 1)),
+    ConvOutputTo1D.MAX_POOL_CHANNEL: partial(Max, dim=CHANNEL_DIM),
+}
+CONV_1D_OUTPUT_TO_1D_MAP = {
+    ConvOutputTo1D.FLATTEN: nn.Identity,
+    ConvOutputTo1D.AVG_POOL_SPATIAL: partial(nn.AdaptiveAvgPool1d, output_size=1),
+    ConvOutputTo1D.AVG_POOL_CHANNEL: partial(Mean, dim=CHANNEL_DIM),
+    ConvOutputTo1D.MAX_POOL_SPATIAL: partial(nn.AdaptiveMaxPool1d, output_size=1),
+    ConvOutputTo1D.MAX_POOL_CHANNEL: partial(Max, dim=CHANNEL_DIM),
+}
 
 def conv_encoder(
     input_shape: Tuple[int, ...],
@@ -191,54 +210,24 @@ class FiLMGenerator(nn.Module):
 
 
 class ConvEncoder2D(nn.Module):
-    """
-    2D convolutional neural network for encoding 2D images. Given an input tensor of shape
-    (batch_size, n_channels, height, width), the network applies a series of convolutional and pooling
-    layers to extract features, and produces an output tensor of shape (batch_size, output_dim).
-
-    Args:
-        input_shape (tuple): Tuple of integers representing the shape of the input tensor
-            (n_channels, height, width).
-
-    Attributes:
-        input_shape (tuple): Tuple of integers representing the shape of the input tensor
-            (n_channels, height, width).
-        output_dim (int): Number of output features produced by the network.
-
-    Raises:
-        AssertionError: If the length of input_shape is not 3 or if the number of input channels
-            is not 1.
-
-    Note:
-        The final pooling method can be customized by modifying the network architecture. The
-        current implementation uses ResNet18 or a simple convolutional encoder with max pooling.
-
-    Examples:
-        >>> encoder = ConvEncoder2D(input_shape=(1, 28, 28))
-        >>> x = torch.randn(32, 1, 28, 28)
-        >>> out = encoder(x)
-        >>> print(out.shape)
-        torch.Size([32, 512])
-    """
-
-    def __init__(self, input_shape: Tuple[int, int, int]) -> None:
+    def __init__(self, input_shape: Tuple[int, int, int], use_resnet: bool = True, use_pretrained: bool = True, pooling_method: ConvOutputTo1D = ConvOutputTo1D.FLATTEN) -> None:
         super().__init__()
 
         # input_shape: (n_channels, height, width)
         self.input_shape = input_shape
+        self.use_resnet = use_resnet
+        self.use_pretrained = use_pretrained
+        self.pooling_method = pooling_method
 
         assert len(input_shape) == 3
         n_channels, height, width = input_shape
         assert n_channels == 1
 
         # Create architecture
-        # TODO: Customize final pooling method (avg pool, channel/spatial pool, spatial softmax, etc.)
-        self.USE_RESNET = True
-        self.USE_PRETRAINED = True
-        if self.USE_RESNET:
-            weights = ResNet18_Weights.DEFAULT if self.USE_PRETRAINED else None
-            weights_transforms = weights.transforms() if self.USE_PRETRAINED else []
-            # TODO: ensure transform is correct
+        if self.use_resnet:
+            # TODO: Properly config
+            weights = ResNet18_Weights.DEFAULT if self.use_pretrained else None
+            weights_transforms = weights.transforms() if self.use_pretrained else []
             self.img_preprocess = Compose(
                 [
                     Lambda(lambda x: x.repeat(1, 3, 1, 1)),
@@ -246,16 +235,17 @@ class ConvEncoder2D(nn.Module):
                 ]
             )
             self.conv_2d = resnet18(weights=weights)
-            self.conv_2d.avgpool = nn.AdaptiveAvgPool2d(output_size=(1, 1))
+            self.conv_2d.avgpool = CONV_2D_OUTPUT_TO_1D_MAP[self.pooling_method]()
             self.conv_2d.fc = nn.Identity()
         else:
+            # TODO: Properly config
             self.img_preprocess = nn.Identity()
             self.conv_2d = conv_encoder(
                 input_shape=input_shape,
                 conv_channels=[32, 64, 128, 256],
                 pool_type=PoolType.MAX,
                 dropout_prob=0.0,
-                conv_output_to_1d=ConvOutputTo1D.FLATTEN,
+                conv_output_to_1d=self.pooling_method,
                 activation=nn.ReLU,
             )
 
@@ -264,7 +254,7 @@ class ConvEncoder2D(nn.Module):
         example_output = self.conv_2d(self.img_preprocess(example_input))
         assert len(example_output.shape) == 2
         self.output_dim = example_output.shape[1]
-        self.num_film_params = self.conv_2d.num_film_params if self.USE_RESNET else None
+        self.num_film_params = self.conv_2d.num_film_params if self.use_resnet else None
 
     def forward(
         self,
@@ -291,19 +281,20 @@ class ConvEncoder2D(nn.Module):
 
 
 class ConvEncoder1D(nn.Module):
-    def __init__(self, input_shape: Tuple[int, int]) -> None:
+    def __init__(self, input_shape: Tuple[int, int], use_resnet: bool = True, pooling_method: ConvOutputTo1D = ConvOutputTo1D.FLATTEN) -> None:
         super().__init__()
 
         # input_shape: (n_channels, seq_len)
         self.input_shape = input_shape
+        self.use_resnet = use_resnet
+        self.pooling_method = pooling_method
 
         assert len(input_shape) == 2
         n_channels, seq_len = input_shape
 
         # Create architecture
-        # TODO: Customize final pooling method (avg pool, channel/spatial pool, spatial softmax, etc.)
-        self.USE_RESNET = True
-        if self.USE_RESNET:
+        if self.use_resnet:
+            # TODO: Properly config
             self.conv_1d = ResNet1D(
                 in_channels=n_channels,
                 seq_len=seq_len,
@@ -319,9 +310,10 @@ class ConvEncoder1D(nn.Module):
                 verbose=False,
             )
             # Set equivalent pooling setting
-            self.conv_1d.avgpool = nn.AdaptiveAvgPool1d(output_size=1)
+            self.conv_1d.avgpool = CONV_1D_OUTPUT_TO_1D_MAP[self.pooling_method]()
             self.conv_1d.fc = nn.Identity()
         else:
+            # TODO: Properly config
             self.conv_1d = conv_encoder(
                 input_shape=input_shape,
                 conv_channels=[32, 64, 128, 256],
@@ -336,7 +328,7 @@ class ConvEncoder1D(nn.Module):
         example_output = self.conv_1d(example_input)
         assert len(example_output.shape) == 2
         self.output_dim = example_output.shape[1]
-        self.num_film_params = self.conv_1d.num_film_params if self.USE_RESNET else None
+        self.num_film_params = self.conv_1d.num_film_params if self.use_resnet else None
 
     def forward(
         self,
@@ -361,52 +353,10 @@ class ConvEncoder1D(nn.Module):
 
 
 class Conv2Dto1D(nn.Module):
-    def __init__(self, input_shape: Tuple[int, int, int, int]) -> None:
-        super().__init__()
-        self.input_shape = input_shape
-        assert len(input_shape) == 4
-        n_channels, depth, height, width = input_shape
-        assert n_channels == 1
-
-        seq_len = n_channels * depth
-
-        self.n_channels_for_conv_2d = 1
-        self.conv_encoder_2d = ConvEncoder2D(
-            input_shape=(self.n_channels_for_conv_2d, height, width)
-        )
-        self.conv_encoder_1d = ConvEncoder1D(
-            input_shape=(self.conv_encoder_2d.output_dim, seq_len)
-        )
-        self.output_dim = self.conv_encoder_1d.output_dim
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        assert len(x.shape) == 5
-        batch_size, n_channels, depth, height, width = x.shape
-        assert n_channels == 1
-
-        seq_len = n_channels * depth
-
-        # Conv 2d
-        x = x.reshape(batch_size * seq_len, self.n_channels_for_conv_2d, height, width)
-        x = self.conv_encoder_2d(x)
-        assert x.shape == (batch_size * seq_len, self.conv_encoder_2d.output_dim)
-
-        # Reshape to (batch_size, seq_len, output_dim)
-        x = x.reshape(batch_size, seq_len, self.conv_encoder_2d.output_dim).permute(
-            (0, 2, 1)
-        )
-        assert x.shape == (batch_size, self.conv_encoder_2d.output_dim, seq_len)
-
-        # Conv 1d
-        x = self.conv_encoder_1d(x)
-        assert x.shape == (batch_size, self.output_dim)
-
-        return x
-
-
-class Conv2Dto1DFiLM(nn.Module):
     def __init__(
-        self, input_shape: Tuple[int, int, int, int], film_input_dim: int
+        self,
+        input_shape: Tuple[int, int, int, int],
+        film_input_dim: Optional[int] = None,
     ) -> None:
         super().__init__()
         self.input_shape = input_shape
@@ -426,62 +376,75 @@ class Conv2Dto1DFiLM(nn.Module):
         )
         self.output_dim = self.conv_encoder_1d.output_dim
 
-        self.film_generator_2d = FiLMGenerator(
-            film_input_dim=film_input_dim,
-            num_params_to_film=self.conv_encoder_2d.num_film_params,
-            hidden_layers=[64, 64],
-        )
-        self.film_generator_1d = FiLMGenerator(
-            film_input_dim=film_input_dim,
-            num_params_to_film=self.conv_encoder_1d.num_film_params,
-            hidden_layers=[64, 64],
-        )
+        if self.film_input_dim is not None:
+            assert self.conv_encoder_2d.num_film_params is not None and self.conv_encoder_1d.num_film_params is not None
 
-    def forward(self, x: torch.Tensor, film_input: torch.Tensor) -> torch.Tensor:
+            self.film_generator_2d = FiLMGenerator(
+                film_input_dim=self.film_input_dim,
+                num_params_to_film=self.conv_encoder_2d.num_film_params,
+                hidden_layers=[64, 64],
+            )
+            self.film_generator_1d = FiLMGenerator(
+                film_input_dim=self.film_input_dim,
+                num_params_to_film=self.conv_encoder_1d.num_film_params,
+                hidden_layers=[64, 64],
+            )
+
+    def forward(
+        self, x: torch.Tensor, film_input: Optional[torch.Tensor] = None
+    ) -> torch.Tensor:
         assert len(x.shape) == 5
         batch_size, n_channels, depth, height, width = x.shape
         assert n_channels == 1
-
-        assert film_input.shape == (batch_size, self.film_generator_2d.film_input_dim)
-
-        # Conv 2d
-        beta_2d, gamma_2d = self.film_generator_2d(film_input)
-        assert (
-            beta_2d.shape
-            == gamma_2d.shape
-            == (batch_size, self.conv_encoder_2d.num_film_params)
-        )
-
         seq_len = n_channels * depth
-        x = x.reshape(batch_size * seq_len, self.n_channels_for_conv_2d, height, width)
-        beta_2d = (
-            beta_2d.reshape(batch_size, 1, self.conv_encoder_2d.num_film_params)
-            .repeat(1, seq_len, 1)
-            .reshape(batch_size * seq_len, self.conv_encoder_2d.num_film_params)
-        )
-        gamma_2d = (
-            gamma_2d.reshape(batch_size, 1, self.conv_encoder_2d.num_film_params)
-            .repeat(1, seq_len, 1)
-            .reshape(batch_size * seq_len, self.conv_encoder_2d.num_film_params)
+
+        assert (self.film_input_dim is None and film_input is None) or (
+            self.film_input_dim is not None
+            and film_input.shape == (batch_size, self.film_input_dim)
         )
 
-        x = self.conv_encoder_2d(x, beta=beta_2d, gamma=gamma_2d)
+        ## Conv 2d
+        # Reshape to (batch_size * seq_len, n_channels, height, width)
+        x = x.reshape(batch_size * seq_len, self.n_channels_for_conv_2d, height, width)
+        if film_input is not None:
+            beta_2d, gamma_2d = self.film_generator_2d(film_input)
+            assert (
+                beta_2d.shape
+                == gamma_2d.shape
+                == (batch_size, self.conv_encoder_2d.num_film_params)
+            )
+
+            beta_2d = (
+                beta_2d.reshape(batch_size, 1, self.conv_encoder_2d.num_film_params)
+                .repeat(1, seq_len, 1)
+                .reshape(batch_size * seq_len, self.conv_encoder_2d.num_film_params)
+            )
+            gamma_2d = (
+                gamma_2d.reshape(batch_size, 1, self.conv_encoder_2d.num_film_params)
+                .repeat(1, seq_len, 1)
+                .reshape(batch_size * seq_len, self.conv_encoder_2d.num_film_params)
+            )
+            x = self.conv_encoder_2d(x, beta=beta_2d, gamma=gamma_2d)
+        else:
+            x = self.conv_encoder_2d(x)
         assert x.shape == (batch_size * seq_len, self.conv_encoder_2d.output_dim)
 
-        # Reshape to (batch_size, seq_len, output_dim)
+        ## Conv 1d
+        # Reshape to (batch_size, output_dim, seq_len)
         x = x.reshape(batch_size, seq_len, self.conv_encoder_2d.output_dim).permute(
             (0, 2, 1)
         )
         assert x.shape == (batch_size, self.conv_encoder_2d.output_dim, seq_len)
-
-        # Conv 1d
-        beta_1d, gamma_1d = self.film_generator_1d(film_input)
-        assert (
-            beta_1d.shape
-            == gamma_1d.shape
-            == (batch_size, self.conv_encoder_1d.num_film_params)
-        )
-        x = self.conv_encoder_1d(x, beta=beta_1d, gamma=gamma_1d)
+        if film_input is not None:
+            beta_1d, gamma_1d = self.film_generator_1d(film_input)
+            assert (
+                beta_1d.shape
+                == gamma_1d.shape
+                == (batch_size, self.conv_encoder_1d.num_film_params)
+            )
+            x = self.conv_encoder_1d(x, beta=beta_1d, gamma=gamma_1d)
+        else:
+            x = self.conv_encoder_1d(x)
         assert x.shape == (batch_size, self.output_dim)
 
         return x
@@ -492,8 +455,7 @@ if __name__ == "__main__":
 
     # Create model
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    # batch_size, n_channels, depth, height, width = 5, 1, 81, 30, 40
-    batch_size, n_channels, depth, height, width = 5, 1, 10, 30, 40
+    batch_size, n_channels, depth, height, width = 5, 1, 10, 30, 40  # WARNING: Easy to OOM
     conv_2d_to_1d = Conv2Dto1D(input_shape=(n_channels, depth, height, width)).to(
         device
     )
@@ -510,7 +472,7 @@ if __name__ == "__main__":
 
     # Create model 2
     film_input_dim = 10
-    conv_2d_to_1d_film = Conv2Dto1DFiLM(
+    conv_2d_to_1d_film = Conv2Dto1D(
         input_shape=(n_channels, depth, height, width), film_input_dim=film_input_dim
     ).to(device)
     example_film_input = torch.randn(batch_size, film_input_dim, device=device)

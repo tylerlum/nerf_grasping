@@ -9,6 +9,7 @@ from torchvision.transforms import Lambda, Compose
 from enum import Enum, auto
 from functools import partial, cached_property
 from positional_encodings.torch_encodings import PositionalEncoding1D, Summer
+from torchinfo import summary
 
 
 ### ENUMS ###
@@ -1231,11 +1232,13 @@ def test_all_setups(setup_dict: Dict[str, Any]) -> None:
     keys = list(setup_dict.keys())
     options_list = [setup_dict[key] for key in keys]
     all_options_combinations = list(itertools.product(*options_list))
-    for i, options in tqdm(enumerate(all_options_combinations), total=len(all_options_combinations)):
+    for i, options in tqdm(
+        enumerate(all_options_combinations), total=len(all_options_combinations)
+    ):
         kwargs = dict(zip(keys, options))
         print("~" * 80)
         print(f"Testing setup {i + 1} / {len(all_options_combinations)}")
-        print('\n'.join([f'{key} = {value}' for key, value in kwargs.items()]))
+        print("\n".join([f"{key} = {value}" for key, value in kwargs.items()]))
         print("~" * 80)
         test_setup(**kwargs)
         print()
@@ -1287,6 +1290,19 @@ def test_setup(
         conv_encoder_2d_mlp_hidden_layers=conv_encoder_2d_mlp_hidden_layers,
         head_mlp_hidden_layers=head_mlp_hidden_layers,
     ).to(device)
+    print(general_model)
+    summary(
+        general_model,
+        input_size=[
+            (batch_size, n_fingers, seq_len, height, width),
+            (
+                batch_size,
+                conditioning_dim,
+            ),
+        ],
+        device=device,
+        depth=10,
+    )
 
     example_output = general_model(example_input, example_conditioning)
     print("General2DTo1DClassifier")
@@ -1298,8 +1314,6 @@ def test_setup(
 
 
 def main() -> None:
-    from torchinfo import summary
-
     # Create model
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     batch_size, n_fingers, seq_len, height, width = (
@@ -1443,5 +1457,9 @@ def main() -> None:
 if __name__ == "__main__":
     from ipdb import launch_ipdb_on_exception
 
-    with launch_ipdb_on_exception():
+    LAUNCH_WITH_IPDB = False
+    if LAUNCH_WITH_IPDB:
+        with launch_ipdb_on_exception():
+            main()
+    else:
         main()

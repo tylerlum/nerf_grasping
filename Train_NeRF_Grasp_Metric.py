@@ -70,7 +70,7 @@ from torchinfo import summary
 from torchviz import make_dot
 from wandb.util import generate_id
 from torch.profiler import profile, record_function, ProfilerActivity
-from tyler_new_models import PoolType, ConvOutputTo1D, mlp, conv_encoder
+from tyler_new_models import PoolType, ConvOutputTo1D, General2DTo1DClassifier
 
 import wandb
 
@@ -1586,60 +1586,25 @@ if cfg.visualize_data:
 # # Create Neural Network Model
 
 # %%
-class NeRF_to_Grasp_Success_Model(nn.Module):
-    def __init__(
-        self,
-        input_example_shape: Tuple[int, ...],
-        neural_network_config: NeuralNetworkConfig,
-    ) -> None:
-        super().__init__()
-        self.input_example_shape = input_example_shape
-        self.neural_network_config = neural_network_config
-
-        self.conv = conv_encoder(
-            input_shape=input_example_shape,
-            conv_channels=neural_network_config.conv_channels,
-            pool_type=neural_network_config.pool_type,
-            dropout_prob=neural_network_config.dropout_prob,
-            conv_output_to_1d=neural_network_config.conv_output_to_1d,
-        )
-
-        # Get conv output shape
-        example_batch_size = 1
-        example_input = torch.zeros((example_batch_size, *input_example_shape))
-        conv_output = self.conv(example_input)
-        assert (
-            len(conv_output.shape) == 2 and conv_output.shape[0] == example_batch_size
-        )
-        _, conv_output_dim = conv_output.shape
-
-        N_CLASSES = 2
-        self.mlp = mlp(
-            num_inputs=conv_output_dim,
-            num_outputs=N_CLASSES,
-            hidden_layers=neural_network_config.mlp_hidden_layers,
-        )
-
-    @localscope.mfc
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = self.conv(x)
-        x = self.mlp(x)
-        return x
-
-    @localscope.mfc
-    def get_success_logits(self, x: torch.Tensor) -> torch.Tensor:
-        return self.forward(x)
-
-    @localscope.mfc
-    def get_success_probability(self, x: torch.Tensor) -> torch.Tensor:
-        return nn.functional.softmax(self.get_success_logits(x), dim=-1)
-
-# %%
 device = "cuda" if torch.cuda.is_available() else "cpu"
+input_shape = (NUM_PTS_X // 2, NUM_PTS_Y, NUM_PTS_Z)
+assert example_batch_data.left_nerf_densities.shape[1:] == input_shape
+conditioning_dim = example_batch_data.left_global_params.shape[1]
+assert 
 
-nerf_to_grasp_success_model = NeRF_to_Grasp_Success_Model(
-    input_example_shape=INPUT_EXAMPLE_SHAPE,
-    neural_network_config=cfg.neural_network,
+nerf_to_grasp_success_model = General2DTo1DClassifier(
+    input_shape=input_shape,
+    n_fingers=2,
+    conditioning_dim=,
+    use_conditioning_2d: bool = False,
+    use_conditioning_1d: bool = False,
+    merge_fingers_method: MergeFingersMethod = MergeFingersMethod.MULTIPLY_AFTER_1D,
+    encoder_1d_type: Encoder1DType = Encoder1DType.CONV,
+    conv_encoder_2d_embed_dim: int = 32,
+    concat_conditioning_before_1d: bool = False,
+    concat_conditioning_after_1d: bool = False,
+    conv_encoder_2d_mlp_hidden_layers: List[int] = [64, 64],
+    head_mlp_hidden_layers: List[int] = [64, 64],
 ).to(device)
 
 optimizer = torch.optim.AdamW(

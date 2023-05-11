@@ -282,6 +282,7 @@ class ConvEncoder2D(nn.Module):
         use_resnet: bool = True,
         use_pretrained: bool = True,
         pooling_method: ConvOutputTo1D = ConvOutputTo1D.FLATTEN,
+        film_hidden_layers: List[int] = [64, 64],
     ) -> None:
         super().__init__()
 
@@ -310,6 +311,7 @@ class ConvEncoder2D(nn.Module):
             self.conv_2d.avgpool = CONV_2D_OUTPUT_TO_1D_MAP[self.pooling_method]()
             self.conv_2d.fc = nn.Identity()
         else:
+            raise NotImplementedError("TODO: Implement non-resnet conv encoder")
             # TODO: Properly config
             self.img_preprocess = nn.Identity()
             self.conv_2d = conv_encoder(
@@ -323,11 +325,10 @@ class ConvEncoder2D(nn.Module):
 
         # Create FiLM generator
         if self.conditioning_dim is not None and self.num_film_params is not None:
-            # TODO: Properly config
             self.film_generator = FiLMGenerator(
                 film_input_dim=self.conditioning_dim,
                 num_params_to_film=self.num_film_params,
-                hidden_layers=[64, 64],
+                hidden_layers=film_hidden_layers,
             )
 
     def forward(
@@ -392,6 +393,15 @@ class ConvEncoder1D(nn.Module):
         conditioning_dim: Optional[int] = None,
         use_resnet: bool = True,
         pooling_method: ConvOutputTo1D = ConvOutputTo1D.FLATTEN,
+        film_hidden_layers: List[int] = [64, 64],
+        base_filters: int = 64,
+        kernel_size: int = 16,
+        stride: int = 2,
+        groups: int = 32,
+        n_block: int = 8,
+        downsample_gap: int = 6,
+        increasefilter_gap: int = 12,
+        use_do: bool = False,
     ) -> None:
         super().__init__()
 
@@ -410,21 +420,22 @@ class ConvEncoder1D(nn.Module):
             self.conv_1d = ResNet1D(
                 in_channels=n_channels,
                 seq_len=seq_len,
-                base_filters=64,
-                kernel_size=3,
-                stride=1,
-                groups=1,
-                n_block=4,
-                n_classes=1,
-                downsample_gap=2,
-                increasefilter_gap=2,
-                use_do=False,
+                base_filters=base_filters,
+                kernel_size=kernel_size,
+                stride=stride,
+                groups=groups,
+                n_block=n_block,
+                n_classes=2,  # Not used
+                downsample_gap=downsample_gap,
+                increasefilter_gap=increasefilter_gap,
+                use_do=use_do,
                 verbose=False,
             )
             # Set equivalent pooling setting
             self.conv_1d.avgpool = CONV_1D_OUTPUT_TO_1D_MAP[self.pooling_method]()
             self.conv_1d.fc = nn.Identity()
         else:
+            raise NotImplementedError("TODO: Implement non-resnet conv encoder")
             # TODO: Properly config
             self.conv_1d = conv_encoder(
                 input_shape=input_shape,
@@ -441,7 +452,7 @@ class ConvEncoder1D(nn.Module):
             self.film_generator = FiLMGenerator(
                 film_input_dim=self.conditioning_dim,
                 num_params_to_film=self.num_film_params,
-                hidden_layers=[64, 64],
+                hidden_layers=film_hidden_layers,
             )
 
     def forward(
@@ -499,6 +510,7 @@ class TransformerEncoder1D(nn.Module):
         input_shape: Tuple[int, int],
         conditioning_dim: Optional[int] = None,
         pooling_method: ConvOutputTo1D = ConvOutputTo1D.FLATTEN,
+        n_heads: int = 12,
         n_emb: int = 128,
         p_drop_emb: float = 0.1,
         p_drop_attn: float = 0.1,
@@ -520,7 +532,7 @@ class TransformerEncoder1D(nn.Module):
         self.encoder_drop_emb = nn.Dropout(p=p_drop_emb)
         encoder_layer = nn.TransformerEncoderLayer(
             d_model=n_emb,
-            nhead=4,
+            nhead=n_heads,
             dim_feedforward=4 * n_emb,
             dropout=p_drop_attn,
             activation="gelu",
@@ -538,7 +550,7 @@ class TransformerEncoder1D(nn.Module):
             self.decoder_drop_emb = nn.Dropout(p=p_drop_emb)
             decoder_layer = nn.TransformerDecoderLayer(
                 d_model=n_emb,
-                nhead=4,
+                nhead=n_heads,
                 dim_feedforward=4 * n_emb,
                 dropout=p_drop_attn,
                 activation="gelu",
@@ -834,13 +846,13 @@ class General2DTo1DClassifier(nn.Module):
             )
 
         # 2D
-        self.conv_encoder_1d_input_shape = (
+        conv_encoder_2d_input_shape = (
             self.n_channels_for_conv_2d,
             self.height,
             self.width,
         )
         self.conv_encoder_2d = ConvEncoder2D(
-            input_shape=self.conv_encoder_1d_input_shape,
+            input_shape=conv_encoder_2d_input_shape,
             conditioning_dim=conditioning_dim if use_conditioning_2d else None,
         )
         self.fc = mlp(
@@ -928,6 +940,7 @@ class General2DTo1DClassifier(nn.Module):
         assert x.shape[1:] == (self.n_fingers, self.seq_len, self.height, self.width)
         assert conditioning is None or conditioning.shape == (
             batch_size,
+            self.n_fingers,
             self.conditioning_dim,
         )
 
@@ -948,7 +961,7 @@ class General2DTo1DClassifier(nn.Module):
         return x
 
     def _run_conv_encoder_2d(
-        self, x: torch.Tensor, conditioning: Optional[torch.Tensor] = None
+        self, x: torch.Tensor, conditioning: Optional[torch.Tensor] = None, AVOID_OOM=True
     ) -> torch.Tensor:
         # Validate input
         assert len(x.shape) == 5
@@ -956,59 +969,71 @@ class General2DTo1DClassifier(nn.Module):
         assert x.shape[1:] == (self.n_fingers, self.seq_len, self.height, self.width)
         assert conditioning is None or conditioning.shape == (
             batch_size,
+            self.n_fingers,
             self.conditioning_dim,
         )
 
         # Conv 2d (batch_size, n_fingers, seq_len, height, width) => (batch_size, n_fingers, seq_len, conv_encoder_2d_embed_dim)
-        # OOM if do all at once
-        AVOID_OOM = True
-        if AVOID_OOM:
-            x = x.reshape(
-                batch_size * self.n_fingers, self.seq_len, 1, self.height, self.width
+        output_per_finger_list = []
+        # Process each finger separately, with their own conditioning
+        for finger_i in range(self.n_fingers):
+            finger_x = x[:, finger_i].reshape(
+                batch_size, self.seq_len, 1, self.height, self.width
             )
-            conditioning_repeated = (
-                conditioning.repeat(self.n_fingers, 1)
+            finger_conditioning = (
+                conditioning[:, finger_i]
                 if conditioning is not None and self.use_conditioning_2d
                 else None
             )
-            temp_list = []
-            for seq_i in range(self.seq_len):
-                temp = self.conv_encoder_2d(
-                    x[:, seq_i], conditioning=conditioning_repeated
-                )
-                assert temp.shape == (
-                    batch_size * self.n_fingers,
+
+            # Process each finger in each time-step separately
+            # OOM if do all at once
+            if AVOID_OOM:
+                output_per_seq_list = []
+
+                # Do this by iterating over seq_len
+                for seq_i in range(self.seq_len):
+                    temp = self.conv_encoder_2d(
+                        finger_x[:, seq_i], conditioning=finger_conditioning
+                    )
+                    assert temp.shape == (
+                        batch_size,
+                        self.conv_encoder_2d.output_dim,
+                    )
+                    output_per_seq_list.append(temp)
+                output_per_finger = torch.stack(output_per_seq_list, dim=1)
+                assert output_per_finger.shape == (
+                    batch_size,
+                    self.seq_len,
                     self.conv_encoder_2d.output_dim,
                 )
-                temp_list.append(temp)
-            x = torch.stack(temp_list, dim=1)
-            assert x.shape == (
-                batch_size * self.n_fingers,
-                self.seq_len,
-                self.conv_encoder_2d.output_dim,
-            )
-            x = x.reshape(
-                batch_size,
-                self.n_fingers,
-                self.seq_len,
-                self.conv_encoder_2d.output_dim,
-            )
-        else:
-            x = x.reshape(
-                batch_size * self.n_fingers * self.seq_len, 1, self.height, self.width
-            )
-            conditioning_repeated = (
-                conditioning.repeat(self.n_fingers * self.seq_len, 1)
-                if conditioning is not None and self.use_conditioning_2d
-                else None
-            )
-            x = self.conv_encoder_2d(x, conditioning=conditioning_repeated)
-            x = x.reshape(
-                batch_size,
-                self.n_fingers,
-                self.seq_len,
-                self.conv_encoder_2d.output_dim,
-            )
+                output_per_finger_list.append(output_per_finger)
+            else:
+                # Do this by putting seq_len in the batch dimension
+                finger_x = finger_x.reshape(
+                    batch_size * self.seq_len, 1, self.height, self.width
+                )
+                finger_conditioning = (
+                    finger_conditioning.repeat(self.seq_len, 1)
+                    if (finger_conditioning is not None and self.use_conditioning_2d)
+                    else None
+                )
+                output_per_finger = self.conv_encoder_2d(
+                    finger_x, conditioning=finger_conditioning
+                )
+                assert output_per_finger.shape == (
+                    batch_size * self.seq_len,
+                    self.conv_encoder_2d.output_dim,
+                )
+                output_per_finger = output_per_finger.reshape(
+                    batch_size,
+                    self.seq_len,
+                    self.conv_encoder_2d.output_dim,
+                )
+                output_per_finger_list.append(output_per_finger)
+
+        x = torch.stack(output_per_finger_list, dim=1)
+
         assert x.shape == (
             batch_size,
             self.n_fingers,
@@ -1038,6 +1063,7 @@ class General2DTo1DClassifier(nn.Module):
         )
         assert conditioning is None or conditioning.shape == (
             batch_size,
+            self.n_fingers,
             self.conditioning_dim,
         )
 
@@ -1274,7 +1300,9 @@ def test_setup(
     example_input = torch.randn(
         batch_size, n_fingers, seq_len, height, width, device=device
     )
-    example_conditioning = torch.randn(batch_size, conditioning_dim, device=device)
+    example_conditioning = torch.randn(
+        batch_size, n_fingers, conditioning_dim, device=device
+    )
 
     general_model = General2DTo1DClassifier(
         input_shape=(seq_len, height, width),
@@ -1335,7 +1363,9 @@ def main() -> None:
     example_input = torch.randn(
         batch_size, n_fingers, seq_len, height, width, device=device
     )
-    example_conditioning = torch.randn(batch_size, conditioning_dim, device=device)
+    example_conditioning = torch.randn(
+        batch_size, n_fingers, conditioning_dim, device=device
+    )
 
     # Create model
     general_model = General2DTo1DClassifier(

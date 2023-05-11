@@ -47,6 +47,59 @@ class Max(nn.Module):
         return torch.max(x, dim=self.dim)
 
 
+class SpatialSoftmax(nn.Module):
+    def __init__(self, temperature: float = 1.0, output_variance: bool = False) -> None:
+        super().__init__()
+        self.temperature = temperature
+        self.output_variance = output_variance
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # Either (batch_size, n_channels, width) or (batch_size, n_channels, height, width)
+        assert len(x.shape) in [3, 4]
+        batch_size, n_channels = x.shape[:2]
+        spatial_indices = [i for i in range(2, len(x.shape))]
+        spatial_dims = x.shape[2:]
+
+        # Softmax over spatial dimensions
+        x = x.reshape(x.shape[0], x.shape[1], -1)
+        x = nn.Softmax(dim=-1)(x / self.temperature)
+        x = x.reshape(batch_size, n_channels, *spatial_dims)
+
+        # Create spatial grid
+        mesh_grids = torch.meshgrid(
+            *[torch.linspace(-1, 1, dim, device=x.device) for dim in spatial_dims]
+        )
+
+        # Sanity check
+        for mesh_grid in mesh_grids:
+            assert mesh_grid.shape == spatial_dims
+
+        # Get coords
+        outputs = []
+        for mesh_grid in mesh_grids:
+            mesh_grid = mesh_grid.reshape(1, 1, *mesh_grid.shape)
+            coord = torch.sum(x * mesh_grid, dim=spatial_indices)
+            outputs.append(coord)
+
+        # Get variance
+        if self.output_variance:
+            for mesh_grid in mesh_grids:
+                mesh_grid = mesh_grid.reshape(1, 1, *mesh_grid.shape)
+                coord = torch.sum(x * (mesh_grid**2), dim=spatial_indices)
+                outputs.append(coord)
+
+        # Stack
+        outputs = torch.stack(outputs, dim=-1)
+        expected_output_shape = (
+            (batch_size, n_channels, len(spatial_dims))
+            if not self.output_variance
+            else (batch_size, n_channels, len(spatial_dims) * 2)
+        )
+        assert outputs.shape == expected_output_shape
+
+        return outputs
+
+
 CHANNEL_DIM = 1
 CONV_2D_OUTPUT_TO_1D_MAP = {
     ConvOutputTo1D.FLATTEN: nn.Identity,
@@ -54,6 +107,7 @@ CONV_2D_OUTPUT_TO_1D_MAP = {
     ConvOutputTo1D.AVG_POOL_CHANNEL: partial(Mean, dim=CHANNEL_DIM),
     ConvOutputTo1D.MAX_POOL_SPATIAL: partial(nn.AdaptiveMaxPool2d, output_size=(1, 1)),
     ConvOutputTo1D.MAX_POOL_CHANNEL: partial(Max, dim=CHANNEL_DIM),
+    ConvOutputTo1D.SPATIAL_SOFTMAX: partial(SpatialSoftmax, temperature=1.0, output_variance=False),
 }
 CONV_1D_OUTPUT_TO_1D_MAP = {
     ConvOutputTo1D.FLATTEN: nn.Identity,
@@ -61,6 +115,7 @@ CONV_1D_OUTPUT_TO_1D_MAP = {
     ConvOutputTo1D.AVG_POOL_CHANNEL: partial(Mean, dim=CHANNEL_DIM),
     ConvOutputTo1D.MAX_POOL_SPATIAL: partial(nn.AdaptiveMaxPool1d, output_size=1),
     ConvOutputTo1D.MAX_POOL_CHANNEL: partial(Max, dim=CHANNEL_DIM),
+    ConvOutputTo1D.SPATIAL_SOFTMAX: partial(SpatialSoftmax, temperature=1.0, output_variance=False),
 }
 
 
@@ -936,7 +991,6 @@ class General2DTo1DClassifier(nn.Module):
                 self.seq_len,
                 self.conv_encoder_2d.output_dim,
             )
-            del temp_list  # TODO: Do we need this?
         else:
             x = x.reshape(
                 batch_size * self.n_fingers * self.seq_len, 1, self.height, self.width
@@ -1169,213 +1223,36 @@ class General2DTo1DClassifier(nn.Module):
         )
 
 
-class Conv2DtoConv1D(nn.Module):
-    def __init__(
-        self,
-        input_shape: Tuple[int, int, int],
-        conditioning_dim: Optional[int] = None,
-    ) -> None:
-        super().__init__()
-        self.input_shape = input_shape
-        self.conditioning_dim = conditioning_dim
-        assert len(input_shape) == 3
-
-        n_channels, height, width = input_shape
-        seq_len = n_channels
-
-        # Create conv encoders
-        self.n_channels_for_conv_2d = 1
-        self.conv_encoder_2d = ConvEncoder2D(
-            input_shape=(self.n_channels_for_conv_2d, height, width),
-            conditioning_dim=conditioning_dim,
-        )
-        self.conv_encoder_1d = ConvEncoder1D(
-            input_shape=(self.conv_encoder_2d.output_dim, seq_len),
-            conditioning_dim=conditioning_dim,
-        )
-
-    def forward(
-        self, x: torch.Tensor, conditioning: Optional[torch.Tensor] = None
-    ) -> torch.Tensor:
-        assert len(x.shape) == 4
-        batch_size, n_channels, height, width = x.shape
-        seq_len = n_channels
-
-        # Ensure valid use of conditioning
-        assert (self.conditioning_dim is None and conditioning is None) or (
-            self.conditioning_dim is not None
-            and conditioning is not None
-            and conditioning.shape == (batch_size, self.conditioning_dim)
-        )
-
-        # Conv 2d
-        # Reshape to (batch_size * seq_len, n_channels, height, width)
-        # TODO: this can easily OOM, probably find a nice way around this
-        x = x.reshape(batch_size * seq_len, self.n_channels_for_conv_2d, height, width)
-        if conditioning is not None:
-            conditioning_repeated = conditioning.repeat(seq_len, 1)
-            x = self.conv_encoder_2d(x, conditioning=conditioning_repeated)
-        else:
-            x = self.conv_encoder_2d(x)
-        assert x.shape == (batch_size * seq_len, self.conv_encoder_2d.output_dim)
-
-        # Conv 1d
-        # Reshape to (batch_size, output_dim, seq_len)
-        x = x.reshape(batch_size, seq_len, self.conv_encoder_2d.output_dim).permute(
-            (0, 2, 1)
-        )
-        assert x.shape == (batch_size, self.conv_encoder_2d.output_dim, seq_len)
-        x = self.conv_encoder_1d(x, conditioning=conditioning)
-        assert len(x.shape) == 2 and x.shape[0] == batch_size
-
-        return x
-
-    @property
-    def output_dim(self) -> int:
-        return self.conv_encoder_1d.output_dim
-
-
-class Conv2DtoTransformer1D(nn.Module):
-    def __init__(
-        self,
-        input_shape: Tuple[int, int, int],
-        conditioning_dim: Optional[int] = None,
-    ) -> None:
-        super().__init__()
-        self.input_shape = input_shape
-        self.conditioning_dim = conditioning_dim
-        assert len(input_shape) == 3
-
-        n_channels, height, width = input_shape
-        seq_len = n_channels
-
-        # Create conv encoders
-        self.n_channels_for_conv_2d = 1
-        self.conv_encoder_2d = ConvEncoder2D(
-            input_shape=(self.n_channels_for_conv_2d, height, width),
-            conditioning_dim=conditioning_dim,
-        )
-        self.transformer_encoder_1d = TransformerEncoder1D(
-            input_shape=(self.conv_encoder_2d.output_dim, seq_len),
-            conditioning_dim=conditioning_dim,
-        )
-
-    def forward(
-        self, x: torch.Tensor, conditioning: Optional[torch.Tensor] = None
-    ) -> torch.Tensor:
-        assert len(x.shape) == 4
-        batch_size, n_channels, height, width = x.shape
-        seq_len = n_channels
-
-        # Ensure valid use of conditioning
-        assert (self.conditioning_dim is None and conditioning is None) or (
-            self.conditioning_dim is not None
-            and conditioning is not None
-            and conditioning.shape == (batch_size, self.conditioning_dim)
-        )
-
-        # Conv 2d
-        # Reshape to (batch_size * seq_len, n_channels, height, width)
-        # TODO: this can easily OOM, probably find a nice way around this
-        x = x.reshape(batch_size * seq_len, self.n_channels_for_conv_2d, height, width)
-        if conditioning is not None:
-            conditioning_repeated = conditioning.repeat(seq_len, 1)
-            x = self.conv_encoder_2d(x, conditioning=conditioning_repeated)
-        else:
-            x = self.conv_encoder_2d(x)
-        assert x.shape == (batch_size * seq_len, self.conv_encoder_2d.output_dim)
-
-        # Transformer 1d
-        # Reshape to (batch_size, output_dim, seq_len)
-        x = x.reshape(batch_size, seq_len, self.conv_encoder_2d.output_dim).permute(
-            (0, 2, 1)
-        )
-        assert x.shape == (batch_size, self.conv_encoder_2d.output_dim, seq_len)
-        x = self.transformer_encoder_1d(x, conditioning=conditioning)
-        assert len(x.shape) == 2 and x.shape[0] == batch_size
-
-        return x
-
-    @property
-    def output_dim(self) -> int:
-        return self.transformer_encoder_1d.output_dim
-
-
 def main() -> None:
     from torchinfo import summary
 
     # Create model
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    batch_size, seq_len, height, width = (
+    batch_size, n_fingers, seq_len, height, width = (
         4,
+        2,
         10,
         30,
         40,
     )  # WARNING: Easy to OOM
-    conv_2d_to_conv_1d = Conv2DtoConv1D(input_shape=(seq_len, height, width)).to(device)
-
-    example_input = torch.randn(batch_size, seq_len, height, width, device=device)
-    example_output = conv_2d_to_conv_1d(example_input)
-    print("Conv2DtoConv1D")
-    print("=" * 80)
-    print(f"example_input.shape = {example_input.shape}")
-    print(f"example_output.shape = {example_output.shape}")
+    conditioning_dim = 11
+    print(f"batch_size = {batch_size}")
+    print(f"n_fingers = {n_fingers}")
+    print(f"seq_len = {seq_len}")
+    print(f"height = {height}")
+    print(f"width = {width}")
+    print(f"conditioning_dim = {conditioning_dim}")
     print()
 
-    # Create model 2
-    conditioning_dim = 10
-    conv_2d_to_conv_1d_film = Conv2DtoConv1D(
-        input_shape=(seq_len, height, width),
-        conditioning_dim=conditioning_dim,
-    ).to(device)
-    example_conditioning = torch.randn(batch_size, conditioning_dim, device=device)
-    example_film_output = conv_2d_to_conv_1d_film(example_input, example_conditioning)
-    print("Conv2DtoConv1D FiLM")
-    print("=" * 80)
-    print(f"example_input.shape = {example_input.shape}")
-    print(f"example_conditioning.shape = {example_conditioning.shape}")
-    print(f"example_film_output.shape = {example_film_output.shape}")
-    print()
-
-    # Create model 3
-    conditioning_dim = 10
-    conv_2d_to_transformer_1d = Conv2DtoTransformer1D(
-        input_shape=(seq_len, height, width)
-    ).to(device)
-    example_transformer_output = conv_2d_to_transformer_1d(example_input)
-    print("Conv2DtoTransformer1D")
-    print("=" * 80)
-    print(f"example_input.shape = {example_input.shape}")
-    print(f"example_transformer_output.shape = {example_transformer_output.shape}")
-    print()
-
-    # Create model 4
-    conditioning_dim = 10
-    conv_2d_to_transformer_1d_conditioned = Conv2DtoTransformer1D(
-        input_shape=(seq_len, height, width),
-        conditioning_dim=conditioning_dim,
-    ).to(device)
-    example_transformer_output_conditioned = conv_2d_to_transformer_1d_conditioned(
-        example_input, example_conditioning
-    )
-    print("Conv2DtoTransformer1D Conditioned")
-    print("=" * 80)
-    print(f"example_input.shape = {example_input.shape}")
-    print(f"example_conditioning.shape = {example_conditioning.shape}")
-    print(
-        f"example_transformer_output_conditioned.shape = {example_transformer_output_conditioned.shape}"
-    )
-    print()
-
-    n_fingers = 2
     example_input = torch.randn(
         batch_size, n_fingers, seq_len, height, width, device=device
     )
+    example_conditioning = torch.randn(batch_size, conditioning_dim, device=device)
 
     # Create model 5
     general_model = General2DTo1DClassifier(
         input_shape=(seq_len, height, width),
-        n_fingers=2,
+        n_fingers=n_fingers,
         conditioning_dim=conditioning_dim,
         use_conditioning_2d=True,
         use_conditioning_1d=True,
@@ -1399,7 +1276,7 @@ def main() -> None:
     # Create model 6
     general_model_2 = General2DTo1DClassifier(
         input_shape=(seq_len, height, width),
-        n_fingers=2,
+        n_fingers=n_fingers,
         conditioning_dim=conditioning_dim,
         use_conditioning_2d=True,
         use_conditioning_1d=False,
@@ -1418,6 +1295,26 @@ def main() -> None:
     print(f"example_input.shape = {example_input.shape}")
     print(f"example_conditioning.shape = {example_conditioning.shape}")
     print(f"example_output.shape = {example_output.shape}")
+    print()
+
+    x = torch.randn(batch_size, seq_len, width, device=device)
+    xx = torch.randn(batch_size, seq_len, height, width, device=device)
+    spatial_softmax = SpatialSoftmax(temperature=1.0, output_variance=False)
+    spatial_softmax_with_variance = SpatialSoftmax(
+        temperature=1.0, output_variance=True
+    )
+    print("SpatialSoftmax")
+    print("=" * 80)
+    print(f"x.shape = {x.shape}")
+    print(f"xx.shape = {xx.shape}")
+    print(f"spatial_softmax(x).shape = {spatial_softmax(x).shape}")
+    print(f"spatial_softmax(xx).shape = {spatial_softmax(xx).shape}")
+    print(
+        f"spatial_softmax_with_variance(x).shape = {spatial_softmax_with_variance(x).shape}"
+    )
+    print(
+        f"spatial_softmax_with_variance(xx).shape = {spatial_softmax_with_variance(xx).shape}"
+    )
     print()
 
 

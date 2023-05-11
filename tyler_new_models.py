@@ -874,18 +874,19 @@ class General2DTo1DClassifier(nn.Module):
             self.conditioning_dim,
         )
 
-        # Conv 2d (batch_size, n_fingers, seq_len, height, width) => (batch_size, n_fingers, seq_len, conv_encoder_2d.output_dim)
+        # Conv 2d (batch_size, n_fingers, seq_len, height, width) => (batch_size, n_fingers, seq_len, conv_encoder_2d_embed_dim)
         x = self._run_conv_encoder_2d(x, conditioning=conditioning)
 
         # Before 1d operations (batch_size, n_fingers, seq_len, conv_encoder_2d_embed_dim) => (batch_size, self.encoder_1d_seq_len, self.encoder_1d_input_dim)
         x = self._run_merge_before_1d(x, conditioning=conditioning)
 
-        # 1d (batch_size, self.encoder_1d_seq_len, self.encoder_1d_input_dim) => (batch_size, self.head_num_inputs)
+        # 1d (batch_size, self.encoder_1d_seq_len, self.encoder_1d_input_dim) => (batch_size, self.encoder_1d.output_dim)
         x = self._run_conv_encoder_1d(x, conditioning=conditioning)
 
-        # After 1d operations
+        # After 1d operations (batch_size, self.encoder_1d.output_dim) => (batch_size, self.head_num_inputs)
         x = self._run_merge_after_1d(x, conditioning=conditioning)
 
+        # Head (batch_size, self.head_num_inputs) => (batch_size, 2)
         x = self.head(x)
         return x
 
@@ -901,7 +902,7 @@ class General2DTo1DClassifier(nn.Module):
             self.conditioning_dim,
         )
 
-        # Conv 2d (batch_size, n_fingers, seq_len, height, width) => (batch_size, n_fingers, seq_len, conv_encoder_2d.output_dim)
+        # Conv 2d (batch_size, n_fingers, seq_len, height, width) => (batch_size, n_fingers, seq_len, conv_encoder_2d_embed_dim)
         # OOM if do all at once
         AVOID_OOM = True
         if AVOID_OOM:
@@ -1059,7 +1060,7 @@ class General2DTo1DClassifier(nn.Module):
             and conditioning is not None
             and self.conditioning_dim is not None
         ):
-            # x may have a different batch size than conditioning from above
+            # x may have a different batch size than conditioning from merge
             temp_batch_size = x.shape[0]
             n_repeat_batch = temp_batch_size // batch_size
             assert n_repeat_batch * batch_size == temp_batch_size
@@ -1091,6 +1092,7 @@ class General2DTo1DClassifier(nn.Module):
             self.encoder_1d_input_dim,
         )
 
+        # 1d (batch_size, self.encoder_1d_seq_len, self.encoder_1d_input_dim) => (batch_size, self.encoder_1d.output_dim)
         # Need to have (batch_size, n_channels, seq_len) for 1d encoder
         x = x.permute(0, 2, 1)
         assert len(x.shape) == 3 and x.shape[1:] == (
@@ -1099,7 +1101,7 @@ class General2DTo1DClassifier(nn.Module):
         )
 
         if conditioning is not None and self.use_conditioning_1d:
-            # x may have a different batch size than conditioning from above
+            # x may have a different batch size than conditioning from merge
             batch_size = conditioning.shape[0]
             temp_batch_size = x.shape[0]
             n_repeat_batch = temp_batch_size // batch_size
@@ -1121,6 +1123,7 @@ class General2DTo1DClassifier(nn.Module):
         assert len(x.shape) == 2 and x.shape[1] == self.encoder_1d.output_dim
         # assert x.shape[0] == batch_size or x.shape[0] == batch_size * self.n_fingers
 
+        # After 1d operations (batch_size, self.encoder_1d.output_dim) => (batch_size, self.head_num_inputs)
         if self.merge_fingers_method in [
             MergeFingersMethod.ADD_AFTER_1D,
             MergeFingersMethod.MULTIPLY_AFTER_1D,

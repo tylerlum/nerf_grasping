@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Dict, Any
 from dataclasses import dataclass
 from omegaconf import MISSING
 from FiLM_resnet import resnet18, ResNet18_Weights
@@ -18,9 +18,7 @@ class ConvOutputTo1D(Enum):
     AVG_POOL_CHANNEL = auto()  # (N, C, H, W) -> (N, 1, H, W) -> (N, H*W)
     MAX_POOL_SPATIAL = auto()  # (N, C, H, W) -> (N, C, 1, 1) -> (N, C)
     MAX_POOL_CHANNEL = auto()  # (N, C, H, W) -> (N, 1, H, W) -> (N, H*W)
-    SPATIAL_SOFTMAX = (
-        auto()
-    )  # (N, C, H, W) -> (N, C, H, W) -> (N, 2*C) TODO: Not implemented
+    SPATIAL_SOFTMAX = auto()  # (N, C, H, W) -> (N, C, H, W) -> (N, 2*C)
 
 
 class PoolType(Enum):
@@ -107,7 +105,9 @@ CONV_2D_OUTPUT_TO_1D_MAP = {
     ConvOutputTo1D.AVG_POOL_CHANNEL: partial(Mean, dim=CHANNEL_DIM),
     ConvOutputTo1D.MAX_POOL_SPATIAL: partial(nn.AdaptiveMaxPool2d, output_size=(1, 1)),
     ConvOutputTo1D.MAX_POOL_CHANNEL: partial(Max, dim=CHANNEL_DIM),
-    ConvOutputTo1D.SPATIAL_SOFTMAX: partial(SpatialSoftmax, temperature=1.0, output_variance=False),
+    ConvOutputTo1D.SPATIAL_SOFTMAX: partial(
+        SpatialSoftmax, temperature=1.0, output_variance=False
+    ),
 }
 CONV_1D_OUTPUT_TO_1D_MAP = {
     ConvOutputTo1D.FLATTEN: nn.Identity,
@@ -115,7 +115,9 @@ CONV_1D_OUTPUT_TO_1D_MAP = {
     ConvOutputTo1D.AVG_POOL_CHANNEL: partial(Mean, dim=CHANNEL_DIM),
     ConvOutputTo1D.MAX_POOL_SPATIAL: partial(nn.AdaptiveMaxPool1d, output_size=1),
     ConvOutputTo1D.MAX_POOL_CHANNEL: partial(Max, dim=CHANNEL_DIM),
-    ConvOutputTo1D.SPATIAL_SOFTMAX: partial(SpatialSoftmax, temperature=1.0, output_variance=False),
+    ConvOutputTo1D.SPATIAL_SOFTMAX: partial(
+        SpatialSoftmax, temperature=1.0, output_variance=False
+    ),
 }
 
 
@@ -295,7 +297,6 @@ class ConvEncoder2D(nn.Module):
 
         # Create conv architecture
         if self.use_resnet:
-            # TODO: Properly config
             weights = ResNet18_Weights.DEFAULT if self.use_pretrained else None
             weights_transforms = weights.transforms() if self.use_pretrained else []
             self.img_preprocess = Compose(
@@ -1223,6 +1224,79 @@ class General2DTo1DClassifier(nn.Module):
         )
 
 
+def test_all_setups(setup_dict: Dict[str, Any]) -> None:
+    import itertools
+    from tqdm import tqdm
+
+    keys = list(setup_dict.keys())
+    options_list = [setup_dict[key] for key in keys]
+    all_options_combinations = list(itertools.product(*options_list))
+    for i, options in tqdm(enumerate(all_options_combinations), total=len(all_options_combinations)):
+        kwargs = dict(zip(keys, options))
+        print("~" * 80)
+        print(f"Testing setup {i + 1} / {len(all_options_combinations)}")
+        print('\n'.join([f'{key} = {value}' for key, value in kwargs.items()]))
+        print("~" * 80)
+        test_setup(**kwargs)
+        print()
+
+
+def test_setup(
+    batch_size,
+    n_fingers,
+    seq_len,
+    height,
+    width,
+    conditioning_dim,
+    use_conditioning_2d,
+    use_conditioning_1d,
+    merge_fingers_method,
+    encoder_1d_type,
+    conv_encoder_2d_embed_dim,
+    concat_conditioning_before_1d,
+    concat_conditioning_after_1d,
+    conv_encoder_2d_mlp_hidden_layers,
+    head_mlp_hidden_layers,
+    device,
+):
+    print("Testing setup")
+    print("---------------------")
+    print(f"batch_size = {batch_size}")
+    print(f"n_fingers = {n_fingers}")
+    print(f"seq_len = {seq_len}")
+    print(f"height = {height}")
+    print(f"width = {width}")
+    print(f"conditioning_dim = {conditioning_dim}")
+    print()
+    example_input = torch.randn(
+        batch_size, n_fingers, seq_len, height, width, device=device
+    )
+    example_conditioning = torch.randn(batch_size, conditioning_dim, device=device)
+
+    general_model = General2DTo1DClassifier(
+        input_shape=(seq_len, height, width),
+        n_fingers=n_fingers,
+        conditioning_dim=conditioning_dim,
+        use_conditioning_2d=use_conditioning_2d,
+        use_conditioning_1d=use_conditioning_1d,
+        merge_fingers_method=merge_fingers_method,
+        encoder_1d_type=encoder_1d_type,
+        conv_encoder_2d_embed_dim=conv_encoder_2d_embed_dim,
+        concat_conditioning_before_1d=concat_conditioning_before_1d,
+        concat_conditioning_after_1d=concat_conditioning_after_1d,
+        conv_encoder_2d_mlp_hidden_layers=conv_encoder_2d_mlp_hidden_layers,
+        head_mlp_hidden_layers=head_mlp_hidden_layers,
+    ).to(device)
+
+    example_output = general_model(example_input, example_conditioning)
+    print("General2DTo1DClassifier")
+    print("=" * 80)
+    print(f"example_input.shape = {example_input.shape}")
+    print(f"example_conditioning.shape = {example_conditioning.shape}")
+    print(f"example_output.shape = {example_output.shape}")
+    print()
+
+
 def main() -> None:
     from torchinfo import summary
 
@@ -1249,7 +1323,7 @@ def main() -> None:
     )
     example_conditioning = torch.randn(batch_size, conditioning_dim, device=device)
 
-    # Create model 5
+    # Create model
     general_model = General2DTo1DClassifier(
         input_shape=(seq_len, height, width),
         n_fingers=n_fingers,
@@ -1273,7 +1347,7 @@ def main() -> None:
     print(f"example_output.shape = {example_output.shape}")
     print()
 
-    # Create model 6
+    # Create model 2
     general_model_2 = General2DTo1DClassifier(
         input_shape=(seq_len, height, width),
         n_fingers=n_fingers,
@@ -1297,6 +1371,54 @@ def main() -> None:
     print(f"example_output.shape = {example_output.shape}")
     print()
 
+    # Create model 3
+    general_model_3 = General2DTo1DClassifier(
+        input_shape=(seq_len, height, width),
+        n_fingers=n_fingers,
+        conditioning_dim=conditioning_dim,
+        use_conditioning_2d=False,
+        use_conditioning_1d=False,
+        merge_fingers_method=MergeFingersMethod.ADD_AFTER_1D,
+        encoder_1d_type=Encoder1DType.TRANSFORMER,
+        conv_encoder_2d_embed_dim=32,
+        concat_conditioning_before_1d=False,
+        concat_conditioning_after_1d=False,
+        conv_encoder_2d_mlp_hidden_layers=[64, 64],
+        head_mlp_hidden_layers=[64, 64],
+    ).to(device)
+
+    example_output = general_model_3(example_input, example_conditioning)
+
+    print("General2DTo1DClassifier Transformer 2")
+    print("=" * 80)
+    print(f"example_input.shape = {example_input.shape}")
+    print(f"example_conditioning.shape = {example_conditioning.shape}")
+    print(f"example_output.shape = {example_output.shape}")
+    print()
+
+    # Test many model configs
+    print("About to test many model configs")
+    ARGUMENT_NAMES_TO_OPTIONS_DICT = {
+        "batch_size": [3, 5],
+        "n_fingers": [2],
+        "seq_len": [4, 7],
+        "height": [17],
+        "width": [19],
+        "conditioning_dim": [15],
+        "use_conditioning_2d": [True, False],
+        "use_conditioning_1d": [True, False],
+        "merge_fingers_method": [m for m in MergeFingersMethod],
+        "encoder_1d_type": [e for e in Encoder1DType],
+        "conv_encoder_2d_embed_dim": [32, 64],
+        "concat_conditioning_before_1d": [True, False],
+        "concat_conditioning_after_1d": [True, False],
+        "conv_encoder_2d_mlp_hidden_layers": [[64, 64]],
+        "head_mlp_hidden_layers": [[64, 64]],
+        "device": [device],
+    }
+    test_all_setups(ARGUMENT_NAMES_TO_OPTIONS_DICT)
+
+    # Spatial softmax
     x = torch.randn(batch_size, seq_len, width, device=device)
     xx = torch.randn(batch_size, seq_len, height, width, device=device)
     spatial_softmax = SpatialSoftmax(temperature=1.0, output_variance=False)

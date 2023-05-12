@@ -824,7 +824,8 @@ class ClassifierConfig:
     conv_encoder_2d_embed_dim: int = MISSING
     conv_encoder_2d_mlp_hidden_layers: List[int] = MISSING
 
-    encoder_1d_config: Union[ConvEncoder1DConfig, TransformerEncoder1DConfig] = MISSING
+    conv_encoder_1d_config: ConvEncoder1DConfig = MISSING
+    transformer_encoder_1d_config: TransformerEncoder1DConfig = MISSING
     encoder_1d_type: Encoder1DType = MISSING
     use_conditioning_1d: bool = MISSING
     head_mlp_hidden_layers: List[int] = MISSING
@@ -1116,13 +1117,19 @@ class Abstract2DTo1DClassifier(nn.Module):
 class Condition2D1D_ConcatFingersAfter1D(Abstract2DTo1DClassifier):
     def __init__(
         self,
-        encoder_1d_config: Optional[Union[ConvEncoder1DConfig, TransformerEncoder1DConfig]] = None,
+        conv_encoder_1d_config: Optional[ConvEncoder1DConfig] = None,
+        transformer_encoder_1d_config: Optional[TransformerEncoder1DConfig] = None,
         encoder_1d_type: Encoder1DType = Encoder1DType.CONV,
         use_conditioning_1d: bool = False,
         head_mlp_hidden_layers: List[int] = [64, 64],
         **kwargs,
     ) -> None:
-        self.encoder_1d_config = encoder_1d_config
+        if encoder_1d_type == Encoder1DType.CONV:
+            self.encoder_1d_config = conv_encoder_1d_config
+        elif encoder_1d_type == Encoder1DType.TRANSFORMER:
+            self.encoder_1d_config = transformer_encoder_1d_config
+        else:
+            raise ValueError(f"Invalid encoder_1d_type = {encoder_1d_type}")
         self.encoder_1d_type = encoder_1d_type
         self.use_conditioning_1d = use_conditioning_1d
         self.head_mlp_hidden_layers = head_mlp_hidden_layers

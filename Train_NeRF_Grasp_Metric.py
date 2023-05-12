@@ -70,7 +70,13 @@ from torchinfo import summary
 from torchviz import make_dot
 from wandb.util import generate_id
 from torch.profiler import profile, record_function, ProfilerActivity
-from tyler_new_models import PoolType, ConvOutputTo1D, Condition2D1D_ConcatFingersAfter1D
+from tyler_new_models import (
+    PoolType,
+    ConvOutputTo1D,
+    Condition2D1D_ConcatFingersAfter1D,
+    Encoder1DType,
+    ClassifierConfig,
+)
 
 import wandb
 
@@ -158,15 +164,6 @@ class TrainingConfig:
 
 
 @dataclass
-class NeuralNetworkConfig:
-    conv_channels: List[int] = MISSING
-    pool_type: PoolType = MISSING
-    dropout_prob: float = MISSING
-    conv_output_to_1d: ConvOutputTo1D = MISSING
-    mlp_hidden_layers: List[int] = MISSING
-
-
-@dataclass
 class CheckpointWorkspaceConfig:
     root_dir: str = MISSING
     leaf_dir: str = MISSING
@@ -180,7 +177,7 @@ class Config:
     preprocess: PreprocessConfig = MISSING
     wandb: WandbConfig = MISSING
     training: TrainingConfig = MISSING
-    neural_network: NeuralNetworkConfig = MISSING
+    classifier: ClassifierConfig = MISSING
     checkpoint_workspace: CheckpointWorkspaceConfig = MISSING
     random_seed: int = MISSING
     visualize_data: bool = MISSING
@@ -890,6 +887,62 @@ class BatchData:
         self.right_nerf_densities = self.right_nerf_densities.to(device)
         self.right_global_params = self.right_global_params.to(device)
         self.grasp_successes = self.grasp_successes.to(device)
+        return self
+
+    @property
+    @localscope.mfc(allowed=["NUM_PTS_X", "NUM_PTS_Y", "NUM_PTS_Z"])
+    def nerf_grid_inputs(self) -> torch.Tensor:
+        assert (
+            self.left_nerf_densities.shape
+            == self.right_nerf_densities.shape
+            == (
+                self.left_nerf_densities.shape[0],
+                1,
+                NUM_PTS_X // 2,
+                NUM_PTS_Y,
+                NUM_PTS_Z,
+            )
+        )
+        nerf_grid_inputs = torch.cat(
+            [
+                self.left_nerf_densities,
+                self.right_nerf_densities,
+            ],
+            dim=1,
+        )
+        assert nerf_grid_inputs.shape == (
+            self.left_nerf_densities.shape[0],
+            2,
+            NUM_PTS_X // 2,
+            NUM_PTS_Y,
+            NUM_PTS_Z,
+        )
+        return nerf_grid_inputs
+
+    @property
+    @localscope.mfc
+    def global_params(self) -> torch.Tensor:
+        assert (
+            self.left_global_params.shape
+            == self.right_global_params.shape
+            == (
+                self.left_global_params.shape[0],
+                self.left_global_params.shape[1],
+            )
+        )
+        global_params = torch.stack(
+            [
+                self.left_global_params,
+                self.right_global_params,
+            ],
+            dim=1,
+        )
+        assert global_params.shape == (
+            self.left_global_params.shape[0],
+            2,
+            self.left_global_params.shape[1],
+        )
+        return global_params
 
 
 # %%
@@ -947,7 +1000,7 @@ test_loader = DataLoader(
 )
 
 # %%
-example_batch_data = next(iter(val_loader))
+example_batch_data: BatchData = next(iter(val_loader))
 
 
 # %%
@@ -1524,8 +1577,12 @@ def create_batch_input_distribution_fig(
     max_num_batches: Optional[int] = None,
 ) -> plt.Figure:
     nerf_densities, nerf_global_params = [], []
-    max_num_batches = max_num_batches if max_num_batches is not None else len(train_loader)
-    max_num_batches = min(max_num_batches, len(train_loader))  # Ensure max_num_batches is not too large
+    max_num_batches = (
+        max_num_batches if max_num_batches is not None else len(train_loader)
+    )
+    max_num_batches = min(
+        max_num_batches, len(train_loader)
+    )  # Ensure max_num_batches is not too large
 
     for batch_idx, batch_data in tqdm(
         enumerate(train_loader),
@@ -1541,7 +1598,9 @@ def create_batch_input_distribution_fig(
         nerf_global_params.extend(batch_data.left_global_params.flatten().tolist())
         nerf_global_params.extend(batch_data.right_global_params.flatten().tolist())
 
-    nerf_densities, nerf_global_params = np.array(nerf_densities), np.array(nerf_global_params)
+    nerf_densities, nerf_global_params = np.array(nerf_densities), np.array(
+        nerf_global_params
+    )
     print(f"nerf_density_min: {nerf_densities.min()}")
     print(f"nerf_density_mean: {nerf_densities.mean()}")
     print(f"nerf_density_max: {nerf_densities.max()}")
@@ -1586,25 +1645,20 @@ if cfg.visualize_data:
 # # Create Neural Network Model
 
 # %%
+
+# %%
 device = "cuda" if torch.cuda.is_available() else "cpu"
 input_shape = (NUM_PTS_X // 2, NUM_PTS_Y, NUM_PTS_Z)
 assert example_batch_data.left_nerf_densities.shape[1:] == input_shape
 conditioning_dim = example_batch_data.left_global_params.shape[1]
-assert 
+print(f"input_shape = {input_shape}")
+print(f"conditioning_dim = {conditioning_dim}")
 
 nerf_to_grasp_success_model = Condition2D1D_ConcatFingersAfter1D(
     input_shape=input_shape,
     n_fingers=2,
     conditioning_dim=conditioning_dim,
-    use_conditioning_2d: bool = False,
-    use_conditioning_1d: bool = False,
-    merge_fingers_method: MergeFingersMethod = MergeFingersMethod.MULTIPLY_AFTER_1D,
-    encoder_1d_type: Encoder1DType = Encoder1DType.CONV,
-    conv_encoder_2d_embed_dim: int = 32,
-    concat_conditioning_before_1d: bool = False,
-    concat_conditioning_after_1d: bool = False,
-    conv_encoder_2d_mlp_hidden_layers: List[int] = [64, 64],
-    head_mlp_hidden_layers: List[int] = [64, 64],
+    *cfg.classifier,
 ).to(device)
 
 optimizer = torch.optim.AdamW(
@@ -1637,30 +1691,39 @@ print(f"nerf_to_grasp_success_model = {nerf_to_grasp_success_model}")
 print(f"optimizer = {optimizer}")
 
 # %%
-example_batch_nerf_input = example_batch_nerf_input.to(device)
-print(f"example_batch_nerf_input.shape = {example_batch_nerf_input.shape}")
+example_batch_data = example_batch_data.to(device)
 
 summary(
     nerf_to_grasp_success_model,
-    input_data=example_batch_nerf_input,
+    input_data=[example_batch_data.nerf_grid_inputs, example_batch_data.global_params],
     device=device,
     depth=5,
 )
 
 # %%
-# TODO: Update left right batch data
-example_batch_nerf_input, _ = next(iter(train_loader))
-example_batch_nerf_input = example_batch_nerf_input.requires_grad_(True).to(device)
-example_grasp_success_prediction = nerf_to_grasp_success_model(example_batch_nerf_input)
+example_batch_nerf_grid_inputs, example_batch_global_params = (
+    example_batch_data.nerf_grid_inputs,
+    example_batch_data.global_params,
+)
+example_batch_nerf_grid_inputs = example_batch_nerf_grid_inputs.requires_grad_(True).to(
+    device
+)
+example_batch_global_params = example_batch_global_params.requires_grad_(True).to(
+    device
+)
+example_grasp_success_predictions = nerf_to_grasp_success_model(
+    example_batch_nerf_grid_inputs, conditioning=example_batch_global_params
+)
 
 dot = None
 try:
     dot = make_dot(
-        example_grasp_success_prediction,
+        example_grasp_success_predictions,
         params={
             **dict(nerf_to_grasp_success_model.named_parameters()),
-            **{"NERF INPUT": example_batch_nerf_input},
-            **{"GRASP SUCCESS": example_grasp_success_prediction},
+            **{"NERF INPUT": example_batch_nerf_grid_inputs},
+            **{"GLOBAL PARAMS": example_batch_global_params},
+            **{"GRASP SUCCESS": example_grasp_success_predictions},
         },
     )
     model_graph_filename = "model_graph.png"
@@ -1683,7 +1746,7 @@ dot
 def save_checkpoint(
     checkpoint_workspace_dir_path: str,
     epoch: int,
-    nerf_to_grasp_success_model: NeRF_to_Grasp_Success_Model,
+    nerf_to_grasp_success_model: Condition2D1D_ConcatFingersAfter1D,
     optimizer: torch.optim.Optimizer,
 ) -> None:
     checkpoint_filepath = os.path.join(
@@ -1738,7 +1801,7 @@ def create_dataloader_subset(
 def iterate_through_dataloader(
     phase: Phase,
     dataloader: DataLoader,
-    nerf_to_grasp_success_model: NeRF_to_Grasp_Success_Model,
+    nerf_to_grasp_success_model: Condition2D1D_ConcatFingersAfter1D,
     device: str,
     ce_loss_fn: nn.CrossEntropyLoss,
     wandb_log_dict: Dict[str, Any],
@@ -1780,9 +1843,9 @@ def iterate_through_dataloader(
             start_forward_pass_time = time.time()
             batch_data: BatchData = batch_data
             batch_data = batch_data.to(device)
-            # TODO: update for left/right
+
             grasp_success_logits = nerf_to_grasp_success_model.get_success_logits(
-                batch_data.nerf_grid_inputs
+                batch_data.nerf_grid_inputs, conditioning=batch_data.global_params
             )
             ce_loss = ce_loss_fn(
                 input=grasp_success_logits, target=batch_data.grasp_successes
@@ -1952,7 +2015,7 @@ def run_training_loop(
     cfg: TrainingConfig,
     train_loader: DataLoader,
     val_loader: DataLoader,
-    nerf_to_grasp_success_model: NeRF_to_Grasp_Success_Model,
+    nerf_to_grasp_success_model: Condition2D1D_ConcatFingersAfter1D,
     device: str,
     ce_loss_fn: nn.CrossEntropyLoss,
     optimizer: torch.optim.Optimizer,

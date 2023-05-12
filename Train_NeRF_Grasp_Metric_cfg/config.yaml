@@ -46,12 +46,44 @@ training:
   save_confusion_matrix_on_epoch_0: False
   use_dataloader_subset: True
 
-neural_network:
-  conv_channels: [32, 64, 128]
-  pool_type: "MAX"
-  dropout_prob: 0.0
-  conv_output_to_1d: "AVG_POOL_SPATIAL"
-  mlp_hidden_layers: [256, 256]
+classifier:
+    conv_encoder_2d_config:
+      use_resnet: True
+      use_pretrained: True
+      pooling_method: "AVG_POOL_CHANNEL"
+      film_hidden_layers: [64, 64]
+
+    use_conditioning_2d: True
+    conv_encoder_2d_embed_dim: 32
+    conv_encoder_2d_mlp_hidden_layers: [64, 64]
+
+    # Conv
+    conv_encoder_1d_config:
+      use_resnet: True
+      pooling_method: "AVG_POOL_CHANNEL"
+      film_hidden_layers: [64, 64]
+      base_filters: 64
+      kernel_size: 16
+      stride: 2
+      groups: 32
+      n_block: 8
+      downsample_gap: 6
+      increasefilter_gap: 12
+      use_do: False
+
+    # Transformer
+    transformer_encoder_1d_config:
+      pooling_method: ConvOutputTo1D.FLATTEN
+      n_heads: 8
+      n_emb: ${eval:${classifier.transformer_encoder_1d_config.n_heads} * 16}  # Need to be divisible by n_heads
+      p_drop_emb: 0.1
+      p_drop_attn: 0.1
+      n_layers: 4
+
+    encoder_1d_type: "CONV"
+
+    use_conditioning_1d: True
+    head_mlp_hidden_layers: [64, 64]
 
 checkpoint_workspace:
   root_dir: "Train_NeRF_Grasp_Metric_workspaces"

@@ -862,10 +862,15 @@ class General2DTo1DClassifier(nn.Module):
         )
 
         # Before 1D
+        self.encoder_1d_input_dim = conv_encoder_2d_embed_dim
+        self.encoder_1d_seq_len = self.seq_len
+        if self.concat_conditioning_before_1d and conditioning_dim is not None:
+            self.encoder_1d_input_dim += conditioning_dim
+
         if merge_fingers_method == MergeFingersMethod.ATTENTION_BEFORE_1D:
             self.attention_before_1d = TransformerEncoderDecoder(
-                input_shape=(conv_encoder_2d_embed_dim, self.seq_len),
-                n_emb=conv_encoder_2d_embed_dim,
+                input_shape=(self.encoder_1d_input_dim, self.seq_len),
+                n_emb=self.encoder_1d_input_dim,
                 pooling_method=ConvOutputTo1D.FLATTEN,
             )
 
@@ -877,24 +882,18 @@ class General2DTo1DClassifier(nn.Module):
             MergeFingersMethod.CONCAT_AFTER_1D,
             MergeFingersMethod.ATTENTION_BEFORE_1D,
         ]:
-            self.encoder_1d_input_dim = conv_encoder_2d_embed_dim
-            self.encoder_1d_seq_len = self.seq_len
+            pass
         elif merge_fingers_method == MergeFingersMethod.CONCAT_BEFORE_1D_CHANNEL_WISE:
-            self.encoder_1d_input_dim = conv_encoder_2d_embed_dim * n_fingers
-            self.encoder_1d_seq_len = self.seq_len
+            self.encoder_1d_input_dim *= n_fingers
         elif merge_fingers_method == MergeFingersMethod.CONCAT_BEFORE_1D_TIME_WISE:
-            self.encoder_1d_input_dim = conv_encoder_2d_embed_dim
-            self.encoder_1d_seq_len = self.seq_len * n_fingers
+            self.encoder_1d_seq_len *= n_fingers
         else:
             raise ValueError(f"Invalid merge_fingers_method = {merge_fingers_method}")
 
-        if self.concat_conditioning_before_1d and conditioning_dim is not None:
-            if merge_fingers_method == MergeFingersMethod.CONCAT_BEFORE_1D_CHANNEL_WISE:
-                self.encoder_1d_input_dim += conditioning_dim * n_fingers
-            else:
-                self.encoder_1d_input_dim += conditioning_dim
-
         # 1D
+        encoder_1d_conditioning_dim = (
+            None if not use_conditioning_1d else conditioning_dim if  TODO
+        )
         if encoder_1d_type == Encoder1DType.CONV:
             self.encoder_1d = ConvEncoder1D(
                 input_shape=(self.encoder_1d_input_dim, self.encoder_1d_seq_len),
@@ -909,8 +908,12 @@ class General2DTo1DClassifier(nn.Module):
             raise ValueError(f"Invalid encoder_1d_type = {encoder_1d_type}")
 
         # After 1D
+        self.head_num_inputs = self.encoder_1d.output_dim
+        if self.concat_conditioning_after_1d and conditioning_dim is not None:
+            self.head_num_inputs += conditioning_dim
+
         if merge_fingers_method == MergeFingersMethod.CONCAT_AFTER_1D:
-            self.head_num_inputs = self.encoder_1d.output_dim * n_fingers
+            self.head_num_inputs *= n_fingers
         elif merge_fingers_method in [
             MergeFingersMethod.MULTIPLY_AFTER_1D,
             MergeFingersMethod.ADD_AFTER_1D,
@@ -920,12 +923,9 @@ class General2DTo1DClassifier(nn.Module):
             MergeFingersMethod.CONCAT_BEFORE_1D_TIME_WISE,
             MergeFingersMethod.ATTENTION_BEFORE_1D,
         ]:
-            self.head_num_inputs = self.encoder_1d.output_dim
+            pass
         else:
             raise ValueError(f"Invalid merge_fingers_method = {merge_fingers_method}")
-
-        if self.concat_conditioning_after_1d and conditioning_dim is not None:
-            self.head_num_inputs += conditioning_dim
 
         # Head
         self.head = mlp(
@@ -1073,7 +1073,41 @@ class General2DTo1DClassifier(nn.Module):
             self.conditioning_dim,
         )
 
-        # Before 1d operations (batch_size, n_fingers, seq_len, conv_encoder_2d_embed_dim) => (batch_size, self.encoder_1d_seq_len, self.encoder_1d_input_dim)
+        # Concat conditioning before 1d
+        if (
+            self.concat_conditioning_before_1d
+            and conditioning is not None
+            and self.conditioning_dim is not None
+        ):
+            conditioning = conditioning.reshape(
+                batch_size,
+                self.n_fingers,
+                1,
+                self.conditioning_dim,
+            ).repeat(1, 1, self.seq_len, 1)
+            assert conditioning.shape == (
+                batch_size,
+                self.n_fingers,
+                self.seq_len,
+                self.conditioning_dim,
+            )
+
+            x = torch.cat([x, conditioning], dim=-1)
+
+        embed_dim = (
+            self.conv_encoder_2d_embed_dim + self.conditioning_dim
+            if self.conditioning_dim is not None
+            else self.conv_encoder_2d_embed_dim
+        )
+
+        assert x.shape == (
+            batch_size,
+            self.n_fingers,
+            self.seq_len,
+            embed_dim,
+        )
+
+        # Before 1d operations (batch_size, n_fingers, seq_len, conv_encoder_2d_embed_dim) => (-1, self.encoder_1d_seq_len, self.encoder_1d_input_dim)
         if self.merge_fingers_method == MergeFingersMethod.MULTIPLY_BEFORE_1D:
             x = x.prod(dim=1)
         elif self.merge_fingers_method == MergeFingersMethod.ADD_BEFORE_1D:
@@ -1087,18 +1121,18 @@ class General2DTo1DClassifier(nn.Module):
                 batch_size,
                 self.seq_len,
                 self.n_fingers,
-                self.conv_encoder_2d_embed_dim,
+                embed_dim,
             )
             x = x.reshape(
                 batch_size,
                 self.seq_len,
-                self.n_fingers * self.conv_encoder_2d_embed_dim,
+                self.n_fingers * embed_dim,
             )
         elif self.merge_fingers_method == MergeFingersMethod.CONCAT_BEFORE_1D_TIME_WISE:
             x = x.reshape(
                 batch_size,
                 self.n_fingers * self.seq_len,
-                self.conv_encoder_2d_embed_dim,
+                embed_dim,
             )
         elif self.merge_fingers_method == MergeFingersMethod.ATTENTION_BEFORE_1D:
             # HACK: Assumes n_fingers == 2 so can do attention between the two
@@ -1108,7 +1142,7 @@ class General2DTo1DClassifier(nn.Module):
             assert (
                 left_finger.shape
                 == right_finger.shape
-                == (batch_size, self.seq_len, self.conv_encoder_2d_embed_dim)
+                == (batch_size, self.seq_len, embed_dim)
             )
             left_finger, right_finger = left_finger.permute(
                 0, 2, 1
@@ -1116,16 +1150,14 @@ class General2DTo1DClassifier(nn.Module):
             assert (
                 left_finger.shape
                 == right_finger.shape
-                == (batch_size, self.conv_encoder_2d_embed_dim, self.seq_len)
+                == (batch_size, embed_dim, self.seq_len)
             )
             x = self.attention_before_1d(left_finger, conditioning=right_finger)
             assert x.shape == (
                 batch_size,
-                self.conv_encoder_2d_embed_dim * self.seq_len,
+                embed_dim * self.seq_len,
             )
-            x = x.reshape(
-                batch_size, self.conv_encoder_2d_embed_dim, self.seq_len
-            ).permute(0, 2, 1)
+            x = x.reshape(batch_size, embed_dim, self.seq_len).permute(0, 2, 1)
         elif self.merge_fingers_method in [
             MergeFingersMethod.ADD_AFTER_1D,
             MergeFingersMethod.MULTIPLY_AFTER_1D,
@@ -1135,39 +1167,12 @@ class General2DTo1DClassifier(nn.Module):
             x = x.reshape(
                 batch_size * self.n_fingers,
                 self.seq_len,
-                self.conv_encoder_2d_embed_dim,
+                embed_dim,
             )
         else:
             raise ValueError(
                 f"Invalid merge_fingers_method = {self.merge_fingers_method}"
             )
-
-        # Concat conditioning before 1d
-        if (
-            self.concat_conditioning_before_1d
-            and conditioning is not None
-            and self.conditioning_dim is not None
-        ):
-
-            conditioning = self._get_adjusted_conditioning(conditioning)
-
-            # repeat conditioning along seq_len dim
-            conditioning = conditioning.reshape(
-                batch_size, self.n_fingers, 1, self.conditioning_dim
-            ).repeat(1, 1, self.encoder_1d_seq_len, 1)
-            assert conditioning.shape == (
-                batch_size,
-                self.n_fingers,
-                self.encoder_1d_seq_len,
-                self.conditioning_dim,
-            )
-
-            assert conditioning.shape == (
-                x.shape[0],
-                self.encoder_1d_seq_len,
-                self.conditioning_dim,
-            )
-            x = torch.cat([x, conditioning], dim=-1)
 
         assert len(x.shape) == 3 and x.shape[1:] == (
             self.encoder_1d_seq_len,
@@ -1198,80 +1203,17 @@ class General2DTo1DClassifier(nn.Module):
             self.encoder_1d_seq_len,
         )
 
-        if conditioning is not None and self.use_conditioning_1d:
-            conditioning = self._get_adjusted_conditioning(conditioning)
+        if conditioning is not None and self.use_conditioning_1d and self.conditioning_dim is not None:
+            if x.shape[0] == batch_size * self.n_fingers:
+                conditioning = conditioning.reshape(
+                    batch_size * self.n_fingers, self.conditioning_dim
+                )
+            # TODO: Not figured out how to fix this
 
         x = self.encoder_1d(x, conditioning=conditioning)
         assert len(x.shape) == 2 and x.shape[1] == self.encoder_1d.output_dim
 
         return x
-
-    def _get_adjusted_conditioning(self, conditioning: Optional[torch.Tensor] = None) -> Optional[torch.Tensor]:
-        if conditioning is None or self.conditioning_dim is None:
-            return None
-
-        batch_size = conditioning.shape[0]
-        assert conditioning is None or conditioning.shape[1:] == (
-            batch_size,
-            self.n_fingers,
-            self.conditioning_dim,
-        )
-
-        # Need to get rid of n_fingers dim
-        if self.merge_fingers_method == MergeFingersMethod.MULTIPLY_BEFORE_1D:
-            conditioning = conditioning.prod(dim=1)
-        elif self.merge_fingers_method == MergeFingersMethod.ADD_BEFORE_1D:
-            conditioning = conditioning.sum(dim=1)
-        elif (
-            self.merge_fingers_method
-            == MergeFingersMethod.CONCAT_BEFORE_1D_CHANNEL_WISE
-        ):
-            conditioning = conditioning.permute(
-                0, 2, 1, 3
-            ).reshape(
-                batch_size,
-                self.encoder_1d_seq_len,
-                self.n_fingers * self.conditioning_dim,
-            )
-        elif (
-            self.merge_fingers_method
-            == MergeFingersMethod.CONCAT_BEFORE_1D_TIME_WISE
-        ):
-            conditioning = conditioning.reshape(
-                batch_size,
-                self.encoder_1d_seq_len * self.n_fingers,
-                self.conditioning_dim,
-            )
-        elif self.merge_fingers_method == MergeFingersMethod.ATTENTION_BEFORE_1D:
-            # HACK: Assumes n_fingers == 2 so can do attention between the two, doesn't make sense with this right now
-            conditioning = conditioning.sum(dim=1)
-        elif self.merge_fingers_method in [
-            MergeFingersMethod.ADD_AFTER_1D,
-            MergeFingersMethod.MULTIPLY_AFTER_1D,
-            MergeFingersMethod.CONCAT_AFTER_1D,
-        ]:
-            # Process fingers individually
-            conditioning = conditioning.reshape(
-                batch_size * self.n_fingers,
-                self.encoder_1d_seq_len,
-                self.conditioning_dim,
-            )
-        else:
-            raise ValueError(
-                f"Invalid merge_fingers_method = {self.merge_fingers_method}"
-            )
-
-        assert conditioning.shape == (
-            batch_size,
-            self.n_fingers,
-            self.encoder_1d_seq_len,
-            self.conditioning_dim,
-        )
-
-        return conditioning
-
-
-
 
     def _run_merge_after_1d(
         self, x: torch.Tensor, conditioning: Optional[torch.Tensor] = None

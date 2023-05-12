@@ -329,7 +329,7 @@ wandb.init(
 
 # %%
 # CONSTANTS AND PARAMS
-DOWNSAMPLE_FACTOR = 5  # TODO: HACK
+DOWNSAMPLE_FACTOR_X, DOWNSAMPLE_FACTOR_Y, DOWNSAMPLE_FACTOR_Z = 8, 2, 2  # TODO: HACK
 NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z = 83, 21, 37
 NUM_XYZ = 3
 NUM_DENSITY = 1
@@ -874,78 +874,79 @@ assert len(set.intersection(set(val_dataset.indices), set(test_dataset.indices))
 
 # %%
 # Create custom class to store a batch
-@dataclass
 class BatchData:
-    left_nerf_densities: torch.Tensor
-    left_global_params: torch.Tensor
-    right_nerf_densities: torch.Tensor
-    right_global_params: torch.Tensor
-    grasp_successes: torch.Tensor
-
-    @localscope.mfc
-    def to(self, device):
-        self.left_nerf_densities = self.left_nerf_densities.to(device)
-        self.left_global_params = self.left_global_params.to(device)
-        self.right_nerf_densities = self.right_nerf_densities.to(device)
-        self.right_global_params = self.right_global_params.to(device)
-        self.grasp_successes = self.grasp_successes.to(device)
-        return self
-
-    @property
     @localscope.mfc(
-        allowed=["NUM_PTS_X", "NUM_PTS_Y", "NUM_PTS_Z", "DOWNSAMPLE_FACTOR"]
+        allowed=["NUM_PTS_X", "NUM_PTS_Y", "NUM_PTS_Z"]
     )
-    def nerf_grid_inputs(self) -> torch.Tensor:
+    def __init__(self, left_nerf_densities, left_global_params, right_nerf_densities, right_global_params, grasp_successes):
         assert (
-            self.left_nerf_densities.shape
-            == self.right_nerf_densities.shape
+            left_nerf_densities.shape
+            == right_nerf_densities.shape
             == (
-                self.left_nerf_densities.shape[0],
+                left_nerf_densities.shape[0],
                 NUM_PTS_X // 2,
                 NUM_PTS_Y,
                 NUM_PTS_Z,
             )
         )
-        nerf_grid_inputs = torch.stack(
-            [
-                self.left_nerf_densities,
-                self.right_nerf_densities,
-            ],
-            dim=1,
+        assert (
+            left_global_params.shape
+            == right_global_params.shape
+            == (
+                left_global_params.shape[0],
+                left_global_params.shape[1],
+            )
         )
-        assert nerf_grid_inputs.shape == (
-            self.left_nerf_densities.shape[0],
+
+        self._nerf_grid_inputs = torch.stack([left_nerf_densities, right_nerf_densities], dim=1)
+        self.global_params = torch.stack([left_global_params, right_global_params], dim=1)
+        self.grasp_successes = grasp_successes
+
+        assert self._nerf_grid_inputs.shape == (
+            left_nerf_densities.shape[0],
             2,
             NUM_PTS_X // 2,
             NUM_PTS_Y,
             NUM_PTS_Z,
         )
-        return nerf_grid_inputs[:, :, ::DOWNSAMPLE_FACTOR]
+        assert self.global_params.shape == (
+            left_global_params.shape[0],
+            2,
+            left_global_params.shape[1],
+        )
+
+    @localscope.mfc
+    def to(self, device):
+        self._nerf_grid_inputs = self._nerf_grid_inputs.to(device)
+        self.global_params = self.global_params.to(device)
+        self.grasp_successes = self.grasp_successes.to(device)
+        return self
+
+    @property
+    @localscope.mfc(allowed=["DOWNSAMPLE_FACTOR_X", "DOWNSAMPLE_FACTOR_Y", "DOWNSAMPLE_FACTOR_Z"])
+    def nerf_grid_inputs(self) -> torch.Tensor:
+        # TODO HACK Downsample
+        return self._nerf_grid_inputs[:, :, ::DOWNSAMPLE_FACTOR_X, ::DOWNSAMPLE_FACTOR_Y, ::DOWNSAMPLE_FACTOR_Z]
 
     @property
     @localscope.mfc
-    def global_params(self) -> torch.Tensor:
-        assert (
-            self.left_global_params.shape
-            == self.right_global_params.shape
-            == (
-                self.left_global_params.shape[0],
-                self.left_global_params.shape[1],
-            )
-        )
-        global_params = torch.stack(
-            [
-                self.left_global_params,
-                self.right_global_params,
-            ],
-            dim=1,
-        )
-        assert global_params.shape == (
-            self.left_global_params.shape[0],
-            2,
-            self.left_global_params.shape[1],
-        )
-        return global_params
+    def left_nerf_densities(self) -> torch.Tensor:
+        return self._nerf_grid_inputs[:, 0]
+
+    @property
+    @localscope.mfc
+    def right_nerf_densities(self) -> torch.Tensor:
+        return self._nerf_grid_inputs[:, 1]
+
+    @property
+    @localscope.mfc
+    def left_global_params(self) -> torch.Tensor:
+        return self.global_params[:, 0]
+
+    @property
+    @localscope.mfc
+    def right_global_params(self) -> torch.Tensor:
+        return self.global_params[:, 1]
 
 
 # %%
@@ -1648,8 +1649,6 @@ if cfg.visualize_data:
 
 # %%
 device = "cuda" if torch.cuda.is_available() else "cpu"
-# input_shape = (NUM_PTS_X // 2 // DOWNSAMPLE_FACTOR, NUM_PTS_Y, NUM_PTS_Z)
-# assert example_batch_data.left_nerf_densities.shape[1:] == input_shape
 input_shape = example_batch_data.nerf_grid_inputs.shape[-3:]
 conditioning_dim = example_batch_data.left_global_params.shape[1]
 print(f"input_shape = {input_shape}")

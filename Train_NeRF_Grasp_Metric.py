@@ -1906,7 +1906,7 @@ def iterate_through_dataloader(
             if gather_predictions:
                 with torch.no_grad():
                     predictions = grasp_success_logits.argmax(axis=1).tolist()
-                    ground_truths = grasp_successes.tolist()
+                    ground_truths = batch_data.grasp_successes.tolist()
                     all_predictions = all_predictions + predictions
                     all_ground_truths = all_ground_truths + ground_truths
             gather_predictions_time_taken = time.time() - start_gather_predictions_time

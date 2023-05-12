@@ -329,6 +329,7 @@ wandb.init(
 
 # %%
 # CONSTANTS AND PARAMS
+DOWNSAMPLE_FACTOR = 2 # TODO: HACK
 NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z = 83, 21, 37
 NUM_XYZ = 3
 NUM_DENSITY = 1
@@ -891,7 +892,7 @@ class BatchData:
         return self
 
     @property
-    @localscope.mfc(allowed=["NUM_PTS_X", "NUM_PTS_Y", "NUM_PTS_Z"])
+    @localscope.mfc(allowed=["NUM_PTS_X", "NUM_PTS_Y", "NUM_PTS_Z", "DOWNSAMPLE_FACTOR"])
     def nerf_grid_inputs(self) -> torch.Tensor:
         assert (
             self.left_nerf_densities.shape
@@ -917,7 +918,7 @@ class BatchData:
             NUM_PTS_Y,
             NUM_PTS_Z,
         )
-        return nerf_grid_inputs
+        return nerf_grid_inputs[:, :, ::DOWNSAMPLE_FACTOR]
 
     @property
     @localscope.mfc
@@ -1640,14 +1641,14 @@ if cfg.visualize_data:
         max_num_batches=50,
     )
 
-
 # %% [markdown]
 # # Create Neural Network Model
 
 # %%
 device = "cuda" if torch.cuda.is_available() else "cpu"
-input_shape = (NUM_PTS_X // 2, NUM_PTS_Y, NUM_PTS_Z)
-assert example_batch_data.left_nerf_densities.shape[1:] == input_shape
+# input_shape = (NUM_PTS_X // 2 // DOWNSAMPLE_FACTOR, NUM_PTS_Y, NUM_PTS_Z)
+# assert example_batch_data.left_nerf_densities.shape[1:] == input_shape
+input_shape = example_batch_data.nerf_grid_inputs.shape[-3:]
 conditioning_dim = example_batch_data.left_global_params.shape[1]
 print(f"input_shape = {input_shape}")
 print(f"conditioning_dim = {conditioning_dim}")
@@ -1687,10 +1688,6 @@ if checkpoint is not None:
 # %%
 print(f"nerf_to_grasp_success_model = {nerf_to_grasp_success_model}")
 print(f"optimizer = {optimizer}")
-
-# %%
-# TODO REMOVE
-example_batch_data.left_nerf_densities.shape
 
 # %%
 example_batch_data = example_batch_data.to(device)

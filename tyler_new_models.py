@@ -510,7 +510,7 @@ class TransformerEncoder1D(nn.Module):
         input_shape: Tuple[int, int],
         conditioning_dim: Optional[int] = None,
         pooling_method: ConvOutputTo1D = ConvOutputTo1D.FLATTEN,
-        n_heads: int = 12,
+        n_heads: int = 8,
         n_emb: int = 128,
         p_drop_emb: float = 0.1,
         p_drop_attn: float = 0.1,
@@ -799,6 +799,7 @@ class Encoder1DType(Enum):
     CONV = auto()
     TRANSFORMER = auto()
 
+
 class Abstract2DTo1DClassifier(nn.Module):
     def __init__(
         self,
@@ -806,13 +807,8 @@ class Abstract2DTo1DClassifier(nn.Module):
         n_fingers: int,
         conditioning_dim: Optional[int] = None,
         use_conditioning_2d: bool = False,
-        use_conditioning_1d: bool = False,
-        encoder_1d_type: Encoder1DType = Encoder1DType.CONV,
         conv_encoder_2d_embed_dim: int = 32,
-        concat_conditioning_before_1d: bool = False,
-        concat_conditioning_after_1d: bool = False,
         conv_encoder_2d_mlp_hidden_layers: List[int] = [64, 64],
-        head_mlp_hidden_layers: List[int] = [64, 64],
     ) -> None:
         # input_shape: (seq_len, height, width)
         super().__init__()
@@ -823,24 +819,12 @@ class Abstract2DTo1DClassifier(nn.Module):
         self.n_fingers = n_fingers
         self.conditioning_dim = conditioning_dim
         self.use_conditioning_2d = use_conditioning_2d
-        self.use_conditioning_1d = use_conditioning_1d
-        self.encoder_1d_type = encoder_1d_type
         self.conv_encoder_2d_embed_dim = conv_encoder_2d_embed_dim
-        self.concat_conditioning_before_1d = concat_conditioning_before_1d
-        self.concat_conditioning_after_1d = concat_conditioning_after_1d
+        self.conv_encoder_2d_mlp_hidden_layers = conv_encoder_2d_mlp_hidden_layers
 
         # Handle shapes
         self.n_channels_for_conv_2d = 1
         self.seq_len, self.height, self.width = input_shape
-
-        # Validate usage of conditioning
-        if conditioning_dim is None:
-            assert (
-                not use_conditioning_2d
-                and not use_conditioning_1d
-                and not concat_conditioning_before_1d
-                and not concat_conditioning_after_1d
-            )
 
         # 2D
         conv_encoder_2d_input_shape = (
@@ -858,31 +842,24 @@ class Abstract2DTo1DClassifier(nn.Module):
             hidden_layers=conv_encoder_2d_mlp_hidden_layers,
         )
 
-        # 1D
-        if encoder_1d_type == Encoder1DType.CONV:
-            self.encoder_1d = ConvEncoder1D(
-                input_shape=(self.encoder_1d_input_dim, self.encoder_1d_seq_len),
-                conditioning_dim=self.encoder_1d_conditioning_dim,
-            )
-        elif encoder_1d_type == Encoder1DType.TRANSFORMER:
-            self.encoder_1d = TransformerEncoder1D(
-                input_shape=(self.encoder_1d_input_dim, self.encoder_1d_seq_len),
-                conditioning_dim=self.encoder_1d_conditioning_dim,
-            )
-        else:
-            raise ValueError(f"Invalid encoder_1d_type = {encoder_1d_type}")
-
-        # Head
-        self.head = mlp(
-            num_inputs=self.head_num_inputs,
-            num_outputs=2,
-            hidden_layers=head_mlp_hidden_layers,
-        )
+        self._prepare_1d_encoder()
 
     def forward(
         self, x: torch.Tensor, conditioning: Optional[torch.Tensor] = None
     ) -> torch.Tensor:
-        # Validate input
+        self._check_valid_input_shape(x, conditioning=conditioning)
+
+        # Conv 2d (batch_size, n_fingers, seq_len, height, width) => (batch_size, n_fingers, seq_len, conv_encoder_2d_embed_dim)
+        x = self._run_conv_encoder_2d(x, conditioning=conditioning)
+
+        # Encoder 1d (batch_size, n_fingers, seq_len, conv_encoder_2d_embed_dim) => (batch_size, 2)
+        x = self._run_1d_encoder(x, conditioning=conditioning)
+
+        return x
+
+    def _check_valid_input_shape(
+        self, x: torch.Tensor, conditioning: Optional[torch.Tensor] = None
+    ) -> None:
         assert len(x.shape) == 5
         batch_size = x.shape[0]
         assert x.shape[1:] == (self.n_fingers, self.seq_len, self.height, self.width)
@@ -891,16 +868,6 @@ class Abstract2DTo1DClassifier(nn.Module):
             self.n_fingers,
             self.conditioning_dim,
         )
-
-        # Conv 2d (batch_size, n_fingers, seq_len, height, width) => (batch_size, n_fingers, seq_len, conv_encoder_2d_embed_dim)
-        x = self._run_conv_encoder_2d(x, conditioning=conditioning)
-
-        # 1d (batch_size, self.encoder_1d_seq_len, self.encoder_1d_input_dim) => (batch_size, self.encoder_1d.output_dim)
-        x = self._run_conv_encoder_1d(x, conditioning=conditioning)
-
-        # Head (batch_size, self.head_num_inputs) => (batch_size, 2)
-        x = self.head(x)
-        return x
 
     def _run_conv_encoder_2d(
         self,
@@ -995,519 +962,134 @@ class Abstract2DTo1DClassifier(nn.Module):
         )
         return x
 
-    def _run_conv_encoder_1d(
-        self, x: torch.Tensor, encoder_1d_conditioning: Optional[torch.Tensor] = None
+    def get_success_logits(
+        self, x: torch.Tensor, conditioning: Optional[torch.Tensor] = None
+    ) -> torch.Tensor:
+        return self.forward(x, conditioning=conditioning)
+
+    def get_success_probability(
+        self, x: torch.Tensor, conditioning: Optional[torch.Tensor] = None
+    ) -> torch.Tensor:
+        return nn.functional.softmax(
+            self.get_success_logits(x, conditioning=conditioning), dim=-1
+        )
+
+    def _prepare_1d_encoder(self) -> None:
+        raise NotImplementedError()
+
+    def _run_1d_encoder(
+        self, x: torch.Tensor, conditioning: Optional[torch.Tensor] = None
+    ) -> torch.Tensor:
+        raise NotImplementedError()
+
+
+class Condition2D1D_ConcatFingersAfter1D(Abstract2DTo1DClassifier):
+    def __init__(
+        self,
+        encoder_1d_type: Encoder1DType = Encoder1DType.CONV,
+        use_conditioning_1d: bool = False,
+        head_mlp_hidden_layers: List[int] = [64, 64],
+        **kwargs,
+    ) -> None:
+        self.encoder_1d_type = encoder_1d_type
+        self.use_conditioning_1d = use_conditioning_1d
+        self.head_mlp_hidden_layers = head_mlp_hidden_layers
+        super().__init__(**kwargs)
+
+        # Validate usage of conditioning
+        if self.conditioning_dim is None:
+            assert not self.use_conditioning_2d and not use_conditioning_1d
+
+    def _prepare_1d_encoder(self) -> None:
+        # 1D
+        self.encoder_1d_input_dim = self.conv_encoder_2d_embed_dim
+        self.encoder_1d_seq_len = self.seq_len
+        self.encoder_1d_conditioning_dim = (
+            self.conditioning_dim if self.use_conditioning_1d else None
+        )
+
+        input_shape = (self.encoder_1d_input_dim, self.encoder_1d_seq_len)
+        if self.encoder_1d_type == Encoder1DType.CONV:
+            self.encoder_1d = ConvEncoder1D(
+                input_shape=input_shape,
+                conditioning_dim=self.encoder_1d_conditioning_dim,
+            )
+        elif self.encoder_1d_type == Encoder1DType.TRANSFORMER:
+            self.encoder_1d = TransformerEncoder1D(
+                input_shape=input_shape,
+                conditioning_dim=self.encoder_1d_conditioning_dim,
+            )
+        else:
+            raise ValueError(f"Invalid encoder_1d_type = {self.encoder_1d_type}")
+
+        self.head_num_inputs = self.encoder_1d.output_dim * self.n_fingers
+
+        # Head
+        self.head = mlp(
+            num_inputs=self.head_num_inputs,
+            num_outputs=2,
+            hidden_layers=self.head_mlp_hidden_layers,
+        )
+
+    def _run_1d_encoder(
+        self, x: torch.Tensor, conditioning: Optional[torch.Tensor] = None
     ) -> torch.Tensor:
         batch_size = x.shape[0]
-        assert len(x.shape) == 3 and x.shape[1:] == (
-            self.encoder_1d_seq_len,
-            self.encoder_1d_input_dim,
-        )
-        assert encoder_1d_conditioning is None or encoder_1d_conditioning.shape == (
+        assert x.shape == (
             batch_size,
             self.n_fingers,
+            self.seq_len,
+            self.conv_encoder_2d_embed_dim,
+        )
+        assert conditioning is None or conditioning.shape == (
+            batch_size,
+            self.n_fingers,
+            self.conditioning_dim,
+        )
+
+        # Process all fingers at once
+        x = x.reshape(
+            batch_size * self.n_fingers, self.seq_len, self.conv_encoder_2d_embed_dim
+        )
+        conditioning = (
+            conditioning.reshape(batch_size * self.n_fingers, self.conditioning_dim)
+            if conditioning is not None
+            and self.use_conditioning_1d
+            and self.conditioning_dim is not None
+            else None
+        )
+
+        # 1D encoder
+        # Need to have (batch_size, n_channels, seq_len) for 1d encoder
+        x = x.permute(0, 2, 1)
+        assert x.shape == (
+            batch_size * self.n_fingers,
+            self.encoder_1d_input_dim,
+            self.encoder_1d_seq_len,
+        )
+        assert conditioning is None or conditioning.shape == (
+            batch_size * self.n_fingers,
             self.encoder_1d_conditioning_dim,
         )
 
-        # 1d (batch_size, self.encoder_1d_seq_len, self.encoder_1d_input_dim) => (batch_size, self.encoder_1d.output_dim)
-        # Need to have (batch_size, n_channels, seq_len) for 1d encoder
-        x = x.permute(0, 2, 1)
-        assert len(x.shape) == 3 and x.shape[1:] == (
-            self.encoder_1d_input_dim,
-            self.encoder_1d_seq_len,
-        )
-
-        if encoder_1d_conditioning is not None and self.use_conditioning_1d and self.conditioning_dim is not None:
-            if x.shape[0] == batch_size * self.n_fingers:
-                encoder_1d_conditioning = encoder_1d_conditioning.reshape(
-                    batch_size * self.n_fingers, self.conditioning_dim
-                )
-            # TODO: Not figured out how to fix this
-
-        x = self.encoder_1d(x, conditioning=encoder_1d_conditioning)
-        assert len(x.shape) == 2 and x.shape[1] == self.encoder_1d.output_dim
-
-        return x
-
-    def get_success_logits(
-        self, x: torch.Tensor, conditioning: Optional[torch.Tensor] = None
-    ) -> torch.Tensor:
-        return self.forward(x, conditioning=conditioning)
-
-    def get_success_probability(
-        self, x: torch.Tensor, conditioning: Optional[torch.Tensor] = None
-    ) -> torch.Tensor:
-        return nn.functional.softmax(
-            self.get_success_logits(x, conditioning=conditioning), dim=-1
-        )
-
-
-
-class General2DTo1DClassifier(nn.Module):
-    def __init__(
-        self,
-        input_shape: Tuple[int, int, int],
-        n_fingers: int,
-        conditioning_dim: Optional[int] = None,
-        use_conditioning_2d: bool = False,
-        use_conditioning_1d: bool = False,
-        merge_fingers_method: MergeFingersMethod = MergeFingersMethod.MULTIPLY_AFTER_1D,
-        encoder_1d_type: Encoder1DType = Encoder1DType.CONV,
-        conv_encoder_2d_embed_dim: int = 32,
-        concat_conditioning_before_1d: bool = False,
-        concat_conditioning_after_1d: bool = False,
-        conv_encoder_2d_mlp_hidden_layers: List[int] = [64, 64],
-        head_mlp_hidden_layers: List[int] = [64, 64],
-    ) -> None:
-        # input_shape: (seq_len, height, width)
-        super().__init__()
-        assert len(input_shape) == 3
-
-        # Store args
-        self.input_shape = input_shape
-        self.n_fingers = n_fingers
-        self.conditioning_dim = conditioning_dim
-        self.use_conditioning_2d = use_conditioning_2d
-        self.use_conditioning_1d = use_conditioning_1d
-        self.merge_fingers_method = merge_fingers_method
-        self.encoder_1d_type = encoder_1d_type
-        self.conv_encoder_2d_embed_dim = conv_encoder_2d_embed_dim
-        self.concat_conditioning_before_1d = concat_conditioning_before_1d
-        self.concat_conditioning_after_1d = concat_conditioning_after_1d
-
-        # Handle shapes
-        self.n_channels_for_conv_2d = 1
-        self.seq_len, self.height, self.width = input_shape
-
-        # Validate usage of conditioning
-        if conditioning_dim is None:
-            assert (
-                not use_conditioning_2d
-                and not use_conditioning_1d
-                and not concat_conditioning_before_1d
-                and not concat_conditioning_after_1d
-            )
-
-        # 2D
-        conv_encoder_2d_input_shape = (
-            self.n_channels_for_conv_2d,
-            self.height,
-            self.width,
-        )
-        self.conv_encoder_2d = ConvEncoder2D(
-            input_shape=conv_encoder_2d_input_shape,
-            conditioning_dim=conditioning_dim if use_conditioning_2d else None,
-        )
-        self.fc = mlp(
-            num_inputs=self.conv_encoder_2d.output_dim,
-            num_outputs=conv_encoder_2d_embed_dim,
-            hidden_layers=conv_encoder_2d_mlp_hidden_layers,
-        )
-
-        # Before 1D
-        self.encoder_1d_input_dim = conv_encoder_2d_embed_dim
-        self.encoder_1d_seq_len = self.seq_len
-        if self.concat_conditioning_before_1d and conditioning_dim is not None:
-            self.encoder_1d_input_dim += conditioning_dim
-
-        if merge_fingers_method == MergeFingersMethod.ATTENTION_BEFORE_1D:
-            self.attention_before_1d = TransformerEncoderDecoder(
-                input_shape=(self.encoder_1d_input_dim, self.seq_len),
-                n_emb=self.encoder_1d_input_dim,
-                pooling_method=ConvOutputTo1D.FLATTEN,
-            )
-
-        if merge_fingers_method in [
-            MergeFingersMethod.ADD_BEFORE_1D,
-            MergeFingersMethod.MULTIPLY_BEFORE_1D,
-            MergeFingersMethod.ADD_AFTER_1D,
-            MergeFingersMethod.MULTIPLY_AFTER_1D,
-            MergeFingersMethod.CONCAT_AFTER_1D,
-            MergeFingersMethod.ATTENTION_BEFORE_1D,
-        ]:
-            pass
-        elif merge_fingers_method == MergeFingersMethod.CONCAT_BEFORE_1D_CHANNEL_WISE:
-            self.encoder_1d_input_dim *= n_fingers
-        elif merge_fingers_method == MergeFingersMethod.CONCAT_BEFORE_1D_TIME_WISE:
-            self.encoder_1d_seq_len *= n_fingers
-        else:
-            raise ValueError(f"Invalid merge_fingers_method = {merge_fingers_method}")
-
-        # 1D
-        encoder_1d_conditioning_dim = (
-            None if not use_conditioning_1d else conditioning_dim if  TODO
-        )
-        if encoder_1d_type == Encoder1DType.CONV:
-            self.encoder_1d = ConvEncoder1D(
-                input_shape=(self.encoder_1d_input_dim, self.encoder_1d_seq_len),
-                conditioning_dim=conditioning_dim if use_conditioning_1d else None,
-            )
-        elif encoder_1d_type == Encoder1DType.TRANSFORMER:
-            self.encoder_1d = TransformerEncoder1D(
-                input_shape=(self.encoder_1d_input_dim, self.encoder_1d_seq_len),
-                conditioning_dim=conditioning_dim if use_conditioning_1d else None,
-            )
-        else:
-            raise ValueError(f"Invalid encoder_1d_type = {encoder_1d_type}")
-
-        # After 1D
-        self.head_num_inputs = self.encoder_1d.output_dim
-        if self.concat_conditioning_after_1d and conditioning_dim is not None:
-            self.head_num_inputs += conditioning_dim
-
-        if merge_fingers_method == MergeFingersMethod.CONCAT_AFTER_1D:
-            self.head_num_inputs *= n_fingers
-        elif merge_fingers_method in [
-            MergeFingersMethod.MULTIPLY_AFTER_1D,
-            MergeFingersMethod.ADD_AFTER_1D,
-            MergeFingersMethod.MULTIPLY_BEFORE_1D,
-            MergeFingersMethod.ADD_BEFORE_1D,
-            MergeFingersMethod.CONCAT_BEFORE_1D_CHANNEL_WISE,
-            MergeFingersMethod.CONCAT_BEFORE_1D_TIME_WISE,
-            MergeFingersMethod.ATTENTION_BEFORE_1D,
-        ]:
-            pass
-        else:
-            raise ValueError(f"Invalid merge_fingers_method = {merge_fingers_method}")
-
-        # Head
-        self.head = mlp(
-            num_inputs=self.head_num_inputs,
-            num_outputs=2,
-            hidden_layers=head_mlp_hidden_layers,
-        )
-
-    def forward(
-        self, x: torch.Tensor, conditioning: Optional[torch.Tensor] = None
-    ) -> torch.Tensor:
-        # Validate input
-        assert len(x.shape) == 5
-        batch_size = x.shape[0]
-        assert x.shape[1:] == (self.n_fingers, self.seq_len, self.height, self.width)
-        assert conditioning is None or conditioning.shape == (
-            batch_size,
-            self.n_fingers,
-            self.conditioning_dim,
-        )
-
-        # Conv 2d (batch_size, n_fingers, seq_len, height, width) => (batch_size, n_fingers, seq_len, conv_encoder_2d_embed_dim)
-        x = self._run_conv_encoder_2d(x, conditioning=conditioning)
-
-        # Before 1d operations (batch_size, n_fingers, seq_len, conv_encoder_2d_embed_dim) => (batch_size, self.encoder_1d_seq_len, self.encoder_1d_input_dim)
-        x = self._run_merge_before_1d(x, conditioning=conditioning)
-
-        # 1d (batch_size, self.encoder_1d_seq_len, self.encoder_1d_input_dim) => (batch_size, self.encoder_1d.output_dim)
-        x = self._run_conv_encoder_1d(x, conditioning=conditioning)
-
-        # After 1d operations (batch_size, self.encoder_1d.output_dim) => (batch_size, self.head_num_inputs)
-        x = self._run_merge_after_1d(x, conditioning=conditioning)
-
-        # Head (batch_size, self.head_num_inputs) => (batch_size, 2)
-        x = self.head(x)
-        return x
-
-    def _run_conv_encoder_2d(
-        self,
-        x: torch.Tensor,
-        conditioning: Optional[torch.Tensor] = None,
-        AVOID_OOM=True,
-    ) -> torch.Tensor:
-        # Validate input
-        assert len(x.shape) == 5
-        batch_size = x.shape[0]
-        assert x.shape[1:] == (self.n_fingers, self.seq_len, self.height, self.width)
-        assert conditioning is None or conditioning.shape == (
-            batch_size,
-            self.n_fingers,
-            self.conditioning_dim,
-        )
-
-        # Conv 2d (batch_size, n_fingers, seq_len, height, width) => (batch_size, n_fingers, seq_len, conv_encoder_2d_embed_dim)
-        if AVOID_OOM:
-            # Process each finger in each time-step separately
-            # OOM if do all at once
-            x = x.reshape(
-                batch_size * self.n_fingers, self.seq_len, 1, self.height, self.width
-            )
-            conditioning = (
-                conditioning.reshape(batch_size * self.n_fingers, self.conditioning_dim)
-                if conditioning is not None
-                and self.use_conditioning_2d
-                and self.conditioning_dim is not None
-                else None
-            )
-            output_per_seq_list = []
-            for seq_i in range(self.seq_len):
-                temp = x[:, seq_i]
-                assert temp.shape == (
-                    batch_size * self.n_fingers,
-                    1,
-                    self.height,
-                    self.width,
-                )
-                temp = self.conv_encoder_2d(temp, conditioning=conditioning)
-                assert temp.shape == (
-                    batch_size * self.n_fingers,
-                    self.conv_encoder_2d.output_dim,
-                )
-                temp = temp.reshape(
-                    batch_size,
-                    self.n_fingers,
-                    self.conv_encoder_2d.output_dim,
-                )
-                output_per_seq_list.append(temp)
-            x = torch.stack(output_per_seq_list, dim=2)
-        else:
-            # Do this by putting seq_len in the batch dimension
-            x = x.reshape(
-                batch_size * self.n_fingers * self.seq_len, 1, self.height, self.width
-            )
-            conditioning = (
-                conditioning.reshape(
-                    batch_size * self.n_fingers, self.conditioning_dim
-                ).repeat(self.seq_len, 1)
-                if conditioning is not None
-                and self.use_conditioning_2d
-                and self.conditioning_dim is not None
-                else None
-            )
-            x = self.conv_encoder_2d(x, conditioning=conditioning)
-            assert x.shape == (
-                batch_size * self.n_fingers * self.seq_len,
-                self.conv_encoder_2d.output_dim,
-            )
-            x = x.reshape(
-                batch_size,
-                self.n_fingers,
-                self.seq_len,
-                self.conv_encoder_2d.output_dim,
-            )
-
-        assert x.shape == (
-            batch_size,
-            self.n_fingers,
-            self.seq_len,
-            self.conv_encoder_2d.output_dim,
-        )
-        x = self.fc(x)
-
-        assert x.shape == (
-            batch_size,
-            self.n_fingers,
-            self.seq_len,
-            self.conv_encoder_2d_embed_dim,
-        )
-        return x
-
-    def _run_merge_before_1d(
-        self, x: torch.Tensor, conditioning: Optional[torch.Tensor] = None
-    ) -> torch.Tensor:
-        # Validate
-        batch_size = x.shape[0]
-        assert x.shape == (
-            batch_size,
-            self.n_fingers,
-            self.seq_len,
-            self.conv_encoder_2d_embed_dim,
-        )
-        assert conditioning is None or conditioning.shape == (
-            batch_size,
-            self.n_fingers,
-            self.conditioning_dim,
-        )
-
-        # Concat conditioning before 1d
-        if (
-            self.concat_conditioning_before_1d
-            and conditioning is not None
-            and self.conditioning_dim is not None
-        ):
-            conditioning = conditioning.reshape(
-                batch_size,
-                self.n_fingers,
-                1,
-                self.conditioning_dim,
-            ).repeat(1, 1, self.seq_len, 1)
-            assert conditioning.shape == (
-                batch_size,
-                self.n_fingers,
-                self.seq_len,
-                self.conditioning_dim,
-            )
-
-            x = torch.cat([x, conditioning], dim=-1)
-
-        embed_dim = (
-            self.conv_encoder_2d_embed_dim + self.conditioning_dim
-            if self.conditioning_dim is not None
-            else self.conv_encoder_2d_embed_dim
-        )
-
-        assert x.shape == (
-            batch_size,
-            self.n_fingers,
-            self.seq_len,
-            embed_dim,
-        )
-
-        # Before 1d operations (batch_size, n_fingers, seq_len, conv_encoder_2d_embed_dim) => (-1, self.encoder_1d_seq_len, self.encoder_1d_input_dim)
-        if self.merge_fingers_method == MergeFingersMethod.MULTIPLY_BEFORE_1D:
-            x = x.prod(dim=1)
-        elif self.merge_fingers_method == MergeFingersMethod.ADD_BEFORE_1D:
-            x = x.sum(dim=1)
-        elif (
-            self.merge_fingers_method
-            == MergeFingersMethod.CONCAT_BEFORE_1D_CHANNEL_WISE
-        ):
-            x = x.permute(0, 2, 1, 3)
-            assert x.shape == (
-                batch_size,
-                self.seq_len,
-                self.n_fingers,
-                embed_dim,
-            )
-            x = x.reshape(
-                batch_size,
-                self.seq_len,
-                self.n_fingers * embed_dim,
-            )
-        elif self.merge_fingers_method == MergeFingersMethod.CONCAT_BEFORE_1D_TIME_WISE:
-            x = x.reshape(
-                batch_size,
-                self.n_fingers * self.seq_len,
-                embed_dim,
-            )
-        elif self.merge_fingers_method == MergeFingersMethod.ATTENTION_BEFORE_1D:
-            # HACK: Assumes n_fingers == 2 so can do attention between the two
-            # Could also make n_fingers go along seq_len so that can attend across that too?
-            assert self.n_fingers == 2
-            left_finger, right_finger = x[:, 0], x[:, 1]
-            assert (
-                left_finger.shape
-                == right_finger.shape
-                == (batch_size, self.seq_len, embed_dim)
-            )
-            left_finger, right_finger = left_finger.permute(
-                0, 2, 1
-            ), right_finger.permute(0, 2, 1)
-            assert (
-                left_finger.shape
-                == right_finger.shape
-                == (batch_size, embed_dim, self.seq_len)
-            )
-            x = self.attention_before_1d(left_finger, conditioning=right_finger)
-            assert x.shape == (
-                batch_size,
-                embed_dim * self.seq_len,
-            )
-            x = x.reshape(batch_size, embed_dim, self.seq_len).permute(0, 2, 1)
-        elif self.merge_fingers_method in [
-            MergeFingersMethod.ADD_AFTER_1D,
-            MergeFingersMethod.MULTIPLY_AFTER_1D,
-            MergeFingersMethod.CONCAT_AFTER_1D,
-        ]:
-            # Process fingers individually
-            x = x.reshape(
-                batch_size * self.n_fingers,
-                self.seq_len,
-                embed_dim,
-            )
-        else:
-            raise ValueError(
-                f"Invalid merge_fingers_method = {self.merge_fingers_method}"
-            )
-
-        assert len(x.shape) == 3 and x.shape[1:] == (
-            self.encoder_1d_seq_len,
-            self.encoder_1d_input_dim,
-        )
-
-        return x
-
-    def _run_conv_encoder_1d(
-        self, x: torch.Tensor, conditioning: Optional[torch.Tensor] = None
-    ) -> torch.Tensor:
-        batch_size = x.shape[0]
-        assert len(x.shape) == 3 and x.shape[1:] == (
-            self.encoder_1d_seq_len,
-            self.encoder_1d_input_dim,
-        )
-        assert conditioning is None or conditioning.shape == (
-            batch_size,
-            self.n_fingers,
-            self.conditioning_dim,
-        )
-
-        # 1d (batch_size, self.encoder_1d_seq_len, self.encoder_1d_input_dim) => (batch_size, self.encoder_1d.output_dim)
-        # Need to have (batch_size, n_channels, seq_len) for 1d encoder
-        x = x.permute(0, 2, 1)
-        assert len(x.shape) == 3 and x.shape[1:] == (
-            self.encoder_1d_input_dim,
-            self.encoder_1d_seq_len,
-        )
-
-        if conditioning is not None and self.use_conditioning_1d and self.conditioning_dim is not None:
-            if x.shape[0] == batch_size * self.n_fingers:
-                conditioning = conditioning.reshape(
-                    batch_size * self.n_fingers, self.conditioning_dim
-                )
-            # TODO: Not figured out how to fix this
-
         x = self.encoder_1d(x, conditioning=conditioning)
-        assert len(x.shape) == 2 and x.shape[1] == self.encoder_1d.output_dim
-
-        return x
-
-    def _run_merge_after_1d(
-        self, x: torch.Tensor, conditioning: Optional[torch.Tensor] = None
-    ) -> torch.Tensor:
-        assert len(x.shape) == 2 and x.shape[1] == self.encoder_1d.output_dim
-        # assert x.shape[0] == batch_size or x.shape[0] == batch_size * self.n_fingers
-
-        # After 1d operations (batch_size, self.encoder_1d.output_dim) => (batch_size, self.head_num_inputs)
-        if self.merge_fingers_method in [
-            MergeFingersMethod.ADD_AFTER_1D,
-            MergeFingersMethod.MULTIPLY_AFTER_1D,
-            MergeFingersMethod.CONCAT_AFTER_1D,
-        ]:
-            x = x.reshape(-1, self.n_fingers, self.encoder_1d.output_dim)
-
-            if self.merge_fingers_method == MergeFingersMethod.ADD_AFTER_1D:
-                x = x.sum(dim=1)
-            elif self.merge_fingers_method == MergeFingersMethod.MULTIPLY_AFTER_1D:
-                x = x.prod(dim=1)
-            elif self.merge_fingers_method == MergeFingersMethod.CONCAT_AFTER_1D:
-                x = x.reshape(-1, self.n_fingers * self.encoder_1d.output_dim)
-            else:
-                raise ValueError(
-                    f"Invalid merge_fingers_method = {self.merge_fingers_method}"
-                )
-
-        assert len(x.shape) == 2
-
-        # Concat conditioning after 1d
-        if (
-            self.concat_conditioning_after_1d
-            and conditioning is not None
-            and self.conditioning_dim is not None
-        ):
-            x = torch.cat([x, conditioning], dim=-1)
-
-        assert len(x.shape) == 2 and x.shape[1] == self.head_num_inputs
-
-        return x
-
-    def get_success_logits(
-        self, x: torch.Tensor, conditioning: Optional[torch.Tensor] = None
-    ) -> torch.Tensor:
-        return self.forward(x, conditioning=conditioning)
-
-    def get_success_probability(
-        self, x: torch.Tensor, conditioning: Optional[torch.Tensor] = None
-    ) -> torch.Tensor:
-        return nn.functional.softmax(
-            self.get_success_logits(x, conditioning=conditioning), dim=-1
+        assert x.shape == (
+            batch_size * self.n_fingers,
+            self.encoder_1d.output_dim,
         )
+
+        # Concatenate fingers
+        x = x.reshape(
+            batch_size,
+            self.n_fingers * self.encoder_1d.output_dim,
+        )
+
+        assert x.shape == (batch_size, self.head_num_inputs)
+
+        x = self.head(x)
+        assert x.shape == (batch_size, 2)
+
+        return x
 
 
 def test_all_setups(setup_dict: Dict[str, Any]) -> None:
@@ -1538,11 +1120,8 @@ def test_setup(
     conditioning_dim,
     use_conditioning_2d,
     use_conditioning_1d,
-    merge_fingers_method,
     encoder_1d_type,
     conv_encoder_2d_embed_dim,
-    concat_conditioning_before_1d,
-    concat_conditioning_after_1d,
     conv_encoder_2d_mlp_hidden_layers,
     head_mlp_hidden_layers,
     device,
@@ -1563,29 +1142,23 @@ def test_setup(
         batch_size, n_fingers, conditioning_dim, device=device
     )
 
-    general_model = General2DTo1DClassifier(
+    general_model = Condition2D1D_ConcatFingersAfter1D(
         input_shape=(seq_len, height, width),
         n_fingers=n_fingers,
         conditioning_dim=conditioning_dim,
         use_conditioning_2d=use_conditioning_2d,
-        use_conditioning_1d=use_conditioning_1d,
-        merge_fingers_method=merge_fingers_method,
-        encoder_1d_type=encoder_1d_type,
         conv_encoder_2d_embed_dim=conv_encoder_2d_embed_dim,
-        concat_conditioning_before_1d=concat_conditioning_before_1d,
-        concat_conditioning_after_1d=concat_conditioning_after_1d,
         conv_encoder_2d_mlp_hidden_layers=conv_encoder_2d_mlp_hidden_layers,
+        use_conditioning_1d=use_conditioning_1d,
+        encoder_1d_type=encoder_1d_type,
         head_mlp_hidden_layers=head_mlp_hidden_layers,
     ).to(device)
     print(general_model)
     summary(
         general_model,
         input_size=[
-            (batch_size, n_fingers, seq_len, height, width),
-            (
-                batch_size,
-                conditioning_dim,
-            ),
+            example_input.shape,
+            example_conditioning.shape,
         ],
         device=device,
         depth=10,
@@ -1627,23 +1200,20 @@ def main() -> None:
     )
 
     # Create model
-    general_model = General2DTo1DClassifier(
+    general_model = Condition2D1D_ConcatFingersAfter1D(
         input_shape=(seq_len, height, width),
         n_fingers=n_fingers,
         conditioning_dim=conditioning_dim,
         use_conditioning_2d=True,
-        use_conditioning_1d=True,
-        merge_fingers_method=MergeFingersMethod.CONCAT_AFTER_1D,
-        encoder_1d_type=Encoder1DType.CONV,
         conv_encoder_2d_embed_dim=32,
-        concat_conditioning_before_1d=True,
-        concat_conditioning_after_1d=True,
         conv_encoder_2d_mlp_hidden_layers=[64, 64],
+        encoder_1d_type=Encoder1DType.CONV,
+        use_conditioning_1d=True,
         head_mlp_hidden_layers=[64, 64],
     ).to(device)
 
     example_output = general_model(example_input, example_conditioning)
-    print("General2DTo1DClassifier CNN")
+    print("Condition2D1D_ConcatFingersAfter1D CNN")
     print("=" * 80)
     print(f"example_input.shape = {example_input.shape}")
     print(f"example_conditioning.shape = {example_conditioning.shape}")
@@ -1651,48 +1221,20 @@ def main() -> None:
     print()
 
     # Create model 2
-    general_model_2 = General2DTo1DClassifier(
+    general_model_2 = Condition2D1D_ConcatFingersAfter1D(
         input_shape=(seq_len, height, width),
         n_fingers=n_fingers,
         conditioning_dim=conditioning_dim,
         use_conditioning_2d=True,
-        use_conditioning_1d=False,
-        merge_fingers_method=MergeFingersMethod.ATTENTION_BEFORE_1D,
-        encoder_1d_type=Encoder1DType.TRANSFORMER,
         conv_encoder_2d_embed_dim=32,
-        concat_conditioning_before_1d=False,
-        concat_conditioning_after_1d=True,
         conv_encoder_2d_mlp_hidden_layers=[64, 64],
+        encoder_1d_type=Encoder1DType.TRANSFORMER,
+        use_conditioning_1d=True,
         head_mlp_hidden_layers=[64, 64],
     ).to(device)
 
     example_output = general_model_2(example_input, example_conditioning)
-    print("General2DTo1DClassifier Transformer")
-    print("=" * 80)
-    print(f"example_input.shape = {example_input.shape}")
-    print(f"example_conditioning.shape = {example_conditioning.shape}")
-    print(f"example_output.shape = {example_output.shape}")
-    print()
-
-    # Create model 3
-    general_model_3 = General2DTo1DClassifier(
-        input_shape=(seq_len, height, width),
-        n_fingers=n_fingers,
-        conditioning_dim=conditioning_dim,
-        use_conditioning_2d=False,
-        use_conditioning_1d=False,
-        merge_fingers_method=MergeFingersMethod.ADD_AFTER_1D,
-        encoder_1d_type=Encoder1DType.TRANSFORMER,
-        conv_encoder_2d_embed_dim=32,
-        concat_conditioning_before_1d=False,
-        concat_conditioning_after_1d=False,
-        conv_encoder_2d_mlp_hidden_layers=[64, 64],
-        head_mlp_hidden_layers=[64, 64],
-    ).to(device)
-
-    example_output = general_model_3(example_input, example_conditioning)
-
-    print("General2DTo1DClassifier Transformer 2")
+    print("Condition2D1D_ConcatFingersAfter1D Transformer")
     print("=" * 80)
     print(f"example_input.shape = {example_input.shape}")
     print(f"example_conditioning.shape = {example_conditioning.shape}")
@@ -1704,17 +1246,14 @@ def main() -> None:
     ARGUMENT_NAMES_TO_OPTIONS_DICT = {
         "batch_size": [3, 5],
         "n_fingers": [2],
-        "seq_len": [4, 7],
+        "seq_len": [10, 7],
         "height": [17],
         "width": [19],
         "conditioning_dim": [15],
         "use_conditioning_2d": [True, False],
         "use_conditioning_1d": [True, False],
-        "merge_fingers_method": [m for m in MergeFingersMethod],
         "encoder_1d_type": [e for e in Encoder1DType],
         "conv_encoder_2d_embed_dim": [32, 64],
-        "concat_conditioning_before_1d": [True, False],
-        "concat_conditioning_after_1d": [True, False],
         "conv_encoder_2d_mlp_hidden_layers": [[64, 64]],
         "head_mlp_hidden_layers": [[64, 64]],
         "device": [device],
@@ -1746,7 +1285,7 @@ def main() -> None:
 if __name__ == "__main__":
     from ipdb import launch_ipdb_on_exception
 
-    LAUNCH_WITH_IPDB = False
+    LAUNCH_WITH_IPDB = True
     if LAUNCH_WITH_IPDB:
         with launch_ipdb_on_exception():
             main()

@@ -389,9 +389,10 @@ class ConvEncoder2D(nn.Module):
     @cached_property
     def output_dim(self) -> int:
         # Compute output shape
-        example_input = torch.randn(1, *self.input_shape)
+        example_batch_size = 2
+        example_input = torch.randn(example_batch_size, *self.input_shape)
         example_conditioning = (
-            torch.randn(1, self.conditioning_dim)
+            torch.randn(example_batch_size, self.conditioning_dim)
             if self.conditioning_dim is not None
             else None
         )
@@ -525,9 +526,10 @@ class ConvEncoder1D(nn.Module):
     @cached_property
     def output_dim(self) -> int:
         # Compute output shape
-        example_input = torch.randn(1, *self.input_shape)
+        example_batch_size = 2
+        example_input = torch.randn(example_batch_size, *self.input_shape)
         example_conditioning = (
-            torch.randn(1, self.conditioning_dim)
+            torch.randn(example_batch_size, self.conditioning_dim)
             if self.conditioning_dim is not None
             else None
         )
@@ -685,9 +687,10 @@ class TransformerEncoder1D(nn.Module):
     @cached_property
     def output_dim(self) -> int:
         # Compute output shape
-        example_input = torch.randn(1, *self.input_shape)
+        example_batch_size = 2
+        example_input = torch.randn(example_batch_size, *self.input_shape)
         example_conditioning = (
-            torch.randn(1, self.conditioning_dim)
+            torch.randn(example_batch_size, self.conditioning_dim)
             if self.conditioning_dim is not None
             else None
         )
@@ -815,8 +818,9 @@ class TransformerEncoderDecoder(nn.Module):
     @cached_property
     def output_dim(self) -> int:
         # Compute output shape
-        example_input = torch.randn(1, *self.input_shape)
-        example_conditioning = torch.randn(1, *self.input_shape)
+        example_batch_size = 2
+        example_input = torch.randn(example_batch_size, *self.input_shape)
+        example_conditioning = torch.randn(example_batch_size, *self.input_shape)
         example_output = self(example_input, conditioning=example_conditioning)
         assert len(example_output.shape) == 2
         return example_output.shape[1]
@@ -1289,7 +1293,7 @@ class CNN_3D_Classifier(nn.Module):
         )
 
         # Get conv output shape
-        example_batch_size = 1
+        example_batch_size = 2
         example_input = torch.zeros(example_batch_size, *self.merged_input_shape)
         conv_output = self.conv(example_input)
         assert (

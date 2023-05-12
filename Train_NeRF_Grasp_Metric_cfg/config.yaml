@@ -23,6 +23,9 @@ dataloader:
   pin_memory: True
   load_nerf_grid_inputs_in_ram: False
   load_grasp_successes_in_ram: False
+  downsample_factor_x: 5
+  downsample_factor_y: 2
+  downsample_factor_z: 2
 
 preprocess:
   flip_left_right_randomly: False

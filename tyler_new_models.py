@@ -799,6 +799,249 @@ class Encoder1DType(Enum):
     CONV = auto()
     TRANSFORMER = auto()
 
+class Abstract2DTo1DClassifier(nn.Module):
+    def __init__(
+        self,
+        input_shape: Tuple[int, int, int],
+        n_fingers: int,
+        conditioning_dim: Optional[int] = None,
+        use_conditioning_2d: bool = False,
+        use_conditioning_1d: bool = False,
+        encoder_1d_type: Encoder1DType = Encoder1DType.CONV,
+        conv_encoder_2d_embed_dim: int = 32,
+        concat_conditioning_before_1d: bool = False,
+        concat_conditioning_after_1d: bool = False,
+        conv_encoder_2d_mlp_hidden_layers: List[int] = [64, 64],
+        head_mlp_hidden_layers: List[int] = [64, 64],
+    ) -> None:
+        # input_shape: (seq_len, height, width)
+        super().__init__()
+        assert len(input_shape) == 3
+
+        # Store args
+        self.input_shape = input_shape
+        self.n_fingers = n_fingers
+        self.conditioning_dim = conditioning_dim
+        self.use_conditioning_2d = use_conditioning_2d
+        self.use_conditioning_1d = use_conditioning_1d
+        self.encoder_1d_type = encoder_1d_type
+        self.conv_encoder_2d_embed_dim = conv_encoder_2d_embed_dim
+        self.concat_conditioning_before_1d = concat_conditioning_before_1d
+        self.concat_conditioning_after_1d = concat_conditioning_after_1d
+
+        # Handle shapes
+        self.n_channels_for_conv_2d = 1
+        self.seq_len, self.height, self.width = input_shape
+
+        # Validate usage of conditioning
+        if conditioning_dim is None:
+            assert (
+                not use_conditioning_2d
+                and not use_conditioning_1d
+                and not concat_conditioning_before_1d
+                and not concat_conditioning_after_1d
+            )
+
+        # 2D
+        conv_encoder_2d_input_shape = (
+            self.n_channels_for_conv_2d,
+            self.height,
+            self.width,
+        )
+        self.conv_encoder_2d = ConvEncoder2D(
+            input_shape=conv_encoder_2d_input_shape,
+            conditioning_dim=conditioning_dim if use_conditioning_2d else None,
+        )
+        self.fc = mlp(
+            num_inputs=self.conv_encoder_2d.output_dim,
+            num_outputs=conv_encoder_2d_embed_dim,
+            hidden_layers=conv_encoder_2d_mlp_hidden_layers,
+        )
+
+        # 1D
+        if encoder_1d_type == Encoder1DType.CONV:
+            self.encoder_1d = ConvEncoder1D(
+                input_shape=(self.encoder_1d_input_dim, self.encoder_1d_seq_len),
+                conditioning_dim=self.encoder_1d_conditioning_dim,
+            )
+        elif encoder_1d_type == Encoder1DType.TRANSFORMER:
+            self.encoder_1d = TransformerEncoder1D(
+                input_shape=(self.encoder_1d_input_dim, self.encoder_1d_seq_len),
+                conditioning_dim=self.encoder_1d_conditioning_dim,
+            )
+        else:
+            raise ValueError(f"Invalid encoder_1d_type = {encoder_1d_type}")
+
+        # Head
+        self.head = mlp(
+            num_inputs=self.head_num_inputs,
+            num_outputs=2,
+            hidden_layers=head_mlp_hidden_layers,
+        )
+
+    def forward(
+        self, x: torch.Tensor, conditioning: Optional[torch.Tensor] = None
+    ) -> torch.Tensor:
+        # Validate input
+        assert len(x.shape) == 5
+        batch_size = x.shape[0]
+        assert x.shape[1:] == (self.n_fingers, self.seq_len, self.height, self.width)
+        assert conditioning is None or conditioning.shape == (
+            batch_size,
+            self.n_fingers,
+            self.conditioning_dim,
+        )
+
+        # Conv 2d (batch_size, n_fingers, seq_len, height, width) => (batch_size, n_fingers, seq_len, conv_encoder_2d_embed_dim)
+        x = self._run_conv_encoder_2d(x, conditioning=conditioning)
+
+        # 1d (batch_size, self.encoder_1d_seq_len, self.encoder_1d_input_dim) => (batch_size, self.encoder_1d.output_dim)
+        x = self._run_conv_encoder_1d(x, conditioning=conditioning)
+
+        # Head (batch_size, self.head_num_inputs) => (batch_size, 2)
+        x = self.head(x)
+        return x
+
+    def _run_conv_encoder_2d(
+        self,
+        x: torch.Tensor,
+        conditioning: Optional[torch.Tensor] = None,
+        AVOID_OOM=True,
+    ) -> torch.Tensor:
+        # Validate input
+        assert len(x.shape) == 5
+        batch_size = x.shape[0]
+        assert x.shape[1:] == (self.n_fingers, self.seq_len, self.height, self.width)
+        assert conditioning is None or conditioning.shape == (
+            batch_size,
+            self.n_fingers,
+            self.conditioning_dim,
+        )
+
+        # Conv 2d (batch_size, n_fingers, seq_len, height, width) => (batch_size, n_fingers, seq_len, conv_encoder_2d_embed_dim)
+        if AVOID_OOM:
+            # Process each finger in each time-step separately
+            # OOM if do all at once
+            x = x.reshape(
+                batch_size * self.n_fingers, self.seq_len, 1, self.height, self.width
+            )
+            conditioning = (
+                conditioning.reshape(batch_size * self.n_fingers, self.conditioning_dim)
+                if conditioning is not None
+                and self.use_conditioning_2d
+                and self.conditioning_dim is not None
+                else None
+            )
+            output_per_seq_list = []
+            for seq_i in range(self.seq_len):
+                temp = x[:, seq_i]
+                assert temp.shape == (
+                    batch_size * self.n_fingers,
+                    1,
+                    self.height,
+                    self.width,
+                )
+                temp = self.conv_encoder_2d(temp, conditioning=conditioning)
+                assert temp.shape == (
+                    batch_size * self.n_fingers,
+                    self.conv_encoder_2d.output_dim,
+                )
+                temp = temp.reshape(
+                    batch_size,
+                    self.n_fingers,
+                    self.conv_encoder_2d.output_dim,
+                )
+                output_per_seq_list.append(temp)
+            x = torch.stack(output_per_seq_list, dim=2)
+        else:
+            # Do this by putting seq_len in the batch dimension
+            x = x.reshape(
+                batch_size * self.n_fingers * self.seq_len, 1, self.height, self.width
+            )
+            conditioning = (
+                conditioning.reshape(
+                    batch_size * self.n_fingers, self.conditioning_dim
+                ).repeat(self.seq_len, 1)
+                if conditioning is not None
+                and self.use_conditioning_2d
+                and self.conditioning_dim is not None
+                else None
+            )
+            x = self.conv_encoder_2d(x, conditioning=conditioning)
+            assert x.shape == (
+                batch_size * self.n_fingers * self.seq_len,
+                self.conv_encoder_2d.output_dim,
+            )
+            x = x.reshape(
+                batch_size,
+                self.n_fingers,
+                self.seq_len,
+                self.conv_encoder_2d.output_dim,
+            )
+
+        assert x.shape == (
+            batch_size,
+            self.n_fingers,
+            self.seq_len,
+            self.conv_encoder_2d.output_dim,
+        )
+        x = self.fc(x)
+
+        assert x.shape == (
+            batch_size,
+            self.n_fingers,
+            self.seq_len,
+            self.conv_encoder_2d_embed_dim,
+        )
+        return x
+
+    def _run_conv_encoder_1d(
+        self, x: torch.Tensor, encoder_1d_conditioning: Optional[torch.Tensor] = None
+    ) -> torch.Tensor:
+        batch_size = x.shape[0]
+        assert len(x.shape) == 3 and x.shape[1:] == (
+            self.encoder_1d_seq_len,
+            self.encoder_1d_input_dim,
+        )
+        assert encoder_1d_conditioning is None or encoder_1d_conditioning.shape == (
+            batch_size,
+            self.n_fingers,
+            self.encoder_1d_conditioning_dim,
+        )
+
+        # 1d (batch_size, self.encoder_1d_seq_len, self.encoder_1d_input_dim) => (batch_size, self.encoder_1d.output_dim)
+        # Need to have (batch_size, n_channels, seq_len) for 1d encoder
+        x = x.permute(0, 2, 1)
+        assert len(x.shape) == 3 and x.shape[1:] == (
+            self.encoder_1d_input_dim,
+            self.encoder_1d_seq_len,
+        )
+
+        if encoder_1d_conditioning is not None and self.use_conditioning_1d and self.conditioning_dim is not None:
+            if x.shape[0] == batch_size * self.n_fingers:
+                encoder_1d_conditioning = encoder_1d_conditioning.reshape(
+                    batch_size * self.n_fingers, self.conditioning_dim
+                )
+            # TODO: Not figured out how to fix this
+
+        x = self.encoder_1d(x, conditioning=encoder_1d_conditioning)
+        assert len(x.shape) == 2 and x.shape[1] == self.encoder_1d.output_dim
+
+        return x
+
+    def get_success_logits(
+        self, x: torch.Tensor, conditioning: Optional[torch.Tensor] = None
+    ) -> torch.Tensor:
+        return self.forward(x, conditioning=conditioning)
+
+    def get_success_probability(
+        self, x: torch.Tensor, conditioning: Optional[torch.Tensor] = None
+    ) -> torch.Tensor:
+        return nn.functional.softmax(
+            self.get_success_logits(x, conditioning=conditioning), dim=-1
+        )
+
+
 
 class General2DTo1DClassifier(nn.Module):
     def __init__(

@@ -852,8 +852,6 @@ class Abstract2DTo1DClassifier(nn.Module):
         # Conv 2d (batch_size, n_fingers, seq_len, height, width) => (batch_size, n_fingers, seq_len, conv_encoder_2d_embed_dim)
         x = self._run_conv_encoder_2d(x, conditioning=conditioning)
 
-        
-
         # Encoder 1d (batch_size, n_fingers, seq_len, conv_encoder_2d_embed_dim) => (batch_size, 2)
         x = self._run_1d_encoder(x, conditioning=conditioning)
 
@@ -864,7 +862,13 @@ class Abstract2DTo1DClassifier(nn.Module):
     ) -> None:
         assert len(x.shape) == 5
         batch_size = x.shape[0]
-        assert x.shape == (batch_size, self.n_fingers, self.seq_len, self.height, self.width)
+        assert x.shape == (
+            batch_size,
+            self.n_fingers,
+            self.seq_len,
+            self.height,
+            self.width,
+        )
         assert conditioning is None or conditioning.shape == (
             batch_size,
             self.n_fingers,
@@ -881,18 +885,17 @@ class Abstract2DTo1DClassifier(nn.Module):
         self._check_valid_input_shape(x, conditioning=conditioning)
         batch_size = x.shape[0]
 
-        copy_x_for_sanity_check = None
-        copy_conditioning_for_sanity_check = None
         if RUN_SANITY_CHECK:
-            copy_x_for_sanity_check = x.clone()
-            copy_conditioning_for_sanity_check = conditioning.clone() if conditioning is not None else None
+            self.__run_sanity_check(x, conditioning=conditioning)
 
         # Conv 2d (batch_size, n_fingers, seq_len, height, width) => (batch_size, n_fingers, seq_len, conv_encoder_2d_embed_dim)
         # May OOM if do all at once
         if AVOID_OOM:
             x = self.__run_conv_encoder_2d_batch_fingers(x, conditioning=conditioning)
         else:
-            x = self.__run_conv_encoder_2d_batch_fingers_seq(x, conditioning=conditioning)
+            x = self.__run_conv_encoder_2d_batch_fingers_seq(
+                x, conditioning=conditioning
+            )
 
         assert x.shape == (
             batch_size,
@@ -900,11 +903,6 @@ class Abstract2DTo1DClassifier(nn.Module):
             self.seq_len,
             self.conv_encoder_2d.output_dim,
         )
-
-        if RUN_SANITY_CHECK and copy_x_for_sanity_check is not None:
-            sanity_check_x = self.__run_conv_encoder_2d_nobatch(copy_x_for_sanity_check, conditioning=copy_conditioning_for_sanity_check)
-            print("RUNNING SANITY CHECK")  # TODO REMOVE
-            assert torch.allclose(x, sanity_check_x)
 
         x = self.fc(x)
 
@@ -915,6 +913,31 @@ class Abstract2DTo1DClassifier(nn.Module):
             self.conv_encoder_2d_embed_dim,
         )
         return x
+
+    def __run_sanity_check(
+        self,
+        x: torch.Tensor,
+        conditioning: Optional[torch.Tensor] = None,
+    ) -> None:
+        print("RUNNING SANITY CHECK, SETTING TO EVAL MODE")
+        was_training = self.training
+        self.eval()
+
+        sanity_check_x = self.__run_conv_encoder_2d_nobatch(
+            x, conditioning=conditioning
+        )
+        sanity_check_y = self.__run_conv_encoder_2d_batch_fingers(
+            x, conditioning=conditioning
+        )
+        sanity_check_z = self.__run_conv_encoder_2d_batch_fingers_seq(
+            x, conditioning=conditioning
+        )
+        assert torch.allclose(sanity_check_x, sanity_check_y)
+        assert torch.allclose(sanity_check_x, sanity_check_z)
+
+        print(f"Sanity check passed, setting training={was_training}")
+        if was_training:
+            self.train()
 
     def __run_conv_encoder_2d_batch_fingers(
         self,
@@ -956,7 +979,6 @@ class Abstract2DTo1DClassifier(nn.Module):
             output_per_seq_list.append(temp)
         x = torch.stack(output_per_seq_list, dim=2)
         return x
-
 
     def __run_conv_encoder_2d_batch_fingers_seq(
         self,
@@ -1004,19 +1026,19 @@ class Abstract2DTo1DClassifier(nn.Module):
             finger_x = x[:, finger_i]
             assert finger_x.shape == (batch_size, self.seq_len, self.height, self.width)
             finger_conditioning = (
-                conditioning[:, finger_i]
-                if conditioning is not None
-                else None
+                conditioning[:, finger_i] if conditioning is not None else None
             )
-            assert (
-                finger_conditioning is None
-                or finger_conditioning.shape == (batch_size, self.conditioning_dim)
+            assert finger_conditioning is None or finger_conditioning.shape == (
+                batch_size,
+                self.conditioning_dim,
             )
 
             # Iterate through each time-step
             inner_list = []
             for seq_i in range(self.seq_len):
-                temp = finger_x[:, seq_i].reshape(batch_size, 1, self.height, self.width)
+                temp = finger_x[:, seq_i].reshape(
+                    batch_size, 1, self.height, self.width
+                )
                 temp = self.conv_encoder_2d(temp, conditioning=finger_conditioning)
                 inner_list.append(temp)
             inner_list = torch.stack(inner_list, dim=1)
@@ -1035,6 +1057,7 @@ class Abstract2DTo1DClassifier(nn.Module):
             self.conv_encoder_2d.output_dim,
         )
 
+        return outer_list
 
     def get_success_logits(
         self, x: torch.Tensor, conditioning: Optional[torch.Tensor] = None
@@ -1216,17 +1239,21 @@ def test_setup(
         batch_size, n_fingers, conditioning_dim, device=device
     )
 
-    general_model = Condition2D1D_ConcatFingersAfter1D(
-        input_shape=(seq_len, height, width),
-        n_fingers=n_fingers,
-        conditioning_dim=conditioning_dim,
-        use_conditioning_2d=use_conditioning_2d,
-        conv_encoder_2d_embed_dim=conv_encoder_2d_embed_dim,
-        conv_encoder_2d_mlp_hidden_layers=conv_encoder_2d_mlp_hidden_layers,
-        use_conditioning_1d=use_conditioning_1d,
-        encoder_1d_type=encoder_1d_type,
-        head_mlp_hidden_layers=head_mlp_hidden_layers,
-    ).to(device).eval()
+    general_model = (
+        Condition2D1D_ConcatFingersAfter1D(
+            input_shape=(seq_len, height, width),
+            n_fingers=n_fingers,
+            conditioning_dim=conditioning_dim,
+            use_conditioning_2d=use_conditioning_2d,
+            conv_encoder_2d_embed_dim=conv_encoder_2d_embed_dim,
+            conv_encoder_2d_mlp_hidden_layers=conv_encoder_2d_mlp_hidden_layers,
+            use_conditioning_1d=use_conditioning_1d,
+            encoder_1d_type=encoder_1d_type,
+            head_mlp_hidden_layers=head_mlp_hidden_layers,
+        )
+        .to(device)
+        .eval()
+    )
     print(general_model)
     summary(
         general_model,
@@ -1274,17 +1301,21 @@ def main() -> None:
     )
 
     # Create model
-    general_model = Condition2D1D_ConcatFingersAfter1D(
-        input_shape=(seq_len, height, width),
-        n_fingers=n_fingers,
-        conditioning_dim=conditioning_dim,
-        use_conditioning_2d=True,
-        conv_encoder_2d_embed_dim=32,
-        conv_encoder_2d_mlp_hidden_layers=[64, 64],
-        encoder_1d_type=Encoder1DType.CONV,
-        use_conditioning_1d=True,
-        head_mlp_hidden_layers=[64, 64],
-    ).to(device).eval()
+    general_model = (
+        Condition2D1D_ConcatFingersAfter1D(
+            input_shape=(seq_len, height, width),
+            n_fingers=n_fingers,
+            conditioning_dim=conditioning_dim,
+            use_conditioning_2d=True,
+            conv_encoder_2d_embed_dim=32,
+            conv_encoder_2d_mlp_hidden_layers=[64, 64],
+            encoder_1d_type=Encoder1DType.CONV,
+            use_conditioning_1d=True,
+            head_mlp_hidden_layers=[64, 64],
+        )
+        .to(device)
+        .eval()
+    )
 
     example_output = general_model(example_input, example_conditioning)
     print("Condition2D1D_ConcatFingersAfter1D CNN")
@@ -1355,10 +1386,12 @@ def main() -> None:
     )
     print()
 
+
 def set_seed(seed) -> None:
     import random
     import numpy as np
     import os
+
     random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
@@ -1370,8 +1403,10 @@ def set_seed(seed) -> None:
     os.environ["PYTHONHASHSEED"] = str(seed)
     print(f"Set random seed to {seed}")
 
+
 if __name__ == "__main__":
     from ipdb import launch_ipdb_on_exception
+
     set_seed(10)
 
     LAUNCH_WITH_IPDB = True

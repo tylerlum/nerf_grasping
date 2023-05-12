@@ -1270,6 +1270,72 @@ class Condition2D1D_ConcatFingersAfter1D(Abstract2DTo1DClassifier):
         return x
 
 
+class CNN_3D_Classifier(nn.Module):
+    def __init__(self, input_example_shape: Tuple[int, int, int]) -> None:
+        # TODO: Make this not hardcoded
+        super().__init__()
+        self.input_example_shape = input_example_shape
+        assert len(input_example_shape) == 3
+        self.n_fingers = 2
+
+        self.merged_input_shape = (
+            self.n_fingers * input_example_shape[0],
+            *input_example_shape[1:],
+        )
+
+        self.conv = conv_encoder(
+            input_shape=self.merged_input_shape,
+            conv_channels=[32, 64, 128, 256],
+            pool_type=PoolType.MAX,
+            dropout_prob=0.1,
+            conv_output_to_1d=ConvOutputTo1D.AVG_POOL_SPATIAL,
+        )
+
+        # Get conv output shape
+        example_batch_size = 1
+        example_input = torch.zeros(example_batch_size, *self.merged_input_shape)
+        conv_output = self.conv(example_input)
+        assert (
+            len(conv_output.shape) == 2 and conv_output.shape[0] == example_batch_size
+        )
+        _, conv_output_dim = conv_output.shape
+
+        N_CLASSES = 2
+        self.mlp = mlp(
+            num_inputs=conv_output_dim,
+            num_outputs=N_CLASSES,
+            hidden_layers=[256, 256, 256],
+        )
+
+    def forward(
+        self, x: torch.Tensor, conditioning: Optional[torch.Tensor] = None
+    ) -> torch.Tensor:
+        batch_size = x.shape[0]
+        n_fingers = 2
+        assert x.shape == (batch_size, n_fingers, *self.input_example_shape)
+
+        # Merge fingers
+        left_finger, right_finger = x[:, 0], x[:, 1]
+        x_dim, y_dim = -3, -2
+        right_finger = torch.flip(right_finger, dims=[x_dim, y_dim])
+        x = torch.cat([left_finger, right_finger], dim=x_dim)
+        assert x.shape == (batch_size, *self.merged_input_shape)
+
+        x = self.conv(x)
+        x = self.mlp(x)
+        return x
+
+    def get_success_logits(
+        self, x: torch.Tensor, conditioning: Optional[torch.Tensor] = None
+    ) -> torch.Tensor:
+        return self.forward(x)
+
+    def get_success_probability(
+        self, x: torch.Tensor, conditioning: Optional[torch.Tensor] = None
+    ) -> torch.Tensor:
+        return nn.functional.softmax(self.get_success_logits(x), dim=-1)
+
+
 def test_all_setups(setup_dict: Dict[str, Any]) -> None:
     import itertools
     from tqdm import tqdm

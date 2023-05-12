@@ -74,6 +74,7 @@ from tyler_new_models import (
     PoolType,
     ConvOutputTo1D,
     Condition2D1D_ConcatFingersAfter1D,
+    CNN_3D_Classifier,
     Encoder1DType,
     ClassifierConfig,
     dataclass_to_kwargs,
@@ -329,7 +330,7 @@ wandb.init(
 
 # %%
 # CONSTANTS AND PARAMS
-DOWNSAMPLE_FACTOR_X, DOWNSAMPLE_FACTOR_Y, DOWNSAMPLE_FACTOR_Z = 8, 2, 2  # TODO: HACK
+DOWNSAMPLE_FACTOR_X, DOWNSAMPLE_FACTOR_Y, DOWNSAMPLE_FACTOR_Z = 1, 1, 1  # TODO: HACK
 NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z = 83, 21, 37
 NUM_XYZ = 3
 NUM_DENSITY = 1
@@ -1654,21 +1655,24 @@ conditioning_dim = example_batch_data.left_global_params.shape[1]
 print(f"input_shape = {input_shape}")
 print(f"conditioning_dim = {conditioning_dim}")
 
-nerf_to_grasp_success_model = Condition2D1D_ConcatFingersAfter1D(
-    input_shape=input_shape,
-    n_fingers=2,
-    conditioning_dim=conditioning_dim,
-    # **dataclass_to_kwargs(cfg.classifier),
-    conv_encoder_2d_config=cfg.classifier.conv_encoder_2d_config,
-    use_conditioning_2d=cfg.classifier.use_conditioning_2d,
-    conv_encoder_2d_embed_dim=cfg.classifier.conv_encoder_2d_embed_dim,
-    conv_encoder_2d_mlp_hidden_layers=cfg.classifier.conv_encoder_2d_mlp_hidden_layers,
-    conv_encoder_1d_config=cfg.classifier.conv_encoder_1d_config,
-    transformer_encoder_1d_config=cfg.classifier.transformer_encoder_1d_config,
-    encoder_1d_type=cfg.classifier.encoder_1d_type,
-    use_conditioning_1d=cfg.classifier.use_conditioning_1d,
-    head_mlp_hidden_layers=cfg.classifier.head_mlp_hidden_layers,
-).to(device)
+# nerf_to_grasp_success_model = Condition2D1D_ConcatFingersAfter1D(
+#     input_shape=input_shape,
+#     n_fingers=2,
+#     conditioning_dim=conditioning_dim,
+#     # **dataclass_to_kwargs(cfg.classifier),
+#     conv_encoder_2d_config=cfg.classifier.conv_encoder_2d_config,
+#     use_conditioning_2d=cfg.classifier.use_conditioning_2d,
+#     conv_encoder_2d_embed_dim=cfg.classifier.conv_encoder_2d_embed_dim,
+#     conv_encoder_2d_mlp_hidden_layers=cfg.classifier.conv_encoder_2d_mlp_hidden_layers,
+#     conv_encoder_1d_config=cfg.classifier.conv_encoder_1d_config,
+#     transformer_encoder_1d_config=cfg.classifier.transformer_encoder_1d_config,
+#     encoder_1d_type=cfg.classifier.encoder_1d_type,
+#     use_conditioning_1d=cfg.classifier.use_conditioning_1d,
+#     head_mlp_hidden_layers=cfg.classifier.head_mlp_hidden_layers,
+# ).to(device)
+nerf_to_grasp_success_model = CNN_3D_Classifier(
+    input_example_shape=input_shape
+)
 
 optimizer = torch.optim.AdamW(
     params=nerf_to_grasp_success_model.parameters(),

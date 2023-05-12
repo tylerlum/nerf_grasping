@@ -34,7 +34,7 @@ preprocess:
 
 training:
   grad_clip_val: 1.0
-  lr: 1e-3
+  lr: 1e-4
   n_epochs: 20
   log_grad_freq: 5
   log_grad_on_epoch_0: False

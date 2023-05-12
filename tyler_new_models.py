@@ -883,7 +883,11 @@ class Abstract2DTo1DClassifier(nn.Module):
         self.conv_encoder_2d = ConvEncoder2D(
             input_shape=conv_encoder_2d_input_shape,
             conditioning_dim=conditioning_dim if use_conditioning_2d else None,
-            **dataclass_to_kwargs(conv_encoder_2d_config)
+            # **dataclass_to_kwargs(conv_encoder_2d_config)
+            use_resnet=conv_encoder_2d_config.use_resnet,
+            use_pretrained=conv_encoder_2d_config.use_pretrained,
+            pooling_method=conv_encoder_2d_config.pooling_method,
+            film_hidden_layers=conv_encoder_2d_config.film_hidden_layers,
         )
         self.fc = mlp(
             num_inputs=self.conv_encoder_2d.output_dim,
@@ -1167,13 +1171,30 @@ class Condition2D1D_ConcatFingersAfter1D(Abstract2DTo1DClassifier):
             self.encoder_1d = ConvEncoder1D(
                 input_shape=input_shape,
                 conditioning_dim=self.encoder_1d_conditioning_dim,
-                **dataclass_to_kwargs(self.encoder_1d_config)
+                # **dataclass_to_kwargs(self.encoder_1d_config)
+                use_resnet=self.encoder_1d_config.use_resnet,
+                pooling_method=self.encoder_1d_config.pooling_method,
+                film_hidden_layers=self.encoder_1d_config.film_hidden_layers,
+                base_filters=self.encoder_1d_config.base_filters,
+                kernel_size=self.encoder_1d_config.kernel_size,
+                stride=self.encoder_1d_config.stride,
+                groups=self.encoder_1d_config.groups,
+                n_block=self.encoder_1d_config.n_block,
+                downsample_gap=self.encoder_1d_config.downsample_gap,
+                increasefilter_gap=self.encoder_1d_config.increasefilter_gap,
+                use_do=self.encoder_1d_config.use_do,
             )
         elif self.encoder_1d_type == Encoder1DType.TRANSFORMER:
             self.encoder_1d = TransformerEncoder1D(
                 input_shape=input_shape,
                 conditioning_dim=self.encoder_1d_conditioning_dim,
-                **dataclass_to_kwargs(self.encoder_1d_config)
+                # **dataclass_to_kwargs(self.encoder_1d_config)
+                pooling_method=self.encoder_1d_config.pooling_method,
+                n_heads=self.encoder_1d_config.n_heads,
+                n_emb=self.encoder_1d_config.n_emb,
+                p_drop_emb=self.encoder_1d_config.p_drop_emb,
+                p_drop_attn=self.encoder_1d_config.p_drop_attn,
+                n_layers=self.encoder_1d_config.n_layers,
             )
         else:
             raise ValueError(f"Invalid encoder_1d_type = {self.encoder_1d_type}")

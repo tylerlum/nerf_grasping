@@ -239,7 +239,6 @@ class ResNet1D(nn.Module):
         use_do=True,
         verbose=False,
     ):
-        print(f"All arguments are passed to the model: in_channels={in_channels}, seq_len={seq_len}, base_filters={base_filters}, kernel_size={kernel_size}, stride={stride}, groups={groups}, n_block={n_block}, n_classes={n_classes}, downsample_gap={downsample_gap}, increasefilter_gap={increasefilter_gap}, use_bn={use_bn}, use_do={use_do}, verbose={verbose}")
         super(ResNet1D, self).__init__()
 
         self.in_channels = in_channels

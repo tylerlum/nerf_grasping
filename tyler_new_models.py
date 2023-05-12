@@ -874,6 +874,7 @@ class Abstract2DTo1DClassifier(nn.Module):
         x: torch.Tensor,
         conditioning: Optional[torch.Tensor] = None,
         AVOID_OOM=True,
+        RUN_SANITY_CHECK=False,
     ) -> torch.Tensor:
         # Validate input
         assert len(x.shape) == 5
@@ -884,6 +885,13 @@ class Abstract2DTo1DClassifier(nn.Module):
             self.n_fingers,
             self.conditioning_dim,
         )
+
+        if RUN_SANITY_CHECK:
+            copy_x = x.clone()
+            copy_conditioning = conditioning.clone() if conditioning is not None else None
+        else:
+            copy_x = None
+            copy_conditioning = None
 
         # Conv 2d (batch_size, n_fingers, seq_len, height, width) => (batch_size, n_fingers, seq_len, conv_encoder_2d_embed_dim)
         if AVOID_OOM:
@@ -952,6 +960,43 @@ class Abstract2DTo1DClassifier(nn.Module):
             self.seq_len,
             self.conv_encoder_2d.output_dim,
         )
+
+        if RUN_SANITY_CHECK and copy_x is not None:
+            outer_list = []
+            for finger_i in range(self.n_fingers):
+                finger_x = copy_x[:, finger_i]
+                assert finger_x.shape == (batch_size, self.seq_len, self.height, self.width)
+                finger_conditioning = (
+                    copy_conditioning[:, finger_i]
+                    if copy_conditioning is not None
+                    else None
+                )
+                assert (
+                    finger_conditioning is None
+                    or finger_conditioning.shape == (batch_size, self.conditioning_dim)
+                )
+                inner_list = []
+                for seq_i in range(self.seq_len):
+                    temp = finger_x[:, seq_i].reshape(batch_size, 1, self.height, self.width)
+                    temp = self.conv_encoder_2d(temp, conditioning=finger_conditioning)
+                    inner_list.append(temp)
+                inner_list = torch.stack(inner_list, dim=1)
+                assert inner_list.shape == (
+                    batch_size,
+                    self.seq_len,
+                    self.conv_encoder_2d.output_dim,
+                )
+                outer_list.append(inner_list)
+            outer_list = torch.stack(outer_list, dim=1)
+            assert outer_list.shape == (
+                batch_size,
+                self.n_fingers,
+                self.seq_len,
+                self.conv_encoder_2d.output_dim,
+            )
+            breakpoint()
+            assert torch.allclose(x, outer_list)
+
         x = self.fc(x)
 
         assert x.shape == (
@@ -1152,7 +1197,7 @@ def test_setup(
         use_conditioning_1d=use_conditioning_1d,
         encoder_1d_type=encoder_1d_type,
         head_mlp_hidden_layers=head_mlp_hidden_layers,
-    ).to(device)
+    ).to(device).eval()
     print(general_model)
     summary(
         general_model,
@@ -1177,7 +1222,7 @@ def main() -> None:
     # Create model
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     batch_size, n_fingers, seq_len, height, width = (
-        4,
+        2,
         2,
         10,
         30,
@@ -1210,7 +1255,7 @@ def main() -> None:
         encoder_1d_type=Encoder1DType.CONV,
         use_conditioning_1d=True,
         head_mlp_hidden_layers=[64, 64],
-    ).to(device)
+    ).to(device).eval()
 
     example_output = general_model(example_input, example_conditioning)
     print("Condition2D1D_ConcatFingersAfter1D CNN")
@@ -1281,9 +1326,24 @@ def main() -> None:
     )
     print()
 
+def set_seed(seed) -> None:
+    import random
+    import numpy as np
+    import os
+    random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    np.random.seed(seed)
+    torch.set_num_threads(1)  # TODO: Is this slowing things down?
+
+    # torch.backends.cudnn.deterministic = True
+    # torch.backends.cudnn.benchmark = False
+    os.environ["PYTHONHASHSEED"] = str(seed)
+    print(f"Set random seed to {seed}")
 
 if __name__ == "__main__":
     from ipdb import launch_ipdb_on_exception
+    set_seed(10)
 
     LAUNCH_WITH_IPDB = True
     if LAUNCH_WITH_IPDB:

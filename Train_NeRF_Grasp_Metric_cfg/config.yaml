@@ -91,5 +91,5 @@ checkpoint_workspace:
   force_no_resume: True
 
 random_seed: 42
-visualize_data: True
+visualize_data: False
 dry_run: False

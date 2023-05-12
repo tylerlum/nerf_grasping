@@ -76,6 +76,7 @@ from tyler_new_models import (
     Condition2D1D_ConcatFingersAfter1D,
     Encoder1DType,
     ClassifierConfig,
+    dataclass_to_kwargs,
 )
 
 import wandb
@@ -897,13 +898,12 @@ class BatchData:
             == self.right_nerf_densities.shape
             == (
                 self.left_nerf_densities.shape[0],
-                1,
                 NUM_PTS_X // 2,
                 NUM_PTS_Y,
                 NUM_PTS_Z,
             )
         )
-        nerf_grid_inputs = torch.cat(
+        nerf_grid_inputs = torch.stack(
             [
                 self.left_nerf_densities,
                 self.right_nerf_densities,
@@ -1645,8 +1645,6 @@ if cfg.visualize_data:
 # # Create Neural Network Model
 
 # %%
-
-# %%
 device = "cuda" if torch.cuda.is_available() else "cpu"
 input_shape = (NUM_PTS_X // 2, NUM_PTS_Y, NUM_PTS_Z)
 assert example_batch_data.left_nerf_densities.shape[1:] == input_shape
@@ -1658,7 +1656,7 @@ nerf_to_grasp_success_model = Condition2D1D_ConcatFingersAfter1D(
     input_shape=input_shape,
     n_fingers=2,
     conditioning_dim=conditioning_dim,
-    *cfg.classifier,
+    **dataclass_to_kwargs(cfg.classifier),
 ).to(device)
 
 optimizer = torch.optim.AdamW(
@@ -1689,6 +1687,10 @@ if checkpoint is not None:
 # %%
 print(f"nerf_to_grasp_success_model = {nerf_to_grasp_success_model}")
 print(f"optimizer = {optimizer}")
+
+# %%
+# TODO REMOVE
+example_batch_data.left_nerf_densities.shape
 
 # %%
 example_batch_data = example_batch_data.to(device)

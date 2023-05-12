@@ -12,6 +12,14 @@ from positional_encodings.torch_encodings import PositionalEncoding1D, Summer
 from torchinfo import summary
 
 
+def dataclass_to_kwargs(dataclass_instance: Any) -> Dict[str, Any]:
+    return {
+        key: value
+        for key, value in dataclass_instance.__dict__.items()
+        if not key.startswith("_")
+    } if dataclass_instance is not None else {}
+
+
 ### ENUMS ###
 class ConvOutputTo1D(Enum):
     FLATTEN = auto()  # (N, C, H, W) -> (N, C*H*W)
@@ -272,7 +280,9 @@ class FiLMGenerator(nn.Module):
 
         return beta, gamma
 
+
 ### 2D ENCODERS ###
+
 
 @dataclass
 class ConvEncoder2DConfig:
@@ -392,7 +402,9 @@ class ConvEncoder2D(nn.Module):
         assert len(example_output.shape) == 2
         return example_output.shape[1]
 
+
 ### 1D ENCODERS ###
+
 
 @dataclass
 class ConvEncoder1DConfig:
@@ -407,6 +419,7 @@ class ConvEncoder1DConfig:
     downsample_gap: int = MISSING
     increasefilter_gap: int = MISSING
     use_do: bool = MISSING
+
 
 class ConvEncoder1D(nn.Module):
     def __init__(
@@ -534,6 +547,7 @@ class TransformerEncoder1DConfig:
     p_drop_emb: float = MISSING
     p_drop_attn: float = MISSING
     n_layers: int = MISSING
+
 
 class TransformerEncoder1D(nn.Module):
     def __init__(
@@ -813,9 +827,11 @@ class TransformerEncoderDecoder(nn.Module):
 
 ### Classifiers ###
 
+
 class Encoder1DType(Enum):
     CONV = auto()
     TRANSFORMER = auto()
+
 
 @dataclass
 class ClassifierConfig:
@@ -868,7 +884,7 @@ class Abstract2DTo1DClassifier(nn.Module):
         self.conv_encoder_2d = ConvEncoder2D(
             input_shape=conv_encoder_2d_input_shape,
             conditioning_dim=conditioning_dim if use_conditioning_2d else None,
-            **conv_encoder_2d_config.__dict__ if conv_encoder_2d_config else {},
+            **dataclass_to_kwargs(conv_encoder_2d_config)
         )
         self.fc = mlp(
             num_inputs=self.conv_encoder_2d.output_dim,
@@ -1152,13 +1168,13 @@ class Condition2D1D_ConcatFingersAfter1D(Abstract2DTo1DClassifier):
             self.encoder_1d = ConvEncoder1D(
                 input_shape=input_shape,
                 conditioning_dim=self.encoder_1d_conditioning_dim,
-                **self.encoder_1d_config.__dict__ if self.encoder_1d_config else {},
+                **dataclass_to_kwargs(self.encoder_1d_config)
             )
         elif self.encoder_1d_type == Encoder1DType.TRANSFORMER:
             self.encoder_1d = TransformerEncoder1D(
                 input_shape=input_shape,
                 conditioning_dim=self.encoder_1d_conditioning_dim,
-                **self.encoder_1d_config.__dict__ if self.encoder_1d_config else {},
+                **dataclass_to_kwargs(self.encoder_1d_config)
             )
         else:
             raise ValueError(f"Invalid encoder_1d_type = {self.encoder_1d_type}")

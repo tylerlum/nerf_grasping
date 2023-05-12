@@ -70,7 +70,7 @@ from torchinfo import summary
 from torchviz import make_dot
 from wandb.util import generate_id
 from torch.profiler import profile, record_function, ProfilerActivity
-from tyler_new_models import PoolType, ConvOutputTo1D, General2DTo1DClassifier
+from tyler_new_models import PoolType, ConvOutputTo1D, Condition2D1D_ConcatFingersAfter1D
 
 import wandb
 
@@ -1592,10 +1592,10 @@ assert example_batch_data.left_nerf_densities.shape[1:] == input_shape
 conditioning_dim = example_batch_data.left_global_params.shape[1]
 assert 
 
-nerf_to_grasp_success_model = General2DTo1DClassifier(
+nerf_to_grasp_success_model = Condition2D1D_ConcatFingersAfter1D(
     input_shape=input_shape,
     n_fingers=2,
-    conditioning_dim=,
+    conditioning_dim=conditioning_dim,
     use_conditioning_2d: bool = False,
     use_conditioning_1d: bool = False,
     merge_fingers_method: MergeFingersMethod = MergeFingersMethod.MULTIPLY_AFTER_1D,

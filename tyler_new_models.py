@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from typing import List, Tuple, Optional, Dict, Any
+from typing import List, Tuple, Optional, Dict, Any, Union
 from dataclasses import dataclass
 from omegaconf import MISSING
 from FiLM_resnet import resnet18, ResNet18_Weights
@@ -272,8 +272,16 @@ class FiLMGenerator(nn.Module):
 
         return beta, gamma
 
-
 ### 2D ENCODERS ###
+
+@dataclass
+class ConvEncoder2DConfig:
+    use_resnet: bool = MISSING
+    use_pretrained: bool = MISSING
+    pooling_method: ConvOutputTo1D = MISSING
+    film_hidden_layers: List[int] = MISSING
+
+
 class ConvEncoder2D(nn.Module):
     def __init__(
         self,
@@ -384,8 +392,22 @@ class ConvEncoder2D(nn.Module):
         assert len(example_output.shape) == 2
         return example_output.shape[1]
 
-
 ### 1D ENCODERS ###
+
+@dataclass
+class ConvEncoder1DConfig:
+    use_resnet: bool = MISSING
+    pooling_method: ConvOutputTo1D = MISSING
+    film_hidden_layers: List[int] = MISSING
+    base_filters: int = MISSING
+    kernel_size: int = MISSING
+    stride: int = MISSING
+    groups: int = MISSING
+    n_block: int = MISSING
+    downsample_gap: int = MISSING
+    increasefilter_gap: int = MISSING
+    use_do: bool = MISSING
+
 class ConvEncoder1D(nn.Module):
     def __init__(
         self,
@@ -503,6 +525,15 @@ class ConvEncoder1D(nn.Module):
         assert len(example_output.shape) == 2
         return example_output.shape[1]
 
+
+@dataclass
+class TransformerEncoder1DConfig:
+    pooling_method: ConvOutputTo1D = MISSING
+    n_heads: int = MISSING
+    n_emb: int = MISSING
+    p_drop_emb: float = MISSING
+    p_drop_attn: float = MISSING
+    n_layers: int = MISSING
 
 class TransformerEncoder1D(nn.Module):
     def __init__(
@@ -782,22 +813,21 @@ class TransformerEncoderDecoder(nn.Module):
 
 ### Classifiers ###
 
-
-class MergeFingersMethod(Enum):
-    MULTIPLY_AFTER_1D = auto()
-    ADD_AFTER_1D = auto()
-    CONCAT_AFTER_1D = auto()
-
-    MULTIPLY_BEFORE_1D = auto()
-    ADD_BEFORE_1D = auto()
-    CONCAT_BEFORE_1D_CHANNEL_WISE = auto()
-    CONCAT_BEFORE_1D_TIME_WISE = auto()
-    ATTENTION_BEFORE_1D = auto()
-
-
 class Encoder1DType(Enum):
     CONV = auto()
     TRANSFORMER = auto()
+
+@dataclass
+class ClassifierConfig:
+    conv_encoder_2d_config: ConvEncoder2DConfig = MISSING
+    use_conditioning_2d: bool = MISSING
+    conv_encoder_2d_embed_dim: int = MISSING
+    conv_encoder_2d_mlp_hidden_layers: List[int] = MISSING
+
+    encoder_1d_config: Union[ConvEncoder1DConfig, TransformerEncoder1DConfig] = MISSING
+    encoder_1d_type: Encoder1DType = MISSING
+    use_conditioning_1d: bool = MISSING
+    head_mlp_hidden_layers: List[int] = MISSING
 
 
 class Abstract2DTo1DClassifier(nn.Module):
@@ -806,6 +836,7 @@ class Abstract2DTo1DClassifier(nn.Module):
         input_shape: Tuple[int, int, int],
         n_fingers: int,
         conditioning_dim: Optional[int] = None,
+        conv_encoder_2d_config: Optional[ConvEncoder2DConfig] = None,
         use_conditioning_2d: bool = False,
         conv_encoder_2d_embed_dim: int = 32,
         conv_encoder_2d_mlp_hidden_layers: List[int] = [64, 64],
@@ -818,6 +849,7 @@ class Abstract2DTo1DClassifier(nn.Module):
         self.input_shape = input_shape
         self.n_fingers = n_fingers
         self.conditioning_dim = conditioning_dim
+        self.conv_encoder_2d_config = conv_encoder_2d_config
         self.use_conditioning_2d = use_conditioning_2d
         self.conv_encoder_2d_embed_dim = conv_encoder_2d_embed_dim
         self.conv_encoder_2d_mlp_hidden_layers = conv_encoder_2d_mlp_hidden_layers
@@ -835,6 +867,7 @@ class Abstract2DTo1DClassifier(nn.Module):
         self.conv_encoder_2d = ConvEncoder2D(
             input_shape=conv_encoder_2d_input_shape,
             conditioning_dim=conditioning_dim if use_conditioning_2d else None,
+            **conv_encoder_2d_config.__dict__ if conv_encoder_2d_config else {},
         )
         self.fc = mlp(
             num_inputs=self.conv_encoder_2d.output_dim,
@@ -1083,11 +1116,13 @@ class Abstract2DTo1DClassifier(nn.Module):
 class Condition2D1D_ConcatFingersAfter1D(Abstract2DTo1DClassifier):
     def __init__(
         self,
+        encoder_1d_config: Optional[Union[ConvEncoder1DConfig, TransformerEncoder1DConfig]] = None,
         encoder_1d_type: Encoder1DType = Encoder1DType.CONV,
         use_conditioning_1d: bool = False,
         head_mlp_hidden_layers: List[int] = [64, 64],
         **kwargs,
     ) -> None:
+        self.encoder_1d_config = encoder_1d_config
         self.encoder_1d_type = encoder_1d_type
         self.use_conditioning_1d = use_conditioning_1d
         self.head_mlp_hidden_layers = head_mlp_hidden_layers
@@ -1110,11 +1145,13 @@ class Condition2D1D_ConcatFingersAfter1D(Abstract2DTo1DClassifier):
             self.encoder_1d = ConvEncoder1D(
                 input_shape=input_shape,
                 conditioning_dim=self.encoder_1d_conditioning_dim,
+                **self.encoder_1d_config.__dict__ if self.encoder_1d_config else {},
             )
         elif self.encoder_1d_type == Encoder1DType.TRANSFORMER:
             self.encoder_1d = TransformerEncoder1D(
                 input_shape=input_shape,
                 conditioning_dim=self.encoder_1d_conditioning_dim,
+                **self.encoder_1d_config.__dict__ if self.encoder_1d_config else {},
             )
         else:
             raise ValueError(f"Invalid encoder_1d_type = {self.encoder_1d_type}")

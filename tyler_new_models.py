@@ -13,10 +13,11 @@ from torchinfo import summary
 
 
 def dataclass_to_kwargs(dataclass_instance: Any) -> Dict[str, Any]:
-    return {
-        key: value
-        for key, value in dataclass_instance.__dict__["_content"].items()
-    } if dataclass_instance is not None else {}
+    return (
+        {key: value for key, value in dataclass_instance.__dict__["_content"].items()}
+        if dataclass_instance is not None
+        else {}
+    )
 
 
 ### ENUMS ###

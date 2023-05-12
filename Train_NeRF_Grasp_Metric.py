@@ -329,7 +329,7 @@ wandb.init(
 
 # %%
 # CONSTANTS AND PARAMS
-DOWNSAMPLE_FACTOR = 2 # TODO: HACK
+DOWNSAMPLE_FACTOR = 5  # TODO: HACK
 NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z = 83, 21, 37
 NUM_XYZ = 3
 NUM_DENSITY = 1
@@ -892,7 +892,9 @@ class BatchData:
         return self
 
     @property
-    @localscope.mfc(allowed=["NUM_PTS_X", "NUM_PTS_Y", "NUM_PTS_Z", "DOWNSAMPLE_FACTOR"])
+    @localscope.mfc(
+        allowed=["NUM_PTS_X", "NUM_PTS_Y", "NUM_PTS_Z", "DOWNSAMPLE_FACTOR"]
+    )
     def nerf_grid_inputs(self) -> torch.Tensor:
         assert (
             self.left_nerf_densities.shape
@@ -1723,26 +1725,27 @@ example_grasp_success_predictions = nerf_to_grasp_success_model(
     example_batch_nerf_grid_inputs, conditioning=example_batch_global_params
 )
 
-dot = None
-try:
-    dot = make_dot(
-        example_grasp_success_predictions,
-        params={
-            **dict(nerf_to_grasp_success_model.named_parameters()),
-            **{"NERF INPUT": example_batch_nerf_grid_inputs},
-            **{"GLOBAL PARAMS": example_batch_global_params},
-            **{"GRASP SUCCESS": example_grasp_success_predictions},
-        },
-    )
-    model_graph_filename = "model_graph.png"
-    model_graph_filename_split = model_graph_filename.split(".")
-    print(f"Saving to {model_graph_filename}...")
-    dot.render(model_graph_filename_split[0], format=model_graph_filename_split[1])
-    print(f"Done saving to {model_graph_filename}")
-except:
-    print("Failed to save model graph to file.")
+if cfg.visualize_data:
+    dot = None
+    try:
+        dot = make_dot(
+            example_grasp_success_predictions,
+            params={
+                **dict(nerf_to_grasp_success_model.named_parameters()),
+                **{"NERF INPUT": example_batch_nerf_grid_inputs},
+                **{"GLOBAL PARAMS": example_batch_global_params},
+                **{"GRASP SUCCESS": example_grasp_success_predictions},
+            },
+        )
+        model_graph_filename = "model_graph.png"
+        model_graph_filename_split = model_graph_filename.split(".")
+        print(f"Saving to {model_graph_filename}...")
+        dot.render(model_graph_filename_split[0], format=model_graph_filename_split[1])
+        print(f"Done saving to {model_graph_filename}")
+    except:
+        print("Failed to save model graph to file.")
 
-dot
+    dot
 
 
 # %% [markdown]

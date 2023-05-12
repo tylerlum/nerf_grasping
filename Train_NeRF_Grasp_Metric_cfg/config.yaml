@@ -18,7 +18,7 @@ data:
   max_num_data_points: ${eval:None}
 
 dataloader:
-  batch_size: 2
+  batch_size: 10
   num_workers: 8
   pin_memory: True
   load_nerf_grid_inputs_in_ram: False
@@ -47,43 +47,43 @@ training:
   use_dataloader_subset: True
 
 classifier:
-    conv_encoder_2d_config:
-      use_resnet: True
-      use_pretrained: True
-      pooling_method: "AVG_POOL_CHANNEL"
-      film_hidden_layers: [64, 64]
+  conv_encoder_2d_config:
+    use_resnet: True
+    use_pretrained: True
+    pooling_method: "AVG_POOL_CHANNEL"
+    film_hidden_layers: [64, 64]
 
-    use_conditioning_2d: True
-    conv_encoder_2d_embed_dim: 32
-    conv_encoder_2d_mlp_hidden_layers: [64, 64]
+  use_conditioning_2d: True
+  conv_encoder_2d_embed_dim: 32
+  conv_encoder_2d_mlp_hidden_layers: [64, 64]
 
-    # Conv
-    conv_encoder_1d_config:
-      use_resnet: True
-      pooling_method: "AVG_POOL_CHANNEL"
-      film_hidden_layers: [64, 64]
-      base_filters: 64
-      kernel_size: 16
-      stride: 2
-      groups: 32
-      n_block: 8
-      downsample_gap: 6
-      increasefilter_gap: 12
-      use_do: False
+  # Conv
+  conv_encoder_1d_config:
+    use_resnet: True
+    pooling_method: "AVG_POOL_CHANNEL"
+    film_hidden_layers: [64, 64]
+    base_filters: 64
+    kernel_size: 16
+    stride: 2
+    groups: 32
+    n_block: 8
+    downsample_gap: 6
+    increasefilter_gap: 12
+    use_do: False
 
-    # Transformer
-    transformer_encoder_1d_config:
-      pooling_method: "FLATTEN"
-      n_heads: 8
-      n_emb: ${eval:${classifier.transformer_encoder_1d_config.n_heads} * 16}  # Need to be divisible by n_heads
-      p_drop_emb: 0.1
-      p_drop_attn: 0.1
-      n_layers: 4
+  # Transformer
+  transformer_encoder_1d_config:
+    pooling_method: "FLATTEN"
+    n_heads: 8
+    n_emb: ${eval:${classifier.transformer_encoder_1d_config.n_heads} * 16} # Need to be divisible by n_heads
+    p_drop_emb: 0.1
+    p_drop_attn: 0.1
+    n_layers: 4
 
-    encoder_1d_type: "TRANSFORMER"
+  encoder_1d_type: "TRANSFORMER"
 
-    use_conditioning_1d: True
-    head_mlp_hidden_layers: [64, 64]
+  use_conditioning_1d: True
+  head_mlp_hidden_layers: [64, 64]
 
 checkpoint_workspace:
   root_dir: "Train_NeRF_Grasp_Metric_workspaces"

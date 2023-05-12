@@ -1346,25 +1346,6 @@ def main() -> None:
     print(f"example_output.shape = {example_output.shape}")
     print()
 
-    # Test many model configs
-    print("About to test many model configs")
-    ARGUMENT_NAMES_TO_OPTIONS_DICT = {
-        "batch_size": [3, 5],
-        "n_fingers": [2],
-        "seq_len": [10, 7],
-        "height": [17],
-        "width": [19],
-        "conditioning_dim": [15],
-        "use_conditioning_2d": [True, False],
-        "use_conditioning_1d": [True, False],
-        "encoder_1d_type": [e for e in Encoder1DType],
-        "conv_encoder_2d_embed_dim": [32, 64],
-        "conv_encoder_2d_mlp_hidden_layers": [[64, 64]],
-        "head_mlp_hidden_layers": [[64, 64]],
-        "device": [device],
-    }
-    test_all_setups(ARGUMENT_NAMES_TO_OPTIONS_DICT)
-
     # Spatial softmax
     x = torch.randn(batch_size, seq_len, width, device=device)
     xx = torch.randn(batch_size, seq_len, height, width, device=device)
@@ -1385,6 +1366,25 @@ def main() -> None:
         f"spatial_softmax_with_variance(xx).shape = {spatial_softmax_with_variance(xx).shape}"
     )
     print()
+
+    # Test many model configs
+    print("About to test many model configs")
+    ARGUMENT_NAMES_TO_OPTIONS_DICT = {
+        "batch_size": [3, 5],
+        "n_fingers": [2],
+        "seq_len": [10, 7],
+        "height": [17],
+        "width": [19],
+        "conditioning_dim": [15],
+        "use_conditioning_2d": [True, False],
+        "use_conditioning_1d": [True, False],
+        "encoder_1d_type": [e for e in Encoder1DType],
+        "conv_encoder_2d_embed_dim": [32, 64],
+        "conv_encoder_2d_mlp_hidden_layers": [[64, 64]],
+        "head_mlp_hidden_layers": [[64, 64]],
+        "device": [device],
+    }
+    test_all_setups(ARGUMENT_NAMES_TO_OPTIONS_DICT)
 
 
 def set_seed(seed) -> None:

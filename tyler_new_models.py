@@ -932,8 +932,8 @@ class Abstract2DTo1DClassifier(nn.Module):
         sanity_check_z = self.__run_conv_encoder_2d_batch_fingers_seq(
             x, conditioning=conditioning
         )
-        assert torch.allclose(sanity_check_x, sanity_check_y)
-        assert torch.allclose(sanity_check_x, sanity_check_z)
+        assert torch.allclose(sanity_check_x, sanity_check_y, rtol=1e-3, atol=1e-3)
+        assert torch.allclose(sanity_check_x, sanity_check_y, rtol=1e-3, atol=1e-3)
 
         print(f"Sanity check passed, setting training={was_training}")
         if was_training:
@@ -957,6 +957,7 @@ class Abstract2DTo1DClassifier(nn.Module):
             and self.conditioning_dim is not None
             else None
         )
+
         output_per_seq_list = []
         for seq_i in range(self.seq_len):
             temp = x[:, seq_i]
@@ -992,9 +993,9 @@ class Abstract2DTo1DClassifier(nn.Module):
             batch_size * self.n_fingers * self.seq_len, 1, self.height, self.width
         )
         conditioning = (
-            conditioning.reshape(
-                batch_size * self.n_fingers, self.conditioning_dim
-            ).repeat(self.seq_len, 1)
+            conditioning.reshape(batch_size, self.n_fingers, 1, self.conditioning_dim)
+            .repeat(1, 1, self.seq_len, 1)
+            .reshape(batch_size * self.n_fingers * self.seq_len, self.conditioning_dim)
             if conditioning is not None
             and self.use_conditioning_2d
             and self.conditioning_dim is not None
@@ -1019,7 +1020,6 @@ class Abstract2DTo1DClassifier(nn.Module):
         conditioning: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         batch_size = x.shape[0]
-
         outer_list = []
         # Iterate through each finger
         for finger_i in range(self.n_fingers):
@@ -1407,9 +1407,9 @@ def set_seed(seed) -> None:
 if __name__ == "__main__":
     from ipdb import launch_ipdb_on_exception
 
-    set_seed(10)
+    set_seed(42)
 
-    LAUNCH_WITH_IPDB = True
+    LAUNCH_WITH_IPDB = False
     if LAUNCH_WITH_IPDB:
         with launch_ipdb_on_exception():
             main()

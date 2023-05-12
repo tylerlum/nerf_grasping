@@ -852,6 +852,8 @@ class Abstract2DTo1DClassifier(nn.Module):
         # Conv 2d (batch_size, n_fingers, seq_len, height, width) => (batch_size, n_fingers, seq_len, conv_encoder_2d_embed_dim)
         x = self._run_conv_encoder_2d(x, conditioning=conditioning)
 
+        
+
         # Encoder 1d (batch_size, n_fingers, seq_len, conv_encoder_2d_embed_dim) => (batch_size, 2)
         x = self._run_1d_encoder(x, conditioning=conditioning)
 
@@ -862,7 +864,7 @@ class Abstract2DTo1DClassifier(nn.Module):
     ) -> None:
         assert len(x.shape) == 5
         batch_size = x.shape[0]
-        assert x.shape[1:] == (self.n_fingers, self.seq_len, self.height, self.width)
+        assert x.shape == (batch_size, self.n_fingers, self.seq_len, self.height, self.width)
         assert conditioning is None or conditioning.shape == (
             batch_size,
             self.n_fingers,
@@ -876,83 +878,21 @@ class Abstract2DTo1DClassifier(nn.Module):
         AVOID_OOM=True,
         RUN_SANITY_CHECK=False,
     ) -> torch.Tensor:
-        # Validate input
-        assert len(x.shape) == 5
+        self._check_valid_input_shape(x, conditioning=conditioning)
         batch_size = x.shape[0]
-        assert x.shape[1:] == (self.n_fingers, self.seq_len, self.height, self.width)
-        assert conditioning is None or conditioning.shape == (
-            batch_size,
-            self.n_fingers,
-            self.conditioning_dim,
-        )
 
+        copy_x_for_sanity_check = None
+        copy_conditioning_for_sanity_check = None
         if RUN_SANITY_CHECK:
-            copy_x = x.clone()
-            copy_conditioning = conditioning.clone() if conditioning is not None else None
-        else:
-            copy_x = None
-            copy_conditioning = None
+            copy_x_for_sanity_check = x.clone()
+            copy_conditioning_for_sanity_check = conditioning.clone() if conditioning is not None else None
 
         # Conv 2d (batch_size, n_fingers, seq_len, height, width) => (batch_size, n_fingers, seq_len, conv_encoder_2d_embed_dim)
+        # May OOM if do all at once
         if AVOID_OOM:
-            # Process each finger in each time-step separately
-            # OOM if do all at once
-            x = x.reshape(
-                batch_size * self.n_fingers, self.seq_len, 1, self.height, self.width
-            )
-            conditioning = (
-                conditioning.reshape(batch_size * self.n_fingers, self.conditioning_dim)
-                if conditioning is not None
-                and self.use_conditioning_2d
-                and self.conditioning_dim is not None
-                else None
-            )
-            output_per_seq_list = []
-            for seq_i in range(self.seq_len):
-                temp = x[:, seq_i]
-                assert temp.shape == (
-                    batch_size * self.n_fingers,
-                    1,
-                    self.height,
-                    self.width,
-                )
-                temp = self.conv_encoder_2d(temp, conditioning=conditioning)
-                assert temp.shape == (
-                    batch_size * self.n_fingers,
-                    self.conv_encoder_2d.output_dim,
-                )
-                temp = temp.reshape(
-                    batch_size,
-                    self.n_fingers,
-                    self.conv_encoder_2d.output_dim,
-                )
-                output_per_seq_list.append(temp)
-            x = torch.stack(output_per_seq_list, dim=2)
+            x = self.__run_conv_encoder_2d_batch_fingers(x, conditioning=conditioning)
         else:
-            # Do this by putting seq_len in the batch dimension
-            x = x.reshape(
-                batch_size * self.n_fingers * self.seq_len, 1, self.height, self.width
-            )
-            conditioning = (
-                conditioning.reshape(
-                    batch_size * self.n_fingers, self.conditioning_dim
-                ).repeat(self.seq_len, 1)
-                if conditioning is not None
-                and self.use_conditioning_2d
-                and self.conditioning_dim is not None
-                else None
-            )
-            x = self.conv_encoder_2d(x, conditioning=conditioning)
-            assert x.shape == (
-                batch_size * self.n_fingers * self.seq_len,
-                self.conv_encoder_2d.output_dim,
-            )
-            x = x.reshape(
-                batch_size,
-                self.n_fingers,
-                self.seq_len,
-                self.conv_encoder_2d.output_dim,
-            )
+            x = self.__run_conv_encoder_2d_batch_fingers_seq(x, conditioning=conditioning)
 
         assert x.shape == (
             batch_size,
@@ -961,41 +901,10 @@ class Abstract2DTo1DClassifier(nn.Module):
             self.conv_encoder_2d.output_dim,
         )
 
-        if RUN_SANITY_CHECK and copy_x is not None:
-            outer_list = []
-            for finger_i in range(self.n_fingers):
-                finger_x = copy_x[:, finger_i]
-                assert finger_x.shape == (batch_size, self.seq_len, self.height, self.width)
-                finger_conditioning = (
-                    copy_conditioning[:, finger_i]
-                    if copy_conditioning is not None
-                    else None
-                )
-                assert (
-                    finger_conditioning is None
-                    or finger_conditioning.shape == (batch_size, self.conditioning_dim)
-                )
-                inner_list = []
-                for seq_i in range(self.seq_len):
-                    temp = finger_x[:, seq_i].reshape(batch_size, 1, self.height, self.width)
-                    temp = self.conv_encoder_2d(temp, conditioning=finger_conditioning)
-                    inner_list.append(temp)
-                inner_list = torch.stack(inner_list, dim=1)
-                assert inner_list.shape == (
-                    batch_size,
-                    self.seq_len,
-                    self.conv_encoder_2d.output_dim,
-                )
-                outer_list.append(inner_list)
-            outer_list = torch.stack(outer_list, dim=1)
-            assert outer_list.shape == (
-                batch_size,
-                self.n_fingers,
-                self.seq_len,
-                self.conv_encoder_2d.output_dim,
-            )
-            breakpoint()
-            assert torch.allclose(x, outer_list)
+        if RUN_SANITY_CHECK and copy_x_for_sanity_check is not None:
+            sanity_check_x = self.__run_conv_encoder_2d_nobatch(copy_x_for_sanity_check, conditioning=copy_conditioning_for_sanity_check)
+            print("RUNNING SANITY CHECK")  # TODO REMOVE
+            assert torch.allclose(x, sanity_check_x)
 
         x = self.fc(x)
 
@@ -1006,6 +915,126 @@ class Abstract2DTo1DClassifier(nn.Module):
             self.conv_encoder_2d_embed_dim,
         )
         return x
+
+    def __run_conv_encoder_2d_batch_fingers(
+        self,
+        x: torch.Tensor,
+        conditioning: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        batch_size = x.shape[0]
+
+        # Process each finger in each time-step separately
+        x = x.reshape(
+            batch_size * self.n_fingers, self.seq_len, 1, self.height, self.width
+        )
+        conditioning = (
+            conditioning.reshape(batch_size * self.n_fingers, self.conditioning_dim)
+            if conditioning is not None
+            and self.use_conditioning_2d
+            and self.conditioning_dim is not None
+            else None
+        )
+        output_per_seq_list = []
+        for seq_i in range(self.seq_len):
+            temp = x[:, seq_i]
+            assert temp.shape == (
+                batch_size * self.n_fingers,
+                1,
+                self.height,
+                self.width,
+            )
+            temp = self.conv_encoder_2d(temp, conditioning=conditioning)
+            assert temp.shape == (
+                batch_size * self.n_fingers,
+                self.conv_encoder_2d.output_dim,
+            )
+            temp = temp.reshape(
+                batch_size,
+                self.n_fingers,
+                self.conv_encoder_2d.output_dim,
+            )
+            output_per_seq_list.append(temp)
+        x = torch.stack(output_per_seq_list, dim=2)
+        return x
+
+
+    def __run_conv_encoder_2d_batch_fingers_seq(
+        self,
+        x: torch.Tensor,
+        conditioning: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        batch_size = x.shape[0]
+
+        # Do this by putting n_fingers and seq_len in the batch dimension
+        x = x.reshape(
+            batch_size * self.n_fingers * self.seq_len, 1, self.height, self.width
+        )
+        conditioning = (
+            conditioning.reshape(
+                batch_size * self.n_fingers, self.conditioning_dim
+            ).repeat(self.seq_len, 1)
+            if conditioning is not None
+            and self.use_conditioning_2d
+            and self.conditioning_dim is not None
+            else None
+        )
+        x = self.conv_encoder_2d(x, conditioning=conditioning)
+        assert x.shape == (
+            batch_size * self.n_fingers * self.seq_len,
+            self.conv_encoder_2d.output_dim,
+        )
+        x = x.reshape(
+            batch_size,
+            self.n_fingers,
+            self.seq_len,
+            self.conv_encoder_2d.output_dim,
+        )
+        return x
+
+    def __run_conv_encoder_2d_nobatch(
+        self,
+        x: torch.Tensor,
+        conditioning: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        batch_size = x.shape[0]
+
+        outer_list = []
+        # Iterate through each finger
+        for finger_i in range(self.n_fingers):
+            finger_x = x[:, finger_i]
+            assert finger_x.shape == (batch_size, self.seq_len, self.height, self.width)
+            finger_conditioning = (
+                conditioning[:, finger_i]
+                if conditioning is not None
+                else None
+            )
+            assert (
+                finger_conditioning is None
+                or finger_conditioning.shape == (batch_size, self.conditioning_dim)
+            )
+
+            # Iterate through each time-step
+            inner_list = []
+            for seq_i in range(self.seq_len):
+                temp = finger_x[:, seq_i].reshape(batch_size, 1, self.height, self.width)
+                temp = self.conv_encoder_2d(temp, conditioning=finger_conditioning)
+                inner_list.append(temp)
+            inner_list = torch.stack(inner_list, dim=1)
+
+            assert inner_list.shape == (
+                batch_size,
+                self.seq_len,
+                self.conv_encoder_2d.output_dim,
+            )
+            outer_list.append(inner_list)
+        outer_list = torch.stack(outer_list, dim=1)
+        assert outer_list.shape == (
+            batch_size,
+            self.n_fingers,
+            self.seq_len,
+            self.conv_encoder_2d.output_dim,
+        )
+
 
     def get_success_logits(
         self, x: torch.Tensor, conditioning: Optional[torch.Tensor] = None

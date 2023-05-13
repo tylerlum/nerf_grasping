@@ -76,7 +76,7 @@ classifier:
 
   # Transformer
   transformer_encoder_1d_config:
-    pooling_method: "FLATTEN"
+    pooling_method: "AVG_POOL_CHANNEL"
     n_heads: 8
     n_emb: ${eval:${classifier.transformer_encoder_1d_config.n_heads} * 16} # Need to be divisible by n_heads
     p_drop_emb: 0.1

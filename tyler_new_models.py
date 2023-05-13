@@ -882,14 +882,21 @@ class Abstract2DTo1DClassifier(nn.Module):
             self.height,
             self.width,
         )
-        self.conv_encoder_2d = ConvEncoder2D(
-            input_shape=conv_encoder_2d_input_shape,
-            conditioning_dim=conditioning_dim if use_conditioning_2d else None,
-            # **dataclass_to_kwargs(conv_encoder_2d_config)
-            use_resnet=conv_encoder_2d_config.use_resnet,
-            use_pretrained=conv_encoder_2d_config.use_pretrained,
-            pooling_method=conv_encoder_2d_config.pooling_method,
-            film_hidden_layers=conv_encoder_2d_config.film_hidden_layers,
+        self.conv_encoder_2d = (
+            ConvEncoder2D(
+                input_shape=conv_encoder_2d_input_shape,
+                conditioning_dim=conditioning_dim if use_conditioning_2d else None,
+                # **dataclass_to_kwargs(conv_encoder_2d_config)
+                use_resnet=conv_encoder_2d_config.use_resnet,
+                use_pretrained=conv_encoder_2d_config.use_pretrained,
+                pooling_method=conv_encoder_2d_config.pooling_method,
+                film_hidden_layers=conv_encoder_2d_config.film_hidden_layers,
+            )
+            if conv_encoder_2d_config is not None
+            else ConvEncoder2D(
+                input_shape=conv_encoder_2d_input_shape,
+                conditioning_dim=conditioning_dim if use_conditioning_2d else None,
+            )
         )
         self.fc = mlp(
             num_inputs=self.conv_encoder_2d.output_dim,
@@ -1170,33 +1177,47 @@ class Condition2D1D_ConcatFingersAfter1D(Abstract2DTo1DClassifier):
 
         input_shape = (self.encoder_1d_input_dim, self.encoder_1d_seq_len)
         if self.encoder_1d_type == Encoder1DType.CONV:
-            self.encoder_1d = ConvEncoder1D(
-                input_shape=input_shape,
-                conditioning_dim=self.encoder_1d_conditioning_dim,
-                # **dataclass_to_kwargs(self.encoder_1d_config)
-                use_resnet=self.encoder_1d_config.use_resnet,
-                pooling_method=self.encoder_1d_config.pooling_method,
-                film_hidden_layers=self.encoder_1d_config.film_hidden_layers,
-                base_filters=self.encoder_1d_config.base_filters,
-                kernel_size=self.encoder_1d_config.kernel_size,
-                stride=self.encoder_1d_config.stride,
-                groups=self.encoder_1d_config.groups,
-                n_block=self.encoder_1d_config.n_block,
-                downsample_gap=self.encoder_1d_config.downsample_gap,
-                increasefilter_gap=self.encoder_1d_config.increasefilter_gap,
-                use_do=self.encoder_1d_config.use_do,
+            self.encoder_1d = (
+                ConvEncoder1D(
+                    input_shape=input_shape,
+                    conditioning_dim=self.encoder_1d_conditioning_dim,
+                    # **dataclass_to_kwargs(self.encoder_1d_config)
+                    use_resnet=self.encoder_1d_config.use_resnet,
+                    pooling_method=self.encoder_1d_config.pooling_method,
+                    film_hidden_layers=self.encoder_1d_config.film_hidden_layers,
+                    base_filters=self.encoder_1d_config.base_filters,
+                    kernel_size=self.encoder_1d_config.kernel_size,
+                    stride=self.encoder_1d_config.stride,
+                    groups=self.encoder_1d_config.groups,
+                    n_block=self.encoder_1d_config.n_block,
+                    downsample_gap=self.encoder_1d_config.downsample_gap,
+                    increasefilter_gap=self.encoder_1d_config.increasefilter_gap,
+                    use_do=self.encoder_1d_config.use_do,
+                )
+                if self.encoder_1d_config is not None
+                else ConvEncoder1D(
+                    input_shape=input_shape,
+                    conditioning_dim=self.encoder_1d_conditioning_dim,
+                )
             )
         elif self.encoder_1d_type == Encoder1DType.TRANSFORMER:
-            self.encoder_1d = TransformerEncoder1D(
-                input_shape=input_shape,
-                conditioning_dim=self.encoder_1d_conditioning_dim,
-                # **dataclass_to_kwargs(self.encoder_1d_config)
-                pooling_method=self.encoder_1d_config.pooling_method,
-                n_heads=self.encoder_1d_config.n_heads,
-                n_emb=self.encoder_1d_config.n_emb,
-                p_drop_emb=self.encoder_1d_config.p_drop_emb,
-                p_drop_attn=self.encoder_1d_config.p_drop_attn,
-                n_layers=self.encoder_1d_config.n_layers,
+            self.encoder_1d = (
+                TransformerEncoder1D(
+                    input_shape=input_shape,
+                    conditioning_dim=self.encoder_1d_conditioning_dim,
+                    # **dataclass_to_kwargs(self.encoder_1d_config)
+                    pooling_method=self.encoder_1d_config.pooling_method,
+                    n_heads=self.encoder_1d_config.n_heads,
+                    n_emb=self.encoder_1d_config.n_emb,
+                    p_drop_emb=self.encoder_1d_config.p_drop_emb,
+                    p_drop_attn=self.encoder_1d_config.p_drop_attn,
+                    n_layers=self.encoder_1d_config.n_layers,
+                )
+                if self.encoder_1d_config is not None
+                else TransformerEncoder1D(
+                    input_shape=input_shape,
+                    conditioning_dim=self.encoder_1d_conditioning_dim,
+                )
             )
         else:
             raise ValueError(f"Invalid encoder_1d_type = {self.encoder_1d_type}")
@@ -1429,7 +1450,7 @@ def main() -> None:
         2,
         2,
         10,
-        30,
+        40,
         40,
     )  # WARNING: Easy to OOM
     conditioning_dim = 11
@@ -1497,9 +1518,18 @@ def main() -> None:
     # Spatial softmax
     x = torch.randn(batch_size, seq_len, width, device=device)
     xx = torch.randn(batch_size, seq_len, height, width, device=device)
-    spatial_softmax = SpatialSoftmax(temperature=1.0, output_variance=False)
+    actual_max_x = torch.argmax(x, dim=-1)
+    actual_max_xx = []
+    for i in range(batch_size):
+        temp = torch.stack(
+            [(xx[i, j] == torch.max(xx[i, j])).nonzero() for j in range(seq_len)], dim=0
+        )
+        actual_max_xx.append(temp)
+
+    actual_max_xx = torch.stack(actual_max_xx, dim=0)
+    spatial_softmax = SpatialSoftmax(temperature=0.1, output_variance=False)
     spatial_softmax_with_variance = SpatialSoftmax(
-        temperature=1.0, output_variance=True
+        temperature=0.1, output_variance=True
     )
     print("SpatialSoftmax")
     print("=" * 80)
@@ -1512,6 +1542,21 @@ def main() -> None:
     )
     print(
         f"spatial_softmax_with_variance(xx).shape = {spatial_softmax_with_variance(xx).shape}"
+    )
+    batch_idx_to_print = 0
+    seq_idx_to_print = 0
+    print(f"For batch_idx, seq_idx_to_print = {batch_idx_to_print}, {seq_idx_to_print}")
+    print(
+        f"spatial_softmax(x)[batch_idx_to_print, seq_idx_to_print] = {(spatial_softmax(x)[batch_idx_to_print, seq_idx_to_print] + 1) / 2 * width}"
+    )
+    print(
+        f"spatial_softmax(xx)[batch_idx_to_print, seq_idx_to_print] = {(spatial_softmax(xx)[batch_idx_to_print, seq_idx_to_print] + 1) / 2 * width}"
+    )
+    print(
+        f"actual_max_x[batch_idx_to_print, seq_idx_to_print] = {actual_max_x[batch_idx_to_print, seq_idx_to_print]}"
+    )
+    print(
+        f"actual_max_xx[batch_idx_to_print, seq_idx_to_print] = {actual_max_xx[batch_idx_to_print, seq_idx_to_print]}"
     )
     print()
 

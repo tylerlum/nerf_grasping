@@ -1527,9 +1527,9 @@ def main() -> None:
         actual_max_xx.append(temp)
 
     actual_max_xx = torch.stack(actual_max_xx, dim=0)
-    spatial_softmax = SpatialSoftmax(temperature=0.1, output_variance=False)
+    spatial_softmax = SpatialSoftmax(temperature=0.001, output_variance=False)
     spatial_softmax_with_variance = SpatialSoftmax(
-        temperature=0.1, output_variance=True
+        temperature=0.001, output_variance=True
     )
     print("SpatialSoftmax")
     print("=" * 80)
@@ -1600,7 +1600,7 @@ def set_seed(seed) -> None:
 if __name__ == "__main__":
     from ipdb import launch_ipdb_on_exception
 
-    set_seed(42)
+    set_seed(43)
 
     LAUNCH_WITH_IPDB = False
     if LAUNCH_WITH_IPDB:

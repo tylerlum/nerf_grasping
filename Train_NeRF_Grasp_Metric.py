@@ -137,6 +137,9 @@ class DataLoaderConfig:
 
     load_nerf_grid_inputs_in_ram: bool = MISSING
     load_grasp_successes_in_ram: bool = MISSING
+    downsample_factor_x: int = MISSING
+    downsample_factor_y: int = MISSING
+    downsample_factor_z: int = MISSING
 
 
 @dataclass
@@ -330,7 +333,6 @@ wandb.init(
 
 # %%
 # CONSTANTS AND PARAMS
-DOWNSAMPLE_FACTOR_X, DOWNSAMPLE_FACTOR_Y, DOWNSAMPLE_FACTOR_Z = 1, 1, 1  # TODO: HACK
 NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z = 83, 21, 37
 NUM_XYZ = 3
 NUM_DENSITY = 1
@@ -876,10 +878,15 @@ assert len(set.intersection(set(val_dataset.indices), set(test_dataset.indices))
 # %%
 # Create custom class to store a batch
 class BatchData:
-    @localscope.mfc(
-        allowed=["NUM_PTS_X", "NUM_PTS_Y", "NUM_PTS_Z"]
-    )
-    def __init__(self, left_nerf_densities, left_global_params, right_nerf_densities, right_global_params, grasp_successes):
+    @localscope.mfc(allowed=["NUM_PTS_X", "NUM_PTS_Y", "NUM_PTS_Z"])
+    def __init__(
+        self,
+        left_nerf_densities,
+        left_global_params,
+        right_nerf_densities,
+        right_global_params,
+        grasp_successes,
+    ):
         assert (
             left_nerf_densities.shape
             == right_nerf_densities.shape
@@ -899,8 +906,12 @@ class BatchData:
             )
         )
 
-        self._nerf_grid_inputs = torch.stack([left_nerf_densities, right_nerf_densities], dim=1)
-        self.global_params = torch.stack([left_global_params, right_global_params], dim=1)
+        self._nerf_grid_inputs = torch.stack(
+            [left_nerf_densities, right_nerf_densities], dim=1
+        )
+        self.global_params = torch.stack(
+            [left_global_params, right_global_params], dim=1
+        )
         self.grasp_successes = grasp_successes
 
         assert self._nerf_grid_inputs.shape == (
@@ -924,10 +935,16 @@ class BatchData:
         return self
 
     @property
-    @localscope.mfc(allowed=["DOWNSAMPLE_FACTOR_X", "DOWNSAMPLE_FACTOR_Y", "DOWNSAMPLE_FACTOR_Z"])
+    @localscope.mfc(allowed=["cfg"])
     def nerf_grid_inputs(self) -> torch.Tensor:
         # TODO HACK Downsample
-        return self._nerf_grid_inputs[:, :, ::DOWNSAMPLE_FACTOR_X, ::DOWNSAMPLE_FACTOR_Y, ::DOWNSAMPLE_FACTOR_Z]
+        return self._nerf_grid_inputs[
+            :,
+            :,
+            :: cfg.dataloader.downsample_factor_x,
+            :: cfg.dataloader.downsample_factor_y,
+            :: cfg.dataloader.downsample_factor_z,
+        ]
 
     @property
     @localscope.mfc
@@ -1655,24 +1672,21 @@ conditioning_dim = example_batch_data.left_global_params.shape[1]
 print(f"input_shape = {input_shape}")
 print(f"conditioning_dim = {conditioning_dim}")
 
-# nerf_to_grasp_success_model = Condition2D1D_ConcatFingersAfter1D(
-#     input_shape=input_shape,
-#     n_fingers=2,
-#     conditioning_dim=conditioning_dim,
-#     # **dataclass_to_kwargs(cfg.classifier),
-#     conv_encoder_2d_config=cfg.classifier.conv_encoder_2d_config,
-#     use_conditioning_2d=cfg.classifier.use_conditioning_2d,
-#     conv_encoder_2d_embed_dim=cfg.classifier.conv_encoder_2d_embed_dim,
-#     conv_encoder_2d_mlp_hidden_layers=cfg.classifier.conv_encoder_2d_mlp_hidden_layers,
-#     conv_encoder_1d_config=cfg.classifier.conv_encoder_1d_config,
-#     transformer_encoder_1d_config=cfg.classifier.transformer_encoder_1d_config,
-#     encoder_1d_type=cfg.classifier.encoder_1d_type,
-#     use_conditioning_1d=cfg.classifier.use_conditioning_1d,
-#     head_mlp_hidden_layers=cfg.classifier.head_mlp_hidden_layers,
-# ).to(device)
-nerf_to_grasp_success_model = CNN_3D_Classifier(
-    input_example_shape=input_shape
-)
+nerf_to_grasp_success_model = Condition2D1D_ConcatFingersAfter1D(
+    input_shape=input_shape,
+    n_fingers=2,
+    conditioning_dim=conditioning_dim,
+    # **dataclass_to_kwargs(cfg.classifier),
+    conv_encoder_2d_config=cfg.classifier.conv_encoder_2d_config,
+    use_conditioning_2d=cfg.classifier.use_conditioning_2d,
+    conv_encoder_2d_embed_dim=cfg.classifier.conv_encoder_2d_embed_dim,
+    conv_encoder_2d_mlp_hidden_layers=cfg.classifier.conv_encoder_2d_mlp_hidden_layers,
+    conv_encoder_1d_config=cfg.classifier.conv_encoder_1d_config,
+    transformer_encoder_1d_config=cfg.classifier.transformer_encoder_1d_config,
+    encoder_1d_type=cfg.classifier.encoder_1d_type,
+    use_conditioning_1d=cfg.classifier.use_conditioning_1d,
+    head_mlp_hidden_layers=cfg.classifier.head_mlp_hidden_layers,
+).to(device)
 
 optimizer = torch.optim.AdamW(
     params=nerf_to_grasp_success_model.parameters(),
@@ -2238,3 +2252,4 @@ save_checkpoint(
 )
 
 # %%
+

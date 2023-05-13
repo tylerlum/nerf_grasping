@@ -28,12 +28,12 @@ dataloader:
   downsample_factor_z: 2
 
 preprocess:
-  flip_left_right_randomly: False
+  flip_left_right_randomly: True
   density_type: "ALPHA"
-  add_invariance_transformations: False
-  rotate_polar_angle: False
-  reflect_around_xz_plane_randomly: False
-  remove_y_axis: False
+  add_invariance_transformations: True
+  rotate_polar_angle: True
+  reflect_around_xz_plane_randomly: True
+  remove_y_axis: True
 
 training:
   grad_clip_val: 1.0

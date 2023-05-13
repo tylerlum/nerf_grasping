@@ -637,30 +637,81 @@ def invariance_transformation(
     # Always do rotation wrt left
     # Get azimuth angle of left_origin
     azimuth_angle = torch.atan2(left_origin[:, 1], left_origin[:, 0])
+    assert azimuth_angle.shape == (batch_size,)
 
     # Reverse azimuth angle around z to get back to xz plane (left_origin_y = 0)
     # This handles invariance in both xy and yaw (angle around z)
-    transformation_matrix_around_z = torch.tensor(
+    transformation_matrix_around_z = torch.stack(
         [
-            [torch.cos(-azimuth_angle), -torch.sin(-azimuth_angle), 0, 0],
-            [torch.sin(-azimuth_angle), torch.cos(-azimuth_angle), 0, 0],
-            [0, 0, 1, 0],
-            [0, 0, 0, 1],
-        ]
+            torch.stack(
+                [
+                    torch.cos(-azimuth_angle),
+                    -torch.sin(-azimuth_angle),
+                    torch.zeros_like(azimuth_angle),
+                    torch.zeros_like(azimuth_angle),
+                ],
+                dim=0,
+            ),
+            torch.stack(
+                [
+                    torch.sin(-azimuth_angle),
+                    torch.cos(-azimuth_angle),
+                    torch.zeros_like(azimuth_angle),
+                    torch.zeros_like(azimuth_angle),
+                ],
+                dim=0,
+            ),
+            torch.stack(
+                [
+                    torch.zeros_like(azimuth_angle),
+                    torch.zeros_like(azimuth_angle),
+                    torch.ones_like(azimuth_angle),
+                    torch.zeros_like(azimuth_angle),
+                ],
+                dim=0,
+            ),
+            torch.stack(
+                [
+                    torch.zeros_like(azimuth_angle),
+                    torch.zeros_like(azimuth_angle),
+                    torch.zeros_like(azimuth_angle),
+                    torch.ones_like(azimuth_angle),
+                ],
+                dim=0,
+            ),
+        ],
+        dim=0,
     )
+    assert transformation_matrix_around_z.shape == (4, 4, batch_size)
+    transformation_matrix_around_z = transformation_matrix_around_z.permute(2, 0, 1)
+    assert transformation_matrix_around_z.shape == (batch_size, 4, 4)
 
     @localscope.mfc(allowed=["batch_size"])
     def transform(
         transformation_matrix: torch.Tensor, point: torch.Tensor
     ) -> torch.Tensor:
-        assert transformation_matrix.shape == (4, 4)
+        assert transformation_matrix.shape == (batch_size, 4, 4)
         assert point.shape == (batch_size, 3)
 
-        transformed_point = transformation_matrix @ torch.cat(
-            [point, torch.tensor([1.0])]
+        # Concat 1s to point to make it homogenous
+        point_homo = torch.cat(
+            [point, torch.ones((batch_size, 1), device=point.device)], dim=1
         )
+        assert point_homo.shape == (batch_size, 4)
 
-        return transformed_point[:, :3]
+        # Add dimension so we can do batched matrix multiply
+        point_homo = point_homo[:, :, None]
+        assert point_homo.shape == (batch_size, 4, 1)
+
+        # Transform (batch_size, 4, 4) @ (batch_size, 4, 1) => (batch_size, 4, 1)
+        transformed_point = transformation_matrix @ point_homo
+        assert transformed_point.shape == (batch_size, 4, 1)
+
+        # Extract points
+        transformed_point = transformed_point[:, :3, 0]
+        assert transformed_point.shape == (batch_size, 3)
+
+        return transformed_point
 
     # Transform all
     left_origin = transform(transformation_matrix_around_z, left_origin)
@@ -670,29 +721,67 @@ def invariance_transformation(
     right_x_axis = transform(transformation_matrix_around_z, right_x_axis)
     right_y_axis = transform(transformation_matrix_around_z, right_y_axis)
 
-    assert torch.all(
-        torch.isclose(left_origin[:, 1], torch.zeros_like(left_origin[:, 1]))
+    assert torch.allclose(
+        left_origin[:, 1], torch.zeros_like(left_origin[:, 1]), rtol=1e-3, atol=1e-3
     )  # left_origin_y = 0
 
     if rotate_polar_angle:
         # Always do rotation wrt left
         # Get polar angle of left_origin
         polar_angle = torch.atan2(
-            torch.sqrt(left_origin[0] ** 2 + left_origin[1] ** 2), left_origin[2]
+            torch.sqrt(left_origin[:, 0] ** 2 + left_origin[:, 1] ** 2),
+            left_origin[:, 2],
         )
 
         # Angle between x axis and left_origin
         polar_angle = torch.pi / 2 - polar_angle
+        assert polar_angle.shape == (batch_size,)
 
         # Rotation around y, positive to bring down to z = 0
-        transformation_matrix_around_y = torch.tensor(
+        transformation_matrix_around_y = torch.stack(
             [
-                [torch.cos(polar_angle), 0, torch.sin(polar_angle), 0],
-                [0, 1, 0, 0],
-                [-torch.sin(polar_angle), 0, torch.cos(polar_angle), 0],
-                [0, 0, 0, 1],
-            ]
+                torch.stack(
+                    [
+                        torch.cos(polar_angle),
+                        torch.zeros_like(polar_angle),
+                        torch.sin(polar_angle),
+                        torch.zeros_like(polar_angle),
+                    ],
+                    dim=0,
+                ),
+                torch.stack(
+                    [
+                        torch.zeros_like(polar_angle),
+                        torch.ones_like(polar_angle),
+                        torch.zeros_like(polar_angle),
+                        torch.zeros_like(polar_angle),
+                    ],
+                    dim=0,
+                ),
+                torch.stack(
+                    [
+                        -torch.sin(polar_angle),
+                        torch.zeros_like(polar_angle),
+                        torch.cos(polar_angle),
+                        torch.zeros_like(polar_angle),
+                    ],
+                    dim=0,
+                ),
+                torch.stack(
+                    [
+                        torch.zeros_like(polar_angle),
+                        torch.zeros_like(polar_angle),
+                        torch.zeros_like(polar_angle),
+                        torch.ones_like(polar_angle),
+                    ],
+                    dim=0,
+                ),
+            ],
+            dim=0,
         )
+        assert transformation_matrix_around_y.shape == (4, 4, batch_size)
+        transformation_matrix_around_y = transformation_matrix_around_y.permute(2, 0, 1)
+        assert transformation_matrix_around_y.shape == (batch_size, 4, 4)
 
         # Transform all
         left_origin = transform(transformation_matrix_around_y, left_origin)
@@ -702,8 +791,8 @@ def invariance_transformation(
         right_x_axis = transform(transformation_matrix_around_y, right_x_axis)
         right_y_axis = transform(transformation_matrix_around_y, right_y_axis)
 
-        assert torch.all(
-            torch.isclose(left_origin[:, 2], torch.zeros_like(left_origin[:, 2]))
+        assert torch.allclose(
+            left_origin[:, 2], torch.zeros_like(left_origin[:, 2]), rtol=1e-3, atol=1e-3
         )  # left_origin_z = 0
 
     # To handle additional invariance, we can reflect around planes of symmetry
@@ -711,7 +800,7 @@ def invariance_transformation(
     # yz is handled already by the rotation around z
     # xz plane is probably the best choice, as there is symmetry around moving left and right
 
-    # Reflect around xz plane
+    # Reflect around xz plane (-y)
     if reflect_around_xz_plane_randomly:
         reflect = torch.rand((batch_size,)) > 0.5
         left_origin = torch.where(
@@ -735,14 +824,18 @@ def invariance_transformation(
 
     # y-axis gives you the orientation around the approach direction, which may not be important
     if remove_y_axis:
-        return left_origin, left_x_axis, right_origin, right_x_axis
+        return ((left_origin, left_x_axis), (right_origin, right_x_axis))
     return (
-        left_origin,
-        left_x_axis,
-        left_y_axis,
-        right_origin,
-        right_x_axis,
-        right_y_axis,
+        (
+            left_origin,
+            left_x_axis,
+            left_y_axis,
+        ),
+        (
+            right_origin,
+            right_x_axis,
+            right_y_axis,
+        ),
     )
 
 
@@ -2252,4 +2345,3 @@ save_checkpoint(
 )
 
 # %%
-

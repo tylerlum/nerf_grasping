@@ -1811,10 +1811,11 @@ def create_before_and_after_invariance_transformations_fig(
 
 
 # %%
-fig = create_before_and_after_invariance_transformations_fig(
-    train_dataset=train_dataset, batch_idx_to_visualize=1
-)
-fig.show()
+if cfg.visualize_data or True:
+    for i in range(3):
+        create_before_and_after_invariance_transformations_fig(
+            train_dataset=train_dataset, batch_idx_to_visualize=i, save_to_wandb=True
+        )
 
 
 # %% [markdown]

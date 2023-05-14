@@ -40,11 +40,13 @@ training:
   grad_clip_val: 1.0
   lr: 1e-4
   weight_decay: 1e-3
-  betas: (0.9, 0.999)
+  betas: [0.9, 0.999]
   label_smoothing: 0.0
   lr_scheduler_name: "constant"
   lr_scheduler_num_warmup_steps: 0
   n_epochs: 20
+  log_each_batch: True
+  log_each_batch_window_size: 10
   log_grad_freq: 5
   log_grad_on_epoch_0: False
   val_freq: 5

@@ -65,6 +65,8 @@ class TrainingConfig:
     lr_scheduler_name: str = MISSING
     lr_scheduler_num_warmup_steps: int = MISSING
     n_epochs: int = MISSING
+    log_each_batch: bool = MISSING
+    log_each_batch_window_size: int = MISSING
     log_grad_freq: int = MISSING
     log_grad_on_epoch_0: bool = MISSING
     val_freq: int = MISSING

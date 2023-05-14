@@ -1908,9 +1908,7 @@ lr_scheduler = get_scheduler(
     name=cfg.training.lr_scheduler_name,
     optimizer=optimizer,
     num_warmup_steps=cfg.training.lr_scheduler_num_warmup_steps,
-    num_training_steps=(
-        len(train_loader) * cfg.training.n_epochs
-    ),
+    num_training_steps=(len(train_loader) * cfg.training.n_epochs),
     last_epoch=start_epoch - 1,
 )
 
@@ -2064,7 +2062,6 @@ def iterate_through_dataloader(
     log_grad: bool = False,
     gather_predictions: bool = False,
     log_confusion_matrix: bool = False,
-    log_each_batch: bool = False,
 ) -> None:
     assert phase in [Phase.TRAIN, Phase.VAL, Phase.TEST]
     if phase == Phase.TRAIN:
@@ -2091,8 +2088,11 @@ def iterate_through_dataloader(
         all_predictions, all_ground_truths = [], []
 
         end_time = time.time()
-        for batch_data in (pbar := tqdm(dataloader)):
+        for batch_idx, batch_data in (
+            pbar := tqdm(enumerate(dataloader), total=len(dataloader))
+        ):
             dataload_time_taken = time.time() - end_time
+            batch_idx = int(batch_idx)
 
             # Forward pass
             start_forward_pass_time = time.time()
@@ -2160,41 +2160,65 @@ def iterate_through_dataloader(
             start_gather_predictions_time = time.time()
             if gather_predictions:
                 with torch.no_grad():
-                    predictions = grasp_success_logits.argmax(axis=1).tolist()
+                    predictions = grasp_success_logits.argmax(dim=1).tolist()
                     ground_truths = batch_data.grasp_successes.tolist()
-                    all_predictions = all_predictions + predictions
-                    all_ground_truths = all_ground_truths + ground_truths
+                    all_predictions += predictions
+                    all_ground_truths += ground_truths
             gather_predictions_time_taken = time.time() - start_gather_predictions_time
 
             # Log each batch
             start_log_batch_time = time.time()
-            if log_each_batch:
+            if (
+                cfg is not None
+                and cfg.log_each_batch
+                and batch_idx > 0
+                and batch_idx % cfg.log_each_batch_window_size == 0
+            ):
                 batch_log_dict = {}
                 if optimizer is not None:
-                    batch_log_dict[f"batch_{phase.name.lower()}_lr"] = optimizer.param_groups[0].['lr']
+                    batch_log_dict[
+                        f"batch_{phase.name.lower()}_lr"
+                    ] = optimizer.param_groups[0]["lr"]
                 if lr_scheduler is not None:
-                    batch_log_dict[f"batch_{phase.name.lower()}_scheduler_lr"] = lr_scheduler.get_last_lr()[0]
-                for loss_name, losses in losses_dict.items():
-                    if len(losses) == 0:
-                        continue
-                    batch_log_dict[f"batch_{loss_name}"] = losses[-1]
+                    batch_log_dict[
+                        f"batch_{phase.name.lower()}_scheduler_lr"
+                    ] = lr_scheduler.get_last_lr()[0]
 
-                if len(all_predictions) > 0 and len(all_ground_truths) > 0:
+                for loss_name, losses in losses_dict.items():
+                    if len(losses) < cfg.log_each_batch_window_size:
+                        continue
+                    batch_log_dict[f"batch_{loss_name}"] = np.mean(
+                        losses[-cfg.log_each_batch_window_size :]
+                    )
+
+                if (
+                    len(all_predictions) >= cfg.log_each_batch_window_size
+                    and len(all_ground_truths) >= cfg.log_each_batch_window_size
+                ):
                     # Can add more metrics here
-                    batch_log_dict[f"batch_{phase.name.lower()}_accuracy"] = 100.0 * accuracy_score(
-                        y_true=all_ground_truths, y_pred=all_predictions
+                    batch_log_dict[
+                        f"batch_{phase.name.lower()}_accuracy"
+                    ] = 100.0 * accuracy_score(
+                        y_true=all_ground_truths[-cfg.log_each_batch_window_size :],
+                        y_pred=all_predictions[-cfg.log_each_batch_window_size :],
                     )
 
                 # Extra debugging
                 for grad_name, grad_vals in grads_dict.items():
-                    if len(grad_vals) == 0:
+                    if len(grad_vals) < cfg.log_each_batch_window_size:
                         continue
                     if "_max_" in grad_name:
-                        batch_log_dict[f"batch_{grad_name}"] = np.max(grad_vals)
+                        batch_log_dict[f"batch_{grad_name}"] = np.max(
+                            grad_vals[-cfg.log_each_batch_window_size :]
+                        )
                     elif "_mean_" in grad_name:
-                        batch_log_dict[f"batch_{grad_name}"] = np.mean(grad_vals)
+                        batch_log_dict[f"batch_{grad_name}"] = np.mean(
+                            grad_vals[-cfg.log_each_batch_window_size :]
+                        )
                     elif "_median_" in grad_name:
-                        batch_log_dict[f"batch_{grad_name}"] = np.median(grad_vals)
+                        batch_log_dict[f"batch_{grad_name}"] = np.mean(
+                            grad_vals[-cfg.log_each_batch_window_size :]
+                        )
                     else:
                         print(f"WARNING: grad_name = {grad_name} will not be logged")
 
@@ -2265,7 +2289,9 @@ def iterate_through_dataloader(
     print(
         f"gather predictions: {100*gather_predictions_total_time_taken/batch_total_time_taken:.2f} %"
     )
-    print(f"log each batch: {100*log_each_batch_total_time_taken/batch_total_time_taken:.2f} %")
+    print(
+        f"log each batch: {100*log_each_batch_total_time_taken/batch_total_time_taken:.2f} %"
+    )
     print()
     print()
 
@@ -2280,9 +2306,11 @@ def iterate_through_dataloader(
         )
 
     if optimizer is not None:
-        wandb_log_dict[f"{phase.name.lower()}_lr"] = optimizer.param_groups[0].['lr']
+        wandb_log_dict[f"{phase.name.lower()}_lr"] = optimizer.param_groups[0]["lr"]
     if lr_scheduler is not None:
-        wandb_log_dict[f"{phase.name.lower()}_scheduler_lr"] = lr_scheduler.get_last_lr()[0]
+        wandb_log_dict[
+            f"{phase.name.lower()}_scheduler_lr"
+        ] = lr_scheduler.get_last_lr()[0]
 
     for loss_name, losses in losses_dict.items():
         wandb_log_dict[loss_name] = np.mean(losses)
@@ -2331,6 +2359,7 @@ def run_training_loop(
             range(start_epoch, cfg.n_epochs), desc=training_loop_base_description
         )
     ):
+        epoch = int(epoch)
         wandb_log_dict = {}
         wandb_log_dict["epoch"] = epoch
 
@@ -2384,7 +2413,6 @@ def run_training_loop(
                     log_grad=log_grad,
                     gather_predictions=False,  # Doesn't make sense to gather predictions for a subset
                     log_confusion_matrix=False,
-                    log_each_batch=True,
                 )
         else:
             iterate_through_dataloader(
@@ -2400,7 +2428,6 @@ def run_training_loop(
                 log_grad=log_grad,
                 gather_predictions=gather_predictions,
                 log_confusion_matrix=log_confusion_matrix,
-                log_each_batch=True,
             )
         train_time_taken = time.time() - start_train_time
 
@@ -2417,7 +2444,6 @@ def run_training_loop(
                 wandb_log_dict=wandb_log_dict,
                 gather_predictions=gather_predictions,
                 log_confusion_matrix=log_confusion_matrix,
-                log_each_batch=True,
             )
         val_time_taken = time.time() - start_val_time
 
@@ -2485,7 +2511,9 @@ class_weight = (
     .to(device)
 )
 print(f"Class weight: {class_weight}")
-ce_loss_fn = nn.CrossEntropyLoss(weight=class_weight, label_smoothing=cfg.training.label_smoothing)
+ce_loss_fn = nn.CrossEntropyLoss(
+    weight=class_weight, label_smoothing=cfg.training.label_smoothing
+)
 
 # %%
 run_training_loop(
@@ -2496,6 +2524,7 @@ run_training_loop(
     device=device,
     ce_loss_fn=ce_loss_fn,
     optimizer=optimizer,
+    lr_scheduler=lr_scheduler,
     start_epoch=start_epoch,
     checkpoint_workspace_dir_path=checkpoint_workspace_dir_path,
 )
@@ -2517,7 +2546,6 @@ iterate_through_dataloader(
     wandb_log_dict=wandb_log_dict,
     gather_predictions=True,
     log_confusion_matrix=True,
-    log_each_batch=True,
 )
 
 wandb.log(wandb_log_dict)

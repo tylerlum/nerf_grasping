@@ -95,10 +95,11 @@ classifier:
 
   use_conditioning_1d: True
   head_mlp_hidden_layers: [64, 64]
+  concat_global_params_after_1d: False
 
 checkpoint_workspace:
   root_dir: "Train_NeRF_Grasp_Metric_workspaces"
-  leaf_dir: ${wandb.name}
+  leaf_dir: ${datetime_str:}
   force_no_resume: True
 
 random_seed: 42

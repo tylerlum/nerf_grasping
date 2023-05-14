@@ -59,6 +59,11 @@ class PreprocessConfig:
 class TrainingConfig:
     grad_clip_val: float = MISSING
     lr: float = MISSING
+    weight_decay: float = MISSING
+    betas: Tuple[float, float] = MISSING
+    label_smoothing: float = MISSING
+    lr_scheduler_name: str = MISSING
+    lr_scheduler_num_warmup_steps: int = MISSING
     n_epochs: int = MISSING
     log_grad_freq: int = MISSING
     log_grad_on_epoch_0: bool = MISSING

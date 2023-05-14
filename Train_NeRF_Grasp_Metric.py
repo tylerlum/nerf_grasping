@@ -77,6 +77,7 @@ from tyler_new_models import (
     Encoder1DType,
     ClassifierConfig,
     dataclass_to_kwargs,
+    get_scheduler,
 )
 from Train_NeRF_Grasp_Metric_Config import (
     Config,
@@ -1896,12 +1897,23 @@ nerf_to_grasp_success_model = Condition2D1D_ConcatFingersAfter1D(
     head_mlp_hidden_layers=cfg.classifier.head_mlp_hidden_layers,
 ).to(device)
 
+start_epoch = 0
 optimizer = torch.optim.AdamW(
     params=nerf_to_grasp_success_model.parameters(),
     lr=cfg.training.lr,
+    betas=cfg.training.betas,
+    weight_decay=cfg.training.weight_decay,
+)
+lr_scheduler = get_scheduler(
+    name=cfg.training.lr_scheduler_name,
+    optimizer=optimizer,
+    num_warmup_steps=cfg.training.lr_scheduler_num_warmup_steps,
+    num_training_steps=(
+        len(train_loader) * cfg.training.n_epochs
+    ),
+    last_epoch=start_epoch - 1,
 )
 
-start_epoch = 0
 
 # %% [markdown]
 # # Load Checkpoint
@@ -1914,6 +1926,7 @@ if checkpoint is not None:
         checkpoint["nerf_to_grasp_success_model"]
     )
     optimizer.load_state_dict(checkpoint["optimizer"])
+    lr_scheduler.load_state_dict(checkpoint["lr_scheduler"])
     start_epoch = checkpoint["epoch"]
     print("Done loading checkpoint")
 
@@ -1924,6 +1937,7 @@ if checkpoint is not None:
 # %%
 print(f"nerf_to_grasp_success_model = {nerf_to_grasp_success_model}")
 print(f"optimizer = {optimizer}")
+print(f"lr_scheduler = {lr_scheduler}")
 
 # %%
 example_batch_data = example_batch_data.to(device)
@@ -1984,6 +1998,7 @@ def save_checkpoint(
     epoch: int,
     nerf_to_grasp_success_model: Condition2D1D_ConcatFingersAfter1D,
     optimizer: torch.optim.Optimizer,
+    lr_scheduler: torch.optim.lr_scheduler.LRScheduler,
 ) -> None:
     checkpoint_filepath = os.path.join(
         checkpoint_workspace_dir_path, f"checkpoint_{epoch:04}.pt"
@@ -1994,6 +2009,7 @@ def save_checkpoint(
             "epoch": epoch,
             "nerf_to_grasp_success_model": nerf_to_grasp_success_model.state_dict(),
             "optimizer": optimizer.state_dict(),
+            "lr_scheduler": lr_scheduler.state_dict(),
         },
         checkpoint_filepath,
     )
@@ -2043,6 +2059,7 @@ def iterate_through_dataloader(
     wandb_log_dict: Dict[str, Any],
     cfg: Optional[TrainingConfig] = None,
     optimizer: Optional[torch.optim.Optimizer] = None,
+    lr_scheduler: Optional[torch.optim.lr_scheduler.LRScheduler] = None,
     log_loss: bool = True,
     log_grad: bool = False,
     gather_predictions: bool = False,
@@ -2102,6 +2119,8 @@ def iterate_through_dataloader(
                     )
 
                 optimizer.step()
+                if lr_scheduler is not None:
+                    lr_scheduler.step()
             backward_pass_time_taken = time.time() - start_backward_pass_time
 
             # Loss logging
@@ -2255,6 +2274,7 @@ def run_training_loop(
     device: str,
     ce_loss_fn: nn.CrossEntropyLoss,
     optimizer: torch.optim.Optimizer,
+    lr_scheduler: torch.optim.lr_scheduler.LRScheduler,
     start_epoch: int,
     checkpoint_workspace_dir_path: str,
 ) -> None:
@@ -2277,6 +2297,7 @@ def run_training_loop(
                 epoch=epoch,
                 nerf_to_grasp_success_model=nerf_to_grasp_success_model,
                 optimizer=optimizer,
+                lr_scheduler=lr_scheduler,
             )
         save_checkpoint_time_taken = time.time() - start_save_checkpoint_time
 
@@ -2312,6 +2333,7 @@ def run_training_loop(
                     wandb_log_dict=wandb_log_dict,
                     cfg=cfg,
                     optimizer=optimizer,
+                    lr_scheduler=lr_scheduler,
                     log_grad=log_grad,
                     gather_predictions=False,  # Doesn't make sense to gather predictions for a subset
                     log_confusion_matrix=False,
@@ -2326,6 +2348,7 @@ def run_training_loop(
                 wandb_log_dict=wandb_log_dict,
                 cfg=cfg,
                 optimizer=optimizer,
+                lr_scheduler=lr_scheduler,
                 log_grad=log_grad,
                 gather_predictions=gather_predictions,
                 log_confusion_matrix=log_confusion_matrix,
@@ -2412,7 +2435,7 @@ class_weight = (
     .to(device)
 )
 print(f"Class weight: {class_weight}")
-ce_loss_fn = nn.CrossEntropyLoss(weight=class_weight)
+ce_loss_fn = nn.CrossEntropyLoss(weight=class_weight, label_smoothing=cfg.training.label_smoothing)
 
 # %%
 run_training_loop(
@@ -2457,6 +2480,7 @@ save_checkpoint(
     epoch=cfg.training.n_epochs,
     nerf_to_grasp_success_model=nerf_to_grasp_success_model,
     optimizer=optimizer,
+    lr_scheduler=lr_scheduler,
 )
 
 # %%

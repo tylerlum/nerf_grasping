@@ -2093,7 +2093,6 @@ def iterate_through_dataloader(
         end_time = time.time()
         for batch_data in (pbar := tqdm(dataloader)):
             dataload_time_taken = time.time() - end_time
-            batch_log_dict = {}
 
             # Forward pass
             start_forward_pass_time = time.time()
@@ -2170,6 +2169,11 @@ def iterate_through_dataloader(
             # Log each batch
             start_log_batch_time = time.time()
             if log_each_batch:
+                batch_log_dict = {}
+                if optimizer is not None:
+                    batch_log_dict[f"batch_{phase.name.lower()}_lr"] = optimizer.param_groups[0].['lr']
+                if lr_scheduler is not None:
+                    batch_log_dict[f"batch_{phase.name.lower()}_scheduler_lr"] = lr_scheduler.get_last_lr()[0]
                 for loss_name, losses in losses_dict.items():
                     if len(losses) == 0:
                         continue
@@ -2193,6 +2197,9 @@ def iterate_through_dataloader(
                         batch_log_dict[f"batch_{grad_name}"] = np.median(grad_vals)
                     else:
                         print(f"WARNING: grad_name = {grad_name} will not be logged")
+
+                if len(batch_log_dict) > 0:
+                    wandb.log(batch_log_dict)
             log_batch_time_taken = time.time() - start_log_batch_time
 
             batch_time_taken = time.time() - end_time
@@ -2271,6 +2278,11 @@ def iterate_through_dataloader(
             class_names=["Fail", "Success"],
             title=f"{phase.name.lower()} Confusion Matrix",
         )
+
+    if optimizer is not None:
+        wandb_log_dict[f"{phase.name.lower()}_lr"] = optimizer.param_groups[0].['lr']
+    if lr_scheduler is not None:
+        wandb_log_dict[f"{phase.name.lower()}_scheduler_lr"] = lr_scheduler.get_last_lr()[0]
 
     for loss_name, losses in losses_dict.items():
         wandb_log_dict[loss_name] = np.mean(losses)

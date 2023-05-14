@@ -852,6 +852,7 @@ class ClassifierConfig:
     encoder_1d_type: Encoder1DType = MISSING
     use_conditioning_1d: bool = MISSING
     head_mlp_hidden_layers: List[int] = MISSING
+    concat_global_params_after_1d: bool = MISSING
 
 
 class Abstract2DTo1DClassifier(nn.Module):
@@ -1148,7 +1149,9 @@ class Abstract2DTo1DClassifier(nn.Module):
         raise NotImplementedError()
 
 
-class Condition2D1D_ConcatFingersAfter1D(Abstract2DTo1DClassifier):
+class Condition2D1D_ConcatGlobalParamsAfter1D_ConcatFingersAfter1D(
+    Abstract2DTo1DClassifier
+):
     def __init__(
         self,
         conv_encoder_1d_config: Optional[ConvEncoder1DConfig] = None,
@@ -1156,6 +1159,7 @@ class Condition2D1D_ConcatFingersAfter1D(Abstract2DTo1DClassifier):
         encoder_1d_type: Encoder1DType = Encoder1DType.CONV,
         use_conditioning_1d: bool = False,
         head_mlp_hidden_layers: List[int] = [64, 64],
+        concat_global_params_after_1d: bool = False,
         **kwargs,
     ) -> None:
         if encoder_1d_type == Encoder1DType.CONV:
@@ -1167,6 +1171,7 @@ class Condition2D1D_ConcatFingersAfter1D(Abstract2DTo1DClassifier):
         self.encoder_1d_type = encoder_1d_type
         self.use_conditioning_1d = use_conditioning_1d
         self.head_mlp_hidden_layers = head_mlp_hidden_layers
+        self.concat_global_params_after_1d = concat_global_params_after_1d
         super().__init__(**kwargs)
 
         # Validate usage of conditioning
@@ -1230,6 +1235,9 @@ class Condition2D1D_ConcatFingersAfter1D(Abstract2DTo1DClassifier):
 
         self.head_num_inputs = self.encoder_1d.output_dim * self.n_fingers
 
+        if self.concat_global_params_after_1d and self.conditioning_dim is not None:
+            self.head_num_inputs += self.conditioning_dim * self.n_fingers
+
         # Head
         self.head = mlp(
             num_inputs=self.head_num_inputs,
@@ -1257,7 +1265,7 @@ class Condition2D1D_ConcatFingersAfter1D(Abstract2DTo1DClassifier):
         x = x.reshape(
             batch_size * self.n_fingers, self.seq_len, self.conv_encoder_2d_embed_dim
         )
-        conditioning = (
+        conditioning_encoder_1d = (
             conditioning.reshape(batch_size * self.n_fingers, self.conditioning_dim)
             if conditioning is not None
             and self.use_conditioning_1d
@@ -1273,12 +1281,12 @@ class Condition2D1D_ConcatFingersAfter1D(Abstract2DTo1DClassifier):
             self.encoder_1d_input_dim,
             self.encoder_1d_seq_len,
         )
-        assert conditioning is None or conditioning.shape == (
+        assert conditioning_encoder_1d is None or conditioning_encoder_1d.shape == (
             batch_size * self.n_fingers,
             self.encoder_1d_conditioning_dim,
         )
 
-        x = self.encoder_1d(x, conditioning=conditioning)
+        x = self.encoder_1d(x, conditioning=conditioning_encoder_1d)
         assert x.shape == (
             batch_size * self.n_fingers,
             self.encoder_1d.output_dim,
@@ -1289,6 +1297,23 @@ class Condition2D1D_ConcatFingersAfter1D(Abstract2DTo1DClassifier):
             batch_size,
             self.n_fingers * self.encoder_1d.output_dim,
         )
+
+        # Concatenate conditioning
+        if (
+            self.concat_global_params_after_1d
+            and self.conditioning_dim is not None
+            and conditioning is not None
+        ):
+            assert conditioning.shape == (
+                batch_size,
+                self.n_fingers,
+                self.conditioning_dim,
+            )
+            conditioning = conditioning.reshape(
+                batch_size,
+                self.n_fingers * self.conditioning_dim,
+            )
+            x = torch.cat([x, conditioning], dim=-1)
 
         assert x.shape == (batch_size, self.head_num_inputs)
 
@@ -1396,6 +1421,7 @@ def test_setup(
     conv_encoder_2d_embed_dim,
     conv_encoder_2d_mlp_hidden_layers,
     head_mlp_hidden_layers,
+    concat_global_params_after_1d,
     device,
 ):
     print("Testing setup")
@@ -1415,7 +1441,7 @@ def test_setup(
     )
 
     general_model = (
-        Condition2D1D_ConcatFingersAfter1D(
+        Condition2D1D_ConcatGlobalParamsAfter1D_ConcatFingersAfter1D(
             input_shape=(seq_len, height, width),
             n_fingers=n_fingers,
             conditioning_dim=conditioning_dim,
@@ -1425,6 +1451,7 @@ def test_setup(
             use_conditioning_1d=use_conditioning_1d,
             encoder_1d_type=encoder_1d_type,
             head_mlp_hidden_layers=head_mlp_hidden_layers,
+            concat_global_params_after_1d=concat_global_params_after_1d,
         )
         .to(device)
         .eval()
@@ -1477,7 +1504,7 @@ def main() -> None:
 
     # Create model
     general_model = (
-        Condition2D1D_ConcatFingersAfter1D(
+        Condition2D1D_ConcatGlobalParamsAfter1D_ConcatFingersAfter1D(
             input_shape=(seq_len, height, width),
             n_fingers=n_fingers,
             conditioning_dim=conditioning_dim,
@@ -1487,13 +1514,14 @@ def main() -> None:
             encoder_1d_type=Encoder1DType.CONV,
             use_conditioning_1d=True,
             head_mlp_hidden_layers=[64, 64],
+            concat_global_params_after_1d=False,
         )
         .to(device)
         .eval()
     )
 
     example_output = general_model(example_input, example_conditioning)
-    print("Condition2D1D_ConcatFingersAfter1D CNN")
+    print("Condition2D1D_ConcatGlobalParamsAfter1D_ConcatFingersAfter1D CNN")
     print("=" * 80)
     print(f"example_input.shape = {example_input.shape}")
     print(f"example_conditioning.shape = {example_conditioning.shape}")
@@ -1501,7 +1529,7 @@ def main() -> None:
     print()
 
     # Create model 2
-    general_model_2 = Condition2D1D_ConcatFingersAfter1D(
+    general_model_2 = Condition2D1D_ConcatGlobalParamsAfter1D_ConcatFingersAfter1D(
         input_shape=(seq_len, height, width),
         n_fingers=n_fingers,
         conditioning_dim=conditioning_dim,
@@ -1511,10 +1539,11 @@ def main() -> None:
         encoder_1d_type=Encoder1DType.TRANSFORMER,
         use_conditioning_1d=True,
         head_mlp_hidden_layers=[64, 64],
+        concat_global_params_after_1d=True,
     ).to(device)
 
     example_output = general_model_2(example_input, example_conditioning)
-    print("Condition2D1D_ConcatFingersAfter1D Transformer")
+    print("Condition2D1D_ConcatGlobalParamsAfter1D_ConcatFingersAfter1D Transformer")
     print("=" * 80)
     print(f"example_input.shape = {example_input.shape}")
     print(f"example_conditioning.shape = {example_conditioning.shape}")
@@ -1581,21 +1610,27 @@ def main() -> None:
         "conv_encoder_2d_embed_dim": [32, 64],
         "conv_encoder_2d_mlp_hidden_layers": [[64, 64]],
         "head_mlp_hidden_layers": [[64, 64]],
+        "concat_global_params_after_1d": [True, False],
         "device": [device],
     }
     test_all_setups(ARGUMENT_NAMES_TO_OPTIONS_DICT)
 
+
 from diffusers.optimization import (
-    Union, SchedulerType, Optional,
-    Optimizer, TYPE_TO_SCHEDULER_FUNCTION
+    Union,
+    SchedulerType,
+    Optional,
+    Optimizer,
+    TYPE_TO_SCHEDULER_FUNCTION,
 )
+
 
 def get_scheduler(
     name: Union[str, SchedulerType],
     optimizer: Optimizer,
     num_warmup_steps: Optional[int] = None,
     num_training_steps: Optional[int] = None,
-    **kwargs
+    **kwargs,
 ):
     """
     Added kwargs vs diffuser's original implementation
@@ -1621,16 +1656,25 @@ def get_scheduler(
 
     # All other schedulers require `num_warmup_steps`
     if num_warmup_steps is None:
-        raise ValueError(f"{name} requires `num_warmup_steps`, please provide that argument.")
+        raise ValueError(
+            f"{name} requires `num_warmup_steps`, please provide that argument."
+        )
 
     if name == SchedulerType.CONSTANT_WITH_WARMUP:
         return schedule_func(optimizer, num_warmup_steps=num_warmup_steps, **kwargs)
 
     # All other schedulers require `num_training_steps`
     if num_training_steps is None:
-        raise ValueError(f"{name} requires `num_training_steps`, please provide that argument.")
+        raise ValueError(
+            f"{name} requires `num_training_steps`, please provide that argument."
+        )
 
-    return schedule_func(optimizer, num_warmup_steps=num_warmup_steps, num_training_steps=num_training_steps, **kwargs)
+    return schedule_func(
+        optimizer,
+        num_warmup_steps=num_warmup_steps,
+        num_training_steps=num_training_steps,
+        **kwargs,
+    )
 
 
 def set_seed(seed) -> None:

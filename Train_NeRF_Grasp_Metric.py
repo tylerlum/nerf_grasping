@@ -72,7 +72,7 @@ from torch.profiler import profile, record_function, ProfilerActivity
 from tyler_new_models import (
     PoolType,
     ConvOutputTo1D,
-    Condition2D1D_ConcatFingersAfter1D,
+    Condition2D1D_ConcatGlobalParamsAfter1D_ConcatFingersAfter1D,
     CNN_3D_Classifier,
     Encoder1DType,
     ClassifierConfig,
@@ -1881,7 +1881,7 @@ conditioning_dim = example_batch_data.left_global_params.shape[1]
 print(f"input_shape = {input_shape}")
 print(f"conditioning_dim = {conditioning_dim}")
 
-nerf_to_grasp_success_model = Condition2D1D_ConcatFingersAfter1D(
+nerf_to_grasp_success_model = Condition2D1D_ConcatGlobalParamsAfter1D_ConcatFingersAfter1D(
     input_shape=input_shape,
     n_fingers=2,
     conditioning_dim=conditioning_dim,
@@ -1895,6 +1895,7 @@ nerf_to_grasp_success_model = Condition2D1D_ConcatFingersAfter1D(
     encoder_1d_type=cfg.classifier.encoder_1d_type,
     use_conditioning_1d=cfg.classifier.use_conditioning_1d,
     head_mlp_hidden_layers=cfg.classifier.head_mlp_hidden_layers,
+    concat_global_params_after_1d=cfg.classifier.concat_global_params_after_1d,
 ).to(device)
 
 start_epoch = 0
@@ -1994,7 +1995,7 @@ if cfg.visualize_data:
 def save_checkpoint(
     checkpoint_workspace_dir_path: str,
     epoch: int,
-    nerf_to_grasp_success_model: Condition2D1D_ConcatFingersAfter1D,
+    nerf_to_grasp_success_model: Condition2D1D_ConcatGlobalParamsAfter1D_ConcatFingersAfter1D,
     optimizer: torch.optim.Optimizer,
     lr_scheduler: torch.optim.lr_scheduler.LRScheduler,
 ) -> None:
@@ -2028,7 +2029,7 @@ def create_dataloader_subset(
     elif fraction is None and subset_size is not None:
         smaller_dataset_size = subset_size
     else:
-        raise ValueError(f"Must specify either fraction or subset_size")
+        raise ValueError("Must specify either fraction or subset_size")
 
     sampled_indices = random.sample(
         range(len(original_dataloader.dataset.indices)), smaller_dataset_size
@@ -2051,7 +2052,7 @@ def create_dataloader_subset(
 def iterate_through_dataloader(
     phase: Phase,
     dataloader: DataLoader,
-    nerf_to_grasp_success_model: Condition2D1D_ConcatFingersAfter1D,
+    nerf_to_grasp_success_model: Condition2D1D_ConcatGlobalParamsAfter1D_ConcatFingersAfter1D,
     device: str,
     ce_loss_fn: nn.CrossEntropyLoss,
     wandb_log_dict: Dict[str, Any],
@@ -2345,7 +2346,7 @@ def run_training_loop(
     cfg: TrainingConfig,
     train_loader: DataLoader,
     val_loader: DataLoader,
-    nerf_to_grasp_success_model: Condition2D1D_ConcatFingersAfter1D,
+    nerf_to_grasp_success_model: Condition2D1D_ConcatGlobalParamsAfter1D_ConcatFingersAfter1D,
     device: str,
     ce_loss_fn: nn.CrossEntropyLoss,
     optimizer: torch.optim.Optimizer,

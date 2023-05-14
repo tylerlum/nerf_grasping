@@ -2064,6 +2064,7 @@ def iterate_through_dataloader(
     log_grad: bool = False,
     gather_predictions: bool = False,
     log_confusion_matrix: bool = False,
+    log_each_batch: bool = False,
 ) -> None:
     assert phase in [Phase.TRAIN, Phase.VAL, Phase.TEST]
     if phase == Phase.TRAIN:
@@ -2085,12 +2086,14 @@ def iterate_through_dataloader(
         grad_log_total_time_taken = 0.0
         loss_log_total_time_taken = 0.0
         gather_predictions_total_time_taken = 0.0
+        log_each_batch_total_time_taken = 0.0
 
         all_predictions, all_ground_truths = [], []
 
         end_time = time.time()
         for batch_data in (pbar := tqdm(dataloader)):
             dataload_time_taken = time.time() - end_time
+            batch_log_dict = {}
 
             # Forward pass
             start_forward_pass_time = time.time()
@@ -2164,6 +2167,34 @@ def iterate_through_dataloader(
                     all_ground_truths = all_ground_truths + ground_truths
             gather_predictions_time_taken = time.time() - start_gather_predictions_time
 
+            # Log each batch
+            start_log_batch_time = time.time()
+            if log_each_batch:
+                for loss_name, losses in losses_dict.items():
+                    if len(losses) == 0:
+                        continue
+                    batch_log_dict[f"batch_{loss_name}"] = losses[-1]
+
+                if len(all_predictions) > 0 and len(all_ground_truths) > 0:
+                    # Can add more metrics here
+                    batch_log_dict[f"batch_{phase.name.lower()}_accuracy"] = 100.0 * accuracy_score(
+                        y_true=all_ground_truths, y_pred=all_predictions
+                    )
+
+                # Extra debugging
+                for grad_name, grad_vals in grads_dict.items():
+                    if len(grad_vals) == 0:
+                        continue
+                    if "_max_" in grad_name:
+                        batch_log_dict[f"batch_{grad_name}"] = np.max(grad_vals)
+                    elif "_mean_" in grad_name:
+                        batch_log_dict[f"batch_{grad_name}"] = np.mean(grad_vals)
+                    elif "_median_" in grad_name:
+                        batch_log_dict[f"batch_{grad_name}"] = np.median(grad_vals)
+                    else:
+                        print(f"WARNING: grad_name = {grad_name} will not be logged")
+            log_batch_time_taken = time.time() - start_log_batch_time
+
             batch_time_taken = time.time() - end_time
 
             # Set description
@@ -2182,6 +2213,7 @@ def iterate_through_dataloader(
                     f"Loss: {1000*loss_log_time_taken:.0f}",
                     f"Grad: {1000*grad_log_time_taken:.0f}",
                     f"Gather: {1000*gather_predictions_time_taken:.0f}",
+                    f"Log: {1000*log_batch_time_taken:.0f}",
                     loss_log_str,
                 ]
             )
@@ -2194,6 +2226,7 @@ def iterate_through_dataloader(
             loss_log_total_time_taken += loss_log_time_taken
             grad_log_total_time_taken += grad_log_time_taken
             gather_predictions_total_time_taken += gather_predictions_time_taken
+            log_each_batch_total_time_taken += log_batch_time_taken
 
             end_time = time.time()
 
@@ -2208,6 +2241,7 @@ def iterate_through_dataloader(
     print(
         f"Time taken for gather predictions: {gather_predictions_total_time_taken:.2f} s"
     )
+    print(f"Time taken for log each batch: {log_each_batch_total_time_taken:.2f} s")
     print()
 
     # In percentage of batch_total_time_taken
@@ -2224,6 +2258,7 @@ def iterate_through_dataloader(
     print(
         f"gather predictions: {100*gather_predictions_total_time_taken/batch_total_time_taken:.2f} %"
     )
+    print(f"log each batch: {100*log_each_batch_total_time_taken/batch_total_time_taken:.2f} %")
     print()
     print()
 
@@ -2337,6 +2372,7 @@ def run_training_loop(
                     log_grad=log_grad,
                     gather_predictions=False,  # Doesn't make sense to gather predictions for a subset
                     log_confusion_matrix=False,
+                    log_each_batch=True,
                 )
         else:
             iterate_through_dataloader(
@@ -2352,6 +2388,7 @@ def run_training_loop(
                 log_grad=log_grad,
                 gather_predictions=gather_predictions,
                 log_confusion_matrix=log_confusion_matrix,
+                log_each_batch=True,
             )
         train_time_taken = time.time() - start_train_time
 
@@ -2368,6 +2405,7 @@ def run_training_loop(
                 wandb_log_dict=wandb_log_dict,
                 gather_predictions=gather_predictions,
                 log_confusion_matrix=log_confusion_matrix,
+                log_each_batch=True,
             )
         val_time_taken = time.time() - start_val_time
 
@@ -2467,6 +2505,7 @@ iterate_through_dataloader(
     wandb_log_dict=wandb_log_dict,
     gather_predictions=True,
     log_confusion_matrix=True,
+    log_each_batch=True,
 )
 
 wandb.log(wandb_log_dict)

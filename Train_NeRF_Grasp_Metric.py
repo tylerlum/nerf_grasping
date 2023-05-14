@@ -149,6 +149,7 @@ class PreprocessConfig:
     add_invariance_transformations: bool = MISSING
     rotate_polar_angle: bool = MISSING
     reflect_around_xz_plane_randomly: bool = MISSING
+    reflect_around_xy_plane_randomly: bool = MISSING
     remove_y_axis: bool = MISSING
 
 
@@ -617,8 +618,9 @@ def invariance_transformation(
     right_global_params: Tuple[torch.Tensor, ...],
     rotate_polar_angle: bool = False,
     reflect_around_xz_plane_randomly: bool = False,
+    reflect_around_xy_plane_randomly: bool = False,
     remove_y_axis: bool = False,
-) -> Tuple[torch.Tensor, ...]:
+) -> Tuple[Tuple[torch.Tensor, ...], Tuple[torch.Tensor, ...]]:
     left_origin, left_x_axis, left_y_axis = left_global_params
     right_origin, right_x_axis, right_y_axis = right_global_params
 
@@ -796,9 +798,9 @@ def invariance_transformation(
         )  # left_origin_z = 0
 
     # To handle additional invariance, we can reflect around planes of symmetry
-    # xy plane probably doesn't make sense, as gravity affects this axis
     # yz is handled already by the rotation around z
     # xz plane is probably the best choice, as there is symmetry around moving left and right
+    # xy plane probably doesn't make sense, as gravity affects this axis
 
     # Reflect around xz plane (-y)
     if reflect_around_xz_plane_randomly:
@@ -820,6 +822,28 @@ def invariance_transformation(
         )
         right_y_axis = torch.where(
             reflect[:, None], right_y_axis * torch.tensor([1, -1, 1]), right_y_axis
+        )
+
+    # Reflect around xy plane (-z)
+    if reflect_around_xy_plane_randomly:
+        reflect = torch.rand((batch_size,)) > 0.5
+        left_origin = torch.where(
+            reflect[:, None], left_origin * torch.tensor([1, 1, -1]), left_origin
+        )
+        left_x_axis = torch.where(
+            reflect[:, None], left_x_axis * torch.tensor([1, 1, -1]), left_x_axis
+        )
+        left_y_axis = torch.where(
+            reflect[:, None], left_y_axis * torch.tensor([1, 1, -1]), left_y_axis
+        )
+        right_origin = torch.where(
+            reflect[:, None], right_origin * torch.tensor([1, 1, -1]), right_origin
+        )
+        right_x_axis = torch.where(
+            reflect[:, None], right_x_axis * torch.tensor([1, 1, -1]), right_x_axis
+        )
+        right_y_axis = torch.where(
+            reflect[:, None], right_y_axis * torch.tensor([1, 1, -1]), right_y_axis
         )
 
     # y-axis gives you the orientation around the approach direction, which may not be important
@@ -847,6 +871,7 @@ def preprocess_nerf_grid_inputs(
     add_invariance_transformations: bool = False,
     rotate_polar_angle: bool = False,
     reflect_around_xz_plane_randomly: bool = False,
+    reflect_around_xy_plane_randomly: bool = False,
     remove_y_axis: bool = False,
 ) -> Tuple[Tuple[torch.Tensor, ...], Tuple[torch.Tensor, ...]]:
     batch_size = nerf_grid_inputs.shape[0]
@@ -914,6 +939,7 @@ def preprocess_nerf_grid_inputs(
             right_global_params=right_global_params,
             rotate_polar_angle=rotate_polar_angle,
             reflect_around_xz_plane_randomly=reflect_around_xz_plane_randomly,
+            reflect_around_xy_plane_randomly=reflect_around_xy_plane_randomly,
             remove_y_axis=remove_y_axis,
         )
 
@@ -1076,6 +1102,37 @@ def custom_collate_fn(batch: List[Tuple[torch.Tensor, torch.Tensor]]) -> BatchDa
         add_invariance_transformations=cfg.preprocess.add_invariance_transformations,
         rotate_polar_angle=cfg.preprocess.rotate_polar_angle,
         reflect_around_xz_plane_randomly=cfg.preprocess.reflect_around_xz_plane_randomly,
+        reflect_around_xy_plane_randomly=cfg.preprocess.reflect_around_xy_plane_randomly,
+        remove_y_axis=cfg.preprocess.remove_y_axis,
+    )
+
+    return BatchData(
+        left_nerf_densities=left_nerf_densities,
+        left_global_params=left_global_params,
+        right_nerf_densities=right_nerf_densities,
+        right_global_params=right_global_params,
+        grasp_successes=grasp_successes,
+    )
+
+
+@localscope.mfc(allowed=["cfg"])
+def custom_collate_fn_without_invariance_transformations(
+    batch: List[Tuple[torch.Tensor, torch.Tensor]]
+) -> BatchData:
+    batch = torch.utils.data.dataloader.default_collate(batch)
+
+    nerf_grid_inputs, grasp_successes = batch
+    (
+        (left_nerf_densities, left_global_params),
+        (right_nerf_densities, right_global_params),
+    ) = preprocess_nerf_grid_inputs(
+        nerf_grid_inputs=nerf_grid_inputs,
+        flip_left_right_randomly=cfg.preprocess.flip_left_right_randomly,
+        preprocess_density_type=cfg.preprocess.density_type,
+        add_invariance_transformations=False,  # Force to False
+        rotate_polar_angle=cfg.preprocess.rotate_polar_angle,
+        reflect_around_xz_plane_randomly=cfg.preprocess.reflect_around_xz_plane_randomly,
+        reflect_around_xy_plane_randomly=cfg.preprocess.reflect_around_xy_plane_randomly,
         remove_y_axis=cfg.preprocess.remove_y_axis,
     )
 
@@ -1116,105 +1173,6 @@ test_loader = DataLoader(
 
 # %%
 example_batch_data: BatchData = next(iter(val_loader))
-
-# %%
-# TODO REMOVE
-left_global_params = torch.chunk(example_batch_data.left_global_params, chunks=3, dim=1)
-right_global_params = torch.chunk(example_batch_data.right_global_params, chunks=3, dim=1)
-
-# %%
-new_left_global_params, new_right_global_params = invariance_transformation(
-    left_global_params=left_global_params,
-    right_global_params=right_global_params,
-    rotate_polar_angle=True,
-    reflect_around_xz_plane_randomly=True,
-    remove_y_axis=False,
-)
-
-for x in new_left_global_params:
-    print(x.shape)
-print()
-for x in new_right_global_params:
-    print(x.shape)
-
-# %%
-layout = go.Layout(
-    scene=dict(xaxis=dict(title="X"), yaxis=dict(title="Y"), zaxis=dict(title="Z")),
-    showlegend=True,
-    title=f"Before and After Invariance Transformations",
-    width=800,
-    height=800,
-)
-
-# Create the figure
-fig = go.Figure(layout=layout)
-for line in get_isaac_origin_lines():
-    fig.add_trace(line)
-
-left_origin, left_x_axis, left_y_axis = left_global_params
-right_origin, right_x_axis, right_y_axis = right_global_params
-new_left_origin, new_left_x_axis, new_left_y_axis = new_left_global_params
-new_right_origin, new_right_x_axis, new_right_y_axis = new_right_global_params
-
-
-@localscope.mfc
-def create_line(origin, axis, name, color, length=0.02):
-    return go.Scatter3d(
-        x=[origin[0], origin[0] + axis[0] * length],
-        y=[origin[1], origin[1] + axis[1] * length],
-        z=[origin[2], origin[2] + axis[2] * length],
-        mode="lines",
-        line=dict(width=2, color=color),
-        name=name,
-    )
-
-# Draw lines from origin to x and y, label legend
-batch_idx = 2
-left_origin = left_origin[batch_idx].cpu().numpy()
-left_x_axis = left_x_axis[batch_idx].cpu().numpy()
-left_y_axis = left_y_axis[batch_idx].cpu().numpy()
-right_origin = right_origin[batch_idx].cpu().numpy()
-right_x_axis = right_x_axis[batch_idx].cpu().numpy()
-right_y_axis = right_y_axis[batch_idx].cpu().numpy()
-new_left_origin = new_left_origin[batch_idx].cpu().numpy()
-new_left_x_axis = new_left_x_axis[batch_idx].cpu().numpy()
-new_left_y_axis = new_left_y_axis[batch_idx].cpu().numpy()
-new_right_origin = new_right_origin[batch_idx].cpu().numpy()
-new_right_x_axis = new_right_x_axis[batch_idx].cpu().numpy()
-new_right_y_axis = new_right_y_axis[batch_idx].cpu().numpy()
-
-fig.add_trace(
-    create_line(left_origin, left_x_axis, "Left X Axis", "black")
-)
-fig.add_trace(
-    create_line(left_origin, left_y_axis, "Left Y Axis", "black")
-)
-fig.add_trace(
-    create_line(right_origin, right_x_axis, "Right X Axis", "magenta")
-)
-fig.add_trace(
-    create_line(right_origin, right_y_axis, "Right Y Axis", "magenta")
-)
-fig.add_trace(
-    create_line(new_left_origin, new_left_x_axis, "New Left X Axis", "gray")
-)
-fig.add_trace(
-    create_line(new_left_origin, new_left_y_axis, "New Left Y Axis", "gray")
-)
-fig.add_trace(
-    create_line(new_right_origin, new_right_x_axis, "New Right X Axis", "olive")
-)
-fig.add_trace(
-    create_line(new_right_origin, new_right_y_axis, "New Right Y Axis", "olive")
-)
-
-
-fig.show()
-
-
-
-
-
 
 # %%
 print(f"left_nerf_densities.shape: {example_batch_data.left_nerf_densities.shape}")
@@ -1722,6 +1680,141 @@ if cfg.visualize_data:
     create_detailed_plot_with_mesh(
         full_dataset=full_dataset, idx_to_visualize=0, save_to_wandb=True
     )
+
+
+# %%
+@localscope.mfc(allowed=["cfg"])
+def create_before_and_after_invariance_transformations_fig(
+    train_dataset: Subset,
+    batch_idx_to_visualize: int = 0,
+    save_to_wandb: bool = False,
+) -> go.Figure:
+    # Load data without invariance transformations
+    no_invariance_transforms_loader = DataLoader(
+        train_dataset,
+        batch_size=cfg.dataloader.batch_size,
+        shuffle=False,
+        pin_memory=cfg.dataloader.pin_memory,
+        num_workers=cfg.dataloader.num_workers,
+        collate_fn=custom_collate_fn_without_invariance_transformations,
+    )
+    example_batch_data: BatchData = next(iter(no_invariance_transforms_loader))
+
+    before_left_global_params = torch.chunk(
+        example_batch_data.left_global_params, chunks=3, dim=1
+    )
+    before_right_global_params = torch.chunk(
+        example_batch_data.right_global_params, chunks=3, dim=1
+    )
+
+    assert len(before_left_global_params) == len(before_right_global_params) == 3
+
+    after_left_global_params, after_right_global_params = invariance_transformation(
+        left_global_params=before_left_global_params,
+        right_global_params=before_right_global_params,
+        rotate_polar_angle=False,
+        reflect_around_xz_plane_randomly=True,
+        reflect_around_xy_plane_randomly=False,
+        remove_y_axis=False,
+    )
+
+    title = f"Before and After Invariance Transformations idx={batch_idx_to_visualize}"
+    layout = go.Layout(
+        scene=dict(xaxis=dict(title="X"), yaxis=dict(title="Y"), zaxis=dict(title="Z")),
+        showlegend=True,
+        title=title,
+        width=800,
+        height=800,
+    )
+
+    # Create the figure
+    fig = go.Figure(layout=layout)
+    for line in get_isaac_origin_lines():
+        fig.add_trace(line)
+
+    (
+        before_left_origin,
+        before_left_x_axis,
+        before_left_y_axis,
+    ) = before_left_global_params
+    right_origin, right_x_axis, right_y_axis = before_right_global_params
+    after_left_origin, after_left_x_axis, after_left_y_axis = after_left_global_params
+    (
+        after_right_origin,
+        after_right_x_axis,
+        after_right_y_axis,
+    ) = after_right_global_params
+
+    @localscope.mfc
+    def create_line(origin, axis, name, color, length=0.02):
+        return go.Scatter3d(
+            x=[origin[0], origin[0] + axis[0] * length],
+            y=[origin[1], origin[1] + axis[1] * length],
+            z=[origin[2], origin[2] + axis[2] * length],
+            mode="lines",
+            line=dict(width=2, color=color),
+            name=name,
+        )
+
+    # Draw lines from origin to x and y, label legend
+    before_left_origin = before_left_origin[batch_idx_to_visualize].cpu().numpy()
+    before_left_x_axis = before_left_x_axis[batch_idx_to_visualize].cpu().numpy()
+    before_left_y_axis = before_left_y_axis[batch_idx_to_visualize].cpu().numpy()
+    right_origin = right_origin[batch_idx_to_visualize].cpu().numpy()
+    right_x_axis = right_x_axis[batch_idx_to_visualize].cpu().numpy()
+    right_y_axis = right_y_axis[batch_idx_to_visualize].cpu().numpy()
+    after_left_origin = after_left_origin[batch_idx_to_visualize].cpu().numpy()
+    after_left_x_axis = after_left_x_axis[batch_idx_to_visualize].cpu().numpy()
+    after_left_y_axis = after_left_y_axis[batch_idx_to_visualize].cpu().numpy()
+    after_right_origin = after_right_origin[batch_idx_to_visualize].cpu().numpy()
+    after_right_x_axis = after_right_x_axis[batch_idx_to_visualize].cpu().numpy()
+    after_right_y_axis = after_right_y_axis[batch_idx_to_visualize].cpu().numpy()
+
+    fig.add_trace(
+        create_line(
+            before_left_origin, before_left_x_axis, "Before Left X Axis", "black"
+        )
+    )
+    fig.add_trace(
+        create_line(
+            before_left_origin, before_left_y_axis, "Before Left Y Axis", "black"
+        )
+    )
+    fig.add_trace(
+        create_line(right_origin, right_x_axis, "Before Right X Axis", "magenta")
+    )
+    fig.add_trace(
+        create_line(right_origin, right_y_axis, "Before Right Y Axis", "magenta")
+    )
+    fig.add_trace(
+        create_line(after_left_origin, after_left_x_axis, "After Left X Axis", "gray")
+    )
+    fig.add_trace(
+        create_line(after_left_origin, after_left_y_axis, "After Left Y Axis", "gray")
+    )
+    fig.add_trace(
+        create_line(
+            after_right_origin, after_right_x_axis, "After Right X Axis", "olive"
+        )
+    )
+    fig.add_trace(
+        create_line(
+            after_right_origin, after_right_y_axis, "After Right Y Axis", "olive"
+        )
+    )
+
+    if save_to_wandb:
+        print(f"Saving {title} to wandb")
+        wandb.log({title: fig})
+
+    return fig
+
+
+# %%
+fig = create_before_and_after_invariance_transformations_fig(
+    train_dataset=train_dataset, batch_idx_to_visualize=1
+)
+fig.show()
 
 
 # %% [markdown]

@@ -33,6 +33,7 @@ preprocess:
   add_invariance_transformations: False
   rotate_polar_angle: True
   reflect_around_xz_plane_randomly: True
+  reflect_around_xy_plane_randomly: True
   remove_y_axis: True
 
 training:

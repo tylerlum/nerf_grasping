@@ -40,7 +40,6 @@ import shutil
 import sys
 import time
 from collections import defaultdict
-from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum, auto
 from functools import partial
@@ -56,7 +55,7 @@ from hydra import compose, initialize
 from hydra.core.config_store import ConfigStore
 from hydra.utils import instantiate
 from localscope import localscope
-from omegaconf import MISSING, OmegaConf
+from omegaconf import OmegaConf
 from sklearn.metrics import ConfusionMatrixDisplay, confusion_matrix, accuracy_score
 from sklearn.utils.class_weight import compute_class_weight
 from torch.utils.data import (
@@ -79,6 +78,16 @@ from tyler_new_models import (
     ClassifierConfig,
     dataclass_to_kwargs,
 )
+from Train_NeRF_Grasp_Metric_Config import (
+    Config,
+    DataConfig,
+    DataLoaderConfig,
+    PreprocessConfig,
+    TrainingConfig,
+    CheckpointWorkspaceConfig,
+    WandbConfig,
+    PreprocessDensityType,
+)
 
 import wandb
 
@@ -100,94 +109,6 @@ OmegaConf.register_new_resolver("eval", eval, replace=True)
 OmegaConf.register_new_resolver(
     "datetime_str", lambda: datetime.now().strftime("%Y-%m-%d_%H-%M-%S"), replace=True
 )
-
-
-# %%
-@dataclass
-class WandbConfig:
-    entity: str = MISSING
-    project: str = MISSING
-    name: str = MISSING
-    group: str = MISSING
-    job_type: str = MISSING
-
-
-class PreprocessDensityType(Enum):
-    DENSITY = auto()
-    ALPHA = auto()
-    WEIGHT = auto()
-
-
-@dataclass
-class DataConfig:
-    frac_val: float = MISSING
-    frac_test: float = MISSING
-    frac_train: float = MISSING
-
-    input_dataset_root_dir: str = MISSING
-    input_dataset_path: str = MISSING
-    max_num_data_points: Optional[int] = MISSING
-
-
-@dataclass
-class DataLoaderConfig:
-    batch_size: int = MISSING
-    num_workers: int = MISSING
-    pin_memory: bool = MISSING
-
-    load_nerf_grid_inputs_in_ram: bool = MISSING
-    load_grasp_successes_in_ram: bool = MISSING
-    downsample_factor_x: int = MISSING
-    downsample_factor_y: int = MISSING
-    downsample_factor_z: int = MISSING
-
-
-@dataclass
-class PreprocessConfig:
-    flip_left_right_randomly: bool = MISSING
-    density_type: PreprocessDensityType = MISSING
-    add_invariance_transformations: bool = MISSING
-    rotate_polar_angle: bool = MISSING
-    reflect_around_xz_plane_randomly: bool = MISSING
-    reflect_around_xy_plane_randomly: bool = MISSING
-    remove_y_axis: bool = MISSING
-
-
-@dataclass
-class TrainingConfig:
-    grad_clip_val: float = MISSING
-    lr: float = MISSING
-    n_epochs: int = MISSING
-    log_grad_freq: int = MISSING
-    log_grad_on_epoch_0: bool = MISSING
-    val_freq: int = MISSING
-    val_on_epoch_0: bool = MISSING
-    save_checkpoint_freq: int = MISSING
-    save_checkpoint_on_epoch_0: bool = MISSING
-    confusion_matrix_freq: int = MISSING
-    save_confusion_matrix_on_epoch_0: bool = MISSING
-    use_dataloader_subset: bool = MISSING
-
-
-@dataclass
-class CheckpointWorkspaceConfig:
-    root_dir: str = MISSING
-    leaf_dir: str = MISSING
-    force_no_resume: bool = MISSING
-
-
-@dataclass
-class Config:
-    data: DataConfig = MISSING
-    dataloader: DataLoaderConfig = MISSING
-    preprocess: PreprocessConfig = MISSING
-    wandb: WandbConfig = MISSING
-    training: TrainingConfig = MISSING
-    classifier: ClassifierConfig = MISSING
-    checkpoint_workspace: CheckpointWorkspaceConfig = MISSING
-    random_seed: int = MISSING
-    visualize_data: bool = MISSING
-    dry_run: bool = MISSING
 
 
 # %%

@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 from typing import List, Tuple, Optional, Dict, Any, Union
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from omegaconf import MISSING
 from FiLM_resnet import resnet18, ResNet18_Weights
 from FiLM_resnet_1d import ResNet1D
@@ -836,13 +836,19 @@ class Encoder1DType(Enum):
 
 @dataclass
 class ClassifierConfig:
-    conv_encoder_2d_config: ConvEncoder2DConfig = MISSING
+    conv_encoder_2d_config: ConvEncoder2DConfig = field(
+        default_factory=ConvEncoder2DConfig
+    )
     use_conditioning_2d: bool = MISSING
     conv_encoder_2d_embed_dim: int = MISSING
     conv_encoder_2d_mlp_hidden_layers: List[int] = MISSING
 
-    conv_encoder_1d_config: ConvEncoder1DConfig = MISSING
-    transformer_encoder_1d_config: TransformerEncoder1DConfig = MISSING
+    conv_encoder_1d_config: ConvEncoder1DConfig = field(
+        default_factory=ConvEncoder1DConfig
+    )
+    transformer_encoder_1d_config: TransformerEncoder1DConfig = field(
+        default_factory=TransformerEncoder1DConfig
+    )
     encoder_1d_type: Encoder1DType = MISSING
     use_conditioning_1d: bool = MISSING
     head_mlp_hidden_layers: List[int] = MISSING

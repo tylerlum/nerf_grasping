@@ -30,7 +30,7 @@ dataloader:
 preprocess:
   flip_left_right_randomly: True
   density_type: "ALPHA"
-  add_invariance_transformations: True
+  add_invariance_transformations: False
   rotate_polar_angle: True
   reflect_around_xz_plane_randomly: True
   remove_y_axis: True

@@ -1117,6 +1117,104 @@ test_loader = DataLoader(
 # %%
 example_batch_data: BatchData = next(iter(val_loader))
 
+# %%
+# TODO REMOVE
+left_global_params = torch.chunk(example_batch_data.left_global_params, chunks=3, dim=1)
+right_global_params = torch.chunk(example_batch_data.right_global_params, chunks=3, dim=1)
+
+# %%
+new_left_global_params, new_right_global_params = invariance_transformation(
+    left_global_params=left_global_params,
+    right_global_params=right_global_params,
+    rotate_polar_angle=True,
+    reflect_around_xz_plane_randomly=True,
+    remove_y_axis=False,
+)
+
+for x in new_left_global_params:
+    print(x.shape)
+print()
+for x in new_right_global_params:
+    print(x.shape)
+
+# %%
+layout = go.Layout(
+    scene=dict(xaxis=dict(title="X"), yaxis=dict(title="Y"), zaxis=dict(title="Z")),
+    showlegend=True,
+    title=f"Before and After Invariance Transformations",
+    width=800,
+    height=800,
+)
+
+# Create the figure
+fig = go.Figure(layout=layout)
+for line in get_isaac_origin_lines():
+    fig.add_trace(line)
+
+left_origin, left_x_axis, left_y_axis = left_global_params
+right_origin, right_x_axis, right_y_axis = right_global_params
+new_left_origin, new_left_x_axis, new_left_y_axis = new_left_global_params
+new_right_origin, new_right_x_axis, new_right_y_axis = new_right_global_params
+
+
+@localscope.mfc
+def create_line(origin, axis, name, color, length=0.02):
+    return go.Scatter3d(
+        x=[origin[0], origin[0] + axis[0] * length],
+        y=[origin[1], origin[1] + axis[1] * length],
+        z=[origin[2], origin[2] + axis[2] * length],
+        mode="lines",
+        line=dict(width=2, color=color),
+        name=name,
+    )
+
+# Draw lines from origin to x and y, label legend
+batch_idx = 2
+left_origin = left_origin[batch_idx].cpu().numpy()
+left_x_axis = left_x_axis[batch_idx].cpu().numpy()
+left_y_axis = left_y_axis[batch_idx].cpu().numpy()
+right_origin = right_origin[batch_idx].cpu().numpy()
+right_x_axis = right_x_axis[batch_idx].cpu().numpy()
+right_y_axis = right_y_axis[batch_idx].cpu().numpy()
+new_left_origin = new_left_origin[batch_idx].cpu().numpy()
+new_left_x_axis = new_left_x_axis[batch_idx].cpu().numpy()
+new_left_y_axis = new_left_y_axis[batch_idx].cpu().numpy()
+new_right_origin = new_right_origin[batch_idx].cpu().numpy()
+new_right_x_axis = new_right_x_axis[batch_idx].cpu().numpy()
+new_right_y_axis = new_right_y_axis[batch_idx].cpu().numpy()
+
+fig.add_trace(
+    create_line(left_origin, left_x_axis, "Left X Axis", "black")
+)
+fig.add_trace(
+    create_line(left_origin, left_y_axis, "Left Y Axis", "black")
+)
+fig.add_trace(
+    create_line(right_origin, right_x_axis, "Right X Axis", "magenta")
+)
+fig.add_trace(
+    create_line(right_origin, right_y_axis, "Right Y Axis", "magenta")
+)
+fig.add_trace(
+    create_line(new_left_origin, new_left_x_axis, "New Left X Axis", "gray")
+)
+fig.add_trace(
+    create_line(new_left_origin, new_left_y_axis, "New Left Y Axis", "gray")
+)
+fig.add_trace(
+    create_line(new_right_origin, new_right_x_axis, "New Right X Axis", "olive")
+)
+fig.add_trace(
+    create_line(new_right_origin, new_right_y_axis, "New Right Y Axis", "olive")
+)
+
+
+fig.show()
+
+
+
+
+
 
 # %%
 print(f"left_nerf_densities.shape: {example_batch_data.left_nerf_densities.shape}")

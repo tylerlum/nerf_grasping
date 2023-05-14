@@ -1403,7 +1403,7 @@ def wandb_log_plotly_fig(
 
 # %%
 @localscope.mfc
-def get_isaac_origin_lines() -> List[go.Scatter3d]:
+def get_origin_lines() -> List[go.Scatter3d]:
     x_line_np = np.array([[0.0, 0.0, 0.0], [0.1, 0.0, 0.0]])
     y_line_np = np.array([[0.0, 0.0, 0.0], [0.0, 0.1, 0.0]])
     z_line_np = np.array([[0.0, 0.0, 0.0], [0.0, 0.0, 0.1]])
@@ -1488,7 +1488,7 @@ def create_datapoint_plotly_fig(
     ].permute(1, 2, 3, 0)
     assert nerf_points.shape == (NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z, NUM_XYZ)
 
-    isaac_origin_lines = get_isaac_origin_lines()
+    isaac_origin_lines = get_origin_lines()
     colored_points_scatter = get_colored_points_scatter(
         nerf_points.reshape(-1, NUM_XYZ), nerf_densities.reshape(-1)
     )
@@ -1709,6 +1709,7 @@ def create_before_and_after_invariance_transformations_fig(
 
     assert len(before_left_global_params) == len(before_right_global_params) == 3
 
+    # Run invariance transformations
     after_left_global_params, after_right_global_params = invariance_transformation(
         left_global_params=before_left_global_params,
         right_global_params=before_right_global_params,
@@ -1718,6 +1719,7 @@ def create_before_and_after_invariance_transformations_fig(
         remove_y_axis=False,
     )
 
+    # Create the figure
     title = f"Before and After Invariance Transformations idx={batch_idx_to_visualize}"
     layout = go.Layout(
         scene=dict(xaxis=dict(title="X"), yaxis=dict(title="Y"), zaxis=dict(title="Z")),
@@ -1727,9 +1729,8 @@ def create_before_and_after_invariance_transformations_fig(
         height=800,
     )
 
-    # Create the figure
     fig = go.Figure(layout=layout)
-    for line in get_isaac_origin_lines():
+    for line in get_origin_lines():
         fig.add_trace(line)
 
     (
@@ -1756,7 +1757,7 @@ def create_before_and_after_invariance_transformations_fig(
             name=name,
         )
 
-    # Draw lines from origin to x and y, label legend
+    # Get the idx to visualize
     before_left_origin = before_left_origin[batch_idx_to_visualize].cpu().numpy()
     before_left_x_axis = before_left_x_axis[batch_idx_to_visualize].cpu().numpy()
     before_left_y_axis = before_left_y_axis[batch_idx_to_visualize].cpu().numpy()
@@ -1770,6 +1771,7 @@ def create_before_and_after_invariance_transformations_fig(
     after_right_x_axis = after_right_x_axis[batch_idx_to_visualize].cpu().numpy()
     after_right_y_axis = after_right_y_axis[batch_idx_to_visualize].cpu().numpy()
 
+    # Draw before and after lines, wrt origin
     fig.add_trace(
         create_line(
             before_left_origin, before_left_x_axis, "Before Left X Axis", "black"
@@ -1811,7 +1813,7 @@ def create_before_and_after_invariance_transformations_fig(
 
 
 # %%
-if cfg.visualize_data or True:
+if cfg.visualize_data:
     for i in range(3):
         create_before_and_after_invariance_transformations_fig(
             train_dataset=train_dataset, batch_idx_to_visualize=i, save_to_wandb=True

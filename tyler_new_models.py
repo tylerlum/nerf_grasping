@@ -318,7 +318,7 @@ class ConvEncoder2D(nn.Module):
         # Create conv architecture
         if self.use_resnet:
             weights = ResNet18_Weights.DEFAULT if self.use_pretrained else None
-            weights_transforms = [weights.transforms()] if self.use_pretrained else []
+            weights_transforms = [weights.transforms(antialias=True)] if weights is not None else []
             self.img_preprocess = Compose(
                 [Lambda(lambda x: x.repeat(1, 3, 1, 1))] + weights_transforms
             )

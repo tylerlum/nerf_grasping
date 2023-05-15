@@ -853,6 +853,7 @@ class ClassifierConfig:
     use_conditioning_1d: bool = MISSING
     head_mlp_hidden_layers: List[int] = MISSING
     concat_global_params_after_1d: bool = MISSING
+    concat_fingers_before_1d_channelwise: bool = MISSING
 
 
 class Abstract2DTo1DClassifier(nn.Module):
@@ -1162,12 +1163,8 @@ class Condition2D1D_ConcatGlobalParamsAfter1D_ConcatFingersAfter1D(
         concat_global_params_after_1d: bool = False,
         **kwargs,
     ) -> None:
-        if encoder_1d_type == Encoder1DType.CONV:
-            self.encoder_1d_config = conv_encoder_1d_config
-        elif encoder_1d_type == Encoder1DType.TRANSFORMER:
-            self.encoder_1d_config = transformer_encoder_1d_config
-        else:
-            raise ValueError(f"Invalid encoder_1d_type = {encoder_1d_type}")
+        self.conv_encoder_1d_config = conv_encoder_1d_config
+        self.transformer_encoder_1d_config = transformer_encoder_1d_config
         self.encoder_1d_type = encoder_1d_type
         self.use_conditioning_1d = use_conditioning_1d
         self.head_mlp_hidden_layers = head_mlp_hidden_layers
@@ -1192,20 +1189,20 @@ class Condition2D1D_ConcatGlobalParamsAfter1D_ConcatFingersAfter1D(
                 ConvEncoder1D(
                     input_shape=input_shape,
                     conditioning_dim=self.encoder_1d_conditioning_dim,
-                    # **dataclass_to_kwargs(self.encoder_1d_config)
-                    use_resnet=self.encoder_1d_config.use_resnet,
-                    pooling_method=self.encoder_1d_config.pooling_method,
-                    film_hidden_layers=self.encoder_1d_config.film_hidden_layers,
-                    base_filters=self.encoder_1d_config.base_filters,
-                    kernel_size=self.encoder_1d_config.kernel_size,
-                    stride=self.encoder_1d_config.stride,
-                    groups=self.encoder_1d_config.groups,
-                    n_block=self.encoder_1d_config.n_block,
-                    downsample_gap=self.encoder_1d_config.downsample_gap,
-                    increasefilter_gap=self.encoder_1d_config.increasefilter_gap,
-                    use_do=self.encoder_1d_config.use_do,
+                    # **dataclass_to_kwargs(self.conv_encoder_1d_config)
+                    use_resnet=self.conv_encoder_1d_config.use_resnet,
+                    pooling_method=self.conv_encoder_1d_config.pooling_method,
+                    film_hidden_layers=self.conv_encoder_1d_config.film_hidden_layers,
+                    base_filters=self.conv_encoder_1d_config.base_filters,
+                    kernel_size=self.conv_encoder_1d_config.kernel_size,
+                    stride=self.conv_encoder_1d_config.stride,
+                    groups=self.conv_encoder_1d_config.groups,
+                    n_block=self.conv_encoder_1d_config.n_block,
+                    downsample_gap=self.conv_encoder_1d_config.downsample_gap,
+                    increasefilter_gap=self.conv_encoder_1d_config.increasefilter_gap,
+                    use_do=self.conv_encoder_1d_config.use_do,
                 )
-                if self.encoder_1d_config is not None
+                if self.conv_encoder_1d_config is not None
                 else ConvEncoder1D(
                     input_shape=input_shape,
                     conditioning_dim=self.encoder_1d_conditioning_dim,
@@ -1216,15 +1213,15 @@ class Condition2D1D_ConcatGlobalParamsAfter1D_ConcatFingersAfter1D(
                 TransformerEncoder1D(
                     input_shape=input_shape,
                     conditioning_dim=self.encoder_1d_conditioning_dim,
-                    # **dataclass_to_kwargs(self.encoder_1d_config)
-                    pooling_method=self.encoder_1d_config.pooling_method,
-                    n_heads=self.encoder_1d_config.n_heads,
-                    n_emb=self.encoder_1d_config.n_emb,
-                    p_drop_emb=self.encoder_1d_config.p_drop_emb,
-                    p_drop_attn=self.encoder_1d_config.p_drop_attn,
-                    n_layers=self.encoder_1d_config.n_layers,
+                    # **dataclass_to_kwargs(self.transformer_encoder_1d_config)
+                    pooling_method=self.transformer_encoder_1d_config.pooling_method,
+                    n_heads=self.transformer_encoder_1d_config.n_heads,
+                    n_emb=self.transformer_encoder_1d_config.n_emb,
+                    p_drop_emb=self.transformer_encoder_1d_config.p_drop_emb,
+                    p_drop_attn=self.transformer_encoder_1d_config.p_drop_attn,
+                    n_layers=self.transformer_encoder_1d_config.n_layers,
                 )
-                if self.encoder_1d_config is not None
+                if self.transformer_encoder_1d_config is not None
                 else TransformerEncoder1D(
                     input_shape=input_shape,
                     conditioning_dim=self.encoder_1d_conditioning_dim,
@@ -1296,6 +1293,202 @@ class Condition2D1D_ConcatGlobalParamsAfter1D_ConcatFingersAfter1D(
         x = x.reshape(
             batch_size,
             self.n_fingers * self.encoder_1d.output_dim,
+        )
+
+        # Concatenate conditioning
+        if (
+            self.concat_global_params_after_1d
+            and self.conditioning_dim is not None
+            and conditioning is not None
+        ):
+            assert conditioning.shape == (
+                batch_size,
+                self.n_fingers,
+                self.conditioning_dim,
+            )
+            conditioning = conditioning.reshape(
+                batch_size,
+                self.n_fingers * self.conditioning_dim,
+            )
+            x = torch.cat([x, conditioning], dim=-1)
+
+        assert x.shape == (batch_size, self.head_num_inputs)
+
+        x = self.head(x)
+        assert x.shape == (batch_size, 2)
+
+        return x
+
+
+class Condition2D1D_ConcatGlobalParamsAfter1D_ConcatFingersBefore1D(
+    Abstract2DTo1DClassifier
+):
+    def __init__(
+        self,
+        conv_encoder_1d_config: Optional[ConvEncoder1DConfig] = None,
+        transformer_encoder_1d_config: Optional[TransformerEncoder1DConfig] = None,
+        encoder_1d_type: Encoder1DType = Encoder1DType.CONV,
+        use_conditioning_1d: bool = False,
+        head_mlp_hidden_layers: List[int] = [64, 64],
+        concat_global_params_after_1d: bool = False,
+        concat_fingers_before_1d_channelwise: bool = False,  # Channel-wise vs. time-wise
+        **kwargs,
+    ) -> None:
+        self.conv_encoder_1d_config = conv_encoder_1d_config
+        self.transformer_encoder_1d_config = transformer_encoder_1d_config
+        self.encoder_1d_type = encoder_1d_type
+        self.use_conditioning_1d = use_conditioning_1d
+        self.head_mlp_hidden_layers = head_mlp_hidden_layers
+        self.concat_global_params_after_1d = concat_global_params_after_1d
+        self.concat_fingers_before_1d_channelwise = concat_fingers_before_1d_channelwise
+        super().__init__(**kwargs)
+
+        # Validate usage of conditioning
+        if self.conditioning_dim is None:
+            assert not self.use_conditioning_2d and not use_conditioning_1d
+
+    def _prepare_1d_encoder(self) -> None:
+        # 1D
+        self.encoder_1d_input_dim = self.conv_encoder_2d_embed_dim
+        self.encoder_1d_seq_len = self.seq_len
+
+        if self.concat_fingers_before_1d_channelwise:
+            self.encoder_1d_input_dim *= self.n_fingers
+        else:
+            self.encoder_1d_seq_len *= self.n_fingers
+
+        # Need to concat conditioning before 1D
+        self.encoder_1d_conditioning_dim = (
+            self.n_fingers * self.conditioning_dim
+            if self.use_conditioning_1d and self.conditioning_dim is not None
+            else None
+        )
+
+        input_shape = (self.encoder_1d_input_dim, self.encoder_1d_seq_len)
+        if self.encoder_1d_type == Encoder1DType.CONV:
+            self.encoder_1d = (
+                ConvEncoder1D(
+                    input_shape=input_shape,
+                    conditioning_dim=self.encoder_1d_conditioning_dim,
+                    # **dataclass_to_kwargs(self.conv_encoder_1d_config)
+                    use_resnet=self.conv_encoder_1d_config.use_resnet,
+                    pooling_method=self.conv_encoder_1d_config.pooling_method,
+                    film_hidden_layers=self.conv_encoder_1d_config.film_hidden_layers,
+                    base_filters=self.conv_encoder_1d_config.base_filters,
+                    kernel_size=self.conv_encoder_1d_config.kernel_size,
+                    stride=self.conv_encoder_1d_config.stride,
+                    groups=self.conv_encoder_1d_config.groups,
+                    n_block=self.conv_encoder_1d_config.n_block,
+                    downsample_gap=self.conv_encoder_1d_config.downsample_gap,
+                    increasefilter_gap=self.conv_encoder_1d_config.increasefilter_gap,
+                    use_do=self.conv_encoder_1d_config.use_do,
+                )
+                if self.conv_encoder_1d_config is not None
+                else ConvEncoder1D(
+                    input_shape=input_shape,
+                    conditioning_dim=self.encoder_1d_conditioning_dim,
+                )
+            )
+        elif self.encoder_1d_type == Encoder1DType.TRANSFORMER:
+            self.encoder_1d = (
+                TransformerEncoder1D(
+                    input_shape=input_shape,
+                    conditioning_dim=self.encoder_1d_conditioning_dim,
+                    # **dataclass_to_kwargs(self.transformer_encoder_1d_config)
+                    pooling_method=self.transformer_encoder_1d_config.pooling_method,
+                    n_heads=self.transformer_encoder_1d_config.n_heads,
+                    n_emb=self.transformer_encoder_1d_config.n_emb,
+                    p_drop_emb=self.transformer_encoder_1d_config.p_drop_emb,
+                    p_drop_attn=self.transformer_encoder_1d_config.p_drop_attn,
+                    n_layers=self.transformer_encoder_1d_config.n_layers,
+                )
+                if self.transformer_encoder_1d_config is not None
+                else TransformerEncoder1D(
+                    input_shape=input_shape,
+                    conditioning_dim=self.encoder_1d_conditioning_dim,
+                )
+            )
+        else:
+            raise ValueError(f"Invalid encoder_1d_type = {self.encoder_1d_type}")
+
+        self.head_num_inputs = self.encoder_1d.output_dim
+
+        if self.concat_global_params_after_1d and self.conditioning_dim is not None:
+            self.head_num_inputs += self.conditioning_dim * self.n_fingers
+
+        # Head
+        self.head = mlp(
+            num_inputs=self.head_num_inputs,
+            num_outputs=2,
+            hidden_layers=self.head_mlp_hidden_layers,
+        )
+
+    def _run_1d_encoder(
+        self, x: torch.Tensor, conditioning: Optional[torch.Tensor] = None
+    ) -> torch.Tensor:
+        batch_size = x.shape[0]
+        assert x.shape == (
+            batch_size,
+            self.n_fingers,
+            self.seq_len,
+            self.conv_encoder_2d_embed_dim,
+        )
+        assert conditioning is None or conditioning.shape == (
+            batch_size,
+            self.n_fingers,
+            self.conditioning_dim,
+        )
+
+        # Concat fingers before 1D
+        if self.concat_fingers_before_1d_channelwise:
+            x = x.permute(0, 2, 1, 3)
+            assert x.shape == (
+                batch_size,
+                self.seq_len,
+                self.n_fingers,
+                self.conv_encoder_2d_embed_dim,
+            )
+            x = x.reshape(
+                batch_size,
+                self.seq_len,
+                self.n_fingers * self.conv_encoder_2d_embed_dim,
+            )
+        else:
+            x = x.reshape(
+                batch_size,
+                self.n_fingers * self.seq_len,
+                self.conv_encoder_2d_embed_dim,
+            )
+        conditioning_encoder_1d = (
+            conditioning.reshape(batch_size, self.n_fingers * self.conditioning_dim)
+            if conditioning is not None
+            and self.use_conditioning_1d
+            and self.conditioning_dim is not None
+            else None
+        )
+
+        # 1D encoder
+        # Need to have (batch_size, n_channels, seq_len) for 1d encoder
+        x = x.permute(0, 2, 1)
+        assert x.shape == (
+            batch_size,
+            self.encoder_1d_input_dim,
+            self.encoder_1d_seq_len,
+        )
+        assert conditioning_encoder_1d is None or conditioning_encoder_1d.shape == (
+            batch_size,
+            self.encoder_1d_conditioning_dim,
+        )
+
+        print(f"x.device = {x.device}")
+        if conditioning_encoder_1d is not None:
+            print(f"conditioning_encoder_1d.device = {conditioning_encoder_1d.device}")
+        if conditioning is not None:
+            print(f"conditioning.device = {conditioning.device}")
+        x = self.encoder_1d(x, conditioning=conditioning_encoder_1d)
+        assert x.shape == (
+            batch_size,
+            self.encoder_1d.output_dim,
         )
 
         # Concatenate conditioning
@@ -1422,6 +1615,7 @@ def test_setup(
     conv_encoder_2d_mlp_hidden_layers,
     head_mlp_hidden_layers,
     concat_global_params_after_1d,
+    concat_fingers_before_1d_channelwise,
     device,
 ):
     print("Testing setup")
@@ -1468,12 +1662,50 @@ def test_setup(
     )
 
     example_output = general_model(example_input, example_conditioning)
-    print("General2DTo1DClassifier")
+    print("Condition2D1D_ConcatGlobalParamsAfter1D_ConcatFingersAfter1D")
     print("=" * 80)
     print(f"example_input.shape = {example_input.shape}")
     print(f"example_conditioning.shape = {example_conditioning.shape}")
     print(f"example_output.shape = {example_output.shape}")
     print()
+
+    general_model_2 = (
+        Condition2D1D_ConcatGlobalParamsAfter1D_ConcatFingersBefore1D(
+            input_shape=(seq_len, height, width),
+            n_fingers=n_fingers,
+            conditioning_dim=conditioning_dim,
+            use_conditioning_2d=use_conditioning_2d,
+            conv_encoder_2d_embed_dim=conv_encoder_2d_embed_dim,
+            conv_encoder_2d_mlp_hidden_layers=conv_encoder_2d_mlp_hidden_layers,
+            use_conditioning_1d=use_conditioning_1d,
+            encoder_1d_type=encoder_1d_type,
+            head_mlp_hidden_layers=head_mlp_hidden_layers,
+            concat_global_params_after_1d=concat_global_params_after_1d,
+            concat_fingers_before_1d_channelwise=concat_fingers_before_1d_channelwise,
+        )
+        .to(device)
+        .eval()
+    )
+    print(general_model_2)
+    summary(
+        general_model_2,
+        input_size=[
+            example_input.shape,
+            example_conditioning.shape,
+        ],
+        device=device,
+        depth=10,
+    )
+
+    example_output = general_model_2(example_input, example_conditioning)
+    print("Condition2D1D_ConcatGlobalParamsAfter1D_ConcatFingersBefore1D")
+    print("=" * 80)
+    print(f"example_input.shape = {example_input.shape}")
+    print(f"example_conditioning.shape = {example_conditioning.shape}")
+    print(f"example_output.shape = {example_output.shape}")
+    print()
+
+
 
 
 def main() -> None:
@@ -1550,6 +1782,53 @@ def main() -> None:
     print(f"example_output.shape = {example_output.shape}")
     print()
 
+    # Create model 3
+    general_model_3 = Condition2D1D_ConcatGlobalParamsAfter1D_ConcatFingersBefore1D(
+        input_shape=(seq_len, height, width),
+        n_fingers=n_fingers,
+        conditioning_dim=conditioning_dim,
+        use_conditioning_2d=True,
+        conv_encoder_2d_embed_dim=32,
+        conv_encoder_2d_mlp_hidden_layers=[64, 64],
+        encoder_1d_type=Encoder1DType.TRANSFORMER,
+        use_conditioning_1d=True,
+        head_mlp_hidden_layers=[64, 64],
+        concat_global_params_after_1d=True,
+        concat_fingers_before_1d_channelwise=True,
+    ).to(device)
+    print(general_model_3)
+
+    example_output = general_model_3(example_input, example_conditioning)
+    print("Condition2D1D_ConcatGlobalParamsAfter1D_ConcatFingersBefore1D Transformer")
+    print("=" * 80)
+    print(f"example_input.shape = {example_input.shape}")
+    print(f"example_conditioning.shape = {example_conditioning.shape}")
+    print(f"example_output.shape = {example_output.shape}")
+    print()
+
+    # Create model 4
+    general_model_4 = Condition2D1D_ConcatGlobalParamsAfter1D_ConcatFingersBefore1D(
+        input_shape=(seq_len, height, width),
+        n_fingers=n_fingers,
+        conditioning_dim=conditioning_dim,
+        use_conditioning_2d=True,
+        conv_encoder_2d_embed_dim=32,
+        conv_encoder_2d_mlp_hidden_layers=[64, 64],
+        encoder_1d_type=Encoder1DType.CONV,
+        use_conditioning_1d=True,
+        head_mlp_hidden_layers=[64, 64],
+        concat_global_params_after_1d=False,
+        concat_fingers_before_1d_channelwise=False,
+    ).to(device)
+
+    example_output = general_model_4(example_input, example_conditioning)
+    print("Condition2D1D_ConcatGlobalParamsAfter1D_ConcatFingersBefore1D Conv")
+    print("=" * 80)
+    print(f"example_input.shape = {example_input.shape}")
+    print(f"example_conditioning.shape = {example_conditioning.shape}")
+    print(f"example_output.shape = {example_output.shape}")
+    print()
+
     # Spatial softmax
     x = torch.randn(batch_size, seq_len, width, device=device)
     xx = torch.randn(batch_size, seq_len, height, width, device=device)
@@ -1611,6 +1890,7 @@ def main() -> None:
         "conv_encoder_2d_mlp_hidden_layers": [[64, 64]],
         "head_mlp_hidden_layers": [[64, 64]],
         "concat_global_params_after_1d": [True, False],
+        "concat_fingers_before_1d_channelwise": [True, False],
         "device": [device],
     }
     test_all_setups(ARGUMENT_NAMES_TO_OPTIONS_DICT)

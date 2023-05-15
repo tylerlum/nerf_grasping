@@ -96,6 +96,7 @@ classifier:
   use_conditioning_1d: True
   head_mlp_hidden_layers: [64, 64]
   concat_global_params_after_1d: False
+  concat_fingers_before_1d_channelwise: False
 
 checkpoint_workspace:
   root_dir: "Train_NeRF_Grasp_Metric_workspaces"

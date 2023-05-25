@@ -33,7 +33,7 @@ classDiagram
     class Evaluation{
       + Isaac Gym environment
       + Pose uncertainty
-      + Disturbances
+      + Grasp Controller
     }
 ```
 

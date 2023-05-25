@@ -3,6 +3,40 @@
 This project focuses on performing grasping and manipulation using
 Neural Radiance Fields (NeRFs).
 
+# System Diagram
+
+## High-Level
+
+```mermaid
+classDiagram
+    Grasp_Quality_Metric <|-- Grasp_Dataset: (grasps, labels)
+    Grasp_Quality_Metric <|-- NeRF_Dataset: (images, poses)
+    Planner <|-- Grasp_Quality_Metric: neural network
+    Evaluation <|-- Planner: planner
+ 
+    class Grasp_Dataset{
+      + ACRONYM Dataset: 2-finger grasps => success/fail 
+      + DexGraspNet Dataset: 5-finger grasps, all success
+      + DexGraspNet Pipeline:  N-finger grasps => success/fail
+    }
+    class NeRF_Dataset{
+      + NeRF Data Collection in Isaac Gym
+      + NeRF Training in torch-ngp
+    }
+    class Grasp_Quality_Metric{
+      + Learned via NeRF inputs and Grasp Dataset
+      + 2D CNN => 1D CNN => MLP architecture
+    }
+    class Planner{
+      + Cross-Entropy Method to optimize Grasp Quality Metric
+    }
+    class Evaluation{
+      + Isaac Gym environment
+      + Pose uncertainty
+      + Disturbances
+    }
+```
+
 # Grasping Pipeline
 
 ## Mesh + Ferrari-Canny Pipeline

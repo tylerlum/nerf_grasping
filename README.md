@@ -10,7 +10,7 @@ Neural Radiance Fields (NeRFs).
 ```mermaid
 classDiagram
     Grasp_Quality_Metric <|-- Grasp_Dataset: (grasps, labels)
-    Grasp_Quality_Metric <|-- NeRF_Dataset: (images, poses)
+    Grasp_Quality_Metric <|-- NeRF_Dataset: (nerf densities)
     Planner <|-- Grasp_Quality_Metric: neural network
     Evaluation <|-- Planner: planner
  

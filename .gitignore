@@ -151,3 +151,18 @@ tags
 
 wandb/
 nerf_checkpoints/*
+
+# shapenet meshes
+assets/objects
+
+# nerf to grasp success data
+nerf_acronym_grasp_success_dataset*
+
+# workspaces
+Train_NeRF_Grasp_Metric_workspaces*
+
+# asset
+assets/objects/
+
+# cluster_scripts
+cluster_scripts/

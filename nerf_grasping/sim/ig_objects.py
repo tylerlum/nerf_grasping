@@ -15,6 +15,7 @@ from nerf import utils
 root_dir = Path(os.path.abspath(__file__)).parents[2]
 asset_dir = f"{root_dir}/assets"
 gd_mesh_dir = f"{root_dir}/grasp_data/meshes"
+OBJ_SEGMENTATION_ID = 2
 print("root_dir", root_dir)
 
 
@@ -24,6 +25,7 @@ def load_nerf(workspace, bound, scale, obj_translation):
         [
             "--workspace",
             f"{root_dir}/nerf_checkpoints/{workspace}",
+            "--fp16",
             "--test",
             "--bound",
             f"{bound}",
@@ -56,19 +58,19 @@ def load_object(exp_config: config.Experiment):
 
 
 class RigidObject:
-
     scale = 1.0
     bound = 2.0
     centroid = np.zeros((3, 1))
     use_centroid = False
     mu = 1.0
+    density = 100
     translation = np.zeros(3)
 
     def __init__(self, gym=None, sim=None, env=None):
+        self.gt_mesh = self.load_trimesh()  # Do this first to be used in other parts
         self.setup_gym(gym, sim, env)
         self.nerf_loaded = False
         self.model = None
-        self.gt_mesh = self.load_trimesh()
 
     def setup_gym(self, gym, sim, env):
         self.gym = gym
@@ -90,9 +92,8 @@ class RigidObject:
         self.index = rb_start_index
 
         # NOTE: simple indexing will return a view of the data but advanced indexing will return a copy breaking the updateing
-        self.rb_states = gymtorch.wrap_tensor(_rb_states)[
-            rb_start_index : rb_start_index + rb_count, :
-        ]
+        rb_states_all = gymtorch.wrap_tensor(_rb_states)
+        self.rb_states = rb_states_all[rb_start_index : rb_start_index + rb_count, :]
 
     def load_nerf_model(self):
         if self.nerf_loaded:
@@ -103,35 +104,45 @@ class RigidObject:
 
     def load_trimesh(self, mesh_path=None):
         if mesh_path is None or not os.path.exists(mesh_path):
+            asset_path = os.path.join(asset_dir, self.asset_file)
             mesh_path = os.path.join(
-                asset_dir, f"objects/meshes/{self.name}/textured.obj"
+                asset_dir, "objects", self._get_mesh_path_from_urdf(asset_path)
             )
 
-        print("mesh path: ", mesh_path)
+        # print("mesh path: ", mesh_path)
         # Mesh loaded in Z-up, centered at object centroid.
         mesh = trimesh.load(mesh_path, force="mesh")
 
-        print("mesh extents: ", mesh.extents)
+        # print("mesh extents: ", mesh.extents)
 
-        # IG centroid (when object is loaded into sim) in Nerf frame
-        mesh.nerf_centroid = (
-            grasp_utils.ig_to_nerf(self.translation.reshape(1, 3))
-            .reshape(-1)
-            .cpu()
-            .numpy()
-        )
         return mesh
+
+    def _get_mesh_path_from_urdf(self, urdf_path):
+        import xml.etree.ElementTree as ET
+
+        # Load the URDF file
+        tree = ET.parse(urdf_path)
+        root = tree.getroot()
+
+        # Find the mesh filename inside the URDF file
+        mesh_path = root.find(".//geometry/mesh").get("filename")
+        return mesh_path
 
     def create_asset(self):
         asset_options = gymapi.AssetOptions()
 
         asset_options.vhacd_enabled = True
         asset_options.mesh_normal_mode = gymapi.COMPUTE_PER_VERTEX
-        asset_options.density = 100
+        asset_options.density = self.density
         asset_options.override_inertia = False
         asset_options.override_com = False
+        asset_options.fix_base_link = (
+            True  # TODO: ONLY USE THIS IF OBJECT IS STATIC FOR DATA COLLECTION
+        )
 
-        asset_options.vhacd_params.mode = 1
+        asset_options.vhacd_params.mode = (
+            0  # 0 = tetrahedron, 1 = voxel, was 1, but 0 fixed issue with xbox360
+        )
         asset_options.vhacd_params.resolution = 600000
         asset_options.vhacd_params.max_convex_hulls = 16
         asset_options.vhacd_params.max_num_vertices_per_ch = 128
@@ -152,19 +163,38 @@ class RigidObject:
         return asset
 
     def configure_actor(self, gym, env):
+        # spawn object so that centroid is at world origin
+        object_center = np.array(self.gt_mesh.centroid)
+        min_points, _ = self.gt_mesh.bounds
+        min_points = np.array(min_points)
+        if hasattr(self, "mesh_scale"):
+            object_center *= self.mesh_scale
+            min_points *= self.mesh_scale
+
+        # Centered in xy, just touching the ground in z
+        self.start_pos = gymapi.Vec3(
+            -object_center[0], -object_center[1], -min_points[2]
+        )
+
         actor = self.gym.create_actor(
             env,
             self.asset,
-            gymapi.Transform(p=gymapi.Vec3(0.0, 0.0, 0.1)),
+            gymapi.Transform(
+                p=self.start_pos,
+            ),
             self.name,
             1,
             0,
-            segmentationId=2,
+            segmentationId=OBJ_SEGMENTATION_ID,
         )
 
         self.force_sensor = self.gym.get_actor_force_sensor(
             env, actor, self.force_sensor_idx
         )
+
+        if hasattr(self, "mesh_scale"):
+            print(f"Setting mesh scale to {self.mesh_scale}")
+            self.gym.set_actor_scale(env, actor, self.mesh_scale)
 
         rigid_body_props = self.gym.get_actor_rigid_body_properties(self.env, actor)
         self.mass = sum(x.mass for x in rigid_body_props)
@@ -285,7 +315,7 @@ class Box(RigidObject):
 #             "box",
 #             0,
 #             0,
-#             segmentationId=2,
+#             segmentationId=OBJ_SEGMENTATION_ID,
 #         )
 #         self.gym.set_rigid_body_color(
 #             self.env, actor, 0, gymapi.MESH_VISUAL, gymapi.Vec3(0.8, 0.2, 0.3)

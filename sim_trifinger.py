@@ -4,30 +4,52 @@ import shutil
 from pathlib import Path
 from unittest.mock import Mock
 
-from isaacgym import gymapi
+from isaacgym import gymapi, gymutil
 import os
 import numpy as np
 import torch
 
 # import mathutils
 from PIL import Image
+import math
 
 from nerf_grasping import grasp_utils, nerf_utils
-from nerf_grasping.sim import ig_utils, ig_objects, ig_robot, ig_viz_utils
+from nerf_grasping.sim import (
+    ig_utils,
+    ig_objects,
+    ig_robot,
+    ig_viz_utils,
+    acronym_objects,
+)
 import trimesh
 
 from nerf_grasping.quaternions import Quaternion
+import argparse
+
 
 # https://github.com/NVIDIA-Omniverse/IsaacGymEnvs
 
 root_dir = os.path.dirname(os.path.abspath(__file__))
 asset_dir = f"{root_dir}/assets"
+CAMERA_IMG_HEIGHT, CAMERA_IMG_WIDTH = 400, 400
+CAMERA_HORIZONTAL_FOV_DEG = 35.0
+CAMERA_VERTICAL_FOV_DEG = (
+    CAMERA_IMG_HEIGHT / CAMERA_IMG_WIDTH
+) * CAMERA_HORIZONTAL_FOV_DEG
+
+RED = (1, 0, 0)
+GREEN = (0, 1, 0)
+BLUE = (0, 0, 1)
+
+NUM_FINGERS = 3
+NUM_XYZ = 3
 
 
 def get_mesh_contacts(gt_mesh, grasp_points, pos_offset=None, rot_offset=None):
     if pos_offset is not None:
         # project grasp_points into object frame
         grasp_points -= pos_offset
+    if rot_offset is not None:
         grasp_points = np.stack([rot_offset.rotate(gp) for gp in grasp_points])
     points, _, index = trimesh.proximity.closest_point(gt_mesh, grasp_points)
     # grasp normals follow convention that points into surface,
@@ -36,6 +58,7 @@ def get_mesh_contacts(gt_mesh, grasp_points, pos_offset=None, rot_offset=None):
     if pos_offset is not None:
         # project back into world frame
         points += pos_offset
+    if rot_offset is not None:
         grasp_normals = np.stack([rot_offset.T.rotate(x) for x in grasp_normals])
     return points, grasp_normals
 
@@ -123,10 +146,15 @@ class TriFingerEnv:
         )
         assert self.sim is not None
 
-        # intensity = 0.01 # for nerf generation
-        # ambient = 0.21 / intensity
+        # if args.get_nerf_training_data:
+        #     intensity = 0.01 # for nerf generation
+        #     ambient = 0.21 / intensity
+        # else:
+        #     intensity = 0.5
+        #     ambient = 0.10 / intensity
         intensity = 0.5
         ambient = 0.10 / intensity
+
         intensity = gymapi.Vec3(intensity, intensity, intensity)
         ambient = gymapi.Vec3(ambient, ambient, ambient)
 
@@ -157,7 +185,9 @@ class TriFingerEnv:
         self.envs = [env]
 
         if robot_type == "trifinger":
-            self.robot = ig_robot.Robot(self.gym, self.sim, self.env, **robot_kwargs)
+            self.robot = ig_robot.FingertipRobot(
+                self.gym, self.sim, self.env, **robot_kwargs
+            )
         elif robot_type == "spheres":
             self.robot = ig_robot.FingertipRobot(
                 self.gym, self.sim, self.env, **robot_kwargs
@@ -165,7 +195,8 @@ class TriFingerEnv:
         else:
             self.robot = Mock()
 
-        self.setup_stage(env)
+        # Remove stage to avoid conflict with object for now?
+        # self.setup_stage(env)
 
         if Obj is not None:
             self.object = Obj(self.gym, self.sim, self.env)
@@ -180,8 +211,6 @@ class TriFingerEnv:
         stage_urdf_file = (
             "trifinger/robot_properties_fingers/urdf/high_table_boundary.urdf"
         )
-        # stage_urdf_file = "trifinger/robot_properties_fingers/urdf/trifinger_stage.urdf"
-        # stage_urdf_file = "trifinger/robot_properties_fingers/urdf/stage.urdf"
 
         asset_options = gymapi.AssetOptions()
         asset_options.disable_gravity = False
@@ -202,23 +231,20 @@ class TriFingerEnv:
         self.robot.viewer = self.viewer
         assert self.viewer is not None
 
-        # position outside stage
-        cam_pos = gymapi.Vec3(0.7, 0.175, 0.6)
-        # position above banana
         cam_pos = gymapi.Vec3(0.1, 0.02, 0.4)
         cam_target = gymapi.Vec3(0, 0, 0.2)
         self.gym.viewer_camera_look_at(self.viewer, self.env, cam_pos, cam_target)
 
     def setup_cameras(self, env):
         camera_props = gymapi.CameraProperties()
-        camera_props.horizontal_fov = 35.0
-        camera_props.width = 400
-        camera_props.height = 400
+        camera_props.horizontal_fov = CAMERA_HORIZONTAL_FOV_DEG
+        camera_props.width = CAMERA_IMG_WIDTH
+        camera_props.height = CAMERA_IMG_HEIGHT
 
         # generates cameara positions along rings around object
         heights = [0.1, 0.3, 0.25, 0.35]
-        distances = [0.05, 0.125, 0.3, 0.3]
-        counts = [56, 104, 96, 1]
+        distances = [0.2, 0.2, 0.3, 0.3]
+        counts = [64, 64, 64, 64]
         target_z = [0.0, 0.1, 0.0, 0.1]
 
         camera_positions = []
@@ -259,9 +285,8 @@ class TriFingerEnv:
     def save_viewer_frame(self, save_dir, save_freq=10):
         """Saves frame from viewer to"""
         self.gym.render_all_camera_sensors(self.sim)
-        path = Path(save_dir)
-        if not path.exists():
-            path = self.setup_save_dir(save_dir)
+
+        path = self.setup_save_dir(save_dir)
         if self.image_idx % save_freq == 0:
             self.gym.write_viewer_image_to_file(
                 self.viewer, str(path / f"img{self.image_idx}.png")
@@ -274,23 +299,23 @@ class TriFingerEnv:
         color_image = self.gym.get_camera_image(
             self.sim, self.env, camera_handle, gymapi.IMAGE_COLOR
         )
-        color_image = color_image.reshape(400, 400, -1)
+        color_image = color_image.reshape(CAMERA_IMG_HEIGHT, CAMERA_IMG_WIDTH, -1)
         Image.fromarray(color_image).save(path / f"col_{ii}.png")
 
         segmentation_image = self.gym.get_camera_image(
             self.sim, self.env, camera_handle, gymapi.IMAGE_SEGMENTATION
         )
-        segmentation_image = segmentation_image == 2
-        segmentation_image = (segmentation_image.reshape(400, 400) * 255).astype(
-            np.uint8
-        )
+        segmentation_image = segmentation_image == ig_objects.OBJ_SEGMENTATION_ID
+        segmentation_image = (
+            segmentation_image.reshape(CAMERA_IMG_HEIGHT, CAMERA_IMG_WIDTH) * 255
+        ).astype(np.uint8)
         Image.fromarray(segmentation_image).convert("L").save(path / f"seg_{ii}.png")
 
         depth_image = self.gym.get_camera_image(
             self.sim, self.env, camera_handle, gymapi.IMAGE_DEPTH
         )
         # distance in units I think
-        depth_image = -depth_image.reshape(400, 400)
+        depth_image = -depth_image.reshape(CAMERA_IMG_HEIGHT, CAMERA_IMG_WIDTH)
         if numpy_depth:
             np.save(path / f"dep_{ii}.npy", depth_image)
         else:
@@ -317,60 +342,84 @@ class TriFingerEnv:
             path, "overhead", self.overhead_camera_handle, numpy_depth=True
         )
 
-    def save_images_nerf_ready(self, folder, overwrite=False):
-        self.gym.render_all_camera_sensors(self.sim)
+    def create_train_val_test_split(self, folder, train_frac, val_frac):
+        num_imgs = len(self.camera_handles)
+        num_train = int(train_frac * num_imgs)
+        num_val = int(val_frac * num_imgs)
+        num_test = num_imgs - num_train - num_val
+        print(f"num_imgs = {num_imgs}")
+        print(f"num_train = {num_train}")
+        print(f"num_val = {num_val}")
+        print(f"num_test = {num_test}")
+        print()
 
-        path = Path(folder)
+        img_range = np.arange(num_imgs)
 
-        if path.exists():
-            print(path, "already exists!")
-            if overwrite:
-                shutil.rmtree(path)
-            elif input("Clear it before continuing? [y/N]:").lower() == "y":
-                shutil.rmtree(path)
+        np.random.shuffle(img_range)
+        train_range = img_range[:num_train]
+        test_range = img_range[num_train : (num_train + num_test)]
+        val_range = img_range[(num_train + num_test) :]
 
-        path.mkdir()
-        (path / "train").mkdir()
-        (path / "test").mkdir()
-        (path / "val").mkdir()
+        self._create_one_split(
+            split_name="train", split_range=train_range, folder=folder
+        )
+        self._create_one_split(split_name="val", split_range=val_range, folder=folder)
+        self._create_one_split(split_name="test", split_range=test_range, folder=folder)
 
-        json_meta = {"camera_angle_x": np.radians(self.fov), "frames": []}
+    def _create_one_split(self, split_name, split_range, folder):
+        import scipy
 
-        for i, camera_handle in enumerate(self.camera_handles[:-1]):
-            print(f"saving camera {i}")
+        json_dict = {
+            "camera_angle_x": math.radians(CAMERA_HORIZONTAL_FOV_DEG),
+            "camera_angle_y": math.radians(CAMERA_VERTICAL_FOV_DEG),
+            "frames": [],
+        }
+        for ii in split_range:
+            pose_file = os.path.join(folder, f"pos_xyz_quat_xyzw_{ii}.txt")
+            with open(pose_file) as file:
+                raw_pose_str = file.readline()[1:-1]  # Remove brackets
+                pose = np.fromstring(raw_pose_str, sep=",")
 
-            color_image = self.gym.get_camera_image(
-                self.sim, self.env, camera_handle, gymapi.IMAGE_COLOR
-            )
-            color_image = color_image.reshape(400, 400, -1)
-            Image.fromarray(color_image).save(path / "train" / f"col_{i}.png")
+                transform_mat = np.eye(4)
+                pos, quat = pose[:3], pose[-4:]
+                R = scipy.spatial.transform.Rotation.from_quat(quat).as_matrix()
+                R = (
+                    R
+                    @ scipy.spatial.transform.Rotation.from_euler(
+                        "YZ", [-np.pi / 2, -np.pi / 2]
+                    ).as_matrix()
+                )
+                transform_mat[:3, :3] = R
+                transform_mat[:3, -1] = pos
 
-            pos, quat = get_fixed_camera_transform(
-                self.gym, self.sim, self.env, camera_handle
-            )
+                source_img = "col_" + str(ii)
 
-            rot_matrix = quat.get_matrix()
-            transform_matrix = torch.vstack(
-                [torch.hstack([rot_matrix, pos[:, None]]), torch.tensor([0, 0, 0, 1])]
-            )
+                new_folder = os.path.join(folder, split_name)
+                os.makedirs(new_folder, exist_ok=True)
 
-            image_data = {
-                "file_path": f"./train/col_{i}",  # note the lack of ".png" it gets added in the load script
-                "transform_matrix": transform_matrix.tolist(),
-            }
+                source_img = os.path.join(folder, f"col_{ii}.png")
+                target_img = os.path.join(new_folder, f"{ii}.png")
+                shutil.copyfile(source_img, target_img)
 
-            json_meta["frames"].append(image_data)
+                # Remove the first part of the path
+                target_img_split = target_img.split("/")
+                target_img = os.path.join(
+                    *target_img_split[target_img_split.index(split_name) :]
+                )
 
-        with open(path / "transforms_train.json", "w+") as f:
-            json.dump(json_meta, f, indent=4)
+                json_dict["frames"].append(
+                    {
+                        "transform_matrix": transform_mat.tolist(),
+                        "file_path": os.path.splitext(target_img)[
+                            0
+                        ],  # Exclude ext because adds it in load
+                    }
+                )
 
-        empty_meta = {"camera_angle_x": np.radians(self.fov), "frames": []}
-
-        with open(path / "transforms_test.json", "w+") as f:
-            json.dump(empty_meta, f)
-
-        with open(path / "transforms_val.json", "w+") as f:
-            json.dump(empty_meta, f)
+        with open(
+            os.path.join(folder, f"transforms_{split_name}.json"), "w"
+        ) as outfile:
+            outfile.write(json.dumps(json_dict))
 
     def refresh_tensors(self):
         self.gym.refresh_mass_matrix_tensors(self.sim)
@@ -391,63 +440,214 @@ class TriFingerEnv:
         if self.object.gt_mesh is None:
             self.object.load_trimesh()
 
-        # if isinstance(self.robot, Mock):
-        #     self.debug_grasp_visualization()
+    def draw_acronym_grasps(self):
+        if not hasattr(self.object, "acronym_file"):
+            return
 
-    def debug_grasp_visualization(self):
-        if len(self.marker_handles) == 0:
-            tip_positions = self.object.grasp_points.cuda().reshape(3, 3)
-            if not self.object.nerf_loaded:
-                self.object.load_nerf_model()
-            # get grasp points into nerf frame
-            tip_positions = tip_positions + self.object.grasp_normals.cuda() * 0.01
-            nerf_tip_pos = grasp_utils.ig_to_nerf(tip_positions)
-            _, grad_ests = nerf_utils.est_grads_vals(
-                self.object.model,
-                nerf_tip_pos.reshape(1, 3, 3),
-                sigma=5e-3,
-                method="gaussian",
-                num_samples=1000,
+        # Clear previous lines
+        self.gym.clear_lines(self.viewer)
+
+        # Read in grasp transforms and successes
+        import h5py
+
+        assumed_acronym_root = "/juno/u/tylerlum/github_repos/acronym/data/grasps"
+        acronym_filepath = os.path.join(assumed_acronym_root, self.object.acronym_file)
+        acronym_data = h5py.File(acronym_filepath, "r")
+        grasp_transforms = np.array(acronym_data["grasps/transforms"])
+        grasp_successes = np.array(
+            acronym_data["grasps/qualities/flex/object_in_gripper"]
+        )
+
+        num_grasps = 3
+        successful_grasp_transforms = grasp_transforms[grasp_successes == 1][
+            :num_grasps
+        ]
+        failed_grasp_transforms = grasp_transforms[grasp_successes == 0][:num_grasps]
+
+        # Get transformation matrix from object frame to world frame
+        import scipy
+
+        object_to_world_transform = np.eye(4)
+        pos, quat = self.object.position, self.object.orientation
+        R = scipy.spatial.transform.Rotation.from_quat(quat).as_matrix()
+        object_to_world_transform[:3, :3] = R
+        object_to_world_transform[:3, -1] = pos
+
+        print(f"Drawing {num_grasps} successful and failed grasps")
+        for grasp_tranforms, color in [
+            (successful_grasp_transforms, GREEN),
+            (failed_grasp_transforms, RED),
+        ]:
+            sphere = gymutil.WireframeSphereGeometry(
+                radius=0.002, num_lats=10, num_lons=10, color=color
             )
-            grad_ests = grad_ests.reshape(3, 3).float()
-            grad_ests /= grad_ests.norm(dim=1, keepdim=True)
-            # get normal estimates and gradient estimates back in IG world frame
-            grad_ests = grasp_utils.nerf_to_ig(grad_ests.cpu().detach().numpy())
-            self.grad_ests = grad_ests
-            # self.visualize_grasp_normals(tip_positions, -grad_ests)
-            # self.marker_handles += self.plot_circle(self.gym, self.env, self.sim, self.object)
-            # densities = nerf_utils.nerf_densities(
-            #     self.object.model, nerf_tip_pos.reshape(1, 3, 3)
-            # )
-            # densities = densities.cpu().detach().numpy() / 355
-            # densities = densities.flatten()
-        if len(self.marker_handles) == 0:
-            tip_positions = self.object.grasp_points.cpu().numpy().reshape(3, 3)
-            colors = [[0, 1, 0]] * 3  # green colored markers
-            # self.marker_handles = ig_viz_utils.visualize_markers(
-            #     self.gym, self.env, self.sim, tip_positions, colors
-            # )
-            pos_offset = self.object.rb_states[0, :3].cpu().numpy()
-            rot_offset = None  # Quaternion.fromWLast(self.object.rb_states[0, 3:7])
-            gp, gn = get_mesh_contacts(
-                self.object.gt_mesh, tip_positions, pos_offset, rot_offset
-            )
-            if self.added_lines:
-                self.gym.clear_lines(self.viewer)
-            ig_viz_utils.visualize_grasp_normals(
-                self.gym, self.viewer, self.env, gp, -gn
-            )
-            self.added_lines = True
-            colors = [[1, 0, 0]] * 3  # red colored markers
-            self.marker_handles += ig_viz_utils.visualize_markers(
-                self.gym, self.env, self.sim, gp, colors
-            )
+            for grasp_transform in grasp_tranforms:
+                # Get left and right tip positions from transform (in object frame)
+                raw_left_tip = [4.10000000e-02, -7.27595772e-12, 1.12169998e-01]
+                raw_right_tip = [-4.10000000e-02, -7.27595772e-12, 1.12169998e-01]
+                raw_left_knuckle = [4.10000000e-02, -7.27595772e-12, 6.59999996e-02]
+                raw_right_knuckle = [-4.10000000e-02, -7.27595772e-12, 6.59999996e-02]
+                raw_hand_origin = [0.0, 0.0, 0.0]
+
+                left_tip = (grasp_transform @ np.array([*raw_left_tip, 1.0]))[:3]
+                right_tip = (grasp_transform @ np.array([*raw_right_tip, 1.0]))[:3]
+                left_knuckle = (grasp_transform @ np.array([*raw_left_knuckle, 1.0]))[
+                    :3
+                ]
+                right_knuckle = (grasp_transform @ np.array([*raw_right_knuckle, 1.0]))[
+                    :3
+                ]
+                hand_origin = (grasp_transform @ np.array([*raw_hand_origin, 1.0]))[:3]
+
+                # Transform to world frame
+                left_tip = (object_to_world_transform @ np.array([*left_tip, 1.0]))[:3]
+                right_tip = (object_to_world_transform @ np.array([*right_tip, 1.0]))[
+                    :3
+                ]
+                left_knuckle = (
+                    object_to_world_transform @ np.array([*left_knuckle, 1.0])
+                )[:3]
+                right_knuckle = (
+                    object_to_world_transform @ np.array([*right_knuckle, 1.0])
+                )[:3]
+                hand_origin = (
+                    object_to_world_transform @ np.array([*hand_origin, 1.0])
+                )[:3]
+
+                # Draw spheres at tips
+                # Draw lines from tips to knuckles, knuckles to knuckles, and between knuckles to hand origin
+                left_tip_pose = gymapi.Transform(gymapi.Vec3(*left_tip), r=None)
+                right_tip_pose = gymapi.Transform(gymapi.Vec3(*right_tip), r=None)
+                gymutil.draw_lines(
+                    geom=sphere,
+                    gym=self.gym,
+                    viewer=self.viewer,
+                    env=self.env,
+                    pose=left_tip_pose,
+                )
+                gymutil.draw_lines(
+                    geom=sphere,
+                    gym=self.gym,
+                    viewer=self.viewer,
+                    env=self.env,
+                    pose=right_tip_pose,
+                )
+                gymutil.draw_line(
+                    p1=gymapi.Vec3(*left_tip),
+                    p2=gymapi.Vec3(*left_knuckle),
+                    color=gymapi.Vec3(*color),
+                    gym=self.gym,
+                    viewer=self.viewer,
+                    env=self.env,
+                )
+                gymutil.draw_line(
+                    p1=gymapi.Vec3(*right_tip),
+                    p2=gymapi.Vec3(*right_knuckle),
+                    color=gymapi.Vec3(*color),
+                    gym=self.gym,
+                    viewer=self.viewer,
+                    env=self.env,
+                )
+                gymutil.draw_line(
+                    p1=gymapi.Vec3(*left_knuckle),
+                    p2=gymapi.Vec3(*right_knuckle),
+                    color=gymapi.Vec3(*color),
+                    gym=self.gym,
+                    viewer=self.viewer,
+                    env=self.env,
+                )
+                btwn_knuckles = (left_knuckle + right_knuckle) / 2
+                gymutil.draw_line(
+                    p1=gymapi.Vec3(*btwn_knuckles),
+                    p2=gymapi.Vec3(*hand_origin),
+                    color=gymapi.Vec3(*color),
+                    gym=self.gym,
+                    viewer=self.viewer,
+                    env=self.env,
+                )
+
+    def visualize_example_grasp(self):
+        # if self.added_lines:
+        # self.gym.clear_lines(self.viewer)
+        # self._visualize_grasp_normals()
+        self._visualize_grasp_points()
+
+    def _visualize_grasp_normals(self):
+        # Already visualized
+        #  if len(self.marker_handles) > 0:
+        #      return
+
+        # Load nerf model if not already loaded
+        print("Loading nerf model...")
+        if not self.object.nerf_loaded:
+            self.object.load_nerf_model()
+        print("Done loading nerf model...")
+
+        # Get example grasp positions in nerf frame (slightly move in normal dir)
+        tip_positions = self.object.grasp_points.cuda().reshape(NUM_FINGERS, NUM_XYZ)
+        tip_positions = tip_positions + self.object.grasp_normals.cuda() * 0.01
+        nerf_tip_pos = grasp_utils.ig_to_nerf(tip_positions)
+
+        # Visualize grasp normals
+        from nerf_grasping import config
+
+        GRAD_CONFIG = config.grad_configs["sim"]
+        _, grad_ests = nerf_utils.est_grads_vals(
+            nerf=self.object.model,
+            grasp_points=nerf_tip_pos.reshape(1, NUM_FINGERS, NUM_XYZ),
+            grad_config=GRAD_CONFIG,
+        )
+        grad_ests = grad_ests.reshape(NUM_FINGERS, NUM_XYZ).float()
+        grad_ests /= grad_ests.norm(dim=1, keepdim=True)
+
+        # get normal estimates and gradient estimates back in IG world frame
+        grad_ests = grasp_utils.nerf_to_ig(grad_ests.cpu().detach().numpy())
+
+        self.grad_ests = grad_ests
+
+        ig_viz_utils.visualize_grasp_normals(
+            self.gym, self.viewer, self.env, tip_positions, -grad_ests
+        )
+        self.marker_handles += ig_viz_utils.visualize_markers(
+            self.gym, self.env, self.sim, tip_positions, [GREEN] * NUM_FINGERS
+        )
+        densities = nerf_utils.nerf_densities(
+            self.object.model, nerf_tip_pos.reshape(1, NUM_FINGERS, NUM_XYZ)
+        )
+        densities = densities.cpu().detach().numpy() / 355
+        densities = densities.flatten()
+
+    def _visualize_grasp_points(self):
+        # Already visualized
+        # if len(self.marker_handles) > 0:
+        #     return
+
+        tip_positions = (
+            self.object.grasp_points.cpu().numpy().reshape(NUM_FINGERS, NUM_XYZ)
+        )
+        colors = [GREEN] * NUM_FINGERS
+        self.marker_handles = ig_viz_utils.visualize_markers(
+            self.gym, self.env, self.sim, tip_positions, colors
+        )
+
+        pos_offset = self.object.position.cpu().numpy()
+        rot_offset = None  # Quaternion.fromWLast(self.object.orientation)
+        gp, gn = get_mesh_contacts(
+            self.object.gt_mesh, tip_positions, pos_offset, rot_offset
+        )
+        ig_viz_utils.visualize_grasp_normals(self.gym, self.viewer, self.env, gp, -gn)
+        colors = [RED] * NUM_FINGERS
+        self.marker_handles += ig_viz_utils.visualize_markers(
+            self.gym, self.env, self.sim, gp, colors
+        )
 
     def reset(self, grasp_vars=None):
         # reset object after robot actor
         self.robot.reset_actor(grasp_vars=grasp_vars)
+
         # reset object actor
         self.object.reset_actor()
+
         self.refresh_tensors()
         self.gym.refresh_net_contact_force_tensor(self.sim)
         self.step_gym()
@@ -455,15 +655,45 @@ class TriFingerEnv:
         self.image_idx = 0
 
 
-def get_nerf_training(Obj, viewer):
+def get_nerf_training_data(Obj, num_sim_steps_before_collecting_data, viewer, overwrite):
     tf = TriFingerEnv(viewer=viewer, robot_type="", Obj=Obj, save_cameras=True)
-    for _ in range(500):
+    for _ in range(num_sim_steps_before_collecting_data):
         tf.step_gym()
         if Obj is not None:
-            print(tf.object.position)
+            obj_start_pos = torch.tensor(
+                [
+                    tf.object.start_pos.x,
+                    tf.object.start_pos.y,
+                    tf.object.start_pos.z,
+                ]
+            )
+            change_in_pos = torch.norm(tf.object.position - obj_start_pos)
+            print(f"tf.object.position = {tf.object.position}")
+            print(f"tf.object.orientation = {tf.object.orientation}")
+            print(f"tf.object.start_pos = {obj_start_pos}")
+            print(f"change_in_pos = {change_in_pos}")
+            print()
+            if change_in_pos > 0.001:
+                raise ValueError(f"WARNING: Object has moved by {change_in_pos}")
 
     # name = "blank" if Obj is None else Obj.name
-    # tf.save_images("./torch-ngp/data/isaac_" + name, overwrite=False)
+    save_folder = "./torch-ngp/data/isaac_" + Obj.name
+    tf.save_images(save_folder, overwrite=overwrite)
+    tf.create_train_val_test_split(save_folder, train_frac=0.8, val_frac=0.1)
+
+
+def visualize_acronym_grasps(Obj):
+    tf = TriFingerEnv(viewer=True, robot_type="", Obj=Obj, save_cameras=True)
+    for _ in range(500):
+        tf.step_gym()
+        tf.draw_acronym_grasps()
+
+
+def visualize_example_grasp(Obj):
+    tf = TriFingerEnv(viewer=True, robot_type="", Obj=Obj, save_cameras=True)
+    for _ in range(500):
+        tf.step_gym()
+        tf.visualize_example_grasp()
 
 
 def run_robot_control(viewer, Obj, robot_type, **robot_kwargs):
@@ -488,23 +718,78 @@ def run_robot_control(viewer, Obj, robot_type, **robot_kwargs):
 
 
 if __name__ == "__main__":
-    # Obj = ig_objects.Banana
-    # Obj = ig_objects.Box
-    # Obj = ig_objects.TeddyBear
-    Obj = ig_objects.PowerDrill
-    # Obj = ig_objects.Box
-    # Obj = ig_objects.BleachCleanser  # too big - put on side?
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--obj", type=str, default="Banana")
+    parser.add_argument("--get_nerf_training_data", action="store_true")
+    parser.add_argument("--run_robot_control", action="store_true")
+    parser.add_argument("--visualize_acronym_grasps", action="store_true")
+    parser.add_argument("--visualize_example_grasp", action="store_true")
+    parser.add_argument("--viewer", action="store_true")
+    parser.add_argument("--num_sim_steps_before_collecting_data", type=int, default=100)
+    parser.add_argument("--overwrite", action="store_true")
+    args = parser.parse_args()
+
+    print("=" * 80)
+    print(f"args = {args}")
+    print("=" * 80)
+
+    if (
+        sum(
+            [
+                args.get_nerf_training_data,
+                args.run_robot_control,
+                args.visualize_acronym_grasps,
+                args.visualize_example_grasp,
+            ]
+        )
+        != 1
+    ):
+        raise ValueError(
+            "Must specify only one of --get_nerf_training_data, --run_robot_control, --visualize_acronym_grasps, --visualize_example_grasp"
+        )
+
+    # Object
+    if hasattr(ig_objects, args.obj):
+        print(f"Found object {args.obj} in ig_objects")
+        Obj = getattr(ig_objects, args.obj)
+    elif hasattr(acronym_objects, args.obj):
+        print(f"Found object {args.obj} in acronym_objects")
+        Obj = getattr(acronym_objects, args.obj)
+    else:
+        raise ValueError(f"Object {args.obj} not found")
     print("Obj", Obj.name, Obj().gt_mesh.extents)
-    # Obj = ig_objects.Spatula
-    # Obj = ig_objects.Mug
-    get_nerf_training(Obj, viewer=False)
-    # run_robot_control(
-    #     viewer=True,
-    #     Obj=Obj,
-    #     robot_type="trifinger",
-    #     use_nerf_grasping=False,
-    #     use_residual_dirs=True,
-    #     use_true_normals=False,
-    #     use_grad_est=True,
-    #     metric="psv",
-    # )
+
+    if args.get_nerf_training_data:
+        get_nerf_training_data(
+            Obj,
+            num_sim_steps_before_collecting_data=args.num_sim_steps_before_collecting_data,
+            viewer=args.viewer,
+            overwrite=args.overwrite,
+        )
+
+    elif args.run_robot_control:
+        run_robot_control(
+            viewer=args.viewer,
+            Obj=Obj,
+            robot_type="trifinger",
+            use_nerf_grasping=False,
+            use_residual_dirs=True,
+            use_true_normals=False,
+            use_grad_est=True,
+            metric="psv",
+        )
+
+    elif args.visualize_acronym_grasps:
+        visualize_acronym_grasps(
+            Obj=Obj,
+        )
+
+    elif args.visualize_example_grasp:
+        visualize_example_grasp(
+            Obj=Obj,
+        )
+
+    else:
+        raise ValueError(
+            "Must specify one of --get_nerf_training_data or --run_robot_control"
+        )

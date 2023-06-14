@@ -15,12 +15,32 @@ Switch to this fork of torch-ngp (a few small changes): https://github.com/tyler
 
 ## 2. ACRONYM Dataset (ONLY IF WORKING WITH ACRONYM DATASET)
 
-Follow instructions from here: https://sites.google.com/nvidia.com/graspdataset
+Follow instructions from here: https://github.com/tylerlum/acronym
 
-Get the ACRONYM dataset and shapenet objects.
-
+Populate `nerf_grasping/assets/objects/urdf` and `nerf_grasping/assets/objects/meshes`
 
 ## 3. ACRONYM NeRF Dataset Collection (ONLY IF WORKING WITH ACRONYM DATASET)
+
+Run:
+```
+cd nerf_grasping/dataset
+python create_classes_for_all_urdfs.py
+```
+
+NOTE: Need to change the `input_acronym_dir' to actual path to ACRONYM dataset.
+
+This creates acronym_objects.py (already have one in this repo as example, but you should replace it).
+
+Then run:
+```
+python create_nerf_datasets_all_acronym_objs.py
+```
+
+This creates nerf training data for all objects.
+
+You can also run `Visualize_NeRF_Mesh_Grasps.ipynb` to understand what is going on.
+
+Some paths may be hardcoded or invalid. May need some adjustments. Sorry in advance.
 
 ## 4. NeRF Training
 
@@ -336,6 +356,23 @@ May need to change a few parameters:
 This creates `nerf_checkpoints` with nerf model information.
 
 ## 5. Learned Metric Dataset Generation
+
+Run:
+```
+python Create_NeRF_ACRONYM_Dataset_HDF5.py
+```
+
+To create hdf5 file using the above grasp dataset and nerf models for learned metric training.
+
+## 6. Learned Metric Training
+
+Run:
+```
+python Train_NeRF_Grasp_Metric.py
+```
+
+Check the config for hyperparameters. Can run with ipynb.
+
 
 # Below: Previous README
 

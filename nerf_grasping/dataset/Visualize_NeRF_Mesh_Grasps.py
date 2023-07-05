@@ -118,8 +118,8 @@ def set_seed(seed):
 
 # %%
 # TODO: Need way to connect an acronym file to a nerf model nicely
-assets_dir_filepath = "/juno/u/tylerlum/github_repos/nerf_grasping/assets/objects"
-acronym_dir_filepath = "/juno/u/tylerlum/github_repos/acronym/data/grasps"
+assets_dir_filepath = "../../assets/objects"
+acronym_dir_filepath = "../../../acronym/data/grasps"
 USE_MUG = False
 if USE_MUG:
     nerf_model_workspace = "isaac_Mug_10f6e09036350e92b3f21f1137c3c347_0.0002682458/"

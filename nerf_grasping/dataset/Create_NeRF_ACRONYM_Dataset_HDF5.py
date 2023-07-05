@@ -746,10 +746,10 @@ assert grasp_query_points_grasp_frame.shape == (NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z,
 
 # %%
 # Absolute paths
-root_dir = "/juno/u/tylerlum/github_repos/nerf_grasping"
+root_dir = "../../"
 assets_dir_filepath = os.path.join(root_dir, "assets")
 objects_dir_filepath = os.path.join(assets_dir_filepath, "objects")
-acronym_dir_filepath = "/juno/u/tylerlum/github_repos/acronym/data/grasps"
+acronym_dir_filepath = "../../../acronym/data/grasps"
 
 CREATE_PLOTS = False
 SAVE_DATASET = True

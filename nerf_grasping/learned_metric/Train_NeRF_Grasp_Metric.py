@@ -1516,7 +1516,7 @@ def create_detailed_plot_with_mesh(
         idx_to_visualize=idx_to_visualize,
     )
 
-    ACRONYM_ROOT_DIR = "/juno/u/tylerlum/github_repos/acronym/data/grasps"
+    ACRONYM_ROOT_DIR = "../../../acronym/data/grasps"
     MESH_ROOT_DIR = "assets/objects"
     LEFT_TIP_POSITION_GRASP_FRAME = np.array(
         [4.10000000e-02, -7.27595772e-12, 1.12169998e-01]

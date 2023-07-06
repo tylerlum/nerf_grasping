@@ -26,3 +26,4 @@ for acronym_object_class in (pbar := tqdm(acronym_object_classes)):
         print(f"e = {e}")
         num_failed += 1
         print("Continuing")
+    break

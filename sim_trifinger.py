@@ -69,6 +69,9 @@ def get_fixed_camera_transform(gym, sim, env, camera):
     t = gym.get_camera_transform(sim, env, camera)
     pos = torch.tensor([t.p.x, t.p.y, t.p.z])
     quat = Quaternion.fromWLast([t.r.x, t.r.y, t.r.z, t.r.w])
+    print(f"pos = {pos}")
+    print(f"quat = {quat}")
+    print()
 
     x_axis = torch.tensor([1.0, 0, 0])
     # y_axis = torch.tensor([0, 1.0, 0])
@@ -77,13 +80,24 @@ def get_fixed_camera_transform(gym, sim, env, camera):
     optical_axis = quat.rotate(x_axis)
     side_left_axis = z_axis.cross(optical_axis)
     up_axis = optical_axis.cross(side_left_axis)
+    print(f"optical_axis = quat.rotate(x_axis) = {optical_axis}")
+    print(f"side_left_axis = z_axis.cross(optical_axis) = {side_left_axis}")
+    print(f"up_axis = optical_axis.cross(side_left_axis) = {up_axis}")
+    print()
 
     optical_axis /= torch.norm(optical_axis)
     side_left_axis /= torch.norm(side_left_axis)
     up_axis /= torch.norm(up_axis)
+    print(f"After normalizing")
+    print(f"optical_axis = quat.rotate(x_axis) = {optical_axis}")
+    print(f"side_left_axis = z_axis.cross(optical_axis) = {side_left_axis}")
+    print(f"up_axis = optical_axis.cross(side_left_axis) = {up_axis}")
 
-    rot_matrix = torch.stack([optical_axis, side_left_axis, up_axis], dim=-1)
+    rot_matrix = torch.stack([-side_left_axis, up_axis, -optical_axis], dim=-1)
     fixed_quat = Quaternion.fromMatrix(rot_matrix)
+    print(f"rot_matrix = {rot_matrix}")
+    print(f"fixed_quat = {fixed_quat}")
+    print()
 
     return pos, fixed_quat
 
@@ -242,10 +256,14 @@ class TriFingerEnv:
         camera_props.height = CAMERA_IMG_HEIGHT
 
         # generates cameara positions along rings around object
-        heights = [0.1, 0.3, 0.25, 0.35]
-        distances = [0.2, 0.2, 0.3, 0.3]
-        counts = [64, 64, 64, 64]
-        target_z = [0.0, 0.1, 0.0, 0.1]
+        # heights = [0.1, 0.3, 0.25, 0.35]
+        # distances = [0.2, 0.2, 0.3, 0.3]
+        # counts = [64, 64, 64, 64]
+        # target_z = [0.0, 0.1, 0.0, 0.1]
+        heights = [0.1]
+        distances = [0.2]
+        counts = [1]
+        target_z = [0.0]
 
         camera_positions = []
         for h, d, c, z in zip(heights, distances, counts, target_z):
@@ -255,8 +273,13 @@ class TriFingerEnv:
         self.camera_handles = []
         for pos, z in camera_positions:
             camera_handle = self.gym.create_camera_sensor(env, camera_props)
+            camera_pos = gymapi.Vec3(*pos)
+            camera_target = gymapi.Vec3(0, 0, z)
+            print(f"camera_pos = {(camera_pos.x, camera_pos.y, camera_pos.z)}")
+            print(f"camera_target = {(camera_target.x, camera_target.y, camera_target.z)}")
+            print()
             self.gym.set_camera_location(
-                camera_handle, env, gymapi.Vec3(*pos), gymapi.Vec3(0, 0, z)
+                camera_handle, env, camera_pos, camera_target
             )
 
             self.camera_handles.append(camera_handle)
@@ -325,6 +348,10 @@ class TriFingerEnv:
         pos, quat = get_fixed_camera_transform(
             self.gym, self.sim, self.env, camera_handle
         )
+        print("After get_fixed_camera_transform")
+        print(f"pos = {pos}")
+        print(f"quat = {quat}")
+        print()
 
         with open(path / f"pos_xyz_quat_xyzw_{ii}.txt", "w+") as f:
             data = [*pos.tolist(), *quat.q[1:].tolist(), quat.q[0].tolist()]
@@ -338,9 +365,9 @@ class TriFingerEnv:
         for ii, camera_handle in enumerate(self.camera_handles):
             self.save_single_image(path, ii, camera_handle)
 
-        self.save_single_image(
-            path, "overhead", self.overhead_camera_handle, numpy_depth=True
-        )
+        # self.save_single_image(
+        #     path, "overhead", self.overhead_camera_handle, numpy_depth=True
+        # )
 
     def create_train_val_test_split(self, folder, train_frac, val_frac):
         num_imgs = len(self.camera_handles)
@@ -363,8 +390,8 @@ class TriFingerEnv:
         self._create_one_split(
             split_name="train", split_range=train_range, folder=folder
         )
-        self._create_one_split(split_name="val", split_range=val_range, folder=folder)
-        self._create_one_split(split_name="test", split_range=test_range, folder=folder)
+        # self._create_one_split(split_name="val", split_range=val_range, folder=folder)
+        # self._create_one_split(split_name="test", split_range=test_range, folder=folder)
 
     def _create_one_split(self, split_name, split_range, folder):
         import scipy
@@ -374,6 +401,7 @@ class TriFingerEnv:
             "camera_angle_y": math.radians(CAMERA_VERTICAL_FOV_DEG),
             "frames": [],
         }
+        print("_create_one_split")
         for ii in split_range:
             pose_file = os.path.join(folder, f"pos_xyz_quat_xyzw_{ii}.txt")
             with open(pose_file) as file:
@@ -382,15 +410,20 @@ class TriFingerEnv:
 
                 transform_mat = np.eye(4)
                 pos, quat = pose[:3], pose[-4:]
+                print(f"pos = {pos}")
+                print(f"quat = {quat}")
                 R = scipy.spatial.transform.Rotation.from_quat(quat).as_matrix()
-                R = (
-                    R
-                    @ scipy.spatial.transform.Rotation.from_euler(
-                        "YZ", [-np.pi / 2, -np.pi / 2]
-                    ).as_matrix()
-                )
+                print(f"R1 = {R}")
+                # R = (
+                #     R
+                #     @ scipy.spatial.transform.Rotation.from_euler(
+                #         "YZ", [-np.pi / 2, -np.pi / 2]
+                #     ).as_matrix()
+                # )
+                print(f"R2 = {R}")
                 transform_mat[:3, :3] = R
                 transform_mat[:3, -1] = pos
+                print(f"transform_mat = {transform_mat}")
 
                 source_img = "col_" + str(ii)
 
@@ -679,7 +712,8 @@ def get_nerf_training_data(Obj, num_sim_steps_before_collecting_data, viewer, ov
     # name = "blank" if Obj is None else Obj.name
     save_folder = "./torch-ngp/data/isaac_" + Obj.name
     tf.save_images(save_folder, overwrite=overwrite)
-    tf.create_train_val_test_split(save_folder, train_frac=0.8, val_frac=0.1)
+    # tf.create_train_val_test_split(save_folder, train_frac=0.8, val_frac=0.1)
+    tf.create_train_val_test_split(save_folder, train_frac=1.0, val_frac=0.0)
 
 
 def visualize_acronym_grasps(Obj):

@@ -30,6 +30,7 @@ import trimesh
 import numpy as np
 from plotly import graph_objects as go
 from dataclasses import dataclass
+import matplotlib.pyplot as plt
 
 # %%
 # PARAMS
@@ -78,6 +79,16 @@ class Bounds3D:
             z_max=max(self.z_max, other.z_max),
         )
 
+    def extend(self, scale: float):
+        return Bounds3D(
+            x_min=self.x_min * scale,
+            x_max=self.x_max * scale,
+            y_min=self.y_min * scale,
+            y_max=self.y_max * scale,
+            z_min=self.z_min * scale,
+            z_max=self.z_max * scale,
+        )
+
     @property
     def x_range(self):
         return self.x_max - self.x_min
@@ -93,7 +104,7 @@ class Bounds3D:
 
 # %%
 @localscope.mfc
-def get_bounds(mesh: trimesh.Trimesh):
+def get_bounds(mesh: trimesh.Trimesh) -> Bounds3D:
     min_bounds, max_bounds = mesh.bounds
     return Bounds3D(
         x_min=min_bounds[0],
@@ -147,10 +158,6 @@ def plot_mesh(mesh, color="lightpink"):
         scene=get_scene_dict(mesh),
         showlegend=True,
         title="Mesh",
-        autosize=False,
-        width=200,
-        height=200,
-        margin=dict(l=0, r=0, b=0, t=0, pad=0),
     )
 
     # Create the figure
@@ -167,7 +174,7 @@ fig.show()
 # %%
 
 
-@localscope.mfc()
+@localscope.mfc(allowed=["nerf_checkpoint_folder"])
 def load_nerf(workspace: str, bound: float, scale: float):
     root_dir = nerf_grasping.get_repo_root()
 
@@ -175,7 +182,7 @@ def load_nerf(workspace: str, bound: float, scale: float):
     opt = parser.parse_args(
         [
             "--workspace",
-            f"{root_dir}/nerf_checkpoints/{workspace}",
+            f"{root_dir}/{nerf_checkpoint_folder}/{workspace}",
             "--fp16",
             "--test",
             "--bound",
@@ -224,9 +231,6 @@ nerf_model = load_nerf(
 )
 
 # %%
-dir(nerf_grasping), nerf_grasping.__file__
-
-# %%
 nerf_model
 
 
@@ -241,3 +245,103 @@ def get_nerf_densities(nerf_model, query_points: torch.Tensor):
     query_points = query_points.reshape(1, -1, 3)
 
     return nerf_model.density(query_points).reshape(B, n_f)
+
+# %%
+@localscope.mfc
+def get_query_points_in_bounds(bounds: Bounds3D, n_pts_per_dim: int) -> np.ndarray:
+    """
+    Returns a batch of query points in the mesh region.
+    """
+    x = np.linspace(bounds.x_min, bounds.x_max, n_pts_per_dim)
+    y = np.linspace(bounds.y_min, bounds.y_max, n_pts_per_dim)
+    z = np.linspace(bounds.z_min, bounds.z_max, n_pts_per_dim)
+    xv, yv, zv = np.meshgrid(x, y, z)
+    return np.stack([xv, yv, zv], axis=-1).reshape(-1, 3)
+
+
+query_points_mesh_region_obj_frame = get_query_points_in_bounds(
+    get_bounds(mesh).extend(1.5), n_pts_per_dim=100
+)
+
+# %%
+
+query_points_mesh_region_obj_frame.shape
+
+# %%
+from nerf_grasping.grasp_utils import nerf_to_ig, ig_to_nerf
+query_points_mesh_region_isaac_frame = np.copy(
+    query_points_mesh_region_obj_frame
+)
+query_points_mesh_region_nerf_frame = ig_to_nerf(
+    query_points_mesh_region_isaac_frame, return_tensor=True
+)
+
+# %%
+nerf_densities_torch = get_nerf_densities(
+    nerf_model, query_points_mesh_region_nerf_frame.reshape(1, -1, 3).float().cuda()
+).reshape(query_points_mesh_region_nerf_frame.shape[:-1])
+nerf_densities = nerf_densities_torch.detach().cpu().numpy()
+
+# %%
+points = query_points_mesh_region_obj_frame.reshape(-1, 3)
+densities = nerf_densities.reshape(-1)
+
+# %%
+USE_PLOTLY = False
+if USE_PLOTLY:
+    import plotly.express as px
+
+    fig = px.histogram(
+        x=densities,
+        log_y=True,
+        title="Densities",
+        labels={"x": "Values", "y": "Frequency"},
+    )
+
+    fig.show()
+else:
+    plt.hist(densities, log=True)
+    plt.title("Densities")
+    plt.show()
+
+# %%
+@localscope.mfc
+def get_colored_points_scatter(points, colors):
+    assert len(points.shape) == 2 and points.shape[1] == 3
+
+    points_to_plot = points
+
+    # Use plotly to make scatter3d plot
+    scatter = go.Scatter3d(
+        x=points_to_plot[:, 0],
+        y=points_to_plot[:, 1],
+        z=points_to_plot[:, 2],
+        mode="markers",
+        marker=dict(
+            size=5,
+            color=colors,
+            colorscale="viridis",
+            colorbar=dict(title="Density Scale"),
+        ),
+        name="Query Points Densities",
+    )
+
+    return scatter
+
+
+# %%
+threshold = 200.0
+filtered_points = points[densities > threshold]
+filtered_densities = densities[densities > threshold]
+colored_points_scatter = get_colored_points_scatter(
+    points=filtered_points, colors=filtered_densities
+)
+
+# Add the scatter plot to a figure and display it
+fig = plot_mesh(mesh)
+fig.add_trace(colored_points_scatter)
+fig.update_layout(legend_orientation="h")
+
+fig.show()
+
+

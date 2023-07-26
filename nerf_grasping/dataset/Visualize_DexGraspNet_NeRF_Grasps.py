@@ -21,6 +21,7 @@
 # The purpose of this script is to load a NeRF object model and labeled grasps on this object, and then visualize it
 
 # %%
+import math
 import nerf_grasping
 from localscope import localscope
 from nerf import utils
@@ -36,14 +37,33 @@ import matplotlib.pyplot as plt
 # PARAMS
 dexgraspnet_data_root = "/juno/u/tylerlum/github_repos/DexGraspNet/data"
 dexgraspnet_meshdata_root = os.path.join(dexgraspnet_data_root, "meshdata")
+dexgraspnet_dataset_root = os.path.join(dexgraspnet_data_root, "2023-07-01_dataset_DESIRED_DIST_TOWARDS_OBJECT_SURFACE_MULTIPLE_STEPS_v2")
 mesh_path = os.path.join(
     dexgraspnet_meshdata_root, "ddg-gd_banana_poisson_001", "coacd", "decomposed.obj"
 )
+dataset_path = os.path.join(dexgraspnet_dataset_root, "ddg-gd_banana_poisson_001.npy")
 nerf_checkpoint_folder = "2023-07-21_nerf_checkpoints"
 nerf_model_workspace = "ddg-gd_banana_poisson_001_0_06"
 nerf_size_scale = 0.06
 nerf_bound = 2.0
 nerf_scale = 1.0
+
+# %%
+grasp_dataset = np.load(dataset_path, allow_pickle=True)
+grasp_dataset.shape
+
+# %%
+for data_dict in grasp_dataset:
+    link_name_to_contact_candidates = data_dict["link_name_to_contact_candidates"]
+    link_name_to_target_contact_candidates = data_dict["link_name_to_target_contact_candidates"]
+    contact_candidates = np.concatenate([contact_candidate for _, contact_candidate in link_name_to_contact_candidates.items()], axis=0)
+    target_contact_candidates = np.concatenate([target_contact_candidate for _, target_contact_candidate in link_name_to_target_contact_candidates.items()], axis=0)
+    scale = data_dict["scale"]
+    if not math.isclose(scale, nerf_size_scale, rel_tol=1e-3):
+        continue
+    print(f"contact_candidates.shape: {contact_candidates.shape}")
+    print(f"target_contact_candidates.shape: {target_contact_candidates.shape}")
+    break
 
 # %%
 mesh = trimesh.load(mesh_path, force="mesh")
@@ -340,8 +360,110 @@ colored_points_scatter = get_colored_points_scatter(
 # Add the scatter plot to a figure and display it
 fig = plot_mesh(mesh)
 fig.add_trace(colored_points_scatter)
+# Plot contact_candidates and target_contact_candidates
+starts_plot = go.Scatter3d(
+    x=contact_candidates[:, 0],
+    y=contact_candidates[:, 1],
+    z=contact_candidates[:, 2],
+    mode="markers",
+    marker=dict(
+        size=5,
+        color="red",
+        colorscale="viridis",
+    ),
+    name="Contact Candidates",
+)
+ends_plot = go.Scatter3d(
+    x=target_contact_candidates[:, 0],
+    y=target_contact_candidates[:, 1],
+    z=target_contact_candidates[:, 2],
+    mode="markers",
+    marker=dict(
+        size=5,
+        color="blue",
+        colorscale="viridis",
+    ),
+    name="Target Contact Candidates",
+)
+fig.add_trace(starts_plot)
+fig.add_trace(ends_plot)
+
+
 fig.update_layout(legend_orientation="h")
 
 fig.show()
 
+
+# %%
+import numpy as np
+from sklearn.cluster import KMeans
+
+def compress_vectors(original_vectors, N):
+    # Step 1: Perform k-means clustering
+    kmeans = KMeans(n_clusters=N, random_state=42)
+    cluster_ids = kmeans.fit_predict(original_vectors)
+
+    # Step 2: Compute the mean of each cluster
+    compressed_vectors = np.zeros((N, original_vectors.shape[1]))
+    cluster_counts = np.zeros(N)
+
+    for i, cluster_id in enumerate(cluster_ids):
+        compressed_vectors[cluster_id] += original_vectors[i]
+        cluster_counts[cluster_id] += 1
+
+    for i in range(N):
+        if cluster_counts[i] > 0:
+            compressed_vectors[i] /= cluster_counts[i]
+
+    # Step 3: Normalize the mean vectors
+    # compressed_vectors /= np.linalg.norm(compressed_vectors, axis=1)[:, np.newaxis]
+
+    return compressed_vectors, cluster_ids
+
+# Example usage:
+original_vectors = target_contact_candidates - contact_candidates
+N = 4
+compressed, cluster_ids = compress_vectors(original_vectors, N)
+print("Original vectors:")
+print(original_vectors)
+print("Compressed vectors:")
+print(compressed)
+print("Cluster IDs for each vector:")
+print(cluster_ids)
+# %%
+# Use plotly to scatter 3d
+fig = go.Figure(
+    data=[
+        go.Scatter3d(
+            x=compressed[:, 0],
+            y=compressed[:, 1],
+            z=compressed[:, 2],
+            mode="markers",
+            marker=dict(
+                size=5,
+                color="red",
+                colorscale="viridis",
+            ),
+            name="Compressed Vectors",
+        ),
+        go.Scatter3d(
+            x=original_vectors[:, 0],
+            y=original_vectors[:, 1],
+            z=original_vectors[:, 2],
+            mode="markers",
+            marker=dict(
+                size=5,
+                color="blue",
+                colorscale="viridis",
+            ),
+            name="Original Vectors",
+        ),
+    ]
+)
+fig.show()
+
+# %%
+np.linalg.norm(compressed, axis=-1)
+
+# %%
 

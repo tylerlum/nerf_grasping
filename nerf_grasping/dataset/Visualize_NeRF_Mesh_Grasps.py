@@ -29,6 +29,10 @@
 # * a grasp metric $g$ representing the quality of grasp (for now, $g \in [0, 1]$, where 0 is failed grasp and 1 is successful grasp).
 #
 # To do this, we will be using the [ACRONYM dataset](https://sites.google.com/nvidia.com/graspdataset), which contains ~1.7M grasps on over 8k objects each labeled with the grasp success.
+# Either add in textured background so it knows all is far away
+# Or nerfstudio, add supervision with depth
+# Sample from sphere not circlues around y-axis
+# Texture is optional for now
 
 # %%
 import wandb

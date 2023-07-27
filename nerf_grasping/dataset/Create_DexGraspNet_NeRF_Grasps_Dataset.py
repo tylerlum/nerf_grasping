@@ -620,12 +620,12 @@ with h5py.File(OUTPUT_FILE_PATH, "w") as hdf5_file:
                 finger_height_mm=FINGER_HEIGHT_MM,
             )
 
-        for grasp_idx, grasp_data in tqdm(
+        for grasp_idx, grasp_data in (pbar := tqdm(
             enumerate(correct_scale_grasp_data_list),
             total=len(correct_scale_grasp_data_list),
-            desc="grasp data",
             dynamic_ncols=True,
-        ):
+        )):
+            pbar.set_description(f"grasp data, current_idx: {current_idx}")
             # Go from contact candidates to transforms
             with Timer("get_contact_candidates_and_target_candidates"):
                 (

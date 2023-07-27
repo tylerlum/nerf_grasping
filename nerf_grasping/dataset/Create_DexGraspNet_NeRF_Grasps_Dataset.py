@@ -14,11 +14,11 @@
 # ---
 
 # %% [markdown]
-# # Visualize DexGraspNet NeRF Grasps
+# # Create DexGraspNet NeRF Grasps
 #
-# ## Summary (Jul 23, 2023)
+# ## Summary (Jul 26, 2023)
 #
-# The purpose of this script is to load a NeRF object model and labeled grasps on this object, and then visualize it
+# The purpose of this script is to iterate through each NeRF object and labeled grasp, sample densities in the grasp trajectory, and storing the data
 
 # %%
 from typing import Dict, Any, Tuple, List
@@ -35,6 +35,28 @@ from plotly import graph_objects as go
 from dataclasses import dataclass
 import matplotlib.pyplot as plt
 from tqdm import tqdm
+
+
+# %%
+# PARAMS
+DEXGRASPNET_DATA_ROOT = "/juno/u/tylerlum/github_repos/DexGraspNet/data"
+GRASP_DATASET_FOLDER = (
+    "2023-07-01_dataset_DESIRED_DIST_TOWARDS_OBJECT_SURFACE_MULTIPLE_STEPS_v2"
+)
+NERF_CHECKPOINTS_FOLDER = "2023-07-25_nerf_checkpoints"
+
+# %%
+DEXGRASPNET_MESHDATA_ROOT = os.path.join(DEXGRASPNET_DATA_ROOT, "meshdata")
+DEXGRASPNET_DATASET_ROOT = os.path.join(
+    DEXGRASPNET_DATA_ROOT,
+    GRASP_DATASET_FOLDER,
+)
+NERF_CHECKPOINTS_PATH = os.path.join(
+    nerf_grasping.get_repo_root(), NERF_CHECKPOINTS_FOLDER
+)
+TORCH_NGP_BOUND = 2.0  # Copied from nerf collection script
+TORCH_NGP_SCALE = 1.0  # Copied from nerf collection script
+N_FINGERS = 4
 
 
 # %%
@@ -58,28 +80,6 @@ def get_object_code(workspace: str) -> str:
     idx = workspace.index("_0_")
     object_code = workspace[:idx]
     return object_code
-
-
-# %%
-# PARAMS
-DEXGRASPNET_DATA_ROOT = "/juno/u/tylerlum/github_repos/DexGraspNet/data"
-GRASP_DATASET_FOLDER = (
-    "2023-07-01_dataset_DESIRED_DIST_TOWARDS_OBJECT_SURFACE_MULTIPLE_STEPS_v2"
-)
-NERF_CHECKPOINTS_FOLDER = "2023-07-25_nerf_checkpoints"
-
-# %%
-DEXGRASPNET_MESHDATA_ROOT = os.path.join(DEXGRASPNET_DATA_ROOT, "meshdata")
-DEXGRASPNET_DATASET_ROOT = os.path.join(
-    DEXGRASPNET_DATA_ROOT,
-    GRASP_DATASET_FOLDER,
-)
-NERF_CHECKPOINTS_PATH = os.path.join(
-    nerf_grasping.get_repo_root(), NERF_CHECKPOINTS_FOLDER
-)
-TORCH_NGP_BOUND = 2.0  # Copied from nerf collection script
-TORCH_NGP_SCALE = 1.0  # Copied from nerf collection script
-N_FINGERS = 4
 
 
 # %%
@@ -155,66 +155,10 @@ def get_start_and_end_and_up_points(
     return np.array(start_points), np.array(end_points), np.array(up_points)
 
 
-# %%
-@dataclass
-class Bounds3D:
-    x_min: float
-    x_max: float
-    y_min: float
-    y_max: float
-    z_min: float
-    z_max: float
-
-    def max_bounds(self, other):
-        assert isinstance(other, Bounds3D)
-        return Bounds3D(
-            x_min=min(self.x_min, other.x_min),
-            x_max=max(self.x_max, other.x_max),
-            y_min=min(self.y_min, other.y_min),
-            y_max=max(self.y_max, other.y_max),
-            z_min=min(self.z_min, other.z_min),
-            z_max=max(self.z_max, other.z_max),
-        )
-
-    def extend(self, scale: float):
-        return Bounds3D(
-            x_min=self.x_min * scale,
-            x_max=self.x_max * scale,
-            y_min=self.y_min * scale,
-            y_max=self.y_max * scale,
-            z_min=self.z_min * scale,
-            z_max=self.z_max * scale,
-        )
-
-    @property
-    def x_range(self):
-        return self.x_max - self.x_min
-
-    @property
-    def y_range(self):
-        return self.y_max - self.y_min
-
-    @property
-    def z_range(self):
-        return self.z_max - self.z_min
-
 
 # %%
 @localscope.mfc
-def get_bounds(mesh: trimesh.Trimesh) -> Bounds3D:
-    min_bounds, max_bounds = mesh.bounds
-    return Bounds3D(
-        x_min=min_bounds[0],
-        x_max=max_bounds[0],
-        y_min=min_bounds[1],
-        y_max=max_bounds[1],
-        z_min=min_bounds[2],
-        z_max=max_bounds[2],
-    )
-
-
-@localscope.mfc
-def get_scene_dict(mesh: trimesh.Trimesh):
+def get_scene_dict() -> Dict[str, Any]:
     return dict(
         xaxis=dict(title="X"),
         yaxis=dict(title="Y"),
@@ -244,7 +188,7 @@ def plot_mesh(mesh: trimesh.Trimesh, color="lightpink") -> go.Figure:
 
     # Create the layout
     layout = go.Layout(
-        scene=get_scene_dict(mesh),
+        scene=get_scene_dict(),
         showlegend=True,
         title="Mesh",
     )
@@ -633,5 +577,6 @@ for workspace in tqdm(workspaces, desc="nerf workspaces", dynamic_ncols=True):
             n_fingers=N_FINGERS,
         )
         fig.show()
+        assert False
 
         # Save values

@@ -712,3 +712,82 @@ fig.show()
 
 
 # %%
+# Grid of points in grasp frame (x, y, z)
+GRASP_DEPTH_MM = 20
+FINGER_WIDTH_MM = 10
+FINGER_HEIGHT_MM = 15
+
+# Want points equally spread out in space
+DIST_BTWN_PTS_MM = 0.5
+
+# +1 to include both end points
+NUM_PTS_X = int(GRASP_DEPTH_MM / DIST_BTWN_PTS_MM) + 1
+NUM_PTS_Y = int(FINGER_WIDTH_MM / DIST_BTWN_PTS_MM) + 1
+NUM_PTS_Z = int(FINGER_HEIGHT_MM / DIST_BTWN_PTS_MM) + 1
+
+@localscope.mfc
+def get_query_points_finger_frame(
+    num_pts_x: int,
+    num_pts_y: int,
+    num_pts_z: int,
+    grasp_depth_mm: float,
+    finger_width_mm: float,
+    finger_height_mm: float,
+):
+    num_pts = num_pts_x * num_pts_y * num_pts_z
+    print(f"num_pts: {num_pts}")
+    grasp_depth_m = grasp_depth_mm / 1000.0
+    gripper_finger_width_m = finger_width_mm / 1000.0
+    gripper_finger_height_m = finger_height_mm / 1000.0
+
+    # Create grid of points in grasp frame with shape (num_pts_x, num_pts_y, num_pts_z, 3)
+    # So that grid_of_points[2, 3, 5] = [x, y, z], where x, y, z are the coordinates of the point
+    # Origin of transform is at center of xy at one end of z
+    # x is width, y is height, z is depth
+    x_coords = np.linspace(-gripper_finger_width_m / 2, gripper_finger_width_m / 2, num_pts_x)
+    y_coords = np.linspace(
+        -gripper_finger_height_m / 2, gripper_finger_height_m / 2, num_pts_y
+    )
+    z_coords = np.linspace(
+        0.0, grasp_depth_m, num_pts_z
+    )
+
+    xx, yy, zz = np.meshgrid(x_coords, y_coords, z_coords, indexing="ij")
+    assert xx.shape == yy.shape == zz.shape == (num_pts_x, num_pts_y, num_pts_z)
+    grid_of_points = np.stack([xx, yy, zz], axis=-1)
+    assert grid_of_points.shape == (num_pts_x, num_pts_y, num_pts_z, 3)
+    return grid_of_points
+
+query_points_finger_frame = get_query_points_finger_frame(
+    num_pts_x=NUM_PTS_X,
+    num_pts_y=NUM_PTS_Y,
+    num_pts_z=NUM_PTS_Z,
+    grasp_depth_mm=GRASP_DEPTH_MM,
+    finger_width_mm=FINGER_WIDTH_MM,
+    finger_height_mm=FINGER_HEIGHT_MM,
+)
+
+# %%
+fig = go.Figure(
+    data=[
+        go.Scatter3d(
+            x=query_points_finger_frame[:, :, :, 0].reshape(-1),
+            y=query_points_finger_frame[:, :, :, 1].reshape(-1),
+            z=query_points_finger_frame[:, :, :, 2].reshape(-1),
+            mode="markers",
+            marker=dict(
+                size=4,
+                color="red",
+                colorscale="viridis",
+            ),
+            name="Query Points",
+        )
+    ],
+    layout=go.Layout(
+        scene=get_scene_dict(mesh),
+        showlegend=True,
+        title="Query Points",
+    ),
+)
+fig.show()
+# %%

@@ -39,6 +39,7 @@ from nerf_grasping.dataset.DexGraspNet_NeRF_Grasps_utils import (
     get_contact_candidates_and_target_candidates,
     get_start_and_end_and_up_points,
     get_transform,
+    get_scene_dict,
     get_transformed_points,
     get_nerf_densities,
     plot_mesh_and_query_points,
@@ -57,7 +58,7 @@ from nerf_grasping.dataset.DexGraspNet_NeRF_Grasps_utils import (
 )
 import os
 import h5py
-from typing import Optional, Tuple
+from typing import Optional, Tuple, List
 
 import numpy as np
 import torch
@@ -65,6 +66,7 @@ from torch.utils.data import (
     DataLoader,
     Dataset,
 )
+import plotly.graph_objects as go
 
 # %% [markdown]
 # # Read in Data
@@ -268,11 +270,63 @@ query_points_object_frame_list = [
     get_transformed_points(query_points_finger_frame.reshape(-1, 3), transform)
     for transform in grasp_transforms
 ]
-colors_list = [
-    nerf_densities[i].reshape(-1, 3) for i in range(NUM_FINGERS)
-]
+colors_list = [nerf_densities[i].reshape(-1, 3) for i in range(NUM_FINGERS)]
 fig = plot_mesh_and_query_points(
     mesh=mesh,
+    query_points_list=query_points_object_frame_list,
+    query_points_colors_list=colors_list,
+    num_fingers=NUM_FINGERS,
+)
+fig.show()
+
+# %%
+
+
+def plot_query_points(
+    query_points_list: List[np.ndarray],
+    query_points_colors_list: List[np.ndarray],
+    num_fingers: int,
+) -> go.Figure:
+    assert (
+        len(query_points_list) == len(query_points_colors_list) == num_fingers
+    ), f"{len(query_points_list)} != {num_fingers}"
+
+    # Create the layout
+    layout = go.Layout(
+        scene=get_scene_dict(),
+        showlegend=True,
+        title="Mesh",
+    )
+
+    # Create the figure
+    fig = go.Figure(layout=layout)
+
+    for finger_idx in range(num_fingers):
+        query_points = query_points_list[finger_idx]
+        query_points_colors = query_points_colors_list[finger_idx]
+        print(f"query_points_colors = {query_points_colors}")
+        query_point_plot = go.Scatter3d(
+            x=query_points[:, 0],
+            y=query_points[:, 1],
+            z=query_points[:, 2],
+            mode="markers",
+            marker=dict(
+                size=4,
+                color=query_points_colors,
+                colorscale="viridis",
+                colorbar=dict(title="Density Scale") if finger_idx == 0 else {},
+            ),
+            name=f"Query Point Densities Finger {finger_idx}",
+        )
+        fig.add_trace(query_point_plot)
+
+    fig.update_layout(legend_orientation="h")  # Avoid overlapping legend
+    return fig
+
+
+# %%
+
+fig = plot_query_points(
     query_points_list=query_points_object_frame_list,
     query_points_colors_list=colors_list,
     num_fingers=NUM_FINGERS,

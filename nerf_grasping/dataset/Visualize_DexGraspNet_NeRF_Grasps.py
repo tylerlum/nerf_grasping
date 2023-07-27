@@ -880,7 +880,8 @@ for finger_idx in range(N_FINGERS):
         name=f"Query Point Densities Finger {finger_idx}",
     )
     fig.add_trace(query_point_plot)
-fig.update_layout(legend_orientation="h")
+
+fig.update_layout(legend_orientation="h")  # Avoid overlapping legend
 
 fig.show()
 # %%

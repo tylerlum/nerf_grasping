@@ -1,7 +1,7 @@
-from setuptools import setup
+from setuptools import setup, find_packages
 
 setup(
     name="nerf_grasping",
     version="0.1",
-    packages=["nerf_grasping"],
+    packages=find_packages(),
 )

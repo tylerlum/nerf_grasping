@@ -56,9 +56,9 @@ class Obj_Xbox360_435f39e98d2260f0d6e21b8525c3f8bb_0_002061950217848804(RigidObj
 
 
 # Create a class for each urdf in the dir
-input_dir = "/juno/u/tylerlum/github_repos/nerf_grasping/assets/"
-input_acronym_dir = "/juno/u/tylerlum/github_repos/acronym/data/grasps/"
-output_py_file = "/juno/u/tylerlum/github_repos/nerf_grasping/acronym_objects.py"
+input_dir = "../../assets/"
+input_acronym_dir = "../../../acronym/data/grasps/"
+output_py_file = "../sim/acronym_objects.py"
 
 print("=" * 100)
 print("PARAMS")

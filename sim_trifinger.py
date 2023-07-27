@@ -450,7 +450,7 @@ class TriFingerEnv:
         # Read in grasp transforms and successes
         import h5py
 
-        assumed_acronym_root = "/juno/u/tylerlum/github_repos/acronym/data/grasps"
+        assumed_acronym_root = "../acronym/data/grasps"
         acronym_filepath = os.path.join(assumed_acronym_root, self.object.acronym_file)
         acronym_data = h5py.File(acronym_filepath, "r")
         grasp_transforms = np.array(acronym_data["grasps/transforms"])

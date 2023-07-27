@@ -29,6 +29,10 @@
 # * a grasp metric $g$ representing the quality of grasp (for now, $g \in [0, 1]$, where 0 is failed grasp and 1 is successful grasp).
 #
 # To do this, we will be using the [ACRONYM dataset](https://sites.google.com/nvidia.com/graspdataset), which contains ~1.7M grasps on over 8k objects each labeled with the grasp success.
+# Either add in textured background so it knows all is far away
+# Or nerfstudio, add supervision with depth
+# Sample from sphere not circlues around y-axis
+# Texture is optional for now
 
 # %%
 import wandb
@@ -118,8 +122,8 @@ def set_seed(seed):
 
 # %%
 # TODO: Need way to connect an acronym file to a nerf model nicely
-assets_dir_filepath = "/juno/u/tylerlum/github_repos/nerf_grasping/assets/objects"
-acronym_dir_filepath = "/juno/u/tylerlum/github_repos/acronym/data/grasps"
+assets_dir_filepath = "../../assets/objects"
+acronym_dir_filepath = "../../../acronym/data/grasps"
 USE_MUG = False
 if USE_MUG:
     nerf_model_workspace = "isaac_Mug_10f6e09036350e92b3f21f1137c3c347_0.0002682458/"

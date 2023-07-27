@@ -627,4 +627,88 @@ fig.update_layout(legend_orientation="h")
 fig.show()
 
 # %%
+@localscope.mfc
+def normalize(x: np.ndarray) -> np.ndarray:
+    return x / np.linalg.norm(x)
 
+@localscope.mfc
+def get_transform(start: np.ndarray, end: np.ndarray, up: np.ndarray) -> np.ndarray:
+    # BRITTLE: Assumes new_z and new_y are pretty much perpendicular
+    # If not, tries to find closest possible
+    new_z = normalize(end-start)
+    # new_y should be perpendicular to new_z
+    up_dir = normalize(up-start)
+    new_y = normalize(up_dir - np.dot(up_dir, new_z) * new_z)
+    new_x = np.cross(new_y, new_z)
+
+    transform = np.eye(4)
+    transform[:3, :3] = np.stack([new_x, new_y, new_z], axis=1)
+    transform[:3, 3] = start
+    return transform
+
+get_transform(start_points[0], end_points[0], up_points[0])
+
+
+# %%
+# Add the scatter plot to a figure and display it
+fig = plot_mesh(mesh)
+for finger_idx in range(N_FINGERS):
+    transform = get_transform(start_points[finger_idx], end_points[finger_idx], up_points[finger_idx])
+    length = 0.02
+    origin = np.array([0, 0, 0])
+    x_axis = np.array([length, 0, 0])
+    y_axis = np.array([0, length, 0])
+    z_axis = np.array([0, 0, length])
+
+    new_origin = transform @ np.concatenate([origin, [1]])
+    new_x_axis = transform @ np.concatenate([x_axis, [1]])
+    new_y_axis = transform @ np.concatenate([y_axis, [1]])
+    new_z_axis = transform @ np.concatenate([z_axis, [1]])
+    x_plot = go.Scatter3d(
+        x=[new_origin[0], new_x_axis[0]],
+        y=[new_origin[1], new_x_axis[1]],
+        z=[new_origin[2], new_x_axis[2]],
+        mode="lines",
+        marker=dict(
+            size=8,
+            color="red",
+            colorscale="viridis",
+        ),
+        name=f"Finger {finger_idx} X Axis",
+    )
+    y_plot = go.Scatter3d(
+        x=[new_origin[0], new_y_axis[0]],
+        y=[new_origin[1], new_y_axis[1]],
+        z=[new_origin[2], new_y_axis[2]],
+        mode="lines",
+        marker=dict(
+            size=8,
+            color="green",
+            colorscale="viridis",
+        ),
+        name=f"Finger {finger_idx} Y Axis",
+    )
+    z_plot = go.Scatter3d(
+        x=[new_origin[0], new_z_axis[0]],
+        y=[new_origin[1], new_z_axis[1]],
+        z=[new_origin[2], new_z_axis[2]],
+        mode="lines",
+        marker=dict(
+            size=8,
+            color="blue",
+            colorscale="viridis",
+        ),
+        name=f"Finger {finger_idx} Z Axis",
+    )
+
+    fig.add_trace(x_plot)
+    fig.add_trace(y_plot)
+    fig.add_trace(z_plot)
+
+
+fig.update_layout(legend_orientation="h")
+
+fig.show()
+
+
+# %%

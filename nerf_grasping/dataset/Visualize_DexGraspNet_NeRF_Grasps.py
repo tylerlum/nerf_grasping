@@ -155,40 +155,99 @@ def get_contact_candidates_and_target_candidates(
 print(f"contact_candidates.shape: {contact_candidates.shape}")
 print(f"target_contact_candidates.shape: {target_contact_candidates.shape}")
 
+
 # %%
 @localscope.mfc
-def get_start_and_end_points(contact_candidates: np.ndarray, target_contact_candidates: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-    from collections import defaultdict
-
-    # Should have 4 fingers, all next to each other in idx
-    # Group them and then average them
-    finger_idx = 0
-    finger_idx_to_contact_idx = defaultdict(list)
-    rtol = 1e1
-
-    finger_idx_to_contact_idx[finger_idx].append(0)
-    for i, (contact_candidate, target_contact_candidate) in enumerate(zip(contact_candidates, target_contact_candidates)):
+def get_ordered_cluster_ids(cluster_ids: np.ndarray) -> np.ndarray:
+    # Want order of clusters to be ascending
+    idxs_of_change = []
+    for i, cluster_id in enumerate(cluster_ids):
         if i == 0:
             continue
+        if cluster_id == cluster_ids[i - 1]:
+            continue
+        idxs_of_change.append(i)
 
-        prev_contact_candidate = contact_candidates[i - 1]
-        prev_target_contact_candidate = target_contact_candidates[i - 1]
-        starts_close = np.allclose(contact_candidate, prev_contact_candidate, rtol=rtol)
-        ends_close = np.allclose(target_contact_candidate, prev_target_contact_candidate, rtol=rtol)
-        directions_close = np.allclose(target_contact_candidate - contact_candidate, prev_target_contact_candidate - prev_contact_candidate, rtol=rtol)
-        print(f"i: {i}, starts_close: {starts_close}, ends_close: {ends_close}, directions_close: {directions_close}")
-        if directions_close:
-            finger_idx_to_contact_idx[finger_idx].append(i)
+    idxs_of_change.append(len(cluster_ids))
+    ordered_cluster_ids = []
+    for i, idx in enumerate(idxs_of_change):
+        if i == 0:
+            num_to_add = idx
         else:
-            finger_idx += 1
-            finger_idx_to_contact_idx[finger_idx].append(i)
-    assert len(finger_idx_to_contact_idx) == 4, f"len(finger_idx_to_contact_idx) = {len(finger_idx_to_contact_idx)}"
+            num_to_add = idx - idxs_of_change[i - 1]
+        new_cluster_id = i
+        ordered_cluster_ids += [new_cluster_id] * num_to_add
+    return np.array(ordered_cluster_ids)
 
-    starts = contact_candidates
-    ends = target_contact_candidates
-    return starts, ends
 
-get_start_and_end_points(contact_candidates=contact_candidates, target_contact_candidates=target_contact_candidates)
+N_CONTACTS_PER_FINGER = 6
+N_FINGERS = 4
+
+
+@localscope.mfc
+def get_start_and_end_points(
+    contact_candidates: np.ndarray,
+    target_contact_candidates: np.ndarray,
+    n_fingers: int,
+) -> Tuple[np.ndarray, np.ndarray]:
+    n_contacts = contact_candidates.shape[0]
+    assert (
+        contact_candidates.shape == target_contact_candidates.shape == (n_contacts, 3)
+    )
+
+    from sklearn.cluster import KMeans
+
+    # Cluster by directions
+    directions = target_contact_candidates - contact_candidates
+    kmeans = KMeans(n_clusters=n_fingers, random_state=42)
+    cluster_ids = kmeans.fit_predict(directions)
+    ordered_cluster_ids = get_ordered_cluster_ids(cluster_ids)
+
+    start_points, end_points = [] , []
+    for finger_idx in range(n_fingers):
+        contact_candidates_this_finger = contact_candidates[
+            ordered_cluster_ids == finger_idx
+        ]
+        target_contact_candidates_this_finger = target_contact_candidates[
+            ordered_cluster_ids == finger_idx
+        ]
+        start_points.append(contact_candidates_this_finger.mean(axis=0))
+        end_points.append(target_contact_candidates_this_finger.mean(axis=0))
+
+    start_points, end_points = np.array(start_points), np.array(end_points)
+    assert start_points.shape == end_points.shape == (n_fingers, 3)
+    return start_points, end_points
+
+
+
+# %%
+@localscope.mfc
+def get_start_and_end_points_faster(
+    contact_candidates: np.ndarray,
+    target_contact_candidates: np.ndarray,
+    n_fingers: int,
+) -> Tuple[np.ndarray, np.ndarray]:
+    from sklearn.cluster import KMeans
+    contact_candidates_per_finger = contact_candidates.reshape(n_fingers, -1, 3)
+    target_contact_candidates_per_finger = target_contact_candidates.reshape(
+        n_fingers, -1, 3
+    )
+    start_points = contact_candidates_per_finger.mean(axis=1)
+    end_points = target_contact_candidates_per_finger.mean(axis=1)
+    assert start_points.shape == end_points.shape == (n_fingers, 3)
+    return np.array(start_points), np.array(end_points)
+
+# start_points, end_points = get_start_and_end_points(
+#     contact_candidates=contact_candidates,
+#     target_contact_candidates=target_contact_candidates,
+#     n_fingers=N_FINGERS,
+# )
+start_points, end_points = get_start_and_end_points_faster(
+    contact_candidates=contact_candidates,
+    target_contact_candidates=target_contact_candidates,
+    n_fingers=N_FINGERS,
+)
+start_points, end_points 
 
 # %%
 # Open mesh
@@ -417,7 +476,9 @@ query_points_mesh_region_obj_frame = get_query_points_in_bounds(
 # %%
 n_pts = query_points_mesh_region_obj_frame.shape[0]
 assert query_points_mesh_region_obj_frame.shape == (n_pts, 3)
-print(f"query_points_mesh_region_obj_frame.shape: {query_points_mesh_region_obj_frame.shape}")
+print(
+    f"query_points_mesh_region_obj_frame.shape: {query_points_mesh_region_obj_frame.shape}"
+)
 
 # %%
 query_points_mesh_region_isaac_frame = np.copy(query_points_mesh_region_obj_frame)
@@ -492,28 +553,28 @@ fig = plot_mesh(mesh)
 fig.add_trace(colored_points_scatter)
 # Plot contact_candidates and target_contact_candidates
 starts_plot = go.Scatter3d(
-    x=contact_candidates[:, 0],
-    y=contact_candidates[:, 1],
-    z=contact_candidates[:, 2],
+    x=start_points[:, 0],
+    y=start_points[:, 1],
+    z=start_points[:, 2],
     mode="markers",
     marker=dict(
         size=5,
         color="red",
         colorscale="viridis",
     ),
-    name="Contact Candidates",
+    name="Start Points",
 )
 ends_plot = go.Scatter3d(
-    x=target_contact_candidates[:, 0],
-    y=target_contact_candidates[:, 1],
-    z=target_contact_candidates[:, 2],
+    x=end_points[:, 0],
+    y=end_points[:, 1],
+    z=end_points[:, 2],
     mode="markers",
     marker=dict(
         size=5,
         color="blue",
         colorscale="viridis",
     ),
-    name="Target Contact Candidates",
+    name="End Points",
 )
 fig.add_trace(starts_plot)
 fig.add_trace(ends_plot)
@@ -522,79 +583,3 @@ fig.add_trace(ends_plot)
 fig.update_layout(legend_orientation="h")
 
 fig.show()
-
-
-# %%
-import numpy as np
-from sklearn.cluster import KMeans
-
-
-def compress_vectors(original_vectors, N):
-    # Step 1: Perform k-means clustering
-    kmeans = KMeans(n_clusters=N, random_state=42)
-    cluster_ids = kmeans.fit_predict(original_vectors)
-
-    # Step 2: Compute the mean of each cluster
-    compressed_vectors = np.zeros((N, original_vectors.shape[1]))
-    cluster_counts = np.zeros(N)
-
-    for i, cluster_id in enumerate(cluster_ids):
-        compressed_vectors[cluster_id] += original_vectors[i]
-        cluster_counts[cluster_id] += 1
-
-    for i in range(N):
-        if cluster_counts[i] > 0:
-            compressed_vectors[i] /= cluster_counts[i]
-
-    # Step 3: Normalize the mean vectors
-    # compressed_vectors /= np.linalg.norm(compressed_vectors, axis=1)[:, np.newaxis]
-
-    return compressed_vectors, cluster_ids
-
-
-# Example usage:
-original_vectors = target_contact_candidates - contact_candidates
-N = 4
-compressed, cluster_ids = compress_vectors(original_vectors, N)
-print("Original vectors:")
-print(original_vectors)
-print("Compressed vectors:")
-print(compressed)
-print("Cluster IDs for each vector:")
-print(cluster_ids)
-# %%
-# Use plotly to scatter 3d
-fig = go.Figure(
-    data=[
-        go.Scatter3d(
-            x=compressed[:, 0],
-            y=compressed[:, 1],
-            z=compressed[:, 2],
-            mode="markers",
-            marker=dict(
-                size=5,
-                color="red",
-                colorscale="viridis",
-            ),
-            name="Compressed Vectors",
-        ),
-        go.Scatter3d(
-            x=original_vectors[:, 0],
-            y=original_vectors[:, 1],
-            z=original_vectors[:, 2],
-            mode="markers",
-            marker=dict(
-                size=5,
-                color="blue",
-                colorscale="viridis",
-            ),
-            name="Original Vectors",
-        ),
-    ]
-)
-fig.show()
-
-# %%
-np.linalg.norm(compressed, axis=-1)
-
-# %%

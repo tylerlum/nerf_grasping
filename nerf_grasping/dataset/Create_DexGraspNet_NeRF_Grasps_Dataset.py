@@ -35,6 +35,7 @@ import numpy as np
 from plotly import graph_objects as go
 from tqdm import tqdm
 from datetime import datetime
+import time
 
 datetime_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
@@ -48,9 +49,10 @@ GRASP_DATASET_FOLDER = (
 NERF_CHECKPOINTS_FOLDER = "2023-07-25_nerf_checkpoints"
 OUTPUT_FOLDER = f"{GRASP_DATASET_FOLDER}_learned_metric_dataset"
 OUTPUT_FILENAME = f"{datetime_str}_learned_metric_dataset.h5"
-PLOT_ONLY_ONE = True
-SAVE_DATASET = False
+PLOT_ONLY_ONE = False
+SAVE_DATASET = True
 PRINT_TIMING = False
+LIMIT_NUM_WORKSPACES = 2  # None for no limit
 
 # %%
 DEXGRASPNET_MESHDATA_ROOT = os.path.join(DEXGRASPNET_DATA_ROOT, "meshdata")
@@ -71,9 +73,10 @@ OUTPUT_FILE_PATH = os.path.join(
 )
 TORCH_NGP_BOUND = 2.0  # Copied from nerf collection script
 TORCH_NGP_SCALE = 1.0  # Copied from nerf collection script
-N_FINGERS = 4
+NUM_FINGERS = 4
 
 # %%
+
 
 class Timer:
     def __init__(self, name_of_timed_commands, get_current_time_fn=time.perf_counter):
@@ -88,9 +91,11 @@ class Timer:
     def __exit__(self, type, value, traceback):
         if PRINT_TIMING:
             print(
-                f"Time elapsed for '{self.name}' is {self.get_current_time_fn() - self.start} seconds"
+                f"Time elapsed for '{self.name}' is {(self.get_current_time_fn() - self.start) * 1000} ms"
             )
         return
+
+
 # %%
 if not os.path.exists(OUTPUT_FOLDER_PATH):
     print(f"Creating output folder {OUTPUT_FOLDER_PATH}")
@@ -184,19 +189,19 @@ def get_contact_candidates_and_target_candidates(
 def get_start_and_end_and_up_points(
     contact_candidates: np.ndarray,
     target_contact_candidates: np.ndarray,
-    n_fingers: int,
+    num_fingers: int,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     # BRITTLE: Assumes same number of contact points per finger
     # BRITTLE: Assumes UP_POINT_IDX is position of contact candidate up from center
     UP_POINT_IDX = 3
-    contact_candidates_per_finger = contact_candidates.reshape(n_fingers, -1, 3)
+    contact_candidates_per_finger = contact_candidates.reshape(num_fingers, -1, 3)
     target_contact_candidates_per_finger = target_contact_candidates.reshape(
-        n_fingers, -1, 3
+        num_fingers, -1, 3
     )
     start_points = contact_candidates_per_finger.mean(axis=1)
     end_points = target_contact_candidates_per_finger.mean(axis=1)
     up_points = contact_candidates_per_finger[:, UP_POINT_IDX, :]
-    assert start_points.shape == end_points.shape == up_points.shape == (n_fingers, 3)
+    assert start_points.shape == end_points.shape == up_points.shape == (num_fingers, 3)
     return np.array(start_points), np.array(end_points), np.array(up_points)
 
 
@@ -336,13 +341,13 @@ def get_transform(start: np.ndarray, end: np.ndarray, up: np.ndarray) -> np.ndar
 # %%
 @localscope.mfc
 def plot_mesh_and_transforms(
-    mesh: trimesh.Trimesh, transforms: List[np.ndarray], n_fingers: int
+    mesh: trimesh.Trimesh, transforms: List[np.ndarray], num_fingers: int
 ) -> go.Figure:
-    assert len(transforms) == n_fingers, f"{len(transforms)} != {n_fingers}"
+    assert len(transforms) == num_fingers, f"{len(transforms)} != {num_fingers}"
 
     # Add the scatter plot to a figure and display it
     fig = plot_mesh(mesh)
-    for finger_idx in range(n_fingers):
+    for finger_idx in range(num_fingers):
         transform = transforms[finger_idx]
         length = 0.02
         origin = np.array([0, 0, 0])
@@ -488,14 +493,14 @@ def plot_mesh_and_query_points(
     mesh: trimesh.Trimesh,
     query_points_list: List[np.ndarray],
     query_points_colors_list: List[np.ndarray],
-    n_fingers: int,
+    num_fingers: int,
 ) -> go.Figure:
     assert (
-        len(query_points_list) == len(query_points_colors_list) == n_fingers
-    ), f"{len(query_points_list)} != {n_fingers}"
+        len(query_points_list) == len(query_points_colors_list) == num_fingers
+    ), f"{len(query_points_list)} != {num_fingers}"
     fig = plot_mesh(mesh)
 
-    for finger_idx in range(n_fingers):
+    for finger_idx in range(num_fingers):
         query_points = query_points_list[finger_idx]
         query_points_colors = query_points_colors_list[finger_idx]
         query_point_plot = go.Scatter3d(
@@ -519,10 +524,16 @@ def plot_mesh_and_query_points(
 
 # %%
 workspaces = os.listdir(NERF_CHECKPOINTS_PATH)
+if LIMIT_NUM_WORKSPACES is not None:
+    workspaces = workspaces[:LIMIT_NUM_WORKSPACES]
+
 NUM_DATA_POINTS_PER_OBJECT = 500
 NUM_SCALES = 5
 APPROX_NUM_DATA_POINTS_PER_OBJECT_PER_SCALE = NUM_DATA_POINTS_PER_OBJECT // NUM_SCALES
-MAX_NUM_DATA_POINTS = len(workspaces) * APPROX_NUM_DATA_POINTS_PER_OBJECT_PER_SCALE
+BUFFER_SCALING = 2
+MAX_NUM_DATA_POINTS = (
+    len(workspaces) * APPROX_NUM_DATA_POINTS_PER_OBJECT_PER_SCALE * BUFFER_SCALING
+)
 print(f"MAX_NUM_DATA_POINTS: {MAX_NUM_DATA_POINTS}")
 
 with h5py.File(OUTPUT_FILE_PATH, "w") as hdf5_file:
@@ -531,9 +542,9 @@ with h5py.File(OUTPUT_FILE_PATH, "w") as hdf5_file:
     # TODO: Figure out what needs to be stored
     nerf_densities_dataset = hdf5_file.create_dataset(
         "/nerf_densities",
-        shape=(MAX_NUM_DATA_POINTS, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z),
+        shape=(MAX_NUM_DATA_POINTS, NUM_FINGERS, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z),
         dtype="f",
-        chunks=(1, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z),
+        chunks=(1, NUM_FINGERS, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z),
     )
     grasp_success_dataset = hdf5_file.create_dataset(
         "/grasp_success", shape=(MAX_NUM_DATA_POINTS,), dtype="i"
@@ -551,11 +562,10 @@ with h5py.File(OUTPUT_FILE_PATH, "w") as hdf5_file:
         "/grasp_idx", shape=(MAX_NUM_DATA_POINTS,), dtype="i"
     )
     grasp_transforms_dataset = hdf5_file.create_dataset(
-        "/grasp_transforms", shape=(MAX_NUM_DATA_POINTS, N_FINGERS, 4, 4), dtype="f"
+        "/grasp_transforms", shape=(MAX_NUM_DATA_POINTS, NUM_FINGERS, 4, 4), dtype="f"
     )
 
     # Iterate through all
-    workspaces = os.listdir(NERF_CHECKPOINTS_PATH)
     for workspace in tqdm(workspaces, desc="nerf workspaces", dynamic_ncols=True):
         with Timer("prepare to read in data"):
             # Prepare to read in data
@@ -611,7 +621,10 @@ with h5py.File(OUTPUT_FILE_PATH, "w") as hdf5_file:
             )
 
         for grasp_idx, grasp_data in tqdm(
-            enumerate(correct_scale_grasp_data_list), total=len(correct_scale_grasp_data_list), desc="grasp data", dynamic_ncols=True
+            enumerate(correct_scale_grasp_data_list),
+            total=len(correct_scale_grasp_data_list),
+            desc="grasp data",
+            dynamic_ncols=True,
         ):
             # Go from contact candidates to transforms
             with Timer("get_contact_candidates_and_target_candidates"):
@@ -623,18 +636,20 @@ with h5py.File(OUTPUT_FILE_PATH, "w") as hdf5_file:
                 start_points, end_points, up_points = get_start_and_end_and_up_points(
                     contact_candidates=contact_candidates,
                     target_contact_candidates=target_contact_candidates,
-                    n_fingers=N_FINGERS,
+                    num_fingers=NUM_FINGERS,
                 )
             with Timer("get_transforms"):
                 transforms = [
                     get_transform(start_points[i], end_points[i], up_points[i])
-                    for i in range(N_FINGERS)
+                    for i in range(NUM_FINGERS)
                 ]
 
             # Transform query points
             with Timer("get_transformed_points"):
                 query_points_object_frame_list = [
-                    get_transformed_points(query_points_finger_frame.reshape(-1, 3), transform)
+                    get_transformed_points(
+                        query_points_finger_frame.reshape(-1, 3), transform
+                    )
                     for transform in transforms
                 ]
             with Timer("ig_to_nerf"):
@@ -650,7 +665,9 @@ with h5py.File(OUTPUT_FILE_PATH, "w") as hdf5_file:
             # Get densities
             with Timer("get_nerf_densities"):
                 nerf_densities = [
-                    get_nerf_densities(nerf_model, query_points_nerf_frame.float().cuda())
+                    get_nerf_densities(
+                        nerf_model, query_points_nerf_frame.float().cuda()
+                    )
                     .reshape(-1)
                     .detach()
                     .cpu()
@@ -664,40 +681,46 @@ with h5py.File(OUTPUT_FILE_PATH, "w") as hdf5_file:
                     mesh=mesh,
                     query_points_list=query_points_object_frame_list,
                     query_points_colors_list=nerf_densities,
-                    n_fingers=N_FINGERS,
+                    num_fingers=NUM_FINGERS,
                 )
                 fig.show()
                 fig2 = plot_mesh_and_transforms(
                     mesh=mesh,
                     transforms=transforms,
-                    n_fingers=N_FINGERS,
+                    num_fingers=NUM_FINGERS,
                 )
                 fig2.show()
                 assert False, "PLOT_ONLY_ONE is True"
-
             # Save values
             if SAVE_DATASET:
                 # Ensure no nans (most likely come from nerf densities)
                 if not np.isnan(nerf_densities).any():
                     with Timer("save values"):
+                        nerf_densities = np.stack(nerf_densities, axis=0).reshape(
+                            NUM_FINGERS, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z
+                        )
                         nerf_densities_dataset[current_idx] = nerf_densities
                         grasp_success_dataset[current_idx] = grasp_data["valid"]
                         nerf_workspace_dataset[current_idx] = workspace_path
                         object_code_dataset[current_idx] = object_code
                         object_scale_dataset[current_idx] = object_scale
                         grasp_idx_dataset[current_idx] = grasp_idx
-                        grasp_transforms_dataset[current_idx] = np.stack(transforms, axis=0)
+                        grasp_transforms_dataset[current_idx] = np.stack(
+                            transforms, axis=0
+                        )
 
                         current_idx += 1
-                        hdf5_file.attrs[
-                            "num_data_points"
-                        ] = current_idx  # May not be max_num_data_points if nan grasps
+
+                        # May not be max_num_data_points if nan grasps
+                        hdf5_file.attrs["num_data_points"] = current_idx
                 else:
                     print()
                     print("-" * 80)
                     print(
-                        f"WARNING: Found {np.isnan(nerf_densities).sum()} nans in grasp {grasp_idx} of {obj_filepath}/{selected_obj.acronym_file}"
+                        f"WARNING: Found {np.isnan(nerf_densities).sum()} nans in grasp {grasp_idx} of {workspace_path}"
                     )
                     print("-" * 80)
                     print()
+            print()
 
+# %%

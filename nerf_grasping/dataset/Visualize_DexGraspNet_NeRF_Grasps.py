@@ -203,7 +203,7 @@ def get_start_and_end_points(
     cluster_ids = kmeans.fit_predict(directions)
     ordered_cluster_ids = get_ordered_cluster_ids(cluster_ids)
 
-    start_points, end_points = [] , []
+    start_points, end_points = [], []
     for finger_idx in range(n_fingers):
         contact_candidates_this_finger = contact_candidates[
             ordered_cluster_ids == finger_idx
@@ -646,7 +646,8 @@ def get_transform(start: np.ndarray, end: np.ndarray, up: np.ndarray) -> np.ndar
     transform[:3, 3] = start
     return transform
 
-get_transform(start_points[0], end_points[0], up_points[0])
+FINGER_IDX = 0
+get_transform(start_points[FINGER_IDX], end_points[FINGER_IDX], up_points[FINGER_IDX])
 
 
 # %%
@@ -789,5 +790,47 @@ fig = go.Figure(
         title="Query Points",
     ),
 )
+fig.show()
+
+# %%
+@localscope.mfc
+def get_transformed_points(points: np.ndarray, transform: np.ndarray) -> np.ndarray:
+    n_points = points.shape[0]
+    assert points.shape == (n_points, 3)
+    assert transform.shape == (4, 4)
+
+    extra_ones = np.ones((n_points, 1))
+    points_homogeneous = np.concatenate([points, extra_ones], axis=1)
+
+    # First (4, 4) @ (4, N) = (4, N)
+    # Then transpose to get (N, 4)
+    transformed_points = np.matmul(transform, points_homogeneous.T).T
+
+    transformed_points = transformed_points[:, :3]
+    assert transformed_points.shape == (n_points, 3)
+    return transformed_points
+
+# %%
+fig = plot_mesh(mesh)
+
+for finger_idx in range(N_FINGERS):
+    transform = get_transform(start_points[finger_idx], end_points[finger_idx], up_points[finger_idx])
+    query_points_object_frame = get_transformed_points(
+        query_points_finger_frame.reshape(-1, 3), transform
+    ).reshape(query_points_finger_frame.shape)
+    query_point_plot = go.Scatter3d(
+        x=query_points_object_frame[:, :, :, 0].reshape(-1),
+        y=query_points_object_frame[:, :, :, 1].reshape(-1),
+        z=query_points_object_frame[:, :, :, 2].reshape(-1),
+        mode="markers",
+        marker=dict(
+            size=4,
+            color="red",
+            colorscale="viridis",
+        ),
+        name=f"Query Points Finger {finger_idx}",
+    )
+    fig.add_trace(query_point_plot)
+
 fig.show()
 # %%

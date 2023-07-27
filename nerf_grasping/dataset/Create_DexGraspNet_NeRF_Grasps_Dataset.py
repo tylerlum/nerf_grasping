@@ -44,6 +44,7 @@ GRASP_DATASET_FOLDER = (
     "2023-07-01_dataset_DESIRED_DIST_TOWARDS_OBJECT_SURFACE_MULTIPLE_STEPS_v2"
 )
 NERF_CHECKPOINTS_FOLDER = "2023-07-25_nerf_checkpoints"
+PLOT_ONLY_ONE = True
 
 # %%
 DEXGRASPNET_MESHDATA_ROOT = os.path.join(DEXGRASPNET_DATA_ROOT, "meshdata")
@@ -379,8 +380,6 @@ def get_query_points_finger_frame(
     finger_width_mm: float,
     finger_height_mm: float,
 ) -> np.ndarray:
-    num_pts = num_pts_x * num_pts_y * num_pts_z
-    print(f"num_pts: {num_pts}")
     grasp_depth_m = grasp_depth_mm / 1000.0
     gripper_finger_width_m = finger_width_mm / 1000.0
     gripper_finger_height_m = finger_height_mm / 1000.0
@@ -547,7 +546,7 @@ for workspace in tqdm(workspaces, desc="nerf workspaces", dynamic_ncols=True):
         query_points_object_frame_list = [
             get_transformed_points(
                 query_points_finger_frame.reshape(-1, 3), transform
-            ).reshape(query_points_finger_frame.shape)
+            )
             for transform in transforms
         ]
         query_points_isaac_frame_list = [
@@ -570,13 +569,22 @@ for workspace in tqdm(workspaces, desc="nerf workspaces", dynamic_ncols=True):
         ]
 
         # Plot
-        fig = plot_mesh_and_query_points(
-            mesh=mesh,
-            query_points_list=query_points_object_frame_list,
-            query_points_colors_list=nerf_densities,
-            n_fingers=N_FINGERS,
-        )
-        fig.show()
-        assert False
+        if PLOT_ONLY_ONE:
+            fig = plot_mesh_and_query_points(
+                mesh=mesh,
+                query_points_list=query_points_object_frame_list,
+                query_points_colors_list=nerf_densities,
+                n_fingers=N_FINGERS,
+            )
+            fig.show()
+            fig2 = plot_mesh_and_transforms(
+                mesh=mesh,
+                transforms=transforms,
+                n_fingers=N_FINGERS,
+            )
+            fig2.show()
+            assert False, "PLOT_ONLY_ONE is True"
 
         # Save values
+
+# %%

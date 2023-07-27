@@ -219,7 +219,6 @@ def get_start_and_end_points(
     return start_points, end_points
 
 
-
 # %%
 @localscope.mfc
 def get_start_and_end_and_up_points(
@@ -239,6 +238,7 @@ def get_start_and_end_and_up_points(
     up_points = contact_candidates_per_finger[:, UP_POINT_IDX, :]
     assert start_points.shape == end_points.shape == up_points.shape == (n_fingers, 3)
     return np.array(start_points), np.array(end_points), np.array(up_points)
+
 
 # start_points, end_points = get_start_and_end_points(
 #     contact_candidates=contact_candidates,
@@ -626,18 +626,20 @@ fig.update_layout(legend_orientation="h")
 
 fig.show()
 
+
 # %%
 @localscope.mfc
 def normalize(x: np.ndarray) -> np.ndarray:
     return x / np.linalg.norm(x)
 
+
 @localscope.mfc
 def get_transform(start: np.ndarray, end: np.ndarray, up: np.ndarray) -> np.ndarray:
     # BRITTLE: Assumes new_z and new_y are pretty much perpendicular
     # If not, tries to find closest possible
-    new_z = normalize(end-start)
+    new_z = normalize(end - start)
     # new_y should be perpendicular to new_z
-    up_dir = normalize(up-start)
+    up_dir = normalize(up - start)
     new_y = normalize(up_dir - np.dot(up_dir, new_z) * new_z)
     new_x = np.cross(new_y, new_z)
 
@@ -645,6 +647,7 @@ def get_transform(start: np.ndarray, end: np.ndarray, up: np.ndarray) -> np.ndar
     transform[:3, :3] = np.stack([new_x, new_y, new_z], axis=1)
     transform[:3, 3] = start
     return transform
+
 
 FINGER_IDX = 0
 get_transform(start_points[FINGER_IDX], end_points[FINGER_IDX], up_points[FINGER_IDX])
@@ -654,7 +657,9 @@ get_transform(start_points[FINGER_IDX], end_points[FINGER_IDX], up_points[FINGER
 # Add the scatter plot to a figure and display it
 fig = plot_mesh(mesh)
 for finger_idx in range(N_FINGERS):
-    transform = get_transform(start_points[finger_idx], end_points[finger_idx], up_points[finger_idx])
+    transform = get_transform(
+        start_points[finger_idx], end_points[finger_idx], up_points[finger_idx]
+    )
     length = 0.02
     origin = np.array([0, 0, 0])
     x_axis = np.array([length, 0, 0])
@@ -726,6 +731,7 @@ NUM_PTS_X = int(GRASP_DEPTH_MM / DIST_BTWN_PTS_MM) + 1
 NUM_PTS_Y = int(FINGER_WIDTH_MM / DIST_BTWN_PTS_MM) + 1
 NUM_PTS_Z = int(FINGER_HEIGHT_MM / DIST_BTWN_PTS_MM) + 1
 
+
 @localscope.mfc
 def get_query_points_finger_frame(
     num_pts_x: int,
@@ -743,21 +749,22 @@ def get_query_points_finger_frame(
 
     # Create grid of points in grasp frame with shape (num_pts_x, num_pts_y, num_pts_z, 3)
     # So that grid_of_points[2, 3, 5] = [x, y, z], where x, y, z are the coordinates of the point
-    # Origin of transform is at center of xy at one end of z
+    # Origin of transform is at center of xy at 1/4 of the way into the depth z
     # x is width, y is height, z is depth
-    x_coords = np.linspace(-gripper_finger_width_m / 2, gripper_finger_width_m / 2, num_pts_x)
+    x_coords = np.linspace(
+        -gripper_finger_width_m / 2, gripper_finger_width_m / 2, num_pts_x
+    )
     y_coords = np.linspace(
         -gripper_finger_height_m / 2, gripper_finger_height_m / 2, num_pts_y
     )
-    z_coords = np.linspace(
-        0.0, grasp_depth_m, num_pts_z
-    )
+    z_coords = np.linspace(-grasp_depth_m / 4, 3 * grasp_depth_m / 4, num_pts_z)
 
     xx, yy, zz = np.meshgrid(x_coords, y_coords, z_coords, indexing="ij")
     assert xx.shape == yy.shape == zz.shape == (num_pts_x, num_pts_y, num_pts_z)
     grid_of_points = np.stack([xx, yy, zz], axis=-1)
     assert grid_of_points.shape == (num_pts_x, num_pts_y, num_pts_z, 3)
     return grid_of_points
+
 
 query_points_finger_frame = get_query_points_finger_frame(
     num_pts_x=NUM_PTS_X,
@@ -792,6 +799,7 @@ fig = go.Figure(
 )
 fig.show()
 
+
 # %%
 @localscope.mfc
 def get_transformed_points(points: np.ndarray, transform: np.ndarray) -> np.ndarray:
@@ -810,11 +818,14 @@ def get_transformed_points(points: np.ndarray, transform: np.ndarray) -> np.ndar
     assert transformed_points.shape == (n_points, 3)
     return transformed_points
 
+
 # %%
 fig = plot_mesh(mesh)
 
 for finger_idx in range(N_FINGERS):
-    transform = get_transform(start_points[finger_idx], end_points[finger_idx], up_points[finger_idx])
+    transform = get_transform(
+        start_points[finger_idx], end_points[finger_idx], up_points[finger_idx]
+    )
     query_points_object_frame = get_transformed_points(
         query_points_finger_frame.reshape(-1, 3), transform
     ).reshape(query_points_finger_frame.shape)
@@ -833,4 +844,5 @@ for finger_idx in range(N_FINGERS):
     fig.add_trace(query_point_plot)
 
 fig.show()
+
 # %%

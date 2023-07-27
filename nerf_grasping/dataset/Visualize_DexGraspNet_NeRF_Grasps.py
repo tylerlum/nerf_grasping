@@ -450,13 +450,13 @@ nerf_model
 @localscope.mfc
 def get_nerf_densities(nerf_model, query_points: torch.Tensor):
     """
-    Evaluates density of a batch of grasp points, shape [B, n_f, 3].
+    Evaluates density of a batch of grasp points, shape [N, 3].
     query_points is torch.Tensor in nerf frame
     """
-    B, n_f, _ = query_points.shape
-    query_points = query_points.reshape(1, -1, 3)
+    N, _ = query_points.shape
+    query_points = query_points.reshape(1, N, 3)
 
-    return nerf_model.density(query_points).reshape(B, n_f)
+    return nerf_model.density(query_points).reshape(N)
 
 
 # %%
@@ -491,7 +491,7 @@ query_points_mesh_region_nerf_frame = ig_to_nerf(
 
 # %%
 nerf_densities_torch = get_nerf_densities(
-    nerf_model, query_points_mesh_region_nerf_frame.reshape(1, n_pts, 3).float().cuda()
+    nerf_model, query_points_mesh_region_nerf_frame.reshape(n_pts, 3).float().cuda()
 ).reshape(n_pts)
 nerf_densities = nerf_densities_torch.detach().cpu().numpy()
 
@@ -845,4 +845,42 @@ for finger_idx in range(N_FINGERS):
 
 fig.show()
 
+# %%
+fig = plot_mesh(mesh)
+
+for finger_idx in range(N_FINGERS):
+    transform = get_transform(
+        start_points[finger_idx], end_points[finger_idx], up_points[finger_idx]
+    )
+    query_points_object_frame = get_transformed_points(
+        query_points_finger_frame.reshape(-1, 3), transform
+    ).reshape(-1, 3)
+
+    query_points_isaac_frame = np.copy(query_points_object_frame)
+    query_points_nerf_frame = ig_to_nerf(
+        query_points_isaac_frame, return_tensor=True
+    )
+
+    nerf_densities_torch = get_nerf_densities(
+        nerf_model, query_points_nerf_frame.float().cuda()
+    ).reshape(-1)
+    nerf_densities = nerf_densities_torch.detach().cpu().numpy()
+
+    query_point_plot = go.Scatter3d(
+        x=query_points_object_frame[:, 0],
+        y=query_points_object_frame[:, 1],
+        z=query_points_object_frame[:, 2],
+        mode="markers",
+        marker=dict(
+            size=4,
+            color=nerf_densities,
+            colorscale="viridis",
+            colorbar=dict(title="Density Scale") if finger_idx == 0 else {},
+        ),
+        name=f"Query Point Densities Finger {finger_idx}",
+    )
+    fig.add_trace(query_point_plot)
+fig.update_layout(legend_orientation="h")
+
+fig.show()
 # %%

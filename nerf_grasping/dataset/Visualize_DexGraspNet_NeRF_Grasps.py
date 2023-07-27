@@ -222,32 +222,35 @@ def get_start_and_end_points(
 
 # %%
 @localscope.mfc
-def get_start_and_end_points_faster(
+def get_start_and_end_and_up_points(
     contact_candidates: np.ndarray,
     target_contact_candidates: np.ndarray,
     n_fingers: int,
-) -> Tuple[np.ndarray, np.ndarray]:
-    from sklearn.cluster import KMeans
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    # BRITTLE: Assumes same number of contact points per finger
+    # BRITTLE: Assumes UP_POINT_IDX is position of contact candidate up from center
+    UP_POINT_IDX = 3
     contact_candidates_per_finger = contact_candidates.reshape(n_fingers, -1, 3)
     target_contact_candidates_per_finger = target_contact_candidates.reshape(
         n_fingers, -1, 3
     )
     start_points = contact_candidates_per_finger.mean(axis=1)
     end_points = target_contact_candidates_per_finger.mean(axis=1)
-    assert start_points.shape == end_points.shape == (n_fingers, 3)
-    return np.array(start_points), np.array(end_points)
+    up_points = contact_candidates_per_finger[:, UP_POINT_IDX, :]
+    assert start_points.shape == end_points.shape == up_points.shape == (n_fingers, 3)
+    return np.array(start_points), np.array(end_points), np.array(up_points)
 
 # start_points, end_points = get_start_and_end_points(
 #     contact_candidates=contact_candidates,
 #     target_contact_candidates=target_contact_candidates,
 #     n_fingers=N_FINGERS,
 # )
-start_points, end_points = get_start_and_end_points_faster(
+start_points, end_points, up_points = get_start_and_end_and_up_points(
     contact_candidates=contact_candidates,
     target_contact_candidates=target_contact_candidates,
     n_fingers=N_FINGERS,
 )
-start_points, end_points 
+start_points, end_points, up_points
 
 # %%
 # Open mesh
@@ -552,13 +555,37 @@ colored_points_scatter = get_colored_points_scatter(
 fig = plot_mesh(mesh)
 fig.add_trace(colored_points_scatter)
 # Plot contact_candidates and target_contact_candidates
+contact_candidates_plot = go.Scatter3d(
+    x=contact_candidates[:, 0],
+    y=contact_candidates[:, 1],
+    z=contact_candidates[:, 2],
+    mode="markers",
+    marker=dict(
+        size=4,
+        color="red",
+        colorscale="viridis",
+    ),
+    name="Contact Candidates",
+)
+target_contact_candidates_plot = go.Scatter3d(
+    x=target_contact_candidates[:, 0],
+    y=target_contact_candidates[:, 1],
+    z=target_contact_candidates[:, 2],
+    mode="markers",
+    marker=dict(
+        size=4,
+        color="blue",
+        colorscale="viridis",
+    ),
+    name="Target Contact Candidates",
+)
 starts_plot = go.Scatter3d(
     x=start_points[:, 0],
     y=start_points[:, 1],
     z=start_points[:, 2],
     mode="markers",
     marker=dict(
-        size=5,
+        size=8,
         color="red",
         colorscale="viridis",
     ),
@@ -570,16 +597,34 @@ ends_plot = go.Scatter3d(
     z=end_points[:, 2],
     mode="markers",
     marker=dict(
-        size=5,
+        size=8,
         color="blue",
         colorscale="viridis",
     ),
     name="End Points",
 )
+ups_plot = go.Scatter3d(
+    x=up_points[:, 0],
+    y=up_points[:, 1],
+    z=up_points[:, 2],
+    mode="markers",
+    marker=dict(
+        size=8,
+        color="yellow",
+        colorscale="viridis",
+    ),
+    name="Up Points",
+)
+fig.add_trace(contact_candidates_plot)
+fig.add_trace(target_contact_candidates_plot)
 fig.add_trace(starts_plot)
 fig.add_trace(ends_plot)
+fig.add_trace(ups_plot)
 
 
 fig.update_layout(legend_orientation="h")
 
 fig.show()
+
+# %%
+

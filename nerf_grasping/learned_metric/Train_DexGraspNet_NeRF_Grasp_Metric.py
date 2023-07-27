@@ -34,6 +34,27 @@ def is_notebook() -> bool:
 # %%
 from localscope import localscope
 import nerf_grasping
+from nerf_grasping.dataset.DexGraspNet_NeRF_Grasps_utils import (
+    get_query_points_finger_frame,
+    get_contact_candidates_and_target_candidates,
+    get_start_and_end_and_up_points,
+    get_transform,
+    get_transformed_points,
+    get_nerf_densities,
+    plot_mesh_and_query_points,
+    plot_mesh_and_transforms,
+    get_object_code,
+    get_object_scale,
+    validate_nerf_checkpoints_path,
+    load_nerf,
+    NUM_PTS_X,
+    NUM_PTS_Y,
+    NUM_PTS_Z,
+    GRASP_DEPTH_MM,
+    FINGER_WIDTH_MM,
+    FINGER_HEIGHT_MM,
+    NUM_FINGERS,
+)
 import os
 import h5py
 from typing import Optional, Tuple
@@ -44,18 +65,17 @@ from torch.utils.data import (
     DataLoader,
     Dataset,
 )
+
 # %% [markdown]
 # # Read in Data
 
 # %%
 
 
-
-
 # %%
-NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z = 21, 31, 41
-NUM_FINGERS = 4
 INPUT_EXAMPLE_SHAPE = (NUM_FINGERS, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
+
+
 class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
     # @localscope.mfc  # ValueError: Cell is empty
     def __init__(
@@ -65,6 +85,7 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
         load_nerf_densities_in_ram: bool = False,
         load_grasp_successes_in_ram: bool = True,
         load_grasp_transforms_in_ram: bool = True,
+        load_nerf_workspaces_in_ram: bool = True,
     ) -> None:
         super().__init__()
         self.input_hdf5_filepath = input_hdf5_filepath
@@ -78,9 +99,17 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
             )
 
             # Check that the data is in the expected format
-            assert len(hdf5_file["/grasp_success"].shape) == 1, f"{hdf5_file['/grasp_success'].shape}"
-            assert hdf5_file["/nerf_densities"].shape[1:] == INPUT_EXAMPLE_SHAPE, f"{hdf5_file['/nerf_densities'].shape}"
-            assert hdf5_file["/grasp_transforms"].shape[1:] == (NUM_FINGERS, 4, 4), f"{hdf5_file['/grasp_transforms'].shape}"
+            assert (
+                len(hdf5_file["/grasp_success"].shape) == 1
+            ), f"{hdf5_file['/grasp_success'].shape}"
+            assert (
+                hdf5_file["/nerf_densities"].shape[1:] == INPUT_EXAMPLE_SHAPE
+            ), f"{hdf5_file['/nerf_densities'].shape}"
+            assert hdf5_file["/grasp_transforms"].shape[1:] == (
+                NUM_FINGERS,
+                4,
+                4,
+            ), f"{hdf5_file['/grasp_transforms'].shape}"
 
             # This is usually too big for RAM
             self.nerf_densities = (
@@ -100,6 +129,13 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
             self.grasp_transforms = (
                 torch.from_numpy(hdf5_file["/grasp_transforms"][()]).float()
                 if load_grasp_transforms_in_ram
+                else None
+            )
+
+            # This is small enough to fit in RAM
+            self.nerf_workspaces = (
+                hdf5_file["/nerf_workspace"][()]
+                if load_nerf_workspaces_in_ram
                 else None
             )
 
@@ -134,7 +170,9 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
             "NUM_FINGERS",
         ]
     )
-    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def __getitem__(
+        self, idx: int
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, str]:
         if self.hdf5_file is None:
             # Hope to speed up with rdcc params
             self.hdf5_file = h5py.File(
@@ -157,17 +195,23 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
             else self.grasp_successes[idx]
         )
 
-        grasp_transform = (
+        grasp_transforms = (
             torch.from_numpy(np.array(self.hdf5_file["/grasp_transforms"][idx])).float()
             if self.grasp_transforms is None
             else self.grasp_transforms[idx]
         )
 
+        nerf_workspace = (
+            self.hdf5_file["/nerf_workspace"][idx]
+            if self.nerf_workspaces is None
+            else self.nerf_workspaces[idx]
+        ).decode("utf-8")
+
         assert nerf_densities.shape == INPUT_EXAMPLE_SHAPE
         assert grasp_success.shape == ()
-        assert grasp_transform.shape == (NUM_FINGERS, 4, 4)
+        assert grasp_transforms.shape == (NUM_FINGERS, 4, 4)
 
-        return nerf_densities, grasp_success, grasp_transform
+        return nerf_densities, grasp_success, grasp_transforms, nerf_workspace
 
 
 # %%
@@ -177,11 +221,62 @@ input_dataset = os.path.join(
     "2023-07-01_dataset_DESIRED_DIST_TOWARDS_OBJECT_SURFACE_MULTIPLE_STEPS_v2_learned_metric_dataset",
     "2023-07-27_01-25-58_learned_metric_dataset.h5",
 )
-full_dataset = NeRFGrid_To_GraspSuccess_HDF5_Dataset(
-    input_dataset
-)
+full_dataset = NeRFGrid_To_GraspSuccess_HDF5_Dataset(input_dataset)
 
 # %%
-nerf_densities, grasp_success, grasp_transform = full_dataset[0]
-nerf_densities.shape, grasp_success.shape, grasp_transform.shape
+nerf_densities, grasp_success, grasp_transforms, nerf_workspace = full_dataset[0]
+nerf_densities.shape, grasp_success.shape, grasp_transforms.shape, nerf_workspace
+
+# %%
+_, workspace_name = os.path.split(nerf_workspace)
+object_code, object_scale = get_object_code(workspace_name), get_object_scale(
+    workspace_name
+)
+object_code, object_scale
+
+# %%
+DEXGRASPNET_DATA_ROOT = "/juno/u/tylerlum/github_repos/DexGraspNet/data"
+DEXGRASPNET_MESHDATA_ROOT = os.path.join(DEXGRASPNET_DATA_ROOT, "meshdata")
+mesh_path = os.path.join(
+    DEXGRASPNET_MESHDATA_ROOT,
+    object_code,
+    "coacd",
+    "decomposed.obj",
+)
+
+import trimesh
+
+mesh = trimesh.load(mesh_path, force="mesh")
+mesh.apply_transform(trimesh.transformations.scale_matrix(object_scale))
+
+# %%
+fig = plot_mesh_and_transforms(
+    mesh=mesh, transforms=grasp_transforms, num_fingers=NUM_FINGERS
+)
+fig.show()
+
+# %%
+query_points_finger_frame = get_query_points_finger_frame(
+    num_pts_x=NUM_PTS_X,
+    num_pts_y=NUM_PTS_Y,
+    num_pts_z=NUM_PTS_Z,
+    grasp_depth_mm=GRASP_DEPTH_MM,
+    finger_width_mm=FINGER_WIDTH_MM,
+    finger_height_mm=FINGER_HEIGHT_MM,
+)
+query_points_object_frame_list = [
+    get_transformed_points(query_points_finger_frame.reshape(-1, 3), transform)
+    for transform in grasp_transforms
+]
+colors_list = [
+    nerf_densities[i].reshape(-1, 3) for i in range(NUM_FINGERS)
+]
+fig = plot_mesh_and_query_points(
+    mesh=mesh,
+    query_points_list=query_points_object_frame_list,
+    query_points_colors_list=colors_list,
+    num_fingers=NUM_FINGERS,
+)
+fig.show()
+
 # %%

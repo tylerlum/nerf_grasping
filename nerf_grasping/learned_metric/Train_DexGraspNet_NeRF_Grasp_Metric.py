@@ -34,6 +34,7 @@ def is_notebook() -> bool:
 # %%
 from localscope import localscope
 import nerf_grasping
+from dataclasses import dataclass
 from nerf_grasping.dataset.DexGraspNet_NeRF_Grasps_utils import (
     get_query_points_finger_frame,
     get_contact_candidates_and_target_candidates,
@@ -65,6 +66,7 @@ import torch
 from torch.utils.data import (
     DataLoader,
     Dataset,
+    random_split,
 )
 import plotly.graph_objects as go
 
@@ -225,112 +227,73 @@ input_dataset = os.path.join(
 )
 full_dataset = NeRFGrid_To_GraspSuccess_HDF5_Dataset(input_dataset)
 
-# %%
-nerf_densities, grasp_success, grasp_transforms, nerf_workspace = full_dataset[0]
-nerf_densities.shape, grasp_success.shape, grasp_transforms.shape, nerf_workspace
-
-# %%
-_, workspace_name = os.path.split(nerf_workspace)
-object_code, object_scale = get_object_code(workspace_name), get_object_scale(
-    workspace_name
-)
-object_code, object_scale
-
-# %%
-DEXGRASPNET_DATA_ROOT = "/juno/u/tylerlum/github_repos/DexGraspNet/data"
-DEXGRASPNET_MESHDATA_ROOT = os.path.join(DEXGRASPNET_DATA_ROOT, "meshdata")
-mesh_path = os.path.join(
-    DEXGRASPNET_MESHDATA_ROOT,
-    object_code,
-    "coacd",
-    "decomposed.obj",
+train_dataset, val_dataset, test_dataset = random_split(
+    full_dataset,
+    [0.8, 0.1, 0.1],
+    generator=torch.Generator().manual_seed(42),
 )
 
-import trimesh
-
-mesh = trimesh.load(mesh_path, force="mesh")
-mesh.apply_transform(trimesh.transformations.scale_matrix(object_scale))
-
 # %%
-fig = plot_mesh_and_transforms(
-    mesh=mesh, transforms=grasp_transforms, num_fingers=NUM_FINGERS
-)
-fig.show()
+@dataclass
+class BatchData:
+    nerf_densities: torch.Tensor
+    grasp_success: torch.Tensor
+    grasp_transforms: torch.Tensor
+    nerf_workspace: List[str]
 
-# %%
-query_points_finger_frame = get_query_points_finger_frame(
-    num_pts_x=NUM_PTS_X,
-    num_pts_y=NUM_PTS_Y,
-    num_pts_z=NUM_PTS_Z,
-    grasp_depth_mm=GRASP_DEPTH_MM,
-    finger_width_mm=FINGER_WIDTH_MM,
-    finger_height_mm=FINGER_HEIGHT_MM,
-)
-query_points_object_frame_list = [
-    get_transformed_points(query_points_finger_frame.reshape(-1, 3), transform)
-    for transform in grasp_transforms
-]
-colors_list = [nerf_densities[i].reshape(-1, 3) for i in range(NUM_FINGERS)]
-fig = plot_mesh_and_query_points(
-    mesh=mesh,
-    query_points_list=query_points_object_frame_list,
-    query_points_colors_list=colors_list,
-    num_fingers=NUM_FINGERS,
-)
-fig.show()
+    @localscope.mfc
+    def to(self, device):
+        self.nerf_densities = self.nerf_densities.to(device)
+        self.grasp_success = self.grasp_success.to(device)
+        self.grasp_transforms = self.grasp_transforms.to(device)
+        return self
 
-# %%
+def custom_collate_fn(batch: List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor, str]]) -> BatchData:
+    batch = torch.utils.data.dataloader.default_collate(batch)
+    nerf_densities, grasp_successes, grasp_transforms, nerf_workspaces = batch
 
-
-def plot_query_points(
-    query_points_list: List[np.ndarray],
-    query_points_colors_list: List[np.ndarray],
-    num_fingers: int,
-) -> go.Figure:
-    assert (
-        len(query_points_list) == len(query_points_colors_list) == num_fingers
-    ), f"{len(query_points_list)} != {num_fingers}"
-
-    # Create the layout
-    layout = go.Layout(
-        scene=get_scene_dict(),
-        showlegend=True,
-        title="Mesh",
+    return BatchData(
+        nerf_densities=nerf_densities,
+        grasp_success=grasp_successes,
+        grasp_transforms=grasp_transforms,
+        nerf_workspace=nerf_workspaces,
     )
 
-    # Create the figure
-    fig = go.Figure(layout=layout)
-
-    for finger_idx in range(num_fingers):
-        query_points = query_points_list[finger_idx]
-        query_points_colors = query_points_colors_list[finger_idx]
-        print(f"query_points_colors = {query_points_colors}")
-        query_point_plot = go.Scatter3d(
-            x=query_points[:, 0],
-            y=query_points[:, 1],
-            z=query_points[:, 2],
-            mode="markers",
-            marker=dict(
-                size=4,
-                color=query_points_colors,
-                colorscale="viridis",
-                colorbar=dict(title="Density Scale") if finger_idx == 0 else {},
-            ),
-            name=f"Query Point Densities Finger {finger_idx}",
-        )
-        fig.add_trace(query_point_plot)
-
-    fig.update_layout(legend_orientation="h")  # Avoid overlapping legend
-    return fig
-
+# %%
+BATCH_SIZE = 32
+PIN_MEMORY = True
+NUM_WORKERS = 8
+train_loader = DataLoader(
+    train_dataset,
+    batch_size=BATCH_SIZE,
+    shuffle=True,
+    pin_memory=PIN_MEMORY,
+    num_workers=NUM_WORKERS,
+    collate_fn=custom_collate_fn,
+)
+val_loader = DataLoader(
+    val_dataset,
+    batch_size=BATCH_SIZE,
+    shuffle=False,
+    pin_memory=PIN_MEMORY,
+    num_workers=NUM_WORKERS,
+    collate_fn=custom_collate_fn,
+)
+test_loader = DataLoader(
+    test_dataset,
+    batch_size=BATCH_SIZE,
+    shuffle=False,
+    pin_memory=PIN_MEMORY,
+    num_workers=NUM_WORKERS,
+    collate_fn=custom_collate_fn,
+)
 
 # %%
-
-fig = plot_query_points(
-    query_points_list=query_points_object_frame_list,
-    query_points_colors_list=colors_list,
-    num_fingers=NUM_FINGERS,
-)
-fig.show()
+for batch_data in train_loader:
+    print(batch_data.nerf_densities.shape)
+    print(batch_data.grasp_success.shape)
+    print(batch_data.grasp_transforms.shape)
+    print(len(batch_data.nerf_workspace))
+    break
 
 # %%

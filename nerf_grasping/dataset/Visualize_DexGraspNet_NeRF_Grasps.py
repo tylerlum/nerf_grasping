@@ -47,16 +47,40 @@ def get_nerf_size_scale(workspace: str) -> float:
     scale = float(workspace[idx + 1 :].replace("_", "."))
     return scale
 
+@localscope.mfc
+def get_object_code(workspace: str) -> str:
+    # BRITTLE
+    # Assumes "_0_" only shows up once at the end
+    # eg. sem-VideoGameConsole-49ba4f628a955bf03742135a31826a22_0_06
+    assert "_0_" in workspace, f"_0_ not in {workspace}"
+    idx = workspace.index("_0_")
+    object_code = workspace[:idx]
+    return object_code
+
+
 
 # %%
 # PARAMS
 DEXGRASPNET_DATA_ROOT = "/juno/u/tylerlum/github_repos/DexGraspNet/data"
+GRASP_DATASET_FOLDER = "2023-07-01_dataset_DESIRED_DIST_TOWARDS_OBJECT_SURFACE_MULTIPLE_STEPS_v2"
+NERF_CHECKPOINTS_FOLDER = "2023-07-25_nerf_checkpoints"
+# NERF_MODEL_WORKSPACE = "sem-VideoGameConsole-49ba4f628a955bf03742135a31826a22_0_06"
+NERF_MODEL_WORKSPACE = "sem-Tank-79abfbd42cb5a78f0985368fed75674_0_12"
+
+# %%
 DEXGRASPNET_MESHDATA_ROOT = os.path.join(DEXGRASPNET_DATA_ROOT, "meshdata")
 DEXGRASPNET_DATASET_ROOT = os.path.join(
     DEXGRASPNET_DATA_ROOT,
-    "2023-07-01_dataset_DESIRED_DIST_TOWARDS_OBJECT_SURFACE_MULTIPLE_STEPS_v2",
+    GRASP_DATASET_FOLDER,
 )
-OBJECT_CODE = "sem-VideoGameConsole-49ba4f628a955bf03742135a31826a22"
+NERF_CHECKPOINTS_PATH = os.path.join(
+    nerf_grasping.get_repo_root(), NERF_CHECKPOINTS_FOLDER
+)
+NERF_MODEL_WORKSPACE_PATH = os.path.join(
+    NERF_CHECKPOINTS_PATH, NERF_MODEL_WORKSPACE
+)
+OBJECT_SCALE = get_nerf_size_scale(NERF_MODEL_WORKSPACE)
+OBJECT_CODE = get_object_code(NERF_MODEL_WORKSPACE)
 MESH_PATH = os.path.join(
     DEXGRASPNET_MESHDATA_ROOT,
     OBJECT_CODE,
@@ -67,23 +91,23 @@ GRASP_DATASET_PATH = os.path.join(
     DEXGRASPNET_DATASET_ROOT,
     f"{OBJECT_CODE}.npy",
 )
-NERF_CHECKPOINT_FOLDER = "2023-07-25_nerf_checkpoints"
-NERF_MODEL_WORKSPACE = "sem-VideoGameConsole-49ba4f628a955bf03742135a31826a22_0_06"
-assert OBJECT_CODE in NERF_MODEL_WORKSPACE
-OBJECT_SCALE = get_nerf_size_scale(NERF_MODEL_WORKSPACE)
 TORCH_NGP_BOUND = 2.0  # Copied from nerf collection script
 TORCH_NGP_SCALE = 1.0  # Copied from nerf collection script
+
+# %%
+assert os.path.exists(MESH_PATH), f"MESH_PATH {MESH_PATH} does not exist"
+assert os.path.exists(GRASP_DATASET_PATH), f"GRASP_DATASET_PATH {GRASP_DATASET_PATH} does not exist"
+assert os.path.exists(NERF_MODEL_WORKSPACE_PATH), f"NERF_MODEL_WORKSPACE_PATH {NERF_MODEL_WORKSPACE_PATH} does not exist"
 
 
 # %%
 @localscope.mfc
-def validate_nerf_checkpoints(root_dir: str, nerf_checkpoint_folder: str) -> None:
-    path_to_nerf_checkpoints = f"{root_dir}/{nerf_checkpoint_folder}"
-    workspaces = os.listdir(path_to_nerf_checkpoints)
+def validate_nerf_checkpoints_path(nerf_checkpoints_path: str) -> None:
+    workspaces = os.listdir(nerf_checkpoints_path)
 
     num_ok = 0
     for workspace in workspaces:
-        path = f"{root_dir}/{nerf_checkpoint_folder}/{workspace}/checkpoints"
+        path = os.path.join(nerf_checkpoints_path, workspace, "checkpoints")
         if not os.path.exists(path):
             print(f"path {path} does not exist")
             continue
@@ -96,9 +120,8 @@ def validate_nerf_checkpoints(root_dir: str, nerf_checkpoint_folder: str) -> Non
     print(f"num_ok / len(workspaces): {num_ok} / {len(workspaces)}")
 
 
-validate_nerf_checkpoints(
-    root_dir=nerf_grasping.get_repo_root(),
-    nerf_checkpoint_folder=NERF_CHECKPOINT_FOLDER,
+validate_nerf_checkpoints_path(
+    nerf_checkpoints_path=NERF_CHECKPOINTS_PATH,
 )
 
 # %%
@@ -435,9 +458,7 @@ def load_nerf(path_to_workspace: str, bound: float, scale: float):
 
 # %%
 nerf_model = load_nerf(
-    path_to_workspace=os.path.join(
-        nerf_grasping.get_repo_root(), NERF_CHECKPOINT_FOLDER, NERF_MODEL_WORKSPACE
-    ),
+    path_to_workspace=NERF_MODEL_WORKSPACE_PATH,
     bound=TORCH_NGP_BOUND,
     scale=TORCH_NGP_SCALE,
 )

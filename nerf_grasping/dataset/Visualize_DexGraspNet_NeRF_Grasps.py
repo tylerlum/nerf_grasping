@@ -21,8 +21,10 @@
 # The purpose of this script is to load a NeRF object model and labeled grasps on this object, and then visualize it
 
 # %%
+from typing import List, Dict, Any, Tuple
 import math
 import nerf_grasping
+from nerf_grasping.grasp_utils import nerf_to_ig, ig_to_nerf
 from localscope import localscope
 from nerf import utils
 import torch
@@ -33,35 +35,100 @@ from plotly import graph_objects as go
 from dataclasses import dataclass
 import matplotlib.pyplot as plt
 
+
+# %%
+@localscope.mfc
+def get_nerf_size_scale(workspace: str) -> float:
+    # BRITTLE
+    # Assumes "_0_" only shows up once at the end
+    # eg. sem-VideoGameConsole-49ba4f628a955bf03742135a31826a22_0_06
+    assert "_0_" in workspace, f"_0_ not in {workspace}"
+    idx = workspace.index("_0_")
+    scale = float(workspace[idx + 1 :].replace("_", "."))
+    return scale
+
+
 # %%
 # PARAMS
-dexgraspnet_data_root = "/juno/u/tylerlum/github_repos/DexGraspNet/data"
-dexgraspnet_meshdata_root = os.path.join(dexgraspnet_data_root, "meshdata")
-dexgraspnet_dataset_root = os.path.join(
-    dexgraspnet_data_root,
+DEXGRASPNET_DATA_ROOT = "/juno/u/tylerlum/github_repos/DexGraspNet/data"
+DEXGRASPNET_MESHDATA_ROOT = os.path.join(DEXGRASPNET_DATA_ROOT, "meshdata")
+DEXGRASPNET_DATASET_ROOT = os.path.join(
+    DEXGRASPNET_DATA_ROOT,
     "2023-07-01_dataset_DESIRED_DIST_TOWARDS_OBJECT_SURFACE_MULTIPLE_STEPS_v2",
 )
-mesh_path = os.path.join(
-    dexgraspnet_meshdata_root, "sem-VideoGameConsole-49ba4f628a955bf03742135a31826a22", "coacd", "decomposed.obj"
+OBJECT_CODE = "sem-VideoGameConsole-49ba4f628a955bf03742135a31826a22"
+MESH_PATH = os.path.join(
+    DEXGRASPNET_MESHDATA_ROOT,
+    OBJECT_CODE,
+    "coacd",
+    "decomposed.obj",
 )
-dataset_path = os.path.join(dexgraspnet_dataset_root, "sem-VideoGameConsole-49ba4f628a955bf03742135a31826a22.npy")
-nerf_checkpoint_folder = "2023-07-25_nerf_checkpoints"
-nerf_model_workspace = "sem-VideoGameConsole-49ba4f628a955bf03742135a31826a22_0_06"
-nerf_size_scale = 0.06
-nerf_bound = 2.0
-nerf_scale = 1.0
+GRASP_DATASET_PATH = os.path.join(
+    DEXGRASPNET_DATASET_ROOT,
+    f"{OBJECT_CODE}.npy",
+)
+NERF_CHECKPOINT_FOLDER = "2023-07-25_nerf_checkpoints"
+NERF_MODEL_WORKSPACE = "sem-VideoGameConsole-49ba4f628a955bf03742135a31826a22_0_06"
+assert OBJECT_CODE in NERF_MODEL_WORKSPACE
+OBJECT_SCALE = get_nerf_size_scale(NERF_MODEL_WORKSPACE)
+TORCH_NGP_BOUND = 2.0  # Copied from nerf collection script
+TORCH_NGP_SCALE = 1.0  # Copied from nerf collection script
+
 
 # %%
-grasp_dataset = np.load(dataset_path, allow_pickle=True)
-grasp_dataset.shape
+@localscope.mfc
+def validate_nerf_checkpoints(root_dir: str, nerf_checkpoint_folder: str) -> None:
+    path_to_nerf_checkpoints = f"{root_dir}/{nerf_checkpoint_folder}"
+    workspaces = os.listdir(path_to_nerf_checkpoints)
+
+    num_ok = 0
+    for workspace in workspaces:
+        path = f"{root_dir}/{nerf_checkpoint_folder}/{workspace}/checkpoints"
+        if not os.path.exists(path):
+            print(f"path {path} does not exist")
+            continue
+
+        num_checkpoints = len(os.listdir(path))
+        if num_checkpoints > 0:
+            print(workspace)
+            num_ok += 1
+
+    print(f"num_ok / len(workspaces): {num_ok} / {len(workspaces)}")
+
+
+validate_nerf_checkpoints(
+    root_dir=nerf_grasping.get_repo_root(),
+    nerf_checkpoint_folder=NERF_CHECKPOINT_FOLDER,
+)
 
 # %%
-for data_dict in grasp_dataset:
-    scale = data_dict["scale"]
-    if not math.isclose(scale, nerf_size_scale, rel_tol=1e-3):
-        continue
-    link_name_to_contact_candidates = data_dict["link_name_to_contact_candidates"]
-    link_name_to_target_contact_candidates = data_dict[
+FULL_GRASP_DATA_LIST = np.load(GRASP_DATASET_PATH, allow_pickle=True)
+FULL_GRASP_DATA_LIST.shape
+
+# %%
+# Get correct scale grasps
+CORRECT_SCALE_GRASP_DATA_LIST = [
+    grasp_data
+    for grasp_data in FULL_GRASP_DATA_LIST
+    if math.isclose(grasp_data["scale"], OBJECT_SCALE, rel_tol=1e-3)
+]
+print(f"len(CORRECT_SCALE_GRASP_DATA_LIST): {len(CORRECT_SCALE_GRASP_DATA_LIST)}")
+
+# %%
+GRASP_IDX = 0
+GRASP_DATA = CORRECT_SCALE_GRASP_DATA_LIST[GRASP_IDX]
+print(f"GRASP_IDX: {GRASP_IDX}")
+print(f"GRASP_DATA.keys(): {GRASP_DATA.keys()}")
+
+
+# %%
+# Get contact candidates and target contact candidates
+@localscope.mfc
+def get_contact_candidates_and_target_candidates(
+    grasp_data: Dict[str, Any]
+) -> Tuple[np.ndarray, np.ndarray]:
+    link_name_to_contact_candidates = grasp_data["link_name_to_contact_candidates"]
+    link_name_to_target_contact_candidates = grasp_data[
         "link_name_to_target_contact_candidates"
     ]
     contact_candidates = np.concatenate(
@@ -78,21 +145,63 @@ for data_dict in grasp_dataset:
         ],
         axis=0,
     )
-    print(f"contact_candidates.shape: {contact_candidates.shape}")
-    print(f"target_contact_candidates.shape: {target_contact_candidates.shape}")
-    break
+    return contact_candidates, target_contact_candidates
+
+
+(
+    contact_candidates,
+    target_contact_candidates,
+) = get_contact_candidates_and_target_candidates(GRASP_DATA)
+print(f"contact_candidates.shape: {contact_candidates.shape}")
+print(f"target_contact_candidates.shape: {target_contact_candidates.shape}")
 
 # %%
-mesh = trimesh.load(mesh_path, force="mesh")
+@localscope.mfc
+def get_start_and_end_points(contact_candidates: np.ndarray, target_contact_candidates: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    from collections import defaultdict
+
+    # Should have 4 fingers, all next to each other in idx
+    # Group them and then average them
+    finger_idx = 0
+    finger_idx_to_contact_idx = defaultdict(list)
+    rtol = 1e1
+
+    finger_idx_to_contact_idx[finger_idx].append(0)
+    for i, (contact_candidate, target_contact_candidate) in enumerate(zip(contact_candidates, target_contact_candidates)):
+        if i == 0:
+            continue
+
+        prev_contact_candidate = contact_candidates[i - 1]
+        prev_target_contact_candidate = target_contact_candidates[i - 1]
+        starts_close = np.allclose(contact_candidate, prev_contact_candidate, rtol=rtol)
+        ends_close = np.allclose(target_contact_candidate, prev_target_contact_candidate, rtol=rtol)
+        directions_close = np.allclose(target_contact_candidate - contact_candidate, prev_target_contact_candidate - prev_contact_candidate, rtol=rtol)
+        print(f"i: {i}, starts_close: {starts_close}, ends_close: {ends_close}, directions_close: {directions_close}")
+        if directions_close:
+            finger_idx_to_contact_idx[finger_idx].append(i)
+        else:
+            finger_idx += 1
+            finger_idx_to_contact_idx[finger_idx].append(i)
+    assert len(finger_idx_to_contact_idx) == 4, f"len(finger_idx_to_contact_idx) = {len(finger_idx_to_contact_idx)}"
+
+    starts = contact_candidates
+    ends = target_contact_candidates
+    return starts, ends
+
+get_start_and_end_points(contact_candidates=contact_candidates, target_contact_candidates=target_contact_candidates)
 
 # %%
-mesh.centroid
+# Open mesh
+mesh = trimesh.load(MESH_PATH, force="mesh")
 
 # %%
-mesh.apply_transform(trimesh.transformations.scale_matrix(nerf_size_scale))
+print(f"Before scaling, mesh.centroid = {mesh.centroid}")
 
 # %%
-mesh.centroid
+mesh.apply_transform(trimesh.transformations.scale_matrix(OBJECT_SCALE))
+
+# %%
+print(f"After scaling, mesh.centroid = {mesh.centroid}")
 
 
 # %%
@@ -173,7 +282,7 @@ def get_scene_dict(mesh: trimesh.Trimesh):
 
 # %%
 @localscope.mfc
-def plot_mesh(mesh, color="lightpink"):
+def plot_mesh(mesh: trimesh.Trimesh, color="lightpink") -> go.Figure:
     vertices = mesh.vertices
     faces = mesh.faces
 
@@ -204,109 +313,6 @@ def plot_mesh(mesh, color="lightpink"):
     return fig
 
 
-# # %%
-# # TODO REMOVE
-# root_dir = nerf_grasping.get_repo_root()
-# nerf_checkpoints = os.listdir(f"{root_dir}/{nerf_checkpoint_folder}")
-# num_ok = 0
-# for nerf_checkpoint in nerf_checkpoints:
-#     path = f"{root_dir}/{nerf_checkpoint_folder}/{nerf_checkpoint}/checkpoints"
-#     if not os.path.exists(path):
-#         print(f"path {path} does not exist")
-#         continue
-#     num_checkpoints = len(os.listdir(path))
-#     if num_checkpoints > 0:
-#         # print(f"nerf_checkpoint: {nerf_checkpoint}, num_checkpoints: {num_checkpoints}")
-#         print(nerf_checkpoint)
-#         num_ok += 1
-# 
-# print(num_ok)
-# # %%
-# # TODO REMOVE
-# workspaces = [
-#     "core-pistol-ac88c6856c21ab422a79dd7a0c99f28d_0_10",
-#     "core-cellphone-c65f71b54023ee9897d7ccf55973b548_0_06",
-#     "core-jar-40f0d91382abe04b2396ca3dd50467ab_0_15",
-#     "sem-USBStick-6484ba8442fc7c8829545ddc91df1dc1_0_06",
-#     "sem-Book-c7f991b1a9bfcff0fe1e2f026632da15_0_06",
-#     "core-camera-fdcd83539b8db2c8b5635bf39f10a28a_0_08",
-#     "core-cellphone-52a81d42c352a903a0eb5a85db887292_0_12",
-#     "mujoco-Schleich_Spinosaurus_Action_Figure_0_06",
-#     "core-jar-d4b9e1085ebd4f226bc258c0f0234be0_0_08",
-#     "sem-Camera-4b99c1df215aa8e0fb1dc300162ac931_0_12",
-#     "sem-Thumbtack-42ece945238a9f7a8877c667ba5c2021_0_08",
-#     "core-jar-763474ce228585bf687ad2cd85bde80a_0_15",
-#     "sem-Book-c7f991b1a9bfcff0fe1e2f026632da15_0_15",
-#     "sem-Bottle-3108a736282eec1bc58e834f0b160845_0_12",
-#     "mujoco-Reebok_SH_COURT_MID_II_0_12",
-#     "sem-FoodItem-9ffc98584d1c0ec218c8c60c1a0cb5ed_0_10",
-#     "sem-FoodItem-6868aac7c700ebecb52e9c8db06cc58b_0_08",
-#     "ddg-gd_box_poisson_001_0_06",
-#     "ddg-gd_box_poisson_001_0_08",
-#     "core-can-56dfb6a30f498643bbf0c65ae96423ae_0_12",
-#     "core-pistol-8c944c84863d3d6254b976bcc599b162_0_15",
-#     "core-knife-850cc847a23896206cde72e597358f67_0_15",
-#     "core-pillow-f3833476297f19c664b3b9b23ddfcbc_0_12",
-#     "mujoco-Horse_Dreams_Pencil_Case_0_12",
-#     "mujoco-Womens_Cloud_Logo_Authentic_Original_Boat_Shoe_in_Black_Supersoft_8LigQYwf4gr_0_08",
-#     "core-camera-fdcd83539b8db2c8b5635bf39f10a28a_0_06",
-#     "sem-Piano-2d830fc20d8095cac2cc019b058015_0_15",
-#     "mujoco-Womens_Bluefish_2Eye_Boat_Shoe_in_White_Tumbled_YG44xIePRHw_0_08",
-#     "mujoco-Office_Depot_Dell_Series_1_Remanufactured_Ink_Cartridge_TriColor_0_12",
-#     "core-jar-44e3fd4a1e8ba7dd433f5a7a254e9685_0_06",
-#     "mujoco-ASICS_GELResolution_5_Flash_YellowBlackSilver_0_08",
-#     "ddg-gd_dumpbell_poisson_000_0_15",
-#     "mujoco-Perricoen_MD_No_Concealer_Concealer_0_12",
-#     "core-jar-5bbc259497af2fa15db77ed1f5c8b93_0_08",
-#     "core-pillow-b422f9f038fc1f4da3149acda85b1964_0_12",
-#     "core-mug-ea127b5b9ba0696967699ff4ba91a25_0_15",
-#     "sem-FoodItem-9ffc98584d1c0ec218c8c60c1a0cb5ed_0_08",
-#     "sem-Radio-215ce10da9e958ae4c40f34de8f3bdb8_0_12",
-#     "sem-Car-71ecab71f04e7cd235c52f8f88910645_0_06",
-#     "ddg-gd_donut_poisson_000_0_15",
-#     "mujoco-Tieks_Ballet_Flats_Diamond_White_Croc_0_08",
-#     "sem-LightBulb-e19e45f9d13f05a4bfae4699de9cb91a_0_08",
-#     "core-jar-44e3fd4a1e8ba7dd433f5a7a254e9685_0_10",
-#     "core-bottle-ed55f39e04668bf9837048966ef3fcb9_0_08",
-#     "sem-Car-f9c2bc7b4ef896e7146ff63b4c7525d9_0_08",
-#     "sem-Book-d8d4004791c4f61b80fa98b5eeb7036c_0_08",
-#     "mujoco-Perricone_MD_Photo_Plasma_0_10",
-#     "core-pillow-f3833476297f19c664b3b9b23ddfcbc_0_10",
-#     "sem-Bottle-738d7eb5c8800842f8060bac8721179_0_06",
-#     "core-bottle-8a0320b2be22e234d0d131ea6d955bf0_0_10",
-#     "sem-Piano-1b76644af9341db74a630b59d0e937b5_0_15",
-#     "sem-VideoGameConsole-49ba4f628a955bf03742135a31826a22_0_06",
-#     "core-pistol-aec662fe0a40e53df4b175375c861e62_0_08",
-#     "core-mug-b6f30c63c946c286cf6897d8875cfd5e_0_12",
-#     "core-pistol-aec662fe0a40e53df4b175375c861e62_0_06",
-#     "core-bottle-f47cbefc9aa5b6a918431871c8e05789_0_15",
-#     "ddg-gd_watering_can_poisson_003_0_12",
-#     "sem-CellPhone-6c7fc79a5028bd769caad6e0fbf3962c_0_08",
-#     "core-pistol-1e93ef2704131b52e111721a37269b0f_0_10",
-#     "core-pistol-aec662fe0a40e53df4b175375c861e62_0_15",
-#     "sem-USBStick-a2d20c909ed9c6d85d723f8969b531b_0_12",
-#     "mujoco-Balderdash_Game_0_06",
-#     "ddg-ycb_063-a_marbles_0_12",
-#     "sem-Tank-79abfbd42cb5a78f0985368fed75674_0_10",
-#     "sem-Camera-4b99c1df215aa8e0fb1dc300162ac931_0_10",
-#     "core-mug-b6f30c63c946c286cf6897d8875cfd5e_0_06",
-#     "core-cellphone-c8948cb8ec0f10ebc2287ee053005989_0_12",
-#     "core-cellphone-e8345991892118949a3de19de0ca67aa_0_12",
-#     "mujoco-Pokmon_X_Nintendo_3DS_Game_0_06",
-# ]
-# import subprocess
-# # for workspace in workspaces:
-# #     path = f"{root_dir}/{nerf_checkpoint_folder}/{workspace}"
-# #     new_path = f"{root_dir}/{nerf_checkpoint_folder}_cleaned/{workspace}"
-# #     subprocess.run(f"cp -r {path} {new_path}", shell=True, check=True)
-# nerf_checkpoints = os.listdir(f"{root_dir}/{nerf_checkpoint_folder}")
-# for folder in nerf_checkpoints:
-#     if folder not in set(workspaces):
-#         command = f"rm -rf {root_dir}/{nerf_checkpoint_folder}/{folder}"
-#         print(command)
-#         subprocess.run(command, shell=True, check=True)
-
-
 # %%
 fig = plot_mesh(mesh)
 fig.show()
@@ -314,15 +320,15 @@ fig.show()
 # %%
 
 
-@localscope.mfc(allowed=["nerf_checkpoint_folder"])
-def load_nerf(workspace: str, bound: float, scale: float):
+@localscope.mfc
+def load_nerf(path_to_workspace: str, bound: float, scale: float):
     root_dir = nerf_grasping.get_repo_root()
 
     parser = utils.get_config_parser()
     opt = parser.parse_args(
         [
             "--workspace",
-            f"{root_dir}/{nerf_checkpoint_folder}/{workspace}",
+            f"{path_to_workspace}",
             "--fp16",
             "--test",
             "--bound",
@@ -367,7 +373,11 @@ def load_nerf(workspace: str, bound: float, scale: float):
 
 # %%
 nerf_model = load_nerf(
-    workspace=nerf_model_workspace, bound=nerf_bound, scale=nerf_scale
+    path_to_workspace=os.path.join(
+        nerf_grasping.get_repo_root(), NERF_CHECKPOINT_FOLDER, NERF_MODEL_WORKSPACE
+    ),
+    bound=TORCH_NGP_BOUND,
+    scale=TORCH_NGP_SCALE,
 )
 
 # %%
@@ -405,12 +415,11 @@ query_points_mesh_region_obj_frame = get_query_points_in_bounds(
 )
 
 # %%
-
-query_points_mesh_region_obj_frame.shape
+n_pts = query_points_mesh_region_obj_frame.shape[0]
+assert query_points_mesh_region_obj_frame.shape == (n_pts, 3)
+print(f"query_points_mesh_region_obj_frame.shape: {query_points_mesh_region_obj_frame.shape}")
 
 # %%
-from nerf_grasping.grasp_utils import nerf_to_ig, ig_to_nerf
-
 query_points_mesh_region_isaac_frame = np.copy(query_points_mesh_region_obj_frame)
 query_points_mesh_region_nerf_frame = ig_to_nerf(
     query_points_mesh_region_isaac_frame, return_tensor=True
@@ -418,13 +427,13 @@ query_points_mesh_region_nerf_frame = ig_to_nerf(
 
 # %%
 nerf_densities_torch = get_nerf_densities(
-    nerf_model, query_points_mesh_region_nerf_frame.reshape(1, -1, 3).float().cuda()
-).reshape(query_points_mesh_region_nerf_frame.shape[:-1])
+    nerf_model, query_points_mesh_region_nerf_frame.reshape(1, n_pts, 3).float().cuda()
+).reshape(n_pts)
 nerf_densities = nerf_densities_torch.detach().cpu().numpy()
 
 # %%
-points = query_points_mesh_region_obj_frame.reshape(-1, 3)
-densities = nerf_densities.reshape(-1)
+points = query_points_mesh_region_obj_frame.reshape(n_pts, 3)
+densities = nerf_densities.reshape(n_pts)
 
 # %%
 USE_PLOTLY = False
@@ -471,9 +480,9 @@ def get_colored_points_scatter(points, colors):
 
 
 # %%
-threshold = 200.0
-filtered_points = points[densities > threshold]
-filtered_densities = densities[densities > threshold]
+THRESHOLD = 200.0
+filtered_points = points[densities > THRESHOLD]
+filtered_densities = densities[densities > THRESHOLD]
 colored_points_scatter = get_colored_points_scatter(
     points=filtered_points, colors=filtered_densities
 )

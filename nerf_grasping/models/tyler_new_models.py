@@ -3,8 +3,8 @@ import torch.nn as nn
 from typing import List, Tuple, Optional, Dict, Any, Union
 from dataclasses import dataclass, field
 from omegaconf import MISSING
-from FiLM_resnet import resnet18, ResNet18_Weights
-from FiLM_resnet_1d import ResNet1D
+from nerf_grasping.models.FiLM_resnet import resnet18, ResNet18_Weights
+from nerf_grasping.models.FiLM_resnet_1d import ResNet1D
 from torchvision.transforms import Lambda, Compose
 from enum import Enum, auto
 from functools import partial, cached_property

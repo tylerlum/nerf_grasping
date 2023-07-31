@@ -1,7 +1,7 @@
 import time
 from tqdm import tqdm
 from collections import defaultdict
-from typing import DefaultDict, List
+from typing import DefaultDict, List, Optional
 import pandas as pd
 
 
@@ -56,7 +56,7 @@ class LoopTimer:
         self.section_names_to_timers[section_name].append(new_section_timer)
         return new_section_timer
 
-    def pretty_print_section_times(self, n_decimal_places: int = 1) -> None:
+    def get_section_times_df(self) -> pd.DataFrame:
         section_name_to_most_recent_time_ms = {
             section_name: section_timers[-1].elapsed_time_ms
             for section_name, section_timers in self.section_names_to_timers.items()
@@ -87,12 +87,19 @@ class LoopTimer:
                 ],
             }
         )
+        return df
+
+    def pretty_print_section_times(
+        self, df: Optional[pd.DataFrame] = None, n_decimal_places: int = 1
+    ) -> None:
+        if df is None:
+            df = self.get_section_times_df()
         print(df.to_markdown(floatfmt=f".{n_decimal_places}f"))
 
 
 def main() -> None:
     loop_timer = LoopTimer()
-    for i in tqdm(range(100)):
+    for i in (pbar := tqdm(range(100))):
         with loop_timer.add_and_return_section_timer("test"):
             if i < 3:
                 time.sleep(1.0)
@@ -102,7 +109,16 @@ def main() -> None:
         with loop_timer.add_and_return_section_timer("test2"):
             time.sleep(0.3)
 
-        loop_timer.pretty_print_section_times()
+        section_times_df = loop_timer.get_section_times_df()
+        loop_timer.pretty_print_section_times(df=section_times_df)
+        pbar.set_description(
+            " | ".join(
+                [
+                    f"{section_times_df['Section'].iloc[j]}: {section_times_df['Most Recent Time (ms)'].iloc[j]:.0f}"
+                    for j in range(len(section_times_df))
+                ]
+            )
+        )
 
 
 if __name__ == "__main__":

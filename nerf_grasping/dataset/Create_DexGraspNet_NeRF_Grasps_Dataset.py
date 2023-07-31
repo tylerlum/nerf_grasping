@@ -52,6 +52,7 @@ from nerf_grasping.dataset.DexGraspNet_NeRF_Grasps_utils import (
     FINGER_HEIGHT_MM,
     NUM_FINGERS,
 )
+from nerf_grasping.dataset.timers import LoopTimer
 
 datetime_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
@@ -65,7 +66,7 @@ GRASP_DATASET_FOLDER = (
 NERF_CHECKPOINTS_FOLDER = "2023-07-25_nerf_checkpoints"
 OUTPUT_FOLDER = f"{GRASP_DATASET_FOLDER}_learned_metric_dataset"
 OUTPUT_FILENAME = f"{datetime_str}_learned_metric_dataset.h5"
-PLOT_ONLY_ONE = True
+PLOT_ONLY_ONE = False
 SAVE_DATASET = True
 PRINT_TIMING = False
 LIMIT_NUM_WORKSPACES = 2  # None for no limit
@@ -89,26 +90,6 @@ OUTPUT_FILE_PATH = os.path.join(
 )
 TORCH_NGP_BOUND = 2.0  # Copied from nerf collection script
 TORCH_NGP_SCALE = 1.0  # Copied from nerf collection script
-
-# %%
-
-
-class Timer:
-    def __init__(self, name_of_timed_commands, get_current_time_fn=time.perf_counter):
-        self.name = name_of_timed_commands
-        self.get_current_time_fn = get_current_time_fn
-
-    def __enter__(self):
-        if PRINT_TIMING:
-            self.start = self.get_current_time_fn()
-        return self
-
-    def __exit__(self, type, value, traceback):
-        if PRINT_TIMING:
-            print(
-                f"Time elapsed for '{self.name}' is {(self.get_current_time_fn() - self.start) * 1000} ms"
-            )
-        return
 
 
 # %%
@@ -197,8 +178,9 @@ with h5py.File(OUTPUT_FILE_PATH, "w") as hdf5_file:
     )
 
     # Iterate through all
+    loop_timer = LoopTimer()
     for workspace in tqdm(workspaces, desc="nerf workspaces", dynamic_ncols=True):
-        with Timer("prepare to read in data"):
+        with loop_timer.add_section_timer("prepare to read in data"):
             # Prepare to read in data
             workspace_path = os.path.join(NERF_CHECKPOINTS_PATH, workspace)
             object_code = get_object_code(workspace)
@@ -221,18 +203,18 @@ with h5py.File(OUTPUT_FILE_PATH, "w") as hdf5_file:
             ), f"grasp_dataset_path {grasp_dataset_path} does not exist"
 
         # Read in data
-        with Timer("load_nerf"):
+        with loop_timer.add_section_timer("load_nerf"):
             nerf_model = load_nerf(
                 path_to_workspace=workspace_path,
                 bound=TORCH_NGP_BOUND,
                 scale=TORCH_NGP_SCALE,
             )
 
-        with Timer("load mesh"):
+        with loop_timer.add_section_timer("load mesh"):
             mesh = trimesh.load(mesh_path, force="mesh")
             mesh.apply_transform(trimesh.transformations.scale_matrix(object_scale))
 
-        with Timer("load grasp data"):
+        with loop_timer.add_section_timer("load grasp data"):
             full_grasp_data_list = np.load(grasp_dataset_path, allow_pickle=True)
             correct_scale_grasp_data_list = [
                 grasp_data
@@ -241,7 +223,7 @@ with h5py.File(OUTPUT_FILE_PATH, "w") as hdf5_file:
             ]
 
         # Store query points in finger frame (before transform)
-        with Timer("get_query_points_finger_frame"):
+        with loop_timer.add_section_timer("get_query_points_finger_frame"):
             query_points_finger_frame = get_query_points_finger_frame(
                 num_pts_x=NUM_PTS_X,
                 num_pts_y=NUM_PTS_Y,
@@ -258,32 +240,32 @@ with h5py.File(OUTPUT_FILE_PATH, "w") as hdf5_file:
         )):
             pbar.set_description(f"grasp data, current_idx: {current_idx}")
             # Go from contact candidates to transforms
-            with Timer("get_contact_candidates_and_target_candidates"):
+            with loop_timer.add_section_timer("get_contact_candidates_and_target_candidates"):
                 (
                     contact_candidates,
                     target_contact_candidates,
                 ) = get_contact_candidates_and_target_candidates(grasp_data)
-            with Timer("get_start_and_end_and_up_points"):
+            with loop_timer.add_section_timer("get_start_and_end_and_up_points"):
                 start_points, end_points, up_points = get_start_and_end_and_up_points(
                     contact_candidates=contact_candidates,
                     target_contact_candidates=target_contact_candidates,
                     num_fingers=NUM_FINGERS,
                 )
-            with Timer("get_transforms"):
+            with loop_timer.add_section_timer("get_transforms"):
                 transforms = [
                     get_transform(start_points[i], end_points[i], up_points[i])
                     for i in range(NUM_FINGERS)
                 ]
 
             # Transform query points
-            with Timer("get_transformed_points"):
+            with loop_timer.add_section_timer("get_transformed_points"):
                 query_points_object_frame_list = [
                     get_transformed_points(
                         query_points_finger_frame.reshape(-1, 3), transform
                     )
                     for transform in transforms
                 ]
-            with Timer("ig_to_nerf"):
+            with loop_timer.add_section_timer("ig_to_nerf"):
                 query_points_isaac_frame_list = [
                     np.copy(query_points_object_frame)
                     for query_points_object_frame in query_points_object_frame_list
@@ -294,7 +276,7 @@ with h5py.File(OUTPUT_FILE_PATH, "w") as hdf5_file:
                 ]
 
             # Get densities
-            with Timer("get_nerf_densities"):
+            with loop_timer.add_section_timer("get_nerf_densities"):
                 nerf_densities = [
                     get_nerf_densities(
                         nerf_model, query_points_nerf_frame.float().cuda()
@@ -326,7 +308,7 @@ with h5py.File(OUTPUT_FILE_PATH, "w") as hdf5_file:
             if SAVE_DATASET:
                 # Ensure no nans (most likely come from nerf densities)
                 if not np.isnan(nerf_densities).any():
-                    with Timer("save values"):
+                    with loop_timer.add_section_timer("save values"):
                         nerf_densities = np.stack(nerf_densities, axis=0).reshape(
                             NUM_FINGERS, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z
                         )
@@ -352,6 +334,7 @@ with h5py.File(OUTPUT_FILE_PATH, "w") as hdf5_file:
                     )
                     print("-" * 80)
                     print()
+            loop_timer.pretty_print_section_times()
             print()
 
 # %%

@@ -30,6 +30,7 @@ def get_object_code(workspace: str) -> str:
 
 def validate_nerf_checkpoints_path(nerf_checkpoints_path: str) -> None:
     workspaces = os.listdir(nerf_checkpoints_path)
+    print(f"Validating {len(workspaces)} workspaces in {nerf_checkpoints_path}")
 
     num_ok = 0
     for workspace in workspaces:
@@ -40,8 +41,9 @@ def validate_nerf_checkpoints_path(nerf_checkpoints_path: str) -> None:
 
         num_checkpoints = len(os.listdir(path))
         if num_checkpoints > 0:
-            print(workspace)
             num_ok += 1
+        else:
+            print(f"no checkpoints in {workspace}")
 
     print(f"num_ok / len(workspaces): {num_ok} / {len(workspaces)}")
 

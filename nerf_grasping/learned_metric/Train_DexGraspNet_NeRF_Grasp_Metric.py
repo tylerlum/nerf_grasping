@@ -305,6 +305,8 @@ test_loader = DataLoader(
 
 # %%
 for batch_data in train_loader:
+    batch_data: BatchData = batch_data
+    print(f"nerf_alphas.shape: {batch_data.nerf_alphas.shape}")
     print(batch_data.nerf_densities.shape)
     print(batch_data.grasp_success.shape)
     print(batch_data.grasp_transforms.shape)
@@ -343,17 +345,17 @@ class CNN_3D_Classifier(nn.Module):
 
         # Get conv output shape
         example_batch_size = 2
-        example_input = torch.zeros(example_batch_size, *self.input_shape)
-        conv_output = self.conv(example_input)
-        assert (
-            len(conv_output.shape) == 2 and conv_output.shape[0] == example_batch_size
+        example_input = torch.zeros(example_batch_size, self.n_fingers, *self.input_shape)
+        example_input = example_input.reshape(
+            example_batch_size * self.n_fingers, 1, *self.input_example_shape
         )
-        _, conv_output_dim = conv_output.shape
+        conv_output = self.conv(example_input)
+        self.conv_output_dim = conv_output.shape[-1]
+        assert conv_output.shape == (example_batch_size * self.n_fingers, self.conv_output_dim)
 
-        N_CLASSES = 2
         self.mlp = mlp(
-            num_inputs=conv_output_dim,
-            num_outputs=N_CLASSES,
+            num_inputs=self.conv_output_dim * self.n_fingers,
+            num_outputs=self.n_classes,
             hidden_layers=[256, 256, 256],
         )
 
@@ -363,10 +365,14 @@ class CNN_3D_Classifier(nn.Module):
 
         # Put n_fingers into batch dim
         x = x.reshape(batch_size * self.n_fingers, 1, *self.input_example_shape)
-        assert x.shape == (batch_size, *self.input_shape), f"{x.shape} != {(batch_size, *self.input_shape)}"
+        assert x.shape == (batch_size * self.n_fingers, *self.input_shape), f"{x.shape} != {(batch_size, *self.input_shape)}"
 
         x = self.conv(x)
+        assert x.shape == (batch_size * self.n_fingers, self.conv_output_dim), f"{x.shape}"
+        x = x.reshape(batch_size, self.n_fingers * self.conv_output_dim)
+
         x = self.mlp(x)
+        assert x.shape == (batch_size, self.n_classes), f"{x.shape}"
         return x
 
     def get_success_logits(self, x: torch.Tensor) -> torch.Tensor:
@@ -374,6 +380,11 @@ class CNN_3D_Classifier(nn.Module):
 
     def get_success_probability(self, x: torch.Tensor) -> torch.Tensor:
         return nn.functional.softmax(self.get_success_logits(x), dim=-1)
+
+    @property
+    @functools.lru_cache
+    def n_classes(self) -> int:
+        return 2
 
 
 # %%
@@ -595,7 +606,8 @@ def run_training_loop(
             )
         val_time_taken = time.time() - start_val_time
 
-        wandb.log(wandb_log_dict)
+        if wandb.run is not None:
+            wandb.log(wandb_log_dict)
 
         # Set description
         description = " | ".join(

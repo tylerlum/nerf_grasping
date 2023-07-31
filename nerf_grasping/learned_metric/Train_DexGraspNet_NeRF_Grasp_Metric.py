@@ -59,6 +59,7 @@ from nerf_grasping.dataset.DexGraspNet_NeRF_Grasps_utils import (
     FINGER_HEIGHT_MM,
     NUM_FINGERS,
 )
+from nerf_grasping.dataset.timers import LoopTimer
 import os
 import h5py
 from typing import Optional, Tuple, List
@@ -437,57 +438,47 @@ def iterate_through_dataloader(
         nerf_to_grasp_success_model.eval()
         assert optimizer is None
 
+    loop_timer = LoopTimer()
     with torch.set_grad_enabled(phase == Phase.TRAIN):
         losses_dict = defaultdict(list)
 
-        batch_total_time_taken = 0.0
-        dataload_total_time_taken = 0.0
-        forward_pass_total_time_taken = 0.0
-        backward_pass_total_time_taken = 0.0
-        loss_log_total_time_taken = 0.0
-
-        end_time = time.time()
+        dataload_section_timer = loop_timer.add_section_timer("Data").start()
         for batch_idx, batch_data in (
             pbar := tqdm(enumerate(dataloader), total=len(dataloader))
         ):
-            dataload_time_taken = time.time() - end_time
+            dataload_section_timer.stop()
+
             batch_idx = int(batch_idx)
 
             # Forward pass
-            start_forward_pass_time = time.time()
-            batch_data: BatchData = batch_data
-            batch_data = batch_data.to(device)
+            with loop_timer.add_section_timer("Fwd"):
+                batch_data = batch_data.to(device)
 
-            grasp_success_logits = nerf_to_grasp_success_model.get_success_logits(
-                batch_data.nerf_alphas
-            )
-            ce_loss = ce_loss_fn(
-                input=grasp_success_logits, target=batch_data.grasp_success
-            )
-            total_loss = ce_loss
-            forward_pass_time_taken = time.time() - start_forward_pass_time
+                grasp_success_logits = nerf_to_grasp_success_model.get_success_logits(
+                    batch_data.nerf_alphas
+                )
+                ce_loss = ce_loss_fn(
+                    input=grasp_success_logits, target=batch_data.grasp_success
+                )
+                total_loss = ce_loss
 
             # Gradient step
-            start_backward_pass_time = time.time()
-            if phase == Phase.TRAIN and optimizer is not None:
-                optimizer.zero_grad()
-                total_loss.backward()
+            with loop_timer.add_section_timer("Bwd"):
+                if phase == Phase.TRAIN and optimizer is not None:
+                    optimizer.zero_grad()
+                    total_loss.backward()
 
-                if True:
-                    torch.nn.utils.clip_grad_value_(
-                        nerf_to_grasp_success_model.parameters(),
-                        1.0,
-                    )
+                    if True:
+                        torch.nn.utils.clip_grad_value_(
+                            nerf_to_grasp_success_model.parameters(),
+                            1.0,
+                        )
 
-                optimizer.step()
-            backward_pass_time_taken = time.time() - start_backward_pass_time
+                    optimizer.step()
 
             # Loss logging
-            start_loss_log_time = time.time()
-            losses_dict[f"{phase.name.lower()}_loss"].append(total_loss.item())
-            loss_log_time_taken = time.time() - start_loss_log_time
-
-            batch_time_taken = time.time() - end_time
+            with loop_timer.add_section_timer("Loss"):
+                losses_dict[f"{phase.name.lower()}_loss"].append(total_loss.item())
 
             # Set description
             loss_log_str = (
@@ -498,43 +489,16 @@ def iterate_through_dataloader(
             description = " | ".join(
                 [
                     f"{phase.name.lower()} (ms)",
-                    f"Batch: {1000*batch_time_taken:.0f}",
-                    f"Data: {1000*dataload_time_taken:.0f}",
-                    f"Fwd: {1000*forward_pass_time_taken:.0f}",
-                    f"Bwd: {1000*backward_pass_time_taken:.0f}",
-                    f"Loss: {1000*loss_log_time_taken:.0f}",
                     loss_log_str,
                 ]
             )
             pbar.set_description(description)
 
-            batch_total_time_taken += batch_time_taken
-            dataload_total_time_taken += dataload_time_taken
-            forward_pass_total_time_taken += forward_pass_time_taken
-            backward_pass_total_time_taken += backward_pass_time_taken
-            loss_log_total_time_taken += loss_log_time_taken
+            if batch_idx < len(dataloader) - 1:
+                # Avoid starting timer at end of last batch
+                dataload_section_timer = loop_timer.add_section_timer("Data").start()
 
-            end_time = time.time()
-
-    print(
-        f"Total time taken for {phase.name.lower()} phase: {batch_total_time_taken:.2f} s"
-    )
-    print(f"Time taken for dataload: {dataload_total_time_taken:.2f} s")
-    print(f"Time taken for forward pass: {forward_pass_total_time_taken:.2f} s")
-    print(f"Time taken for backward pass: {backward_pass_total_time_taken:.2f} s")
-    print(f"Time taken for loss logging: {loss_log_total_time_taken:.2f} s")
-    print()
-
-    # In percentage of batch_total_time_taken
-    print("In percentage of batch_total_time_taken:")
-    print(f"dataload: {100*dataload_total_time_taken/batch_total_time_taken:.2f} %")
-    print(
-        f"forward pass: {100*forward_pass_total_time_taken/batch_total_time_taken:.2f} %"
-    )
-    print(
-        f"backward pass: {100*backward_pass_total_time_taken/batch_total_time_taken:.2f} %"
-    )
-    print(f"loss logging: {100*loss_log_total_time_taken/batch_total_time_taken:.2f} %")
+    loop_timer.pretty_print_section_times()
     print()
     print()
 

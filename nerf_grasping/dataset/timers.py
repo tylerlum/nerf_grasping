@@ -1,3 +1,4 @@
+from __future__ import annotations
 import time
 from tqdm import tqdm
 from collections import defaultdict
@@ -13,12 +14,20 @@ class SectionTimer:
         self.start_time = None
         self.end_time = None
 
-    def __enter__(self):
+    def start(self) -> SectionTimer:
         self.start_time = time.perf_counter_ns()
         return self
 
-    def __exit__(self, type, value, traceback):
+    def stop(self) -> SectionTimer:
         self.end_time = time.perf_counter_ns()
+        return self
+
+    def __enter__(self):
+        self.start()
+        return self
+
+    def __exit__(self, type, value, traceback):
+        self.stop()
         if self.print_timing:
             print(
                 f"Time elapsed for '{self.section_name}' is {self.elapsed_time_ms} ms"

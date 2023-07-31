@@ -51,7 +51,7 @@ class LoopTimer:
             str, List[SectionTimer]
         ] = defaultdict(list)
 
-    def add_and_return_section_timer(self, section_name: str) -> SectionTimer:
+    def add_section_timer(self, section_name: str) -> SectionTimer:
         new_section_timer = SectionTimer(section_name)
         self.section_names_to_timers[section_name].append(new_section_timer)
         return new_section_timer
@@ -100,13 +100,13 @@ class LoopTimer:
 def main() -> None:
     loop_timer = LoopTimer()
     for i in (pbar := tqdm(range(100))):
-        with loop_timer.add_and_return_section_timer("test"):
+        with loop_timer.add_section_timer("test"):
             if i < 3:
                 time.sleep(1.0)
             else:
                 time.sleep(0.1)
 
-        with loop_timer.add_and_return_section_timer("test2"):
+        with loop_timer.add_section_timer("test2"):
             time.sleep(0.3)
 
         section_times_df = loop_timer.get_section_times_df()

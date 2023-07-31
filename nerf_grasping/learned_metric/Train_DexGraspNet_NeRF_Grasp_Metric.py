@@ -14,24 +14,13 @@
 # ---
 
 
-# %%
-def is_notebook() -> bool:
-    try:
-        shell = get_ipython().__class__.__name__
-        if shell == "ZMQInteractiveShell":
-            return True  # Jupyter notebook or qtconsole
-        elif shell == "TerminalInteractiveShell":
-            return False  # Terminal running IPython
-        else:
-            return False  # Other type (?)
-    except NameError:
-        return False  # Probably standard Python interpreter
-
-
 # %% [markdown]
 # # Imports
 
 # %%
+from __future__ import annotations
+import time
+from collections import defaultdict
 import functools
 from localscope import localscope
 import nerf_grasping
@@ -60,6 +49,10 @@ from nerf_grasping.dataset.DexGraspNet_NeRF_Grasps_utils import (
     NUM_FINGERS,
 )
 from nerf_grasping.dataset.timers import LoopTimer
+from nerf_grasping.learned_metric.Train_DexGraspNet_NeRF_Grasp_Metric_Config import (
+    Config,
+    TrainingConfig,
+)
 import os
 import h5py
 from typing import Optional, Tuple, List
@@ -68,16 +61,215 @@ import numpy as np
 import torch
 from torch.utils.data import (
     DataLoader,
+    Subset,
     Dataset,
     random_split,
 )
+from sklearn.utils.class_weight import compute_class_weight
 import plotly.graph_objects as go
+import wandb
+from functools import partial
+from omegaconf import OmegaConf
+from datetime import datetime
+from hydra import compose, initialize
+from hydra.core.config_store import ConfigStore
+import sys
+from hydra.utils import instantiate
+import random
+import shutil
+from wandb.util import generate_id
 
-# %% [markdown]
-# # Read in Data
+from enum import Enum, auto
+from nerf_grasping.models.tyler_new_models import (
+    get_scheduler
+)
+
 
 # %%
+def is_notebook() -> bool:
+    try:
+        shell = get_ipython().__class__.__name__
+        if shell == "ZMQInteractiveShell":
+            return True  # Jupyter notebook or qtconsole
+        elif shell == "TerminalInteractiveShell":
+            return False  # Terminal running IPython
+        else:
+            return False  # Other type (?)
+    except NameError:
+        return False  # Probably standard Python interpreter
 
+
+# %%
+class Phase(Enum):
+    TRAIN = auto()
+    VAL = auto()
+    TEST = auto()
+
+
+# %%
+if is_notebook():
+    from tqdm.notebook import tqdm as std_tqdm
+else:
+    from tqdm import tqdm as std_tqdm
+
+tqdm = partial(std_tqdm, dynamic_ncols=True)
+
+# %% [markdown]
+# # Setup Config for Static Type-Checking
+
+
+# %%
+@functools.lru_cache
+@localscope.mfc
+def datetime_str() -> str:
+    return datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+
+
+OmegaConf.register_new_resolver("eval", eval, replace=True)
+OmegaConf.register_new_resolver("datetime_str", datetime_str, replace=True)
+
+# %%
+config_store = ConfigStore.instance()
+config_store.store(name="config", node=Config)
+
+# %% [markdown]
+# # Load Config
+
+# %%
+if is_notebook():
+    arguments = []
+else:
+    arguments = sys.argv[1:]
+    print(f"arguments = {arguments}")
+
+
+# %%
+from hydra.errors import ConfigCompositionException
+
+try:
+    with initialize(
+        version_base="1.1", config_path="Train_DexGraspNet_NeRF_Grasp_Metric_cfg"
+    ):
+        raw_cfg = compose(config_name="config", overrides=arguments)
+
+    # Runtime type-checking
+    cfg: Config = instantiate(raw_cfg)
+except ConfigCompositionException as e:
+    print(f"ConfigCompositionException: {e}")
+    print()
+    print(f"e.__cause__ = {e.__cause__}")
+    raise e.__cause__
+
+# %%
+print(f"Config:\n{OmegaConf.to_yaml(cfg)}")
+
+# %%
+if cfg.dry_run:
+    print("Dry run passed. Exiting.")
+    exit()
+
+# %% [markdown]
+# # Set Random Seed
+
+
+# %%
+@localscope.mfc
+def set_seed(seed) -> None:
+    random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    np.random.seed(seed)
+    torch.set_num_threads(1)  # TODO: Is this slowing things down?
+
+    # torch.backends.cudnn.deterministic = True
+    # torch.backends.cudnn.benchmark = False
+    os.environ["PYTHONHASHSEED"] = str(seed)
+    print(f"Set random seed to {seed}")
+
+
+set_seed(cfg.random_seed)
+
+# %% [markdown]
+# # Setup Checkpoint Workspace and Maybe Resume Previous Run
+
+
+# %%
+@localscope.mfc
+def load_checkpoint(checkpoint_workspace_dir_path: str) -> Optional[Dict[str, Any]]:
+    checkpoint_filepaths = sorted(
+        [
+            os.path.join(checkpoint_workspace_dir_path, filename)
+            for filename in os.listdir(checkpoint_workspace_dir_path)
+            if filename.endswith(".pt")
+        ]
+    )
+    if len(checkpoint_filepaths) == 0:
+        print("No checkpoint found")
+        return None
+    return torch.load(checkpoint_filepaths[-1])
+
+
+# %%
+# Set up checkpoint_workspace
+if not os.path.exists(cfg.checkpoint_workspace.root_dir):
+    os.makedirs(cfg.checkpoint_workspace.root_dir)
+
+checkpoint_workspace_dir_path = os.path.join(
+    cfg.checkpoint_workspace.root_dir, cfg.checkpoint_workspace.leaf_dir
+)
+
+# Remove checkpoint_workspace directory if force_no_resume is set
+if (
+    os.path.exists(checkpoint_workspace_dir_path)
+    and cfg.checkpoint_workspace.force_no_resume
+):
+    print(f"force_no_resume = {cfg.checkpoint_workspace.force_no_resume}")
+    print(f"Removing checkpoint_workspace directory at {checkpoint_workspace_dir_path}")
+    shutil.rmtree(checkpoint_workspace_dir_path)
+    print("Done removing checkpoint_workspace directory")
+
+# Read wandb_run_id from checkpoint_workspace if it exists
+wandb_run_id_filepath = os.path.join(checkpoint_workspace_dir_path, "wandb_run_id.txt")
+if os.path.exists(checkpoint_workspace_dir_path):
+    print(
+        f"checkpoint_workspace directory already exists at {checkpoint_workspace_dir_path}"
+    )
+
+    print(f"Loading wandb_run_id from {wandb_run_id_filepath}")
+    with open(wandb_run_id_filepath, "r") as f:
+        wandb_run_id = f.read()
+    print(f"Done loading wandb_run_id = {wandb_run_id}")
+
+else:
+    print(f"Creating checkpoint_workspace directory at {checkpoint_workspace_dir_path}")
+    os.makedirs(checkpoint_workspace_dir_path)
+    print("Done creating checkpoint_workspace directory")
+
+    wandb_run_id = generate_id()
+    print(f"Saving wandb_run_id = {wandb_run_id} to {wandb_run_id_filepath}")
+    with open(wandb_run_id_filepath, "w") as f:
+        f.write(wandb_run_id)
+    print("Done saving wandb_run_id")
+
+# %% [markdown]
+# # Setup Wandb Logging
+
+# %%
+# Add to config
+wandb.init(
+    entity=cfg.wandb.entity,
+    project=cfg.wandb.project,
+    name=cfg.wandb.name,
+    group=cfg.wandb.group if len(cfg.wandb.group) > 0 else None,
+    job_type=cfg.wandb.job_type if len(cfg.wandb.job_type) > 0 else None,
+    config=OmegaConf.to_container(cfg, throw_on_missing=True),
+    id=wandb_run_id,
+    resume="never" if cfg.checkpoint_workspace.force_no_resume else "allow",
+    reinit=True,
+)
+
+# %% [markdown]
+# # Dataset and Dataloader
 
 # %%
 INPUT_EXAMPLE_SHAPE = (NUM_FINGERS, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
@@ -225,16 +417,33 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
 
 input_dataset = os.path.join(
     nerf_grasping.get_repo_root(),
-    "2023-07-01_dataset_DESIRED_DIST_TOWARDS_OBJECT_SURFACE_MULTIPLE_STEPS_v2_learned_metric_dataset",
-    "2023-07-27_01-25-58_learned_metric_dataset.h5",
+    cfg.data.input_dataset_root_dir,
+    cfg.data.input_dataset_path,
 )
-full_dataset = NeRFGrid_To_GraspSuccess_HDF5_Dataset(input_dataset)
+full_dataset = NeRFGrid_To_GraspSuccess_HDF5_Dataset(
+    input_hdf5_filepath=input_dataset,
+    max_num_data_points=cfg.data.max_num_data_points,
+    load_nerf_densities_in_ram=cfg.dataloader.load_nerf_grid_inputs_in_ram,
+    load_grasp_successes_in_ram=cfg.dataloader.load_grasp_successes_in_ram,
+    load_grasp_transforms_in_ram=cfg.dataloader.load_grasp_transforms_in_ram,
+    load_nerf_workspaces_in_ram=cfg.dataloader.load_nerf_workspaces_in_ram,
+)
 
 train_dataset, val_dataset, test_dataset = random_split(
     full_dataset,
-    [0.8, 0.1, 0.1],
-    generator=torch.Generator().manual_seed(42),
+    [cfg.data.frac_train, cfg.data.frac_val, cfg.data.frac_test],
+    generator=torch.Generator().manual_seed(cfg.random_seed),
 )
+
+# %%
+print(f"Train dataset size: {len(train_dataset)}")
+print(f"Val dataset size: {len(val_dataset)}")
+print(f"Test dataset size: {len(test_dataset)}")
+
+# %%
+assert len(set.intersection(set(train_dataset.indices), set(val_dataset.indices))) == 0
+assert len(set.intersection(set(train_dataset.indices), set(test_dataset.indices))) == 0
+assert len(set.intersection(set(val_dataset.indices), set(test_dataset.indices))) == 0
 
 
 # %%
@@ -246,14 +455,14 @@ class BatchData:
     nerf_workspace: List[str]
 
     @localscope.mfc
-    def to(self, device):
+    def to(self, device) -> BatchData:
         self.nerf_densities = self.nerf_densities.to(device)
         self.grasp_success = self.grasp_success.to(device)
         self.grasp_transforms = self.grasp_transforms.to(device)
         return self
 
+    # @localscope.mfc(allowed=["DIST_BTWN_PTS_MM"])
     @property
-    @localscope.mfc(allowed=["DIST_BTWN_PTS_MM"])
     def nerf_alphas(self) -> torch.Tensor:
         # alpha = 1 - exp(-delta * sigma)
         #       = probability of collision within this segment starting from beginning of segment
@@ -261,6 +470,7 @@ class BatchData:
         return 1.0 - torch.exp(-DELTA * self.nerf_densities)
 
 
+@localscope.mfc
 def custom_collate_fn(
     batch: List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor, str]]
 ) -> BatchData:
@@ -276,31 +486,28 @@ def custom_collate_fn(
 
 
 # %%
-BATCH_SIZE = 32
-PIN_MEMORY = True
-NUM_WORKERS = 8
 train_loader = DataLoader(
     train_dataset,
-    batch_size=BATCH_SIZE,
+    batch_size=cfg.dataloader.batch_size,
     shuffle=True,
-    pin_memory=PIN_MEMORY,
-    num_workers=NUM_WORKERS,
+    pin_memory=cfg.dataloader.pin_memory,
+    num_workers=cfg.dataloader.num_workers,
     collate_fn=custom_collate_fn,
 )
 val_loader = DataLoader(
     val_dataset,
-    batch_size=BATCH_SIZE,
+    batch_size=cfg.dataloader.batch_size,
     shuffle=False,
-    pin_memory=PIN_MEMORY,
-    num_workers=NUM_WORKERS,
+    pin_memory=cfg.dataloader.pin_memory,
+    num_workers=cfg.dataloader.num_workers,
     collate_fn=custom_collate_fn,
 )
 test_loader = DataLoader(
     test_dataset,
-    batch_size=BATCH_SIZE,
+    batch_size=cfg.dataloader.batch_size,
     shuffle=False,
-    pin_memory=PIN_MEMORY,
-    num_workers=NUM_WORKERS,
+    pin_memory=cfg.dataloader.pin_memory,
+    num_workers=cfg.dataloader.num_workers,
     collate_fn=custom_collate_fn,
 )
 
@@ -308,11 +515,13 @@ test_loader = DataLoader(
 for batch_data in train_loader:
     batch_data: BatchData = batch_data
     print(f"nerf_alphas.shape: {batch_data.nerf_alphas.shape}")
-    print(batch_data.nerf_densities.shape)
-    print(batch_data.grasp_success.shape)
-    print(batch_data.grasp_transforms.shape)
-    print(len(batch_data.nerf_workspace))
+    print(f"grasp_success.shape: {batch_data.grasp_success.shape}")
+    print(f"grasp_transforms.shape: {batch_data.grasp_transforms.shape}")
+    print(f"len(nerf_workspace): {len(batch_data.nerf_workspace)}")
     break
+
+# %% [markdown]
+# # Create Neural Network Model
 
 # %%
 import torch.nn as nn
@@ -325,16 +534,15 @@ from nerf_grasping.models.tyler_new_models import (
 
 
 class CNN_3D_Classifier(nn.Module):
-    def __init__(
-        self, input_example_shape: Tuple[int, int, int], n_fingers: int
-    ) -> None:
+    @localscope.mfc
+    def __init__(self, input_example_shape: Tuple[int, int, int, int]) -> None:
         # TODO: Make this not hardcoded
         super().__init__()
-        self.input_example_shape = input_example_shape
-        self.n_fingers = n_fingers
+        self.grid_input_example_shape = input_example_shape[1:]
+        self.n_fingers = input_example_shape[0]
 
         assert len(input_example_shape) == 3
-        self.input_shape = (1, *input_example_shape)
+        self.input_shape = (1, *self.grid_input_example_shape)
 
         self.conv = conv_encoder(
             input_shape=self.input_shape,
@@ -346,13 +554,18 @@ class CNN_3D_Classifier(nn.Module):
 
         # Get conv output shape
         example_batch_size = 2
-        example_input = torch.zeros(example_batch_size, self.n_fingers, *self.input_shape)
+        example_input = torch.zeros(
+            example_batch_size, self.n_fingers, *self.input_shape
+        )
         example_input = example_input.reshape(
-            example_batch_size * self.n_fingers, 1, *self.input_example_shape
+            example_batch_size * self.n_fingers, 1, *self.grid_input_example_shape
         )
         conv_output = self.conv(example_input)
         self.conv_output_dim = conv_output.shape[-1]
-        assert conv_output.shape == (example_batch_size * self.n_fingers, self.conv_output_dim)
+        assert conv_output.shape == (
+            example_batch_size * self.n_fingers,
+            self.conv_output_dim,
+        )
 
         self.mlp = mlp(
             num_inputs=self.conv_output_dim * self.n_fingers,
@@ -360,28 +573,42 @@ class CNN_3D_Classifier(nn.Module):
             hidden_layers=[256, 256, 256],
         )
 
+    @localscope.mfc
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         batch_size = x.shape[0]
-        assert x.shape == (batch_size, self.n_fingers, *self.input_example_shape), f"{x.shape}"
+        assert x.shape == (
+            batch_size,
+            self.n_fingers,
+            *self.grid_input_example_shape,
+        ), f"{x.shape}"
 
         # Put n_fingers into batch dim
-        x = x.reshape(batch_size * self.n_fingers, 1, *self.input_example_shape)
-        assert x.shape == (batch_size * self.n_fingers, *self.input_shape), f"{x.shape} != {(batch_size, *self.input_shape)}"
+        x = x.reshape(batch_size * self.n_fingers, 1, *self.grid_input_example_shape)
+        assert x.shape == (
+            batch_size * self.n_fingers,
+            *self.input_shape,
+        ), f"{x.shape} != {(batch_size, *self.input_shape)}"
 
         x = self.conv(x)
-        assert x.shape == (batch_size * self.n_fingers, self.conv_output_dim), f"{x.shape}"
+        assert x.shape == (
+            batch_size * self.n_fingers,
+            self.conv_output_dim,
+        ), f"{x.shape}"
         x = x.reshape(batch_size, self.n_fingers * self.conv_output_dim)
 
         x = self.mlp(x)
         assert x.shape == (batch_size, self.n_classes), f"{x.shape}"
         return x
 
+    @localscope.mfc
     def get_success_logits(self, x: torch.Tensor) -> torch.Tensor:
         return self.forward(x)
 
+    @localscope.mfc
     def get_success_probability(self, x: torch.Tensor) -> torch.Tensor:
         return nn.functional.softmax(self.get_success_logits(x), dim=-1)
 
+    @localscope.mfc
     @property
     @functools.lru_cache
     def n_classes(self) -> int:
@@ -391,52 +618,100 @@ class CNN_3D_Classifier(nn.Module):
 # %%
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 nerf_to_grasp_success_model = CNN_3D_Classifier(
-    input_example_shape=(NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z), n_fingers=NUM_FINGERS
-).to(
-    device
-)
+    input_example_shape=INPUT_EXAMPLE_SHAPE
+).to(device)
 
 # %%
 start_epoch = 0
 optimizer = torch.optim.AdamW(
     params=nerf_to_grasp_success_model.parameters(),
-    lr=3e-4,
-    # betas=cfg.training.betas,
-    # weight_decay=cfg.training.weight_decay,
+    lr=cfg.training.lr,
+    betas=cfg.training.betas,
+    weight_decay=cfg.training.weight_decay,
+)
+lr_scheduler = get_scheduler(
+    name=cfg.training.lr_scheduler_name,
+    optimizer=optimizer,
+    num_warmup_steps=cfg.training.lr_scheduler_num_warmup_steps,
+    num_training_steps=(len(train_loader) * cfg.training.n_epochs),
+    last_epochs=start_epoch - 1,
 )
 
+# %% [markdown]
+# # Load Checkpoint
+
 # %%
+checkpoint = load_checkpoint(checkpoint_workspace_dir_path)
+if checkpoint is not None:
+    print("Loading checkpoint...")
+    nerf_to_grasp_success_model.load_state_dict(
+        checkpoint["nerf_to_grasp_success_model"]
+    )
+    optimizer.load_state_dict(checkpoint["optimizer"])
+    start_epoch = checkpoint["epoch"]
+    if lr_scheduler is not None and "lr_scheduler" in checkpoint:
+        lr_scheduler.load_state_dict(checkpoint["lr_scheduler"])
+    print("Done loading checkpoint")
 
-from enum import Enum, auto
-class Phase(Enum):
-    TRAIN = auto()
-    VAL = auto()
-    TEST = auto()
+# %% [markdown]
+# # Visualize Model
 
-import wandb
-from tqdm import tqdm
-import time
-from collections import defaultdict
+# %%
+print(f"nerf_to_grasp_success_model = {nerf_to_grasp_success_model}")
+print(f"optimizer = {optimizer}")
+print(f"lr_scheduler = {lr_scheduler}")
+
+# %% [markdown]
+# # Training Setup
+
+
+# %%
+@localscope.mfc
+def save_checkpoint(
+    checkpoint_workspace_dir_path: str,
+    epoch: int,
+    nerf_to_grasp_success_model: CNN_3D_Classifier,
+    optimizer: torch.optim.Optimizer,
+    lr_scheduler: Optional[torch.optim.lr_scheduler.LRScheduler] = None,
+) -> None:
+    checkpoint_filepath = os.path.join(
+        checkpoint_workspace_dir_path, f"checkpoint_{epoch:04}.pt"
+    )
+    print(f"Saving checkpoint to {checkpoint_filepath}")
+    torch.save(
+        {
+            "epoch": epoch,
+            "nerf_to_grasp_success_model": nerf_to_grasp_success_model.state_dict(),
+            "optimizer": optimizer.state_dict(),
+            "lr_scheduler": lr_scheduler.state_dict()
+            if lr_scheduler is not None
+            else None,
+        },
+        checkpoint_filepath,
+    )
+    print("Done saving checkpoint")
+
+
+# %%
 @localscope.mfc
 def iterate_through_dataloader(
     phase: Phase,
     dataloader: DataLoader,
     nerf_to_grasp_success_model: CNN_3D_Classifier,
     device: torch.device,
+    ce_loss_fn: nn.CrossEntropyLoss,
     wandb_log_dict: dict,
+    training_cfg: Optional[TrainingConfig] = None,
     optimizer: Optional[torch.optim.Optimizer] = None,
+    lr_scheduler: Optional[torch.optim.lr_scheduler.LRScheduler] = None,
 ) -> None:
-    ce_loss_fn = nn.CrossEntropyLoss(
-        # weight=class_weight, label_smoothing=cfg.training.label_smoothing
-    )
     assert phase in [Phase.TRAIN, Phase.VAL, Phase.TEST]
     if phase == Phase.TRAIN:
         nerf_to_grasp_success_model.train()
-        assert optimizer is not None
-
+        assert training_cfg is not None and optimizer is not None
     else:
         nerf_to_grasp_success_model.eval()
-        assert optimizer is None
+        assert training_cfg is None and optimizer is None
 
     loop_timer = LoopTimer()
     with torch.set_grad_enabled(phase == Phase.TRAIN):
@@ -449,11 +724,10 @@ def iterate_through_dataloader(
             dataload_section_timer.stop()
 
             batch_idx = int(batch_idx)
+            batch_data: BatchData = batch_data.to(device)
 
             # Forward pass
             with loop_timer.add_section_timer("Fwd"):
-                batch_data = batch_data.to(device)
-
                 grasp_success_logits = nerf_to_grasp_success_model.get_success_logits(
                     batch_data.nerf_alphas
                 )
@@ -468,13 +742,18 @@ def iterate_through_dataloader(
                     optimizer.zero_grad()
                     total_loss.backward()
 
-                    if True:
+                    if (
+                        training_cfg is not None
+                        and training_cfg.grad_clip_val is not None
+                    ):
                         torch.nn.utils.clip_grad_value_(
                             nerf_to_grasp_success_model.parameters(),
-                            1.0,
+                            training_cfg.grad_clip_val,
                         )
 
                     optimizer.step()
+                    if lr_scheduler is not None:
+                        lr_scheduler.step()
 
             # Loss logging
             with loop_timer.add_section_timer("Loss"):
@@ -513,17 +792,22 @@ def iterate_through_dataloader(
 
 @localscope.mfc
 def run_training_loop(
-    nerf_to_grasp_success_model: CNN_3D_Classifier,
+    training_cfg: TrainingConfig,
     train_loader: DataLoader,
     val_loader: DataLoader,
+    nerf_to_grasp_success_model: CNN_3D_Classifier,
     device: torch.device,
+    ce_loss_fn: nn.CrossEntropyLoss,
     optimizer: torch.optim.Optimizer,
-    start_epoch: int,
+    checkpoint_workspace_dir_path: str,
+    lr_scheduler: Optional[torch.optim.lr_scheduler.LRScheduler] = None,
+    start_epoch: int = 0,
 ) -> None:
     training_loop_base_description = "Training Loop"
     for epoch in (
         pbar := tqdm(
-            range(start_epoch, 100), desc=training_loop_base_description
+            range(start_epoch, training_cfg.n_epochs),
+            desc=training_loop_base_description,
         )
     ):
         epoch = int(epoch)
@@ -532,17 +816,16 @@ def run_training_loop(
 
         # Save checkpoint
         start_save_checkpoint_time = time.time()
-        if epoch % 100 == 0 and (
-            epoch != 0 or True
+        if epoch % training_cfg.save_checkpoint_freq == 0 and (
+            epoch != 0 or training_cfg.save_checkpoint_on_epoch_0
         ):
-            pass
-            # save_checkpoint(
-            #     checkpoint_workspace_dir_path=checkpoint_workspace_dir_path,
-            #     epoch=epoch,
-            #     nerf_to_grasp_success_model=nerf_to_grasp_success_model,
-            #     optimizer=optimizer,
-            #     lr_scheduler=lr_scheduler,
-            # )
+            save_checkpoint(
+                checkpoint_workspace_dir_path=checkpoint_workspace_dir_path,
+                epoch=epoch,
+                nerf_to_grasp_success_model=nerf_to_grasp_success_model,
+                optimizer=optimizer,
+                lr_scheduler=lr_scheduler,
+            )
         save_checkpoint_time_taken = time.time() - start_save_checkpoint_time
 
         # Train
@@ -552,20 +835,26 @@ def run_training_loop(
             dataloader=train_loader,
             nerf_to_grasp_success_model=nerf_to_grasp_success_model,
             device=device,
+            ce_loss_fn=ce_loss_fn,
             wandb_log_dict=wandb_log_dict,
+            training_cfg=training_cfg,
             optimizer=optimizer,
+            lr_scheduler=lr_scheduler,
         )
         train_time_taken = time.time() - start_train_time
 
         # Val
         # Can do this before or after training (decided on after since before it was always at -ln(1/N_CLASSES) ~ 0.69)
         start_val_time = time.time()
-        if epoch % 5 == 0 and (epoch != 0 or True):
+        if epoch % training_cfg.val_freq == 0 and (
+            epoch != 0 or training_cfg.val_on_epoch_0
+        ):
             iterate_through_dataloader(
                 phase=Phase.VAL,
                 dataloader=val_loader,
                 nerf_to_grasp_success_model=nerf_to_grasp_success_model,
                 device=device,
+                ce_loss_fn=ce_loss_fn,
                 wandb_log_dict=wandb_log_dict,
             )
         val_time_taken = time.time() - start_val_time
@@ -585,12 +874,101 @@ def run_training_loop(
         pbar.set_description(description)
 
 
-run_training_loop(
-    nerf_to_grasp_success_model,
-    train_loader,
-    val_loader,
-    device,
-    optimizer,
-    start_epoch,
-)
 # %%
+wandb.watch(nerf_to_grasp_success_model, log="gradients", log_freq=100)
+
+
+# %%
+@localscope.mfc
+def compute_class_weight_np(
+    train_dataset: Subset, input_dataset_full_path: str
+) -> np.ndarray:
+    try:
+        print("Loading grasp success data for class weighting...")
+        t1 = time.time()
+        with h5py.File(input_dataset_full_path, "r") as hdf5_file:
+            grasp_successes_np = np.array(hdf5_file["/grasp_success"][()])
+        t2 = time.time()
+        print(f"Loaded grasp success data in {t2 - t1:.2f} s")
+
+        print("Extracting training indices...")
+        t3 = time.time()
+        grasp_successes_np = grasp_successes_np[train_dataset.indices]
+        t4 = time.time()
+        print(f"Extracted training indices in {t4 - t3:.2f} s")
+
+        print("Computing class weight with this data...")
+        t5 = time.time()
+        class_weight_np = compute_class_weight(
+            class_weight="balanced",
+            classes=np.unique(grasp_successes_np),
+            y=grasp_successes_np,
+        )
+        t6 = time.time()
+        print(f"Computed class weight in {t6 - t5:.2f} s")
+
+    except Exception as e:
+        print(f"Failed to compute class weight: {e}")
+        print("Using default class weight")
+        class_weight_np = np.array([1.0, 1.0])
+    return class_weight_np
+
+
+class_weight = (
+    torch.from_numpy(
+        compute_class_weight_np(
+            train_dataset=train_dataset, input_dataset_full_path=input_dataset_full_path
+        )
+    )
+    .float()
+    .to(device)
+)
+print(f"Class weight: {class_weight}")
+ce_loss_fn = nn.CrossEntropyLoss(
+    weight=class_weight, label_smoothing=cfg.training.label_smoothing
+)
+
+# %%
+
+run_training_loop(
+    training_cfg=cfg.training,
+    train_loader=train_loader,
+    val_loader=val_loader,
+    nerf_to_grasp_success_model=nerf_to_grasp_success_model,
+    device=device,
+    ce_loss_fn=ce_loss_fn,
+    optimizer=optimizer,
+    checkpoint_workspace_dir_path=checkpoint_workspace_dir_path,
+    lr_scheduler=lr_scheduler,
+    start_epoch=start_epoch,
+)
+
+# %% [markdown]
+# # Test
+
+# %%
+nerf_to_grasp_success_model.eval()
+wandb_log_dict = {}
+print(f"Running test metrics on epoch {cfg.training.n_epochs}")
+wandb_log_dict["epoch"] = cfg.training.n_epochs
+iterate_through_dataloader(
+    phase=Phase.TEST,
+    dataloader=test_loader,
+    nerf_to_grasp_success_model=nerf_to_grasp_success_model,
+    device=device,
+    ce_loss_fn=ce_loss_fn,
+    wandb_log_dict=wandb_log_dict,
+)
+wandb.log(wandb_log_dict)
+
+# %% [markdown]
+# # Save Model
+
+# %%
+save_checkpoint(
+    checkpoint_workspace_dir_path=checkpoint_workspace_dir_path,
+    epoch=cfg.training.n_epochs,
+    nerf_to_grasp_success_model=nerf_to_grasp_success_model,
+    optimizer=optimizer,
+    lr_scheduler=lr_scheduler,
+)

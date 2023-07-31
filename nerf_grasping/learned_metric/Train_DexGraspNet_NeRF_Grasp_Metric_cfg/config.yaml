@@ -25,15 +25,6 @@ dataloader:
   load_grasp_transforms_in_ram: False
   load_nerf_workspaces_in_ram: False
 
-preprocess:
-  flip_left_right_randomly: True
-  density_type: "ALPHA"
-  add_invariance_transformations: False
-  rotate_polar_angle: True
-  reflect_around_xz_plane_randomly: True
-  reflect_around_xy_plane_randomly: True
-  remove_y_axis: True
-
 training:
   grad_clip_val: 1.0
   lr: 1e-4

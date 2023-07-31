@@ -1,8 +1,6 @@
 from dataclasses import dataclass, field
 from omegaconf import MISSING
 from typing import Any, Dict, List, Optional, Tuple, Type
-from enum import Enum, auto
-from nerf_grasping.models.tyler_new_models import ClassifierConfig
 
 
 @dataclass
@@ -66,7 +64,6 @@ class Config:
     dataloader: DataLoaderConfig = field(default_factory=DataLoaderConfig)
     wandb: WandbConfig = field(default_factory=WandbConfig)
     training: TrainingConfig = field(default_factory=TrainingConfig)
-    classifier: ClassifierConfig = field(default_factory=ClassifierConfig)
     checkpoint_workspace: CheckpointWorkspaceConfig = field(default_factory=CheckpointWorkspaceConfig)
     random_seed: int = MISSING
     dry_run: bool = MISSING

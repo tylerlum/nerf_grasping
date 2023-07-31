@@ -415,13 +415,13 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
 
 # %%
 
-input_dataset = os.path.join(
+input_dataset_full_path = os.path.join(
     nerf_grasping.get_repo_root(),
     cfg.data.input_dataset_root_dir,
     cfg.data.input_dataset_path,
 )
 full_dataset = NeRFGrid_To_GraspSuccess_HDF5_Dataset(
-    input_hdf5_filepath=input_dataset,
+    input_hdf5_filepath=input_dataset_full_path,
     max_num_data_points=cfg.data.max_num_data_points,
     load_nerf_densities_in_ram=cfg.dataloader.load_nerf_grid_inputs_in_ram,
     load_grasp_successes_in_ram=cfg.dataloader.load_grasp_successes_in_ram,
@@ -534,14 +534,12 @@ from nerf_grasping.models.tyler_new_models import (
 
 
 class CNN_3D_Classifier(nn.Module):
-    @localscope.mfc
+    # @localscope.mfc
     def __init__(self, input_example_shape: Tuple[int, int, int, int]) -> None:
         # TODO: Make this not hardcoded
         super().__init__()
         self.grid_input_example_shape = input_example_shape[1:]
         self.n_fingers = input_example_shape[0]
-
-        assert len(input_example_shape) == 3
         self.input_shape = (1, *self.grid_input_example_shape)
 
         self.conv = conv_encoder(
@@ -608,7 +606,6 @@ class CNN_3D_Classifier(nn.Module):
     def get_success_probability(self, x: torch.Tensor) -> torch.Tensor:
         return nn.functional.softmax(self.get_success_logits(x), dim=-1)
 
-    @localscope.mfc
     @property
     @functools.lru_cache
     def n_classes(self) -> int:
@@ -634,7 +631,7 @@ lr_scheduler = get_scheduler(
     optimizer=optimizer,
     num_warmup_steps=cfg.training.lr_scheduler_num_warmup_steps,
     num_training_steps=(len(train_loader) * cfg.training.n_epochs),
-    last_epochs=start_epoch - 1,
+    last_epoch=start_epoch - 1,
 )
 
 # %% [markdown]
@@ -693,7 +690,7 @@ def save_checkpoint(
 
 
 # %%
-@localscope.mfc
+@localscope.mfc(allowed=["tqdm"])
 def iterate_through_dataloader(
     phase: Phase,
     dataloader: DataLoader,
@@ -790,7 +787,7 @@ def iterate_through_dataloader(
     return
 
 
-@localscope.mfc
+@localscope.mfc(allowed=["tqdm"])
 def run_training_loop(
     training_cfg: TrainingConfig,
     train_loader: DataLoader,

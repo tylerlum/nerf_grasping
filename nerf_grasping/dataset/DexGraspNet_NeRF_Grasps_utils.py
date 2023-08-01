@@ -39,11 +39,13 @@ def get_validated_nerf_workspaces(nerf_checkpoints_path: str) -> List[str]:
             print(f"path {path} does not exist")
             continue
 
-        num_checkpoints = len(os.listdir(path))
-        if num_checkpoints > 0:
+        # num_checkpoints = len(os.listdir(path))
+        # if num_checkpoints > 0:
+        if "ngp_ep0200.pth.tar" in os.listdir(path):
             validated_workspaces.append(workspace)
         else:
-            print(f"no checkpoints in {workspace}")
+            # print(f"no checkpoints in {workspace}")
+            print(f"ngp_ep0200.pth.tar not in {workspace}")
 
     num_ok = len(validated_workspaces)
     print(f"num_ok / len(workspaces): {num_ok} / {len(workspaces)}")

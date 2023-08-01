@@ -42,7 +42,7 @@ from nerf_grasping.dataset.DexGraspNet_NeRF_Grasps_utils import (
     plot_mesh_and_transforms,
     get_object_code,
     get_object_scale,
-    validate_nerf_checkpoints_path,
+    get_validated_nerf_workspaces,
     load_nerf,
     NUM_PTS_X,
     NUM_PTS_Y,
@@ -53,9 +53,30 @@ from nerf_grasping.dataset.DexGraspNet_NeRF_Grasps_utils import (
     NUM_FINGERS,
 )
 from nerf_grasping.dataset.timers import LoopTimer
+from functools import partial
 
 datetime_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
+# %%
+def is_notebook() -> bool:
+    try:
+        shell = get_ipython().__class__.__name__
+        if shell == "ZMQInteractiveShell":
+            return True  # Jupyter notebook or qtconsole
+        elif shell == "TerminalInteractiveShell":
+            return False  # Terminal running IPython
+        else:
+            return False  # Other type (?)
+    except NameError:
+        return False  # Probably standard Python interpreter
+
+# %%
+if is_notebook():
+    from tqdm.notebook import tqdm as std_tqdm
+else:
+    from tqdm import tqdm as std_tqdm
+
+tqdm = partial(std_tqdm, dynamic_ncols=True)
 
 # %%
 # PARAMS
@@ -68,8 +89,8 @@ OUTPUT_FOLDER = f"{GRASP_DATASET_FOLDER}_learned_metric_dataset"
 OUTPUT_FILENAME = f"{datetime_str}_learned_metric_dataset.h5"
 PLOT_ONLY_ONE = False
 SAVE_DATASET = True
-PRINT_TIMING = False
-LIMIT_NUM_WORKSPACES = 2  # None for no limit
+PRINT_TIMING = True
+LIMIT_NUM_WORKSPACES = None  # None for no limit
 
 # %%
 DEXGRASPNET_MESHDATA_ROOT = os.path.join(DEXGRASPNET_DATA_ROOT, "meshdata")
@@ -111,7 +132,7 @@ if os.path.exists(OUTPUT_FILE_PATH):
 # %%
 
 
-validate_nerf_checkpoints_path(
+validated_nerf_workspaces = get_validated_nerf_workspaces(
     nerf_checkpoints_path=NERF_CHECKPOINTS_PATH,
 )
 
@@ -135,16 +156,16 @@ query_points_finger_frame = get_query_points_finger_frame(
 
 
 # %%
-workspaces = os.listdir(NERF_CHECKPOINTS_PATH)
 if LIMIT_NUM_WORKSPACES is not None:
-    workspaces = workspaces[:LIMIT_NUM_WORKSPACES]
+    print(f"Limiting number of workspaces to {LIMIT_NUM_WORKSPACES}")
+    validated_nerf_workspaces = validated_nerf_workspaces[:LIMIT_NUM_WORKSPACES]
 
 NUM_DATA_POINTS_PER_OBJECT = 500
 NUM_SCALES = 5
 APPROX_NUM_DATA_POINTS_PER_OBJECT_PER_SCALE = NUM_DATA_POINTS_PER_OBJECT // NUM_SCALES
 BUFFER_SCALING = 2
 MAX_NUM_DATA_POINTS = (
-    len(workspaces) * APPROX_NUM_DATA_POINTS_PER_OBJECT_PER_SCALE * BUFFER_SCALING
+    len(validated_nerf_workspaces) * APPROX_NUM_DATA_POINTS_PER_OBJECT_PER_SCALE * BUFFER_SCALING
 )
 print(f"MAX_NUM_DATA_POINTS: {MAX_NUM_DATA_POINTS}")
 
@@ -179,7 +200,7 @@ with h5py.File(OUTPUT_FILE_PATH, "w") as hdf5_file:
 
     # Iterate through all
     loop_timer = LoopTimer()
-    for workspace in tqdm(workspaces, desc="nerf workspaces", dynamic_ncols=True):
+    for workspace in tqdm(validated_nerf_workspaces, desc="nerf workspaces", dynamic_ncols=True):
         with loop_timer.add_section_timer("prepare to read in data"):
             # Prepare to read in data
             workspace_path = os.path.join(NERF_CHECKPOINTS_PATH, workspace)
@@ -334,7 +355,8 @@ with h5py.File(OUTPUT_FILE_PATH, "w") as hdf5_file:
                     )
                     print("-" * 80)
                     print()
+        if PRINT_TIMING:
             loop_timer.pretty_print_section_times()
-            print()
+        print()
 
 # %%

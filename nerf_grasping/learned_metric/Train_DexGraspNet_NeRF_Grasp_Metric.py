@@ -38,7 +38,6 @@ from nerf_grasping.dataset.DexGraspNet_NeRF_Grasps_utils import (
     plot_mesh_and_transforms,
     get_object_code,
     get_object_scale,
-    validate_nerf_checkpoints_path,
     load_nerf,
     NUM_PTS_X,
     NUM_PTS_Y,

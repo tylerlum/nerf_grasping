@@ -28,11 +28,11 @@ def get_object_code(workspace: str) -> str:
     return object_code
 
 
-def validate_nerf_checkpoints_path(nerf_checkpoints_path: str) -> None:
+def get_validated_nerf_workspaces(nerf_checkpoints_path: str) -> List[str]:
     workspaces = os.listdir(nerf_checkpoints_path)
     print(f"Validating {len(workspaces)} workspaces in {nerf_checkpoints_path}")
 
-    num_ok = 0
+    validated_workspaces = []
     for workspace in workspaces:
         path = os.path.join(nerf_checkpoints_path, workspace, "checkpoints")
         if not os.path.exists(path):
@@ -41,11 +41,13 @@ def validate_nerf_checkpoints_path(nerf_checkpoints_path: str) -> None:
 
         num_checkpoints = len(os.listdir(path))
         if num_checkpoints > 0:
-            num_ok += 1
+            validated_workspaces.append(workspace)
         else:
             print(f"no checkpoints in {workspace}")
 
+    num_ok = len(validated_workspaces)
     print(f"num_ok / len(workspaces): {num_ok} / {len(workspaces)}")
+    return validated_workspaces
 
 
 def get_contact_candidates_and_target_candidates(

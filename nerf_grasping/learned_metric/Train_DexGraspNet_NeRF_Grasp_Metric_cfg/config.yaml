@@ -13,7 +13,9 @@ data:
   frac_test: 0.1
   frac_train: ${eval:1 - ${data.frac_val} - ${data.frac_test}}
   input_dataset_root_dir: "2023-07-01_dataset_DESIRED_DIST_TOWARDS_OBJECT_SURFACE_MULTIPLE_STEPS_v2_learned_metric_dataset"
-  input_dataset_path: "2023-07-27_01-25-58_learned_metric_dataset.h5"
+  # input_dataset_path: "2023-07-27_01-25-58_learned_metric_dataset.h5"
+  # input_dataset_path: "2023-07-27_00-44-26_learned_metric_dataset.h5"
+  input_dataset_path: "2023-07-31_02-06-38_learned_metric_dataset.h5"
   max_num_data_points: ${eval:None}
 
 dataloader:

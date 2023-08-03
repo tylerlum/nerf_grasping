@@ -55,6 +55,16 @@ from nerf_grasping.learned_metric.Train_DexGraspNet_NeRF_Grasp_Metric_Config imp
 import os
 import h5py
 from typing import Optional, Tuple, List
+from sklearn.metrics import (
+    ConfusionMatrixDisplay,
+    confusion_matrix,
+    accuracy_score,
+    f1_score,
+    precision_score,
+    recall_score,
+    balanced_accuracy_score,
+)
+
 
 import numpy as np
 import torch
@@ -79,9 +89,7 @@ import shutil
 from wandb.util import generate_id
 
 from enum import Enum, auto
-from nerf_grasping.models.tyler_new_models import (
-    get_scheduler
-)
+from nerf_grasping.models.tyler_new_models import get_scheduler
 
 
 # %%
@@ -700,6 +708,7 @@ def iterate_through_dataloader(
     training_cfg: Optional[TrainingConfig] = None,
     optimizer: Optional[torch.optim.Optimizer] = None,
     lr_scheduler: Optional[torch.optim.lr_scheduler.LRScheduler] = None,
+    gather_predictions: bool = False,
 ) -> None:
     assert phase in [Phase.TRAIN, Phase.VAL, Phase.TEST]
     if phase == Phase.TRAIN:
@@ -712,6 +721,7 @@ def iterate_through_dataloader(
     loop_timer = LoopTimer()
     with torch.set_grad_enabled(phase == Phase.TRAIN):
         losses_dict = defaultdict(list)
+        all_predictions, all_ground_truths = [], []
 
         dataload_section_timer = loop_timer.add_section_timer("Data").start()
         for batch_idx, batch_data in (
@@ -753,12 +763,20 @@ def iterate_through_dataloader(
 
             # Loss logging
             with loop_timer.add_section_timer("Loss"):
-                losses_dict[f"{phase.name.lower()}_loss"].append(total_loss.item())
+                losses_dict["loss"].append(total_loss.item())
+
+            # Gather predictions
+            if gather_predictions:
+                with loop_timer.add_section_timer("Gather"):
+                    predictions = grasp_success_logits.argmax(dim=-1).tolist()
+                    ground_truths = batch_data.grasp_success.tolist()
+                    all_predictions += predictions
+                    all_ground_truths += ground_truths
 
             # Set description
             loss_log_str = (
-                f"loss: {np.mean(losses_dict[f'{phase.name.lower()}_loss']):.5f}"
-                if len(losses_dict[f"{phase.name.lower()}_loss"]) > 0
+                f"loss: {np.mean(losses_dict['loss']):.5f}"
+                if len(losses_dict["loss"]) > 0
                 else "loss: N/A"
             )
             description = " | ".join(
@@ -781,7 +799,16 @@ def iterate_through_dataloader(
         wandb_log_dict[f"{phase.name.lower()}_lr"] = optimizer.param_groups[0]["lr"]
 
     for loss_name, losses in losses_dict.items():
-        wandb_log_dict[loss_name] = np.mean(losses)
+        wandb_log_dict[f"{phase.name.lower()}_{loss_name}"] = np.mean(losses)
+    for name, function in [
+        ("accuracy", accuracy_score),
+        ("precision", precision_score),
+        ("recall", recall_score),
+        ("f1", f1_score),
+    ]:
+        wandb_log_dict[f"{phase.name.lower()}_{name}"] = function(
+            y_true=all_ground_truths, y_pred=all_predictions
+        )
 
     return
 

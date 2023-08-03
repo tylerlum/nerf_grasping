@@ -110,6 +110,17 @@ def is_notebook() -> bool:
 
 
 # %%
+@functools.lru_cache()
+def get_query_points_finger_frame_cached() -> np.ndarray:
+    query_points_finger_frame = get_query_points_finger_frame()
+    assert query_points_finger_frame.shape == (NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z, NUM_XYZ)
+    return query_points_finger_frame
+
+
+# %%
+NUM_XYZ = 3
+
+
 class Phase(Enum):
     TRAIN = auto()
     VAL = auto()
@@ -282,9 +293,6 @@ wandb.init(
 # # Dataset and Dataloader
 
 # %%
-INPUT_EXAMPLE_SHAPE = (NUM_FINGERS, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
-
-
 class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
     # @localscope.mfc  # ValueError: Cell is empty
     def __init__(
@@ -312,7 +320,7 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
                 len(hdf5_file["/grasp_success"].shape) == 1
             ), f"{hdf5_file['/grasp_success'].shape}"
             assert (
-                hdf5_file["/nerf_densities"].shape[1:] == INPUT_EXAMPLE_SHAPE
+                hdf5_file["/nerf_densities"].shape[1:] == (NUM_FINGERS, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
             ), f"{hdf5_file['/nerf_densities'].shape}"
             assert hdf5_file["/grasp_transforms"].shape[1:] == (
                 NUM_FINGERS,
@@ -375,7 +383,6 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
 
     @localscope.mfc(
         allowed=[
-            "INPUT_EXAMPLE_SHAPE",
             "NUM_FINGERS",
         ]
     )
@@ -416,7 +423,7 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
             else self.nerf_workspaces[idx]
         ).decode("utf-8")
 
-        assert nerf_densities.shape == INPUT_EXAMPLE_SHAPE
+        assert nerf_densities.shape == (NUM_FINGERS, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
         assert grasp_success.shape == ()
         assert grasp_transforms.shape == (NUM_FINGERS, 4, 4)
 
@@ -478,6 +485,77 @@ class BatchData:
         #       = probability of collision within this segment starting from beginning of segment
         DELTA = DIST_BTWN_PTS_MM / 1000
         return 1.0 - torch.exp(-DELTA * self.nerf_densities)
+
+    # @localscope.mfc(allowed=["NUM_FINGERS"])
+    @property
+    def coords(self) -> torch.Tensor:
+        # TODO: Change this to not be np and be vectorized
+        query_points_finger_frame = get_query_points_finger_frame_cached()
+        all_query_points_object_frame = []
+        for i in range(self.batch_size):
+            transforms = self.grasp_transforms[i]
+            query_points_object_frame = torch.stack(
+                [
+                    torch.from_numpy(
+                        get_transformed_points(
+                            points=query_points_finger_frame,
+                            transform=transforms[finger_idx].cpu().numpy(),
+                        )
+                    )
+                    for finger_idx in range(NUM_FINGERS)
+                ],
+                dim=0,
+            )
+            all_query_points_object_frame.append(query_points_object_frame)
+        all_query_points_object_frame = torch.stack(all_query_points_object_frame, dim=0).float().to(self.device)
+        assert all_query_points_object_frame.shape == (
+            self.batch_size,
+            NUM_FINGERS,
+            NUM_PTS_X * NUM_PTS_Y * NUM_PTS_Z,
+            NUM_XYZ,
+        )
+        all_query_points_object_frame = all_query_points_object_frame.reshape(
+            self.batch_size, NUM_FINGERS, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z, NUM_XYZ
+        )
+        all_query_points_object_frame = all_query_points_object_frame.permute(
+            0, 1, 5, 2, 3, 4
+        )
+        assert all_query_points_object_frame.shape == (
+            self.batch_size,
+            NUM_FINGERS,
+            NUM_XYZ,
+            NUM_PTS_X,
+            NUM_PTS_Y,
+            NUM_PTS_Z,
+        )
+        return all_query_points_object_frame
+
+    @property
+    def nerf_alphas_with_coords(self) -> torch.Tensor:
+        return_value = torch.cat(
+            [
+                self.nerf_alphas.reshape(self.batch_size, NUM_FINGERS, NUM_XYZ + 1, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z),
+                self.coords,
+            ],
+            dim=1,
+        )
+        assert return_value.shape == (
+            self.batch_size,
+            NUM_FINGERS + 1,
+            NUM_PTS_X,
+            NUM_PTS_Y,
+            NUM_PTS_Z,
+            NUM_XYZ,
+        )
+        return return_value
+
+    @property
+    def batch_size(self) -> int:
+        return self.grasp_success.shape[0]
+
+    @property
+    def device(self) -> torch.device:
+        return self.grasp_success.device
 
 
 @localscope.mfc
@@ -541,7 +619,7 @@ print_shapes(batch_data=EXAMPLE_BATCH_DATA)
 # %%
 
 
-@localscope.mfc(allowed=["NUM_FINGERS", "INPUT_EXAMPLE_SHAPE"])
+@localscope.mfc(allowed=["NUM_FINGERS"])
 def plot_example(batch_data: BatchData, idx_to_visualize: int = 0) -> go.Figure:
     # Extract data
     grasp_transforms = batch_data.grasp_transforms[idx_to_visualize]
@@ -549,7 +627,7 @@ def plot_example(batch_data: BatchData, idx_to_visualize: int = 0) -> go.Figure:
     grasp_success = batch_data.grasp_success[idx_to_visualize].item()
 
     assert grasp_transforms.shape == (NUM_FINGERS, 4, 4)
-    assert colors.shape == INPUT_EXAMPLE_SHAPE
+    assert colors.shape == (NUM_FINGERS, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
     assert grasp_success in [0, 1]
 
     _, nerf_workspace = os.path.split(batch_data.nerf_workspace[idx_to_visualize])
@@ -571,8 +649,9 @@ def plot_example(batch_data: BatchData, idx_to_visualize: int = 0) -> go.Figure:
     mesh.apply_transform(trimesh.transformations.scale_matrix(object_scale))
 
     # Get query points from grasp_transforms
-    NUM_XYZ = 3
-    query_points_finger_frame = get_query_points_finger_frame().reshape(-1, NUM_XYZ)
+    query_points_finger_frame = get_query_points_finger_frame_cached().reshape(
+        -1, NUM_XYZ
+    )
     query_points_object_frame = [
         get_transformed_points(
             points=query_points_finger_frame,

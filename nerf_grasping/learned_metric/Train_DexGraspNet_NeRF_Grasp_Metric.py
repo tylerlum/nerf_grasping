@@ -110,14 +110,6 @@ def is_notebook() -> bool:
 
 
 # %%
-@functools.lru_cache()
-def get_query_points_finger_frame_cached() -> np.ndarray:
-    query_points_finger_frame = get_query_points_finger_frame()
-    assert query_points_finger_frame.shape == (NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z, NUM_XYZ)
-    return query_points_finger_frame
-
-
-# %%
 NUM_XYZ = 3
 
 
@@ -126,6 +118,13 @@ class Phase(Enum):
     VAL = auto()
     TEST = auto()
 
+
+# %%
+@functools.lru_cache()
+def get_query_points_finger_frame_cached() -> np.ndarray:
+    query_points_finger_frame = get_query_points_finger_frame()
+    assert query_points_finger_frame.shape == (NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z, NUM_XYZ)
+    return query_points_finger_frame
 
 # %%
 if is_notebook():
@@ -490,7 +489,7 @@ class BatchData:
     @property
     def coords(self) -> torch.Tensor:
         # TODO: Change this to not be np and be vectorized
-        query_points_finger_frame = get_query_points_finger_frame_cached()
+        query_points_finger_frame = get_query_points_finger_frame_cached().reshape(-1, NUM_XYZ)
         all_query_points_object_frame = []
         for i in range(self.batch_size):
             transforms = self.grasp_transforms[i]
@@ -532,20 +531,21 @@ class BatchData:
 
     @property
     def nerf_alphas_with_coords(self) -> torch.Tensor:
+        reshaped_nerf_alphas = self.nerf_alphas.reshape(self.batch_size, NUM_FINGERS, 1, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
         return_value = torch.cat(
             [
-                self.nerf_alphas.reshape(self.batch_size, NUM_FINGERS, NUM_XYZ + 1, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z),
+                reshaped_nerf_alphas,
                 self.coords,
             ],
-            dim=1,
+            dim=2,
         )
         assert return_value.shape == (
             self.batch_size,
-            NUM_FINGERS + 1,
+            NUM_FINGERS,
+            NUM_XYZ + 1,
             NUM_PTS_X,
             NUM_PTS_Y,
             NUM_PTS_Z,
-            NUM_XYZ,
         )
         return return_value
 
@@ -607,6 +607,8 @@ def print_shapes(batch_data: BatchData) -> None:
     print(f"grasp_success.shape: {batch_data.grasp_success.shape}")
     print(f"grasp_transforms.shape: {batch_data.grasp_transforms.shape}")
     print(f"len(nerf_workspace): {len(batch_data.nerf_workspace)}")
+    print(f"coords.shape = {batch_data.coords.shape}")
+    print(f"nerf_alphas_with_coords.shape = {batch_data.nerf_alphas_with_coords.shape}")
 
 
 EXAMPLE_BATCH_DATA = next(iter(val_loader))
@@ -619,7 +621,7 @@ print_shapes(batch_data=EXAMPLE_BATCH_DATA)
 # %%
 
 
-@localscope.mfc(allowed=["NUM_FINGERS"])
+@localscope.mfc(allowed=["NUM_FINGERS", "NUM_PTS_X", "NUM_PTS_Y", "NUM_PTS_Z", "NUM_XYZ"])
 def plot_example(batch_data: BatchData, idx_to_visualize: int = 0) -> go.Figure:
     # Extract data
     grasp_transforms = batch_data.grasp_transforms[idx_to_visualize]
@@ -649,22 +651,32 @@ def plot_example(batch_data: BatchData, idx_to_visualize: int = 0) -> go.Figure:
     mesh.apply_transform(trimesh.transformations.scale_matrix(object_scale))
 
     # Get query points from grasp_transforms
-    query_points_finger_frame = get_query_points_finger_frame_cached().reshape(
-        -1, NUM_XYZ
+    query_points_list = batch_data.coords[idx_to_visualize]
+    assert query_points_list.shape == (
+        NUM_FINGERS,
+        NUM_XYZ,
+        NUM_PTS_X,
+        NUM_PTS_Y,
+        NUM_PTS_Z,
     )
-    query_points_object_frame = [
-        get_transformed_points(
-            points=query_points_finger_frame,
-            transform=grasp_transforms[finger_idx],
-        )
+    query_points_list = query_points_list.permute((0, 2, 3, 4, 1))
+    assert query_points_list.shape == (
+        NUM_FINGERS,
+        NUM_PTS_X,
+        NUM_PTS_Y,
+        NUM_PTS_Z,
+        NUM_XYZ,
+    )
+    query_points_list = [
+        query_points_list[finger_idx].reshape(-1, NUM_XYZ).cpu().numpy()
         for finger_idx in range(NUM_FINGERS)
     ]
     query_point_colors_list = [
-        colors[finger_idx].reshape(-1) for finger_idx in range(NUM_FINGERS)
+        colors[finger_idx].reshape(-1).cpu().numpy() for finger_idx in range(NUM_FINGERS)
     ]
     fig = plot_mesh_and_query_points(
         mesh=mesh,
-        query_points_list=query_points_object_frame,
+        query_points_list=query_points_list,
         query_points_colors_list=query_point_colors_list,
         num_fingers=NUM_FINGERS,
     )

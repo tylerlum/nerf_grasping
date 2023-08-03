@@ -551,7 +551,7 @@ class CNN_3D_Classifier(nn.Module):
 
         self.conv = conv_encoder(
             input_shape=self.input_shape,
-            conv_channels=[32, 64, 128, 256],
+            conv_channels=[32, 64, 128],
             pool_type=PoolType.MAX,
             dropout_prob=0.1,
             conv_output_to_1d=ConvOutputTo1D.AVG_POOL_SPATIAL,
@@ -575,7 +575,7 @@ class CNN_3D_Classifier(nn.Module):
         self.mlp = mlp(
             num_inputs=self.conv_output_dim * self.n_fingers,
             num_outputs=self.n_classes,
-            hidden_layers=[256, 256, 256],
+            hidden_layers=[256, 256],
         )
 
     @localscope.mfc

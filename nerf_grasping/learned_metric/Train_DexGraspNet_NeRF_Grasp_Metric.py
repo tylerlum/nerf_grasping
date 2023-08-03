@@ -798,17 +798,29 @@ def iterate_through_dataloader(
     if optimizer is not None:
         wandb_log_dict[f"{phase.name.lower()}_lr"] = optimizer.param_groups[0]["lr"]
 
-    for loss_name, losses in losses_dict.items():
-        wandb_log_dict[f"{phase.name.lower()}_{loss_name}"] = np.mean(losses)
-    for name, function in [
-        ("accuracy", accuracy_score),
-        ("precision", precision_score),
-        ("recall", recall_score),
-        ("f1", f1_score),
-    ]:
-        wandb_log_dict[f"{phase.name.lower()}_{name}"] = function(
-            y_true=all_ground_truths, y_pred=all_predictions
-        )
+    with loop_timer.add_section_timer("Agg Loss"):
+        for loss_name, losses in losses_dict.items():
+            wandb_log_dict[f"{phase.name.lower()}_{loss_name}"] = np.mean(losses)
+
+    with loop_timer.add_section_timer("Metrics"):
+        if len(all_ground_truths) > 0 and len(all_predictions) > 0:
+            for name, function in [
+                ("accuracy", accuracy_score),
+                ("precision", precision_score),
+                ("recall", recall_score),
+                ("f1", f1_score),
+            ]:
+                wandb_log_dict[f"{phase.name.lower()}_{name}"] = function(
+                    y_true=all_ground_truths, y_pred=all_predictions
+                )
+    with loop_timer.add_section_timer("Confusion Matrix"):
+        if len(all_ground_truths) > 0 and len(all_predictions) > 0:
+            wandb_log_dict[f"{phase.name.lower()}_confusion_matrix"] = wandb.plot.confusion_matrix(
+                preds=all_predictions,
+                y_true=all_ground_truths,
+                class_names=["failure", "success"],
+                title=f"{phase.name.title()} Confusion Matrix",
+            )
 
     return
 

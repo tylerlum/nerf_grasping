@@ -19,6 +19,7 @@
 
 # %%
 from __future__ import annotations
+import trimesh
 import time
 from collections import defaultdict
 import functools
@@ -520,14 +521,82 @@ test_loader = DataLoader(
     collate_fn=custom_collate_fn,
 )
 
+
 # %%
-for batch_data in train_loader:
-    batch_data: BatchData = batch_data
+@localscope.mfc
+def print_shapes(batch_data: BatchData) -> None:
     print(f"nerf_alphas.shape: {batch_data.nerf_alphas.shape}")
     print(f"grasp_success.shape: {batch_data.grasp_success.shape}")
     print(f"grasp_transforms.shape: {batch_data.grasp_transforms.shape}")
     print(f"len(nerf_workspace): {len(batch_data.nerf_workspace)}")
-    break
+
+
+EXAMPLE_BATCH_DATA = next(iter(val_loader))
+print_shapes(batch_data=EXAMPLE_BATCH_DATA)
+
+# %% [markdown]
+# # Visualize Data
+
+
+# %%
+
+
+@localscope.mfc(allowed=["NUM_FINGERS", "INPUT_EXAMPLE_SHAPE"])
+def plot_example(batch_data: BatchData, idx_to_visualize: int = 0) -> go.Figure:
+    # Extract data
+    grasp_transforms = batch_data.grasp_transforms[idx_to_visualize]
+    nerf_densities = batch_data.nerf_densities[idx_to_visualize]
+    grasp_success = batch_data.grasp_success[idx_to_visualize].item()
+
+    assert grasp_transforms.shape == (NUM_FINGERS, 4, 4)
+    assert nerf_densities.shape == INPUT_EXAMPLE_SHAPE
+    assert grasp_success in [0, 1]
+
+    _, nerf_workspace = os.path.split(batch_data.nerf_workspace[idx_to_visualize])
+    object_code = get_object_code(nerf_workspace)
+    object_scale = get_object_scale(nerf_workspace)
+
+    # Path to meshes
+    DEXGRASPNET_DATA_ROOT = "/juno/u/tylerlum/github_repos/DexGraspNet/data"
+    DEXGRASPNET_MESHDATA_ROOT = os.path.join(DEXGRASPNET_DATA_ROOT, "meshdata")
+    mesh_path = os.path.join(
+        DEXGRASPNET_MESHDATA_ROOT,
+        object_code,
+        "coacd",
+        "decomposed.obj",
+    )
+
+    print(f"Loading mesh from {mesh_path}...")
+    mesh = trimesh.load(mesh_path, force="mesh")
+    mesh.apply_transform(trimesh.transformations.scale_matrix(object_scale))
+
+    # Get query points from grasp_transforms
+    NUM_XYZ = 3
+    query_points_finger_frame = get_query_points_finger_frame().reshape(-1, NUM_XYZ)
+    query_points_object_frame = [
+        get_transformed_points(
+            points=query_points_finger_frame,
+            transform=grasp_transforms[finger_idx],
+        )
+        for finger_idx in range(NUM_FINGERS)
+    ]
+    query_point_colors_list = [
+        nerf_densities[finger_idx].reshape(-1) for finger_idx in range(NUM_FINGERS)
+    ]
+    fig = plot_mesh_and_query_points(
+        mesh=mesh,
+        query_points_list=query_points_object_frame,
+        query_points_colors_list=query_point_colors_list,
+        num_fingers=NUM_FINGERS,
+    )
+    # Set title to grasp_success
+    fig.update_layout(title_text=f"grasp_success = {grasp_success}")
+    return fig
+
+
+fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=1)
+fig.show()
+
 
 # %% [markdown]
 # # Create Neural Network Model
@@ -699,7 +768,7 @@ except Exception as e:
     print(f"Exception: {e}")
     print("Skipping make_dot")
 
-SHOW_DOT = True
+SHOW_DOT = False
 if SHOW_DOT:
     dot
 

@@ -127,31 +127,13 @@ if os.path.exists(OUTPUT_FILE_PATH):
 
 
 # %%
-
-
-# %%
-
-
 validated_nerf_workspaces = get_validated_nerf_workspaces(
     nerf_checkpoints_path=NERF_CHECKPOINTS_PATH,
 )
 
 
 # %%
-# Get contact candidates and target contact candidates
-
-
-query_points_finger_frame = get_query_points_finger_frame(
-    num_pts_x=NUM_PTS_X,
-    num_pts_y=NUM_PTS_Y,
-    num_pts_z=NUM_PTS_Z,
-    grasp_depth_mm=GRASP_DEPTH_MM,
-    finger_width_mm=FINGER_WIDTH_MM,
-    finger_height_mm=FINGER_HEIGHT_MM,
-)
-
-
-# %%
+query_points_finger_frame = get_query_points_finger_frame()
 
 
 
@@ -242,17 +224,6 @@ with h5py.File(OUTPUT_FILE_PATH, "w") as hdf5_file:
                 for grasp_data in full_grasp_data_list
                 if math.isclose(grasp_data["scale"], object_scale, rel_tol=1e-3)
             ]
-
-        # Store query points in finger frame (before transform)
-        with loop_timer.add_section_timer("get_query_points_finger_frame"):
-            query_points_finger_frame = get_query_points_finger_frame(
-                num_pts_x=NUM_PTS_X,
-                num_pts_y=NUM_PTS_Y,
-                num_pts_z=NUM_PTS_Z,
-                grasp_depth_mm=GRASP_DEPTH_MM,
-                finger_width_mm=FINGER_WIDTH_MM,
-                finger_height_mm=FINGER_HEIGHT_MM,
-            )
 
         for grasp_idx, grasp_data in (pbar := tqdm(
             enumerate(correct_scale_grasp_data_list),

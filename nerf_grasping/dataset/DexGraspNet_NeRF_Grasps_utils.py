@@ -294,7 +294,7 @@ NUM_PTS_Z = int(GRASP_DEPTH_MM / DIST_BTWN_PTS_MM) + 1
 
 NUM_FINGERS = 4
 
-def get_query_points_finger_frame(
+def get_query_points_finger_frame_helper(
     num_pts_x: int,
     num_pts_y: int,
     num_pts_z: int,
@@ -329,6 +329,16 @@ def get_query_points_finger_frame(
     ), f"{grid_of_points.shape}"
     return grid_of_points
 
+def get_query_points_finger_frame() -> np.ndarray:
+    query_points_finger_frame = get_query_points_finger_frame_helper(
+        num_pts_x=NUM_PTS_X,
+        num_pts_y=NUM_PTS_Y,
+        num_pts_z=NUM_PTS_Z,
+        grasp_depth_mm=GRASP_DEPTH_MM,
+        finger_width_mm=FINGER_WIDTH_MM,
+        finger_height_mm=FINGER_HEIGHT_MM,
+    )
+    return query_points_finger_frame
 
 def get_transformed_points(points: np.ndarray, transform: np.ndarray) -> np.ndarray:
     n_points = points.shape[0]

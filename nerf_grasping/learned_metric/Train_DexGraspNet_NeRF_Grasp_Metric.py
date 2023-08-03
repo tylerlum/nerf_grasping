@@ -545,11 +545,11 @@ print_shapes(batch_data=EXAMPLE_BATCH_DATA)
 def plot_example(batch_data: BatchData, idx_to_visualize: int = 0) -> go.Figure:
     # Extract data
     grasp_transforms = batch_data.grasp_transforms[idx_to_visualize]
-    nerf_densities = batch_data.nerf_densities[idx_to_visualize]
+    colors = batch_data.nerf_alphas[idx_to_visualize]
     grasp_success = batch_data.grasp_success[idx_to_visualize].item()
 
     assert grasp_transforms.shape == (NUM_FINGERS, 4, 4)
-    assert nerf_densities.shape == INPUT_EXAMPLE_SHAPE
+    assert colors.shape == INPUT_EXAMPLE_SHAPE
     assert grasp_success in [0, 1]
 
     _, nerf_workspace = os.path.split(batch_data.nerf_workspace[idx_to_visualize])
@@ -581,7 +581,7 @@ def plot_example(batch_data: BatchData, idx_to_visualize: int = 0) -> go.Figure:
         for finger_idx in range(NUM_FINGERS)
     ]
     query_point_colors_list = [
-        nerf_densities[finger_idx].reshape(-1) for finger_idx in range(NUM_FINGERS)
+        colors[finger_idx].reshape(-1) for finger_idx in range(NUM_FINGERS)
     ]
     fig = plot_mesh_and_query_points(
         mesh=mesh,

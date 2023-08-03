@@ -708,7 +708,6 @@ def iterate_through_dataloader(
     training_cfg: Optional[TrainingConfig] = None,
     optimizer: Optional[torch.optim.Optimizer] = None,
     lr_scheduler: Optional[torch.optim.lr_scheduler.LRScheduler] = None,
-    gather_predictions: bool = False,
 ) -> None:
     assert phase in [Phase.TRAIN, Phase.VAL, Phase.TEST]
     if phase == Phase.TRAIN:
@@ -766,12 +765,11 @@ def iterate_through_dataloader(
                 losses_dict["loss"].append(total_loss.item())
 
             # Gather predictions
-            if gather_predictions:
-                with loop_timer.add_section_timer("Gather"):
-                    predictions = grasp_success_logits.argmax(dim=-1).tolist()
-                    ground_truths = batch_data.grasp_success.tolist()
-                    all_predictions += predictions
-                    all_ground_truths += ground_truths
+            with loop_timer.add_section_timer("Gather"):
+                predictions = grasp_success_logits.argmax(dim=-1).tolist()
+                ground_truths = batch_data.grasp_success.tolist()
+                all_predictions += predictions
+                all_ground_truths += ground_truths
 
             # Set description
             loss_log_str = (
@@ -790,10 +788,6 @@ def iterate_through_dataloader(
             if batch_idx < len(dataloader) - 1:
                 # Avoid starting timer at end of last batch
                 dataload_section_timer = loop_timer.add_section_timer("Data").start()
-
-    loop_timer.pretty_print_section_times()
-    print()
-    print()
 
     if optimizer is not None:
         wandb_log_dict[f"{phase.name.lower()}_lr"] = optimizer.param_groups[0]["lr"]
@@ -821,6 +815,10 @@ def iterate_through_dataloader(
                 class_names=["failure", "success"],
                 title=f"{phase.name.title()} Confusion Matrix",
             )
+
+    loop_timer.pretty_print_section_times()
+    print()
+    print()
 
     return
 

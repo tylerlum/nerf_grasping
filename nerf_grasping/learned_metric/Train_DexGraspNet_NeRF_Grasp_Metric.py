@@ -25,6 +25,8 @@ import functools
 from localscope import localscope
 import nerf_grasping
 from dataclasses import dataclass
+from torchinfo import summary
+from torchviz import make_dot
 from nerf_grasping.dataset.DexGraspNet_NeRF_Grasps_utils import (
     DIST_BTWN_PTS_MM,
     get_query_points_finger_frame,
@@ -665,6 +667,42 @@ print(f"nerf_to_grasp_success_model = {nerf_to_grasp_success_model}")
 print(f"optimizer = {optimizer}")
 print(f"lr_scheduler = {lr_scheduler}")
 
+# %%
+summary(
+    model=nerf_to_grasp_success_model,
+    input_size=(cfg.dataloader.batch_size, *INPUT_EXAMPLE_SHAPE),
+    device=device,
+)
+
+# %%
+example_input = (
+    torch.zeros((cfg.dataloader.batch_size, *INPUT_EXAMPLE_SHAPE))
+    .to(device)
+    .requires_grad_(True)
+)
+example_output = nerf_to_grasp_success_model(example_input)
+try:
+    dot = make_dot(
+        example_output,
+        params={
+            **dict(nerf_to_grasp_success_model.named_parameters()),
+            **{"NERF_INPUT": example_input},
+            **{"GRASP_SUCCESS": example_output},
+        },
+    )
+    model_graph_filename = "model_graph.png"
+    model_graph_filename_no_ext, model_graph_file_ext = model_graph_filename.split(".")
+    print(f"Saving to {model_graph_filename}...")
+    dot.render(model_graph_filename_no_ext, format=model_graph_file_ext)
+    print(f"Done saving to {model_graph_filename}")
+except Exception as e:
+    print(f"Exception: {e}")
+    print("Skipping make_dot")
+
+SHOW_DOT = True
+if SHOW_DOT:
+    dot
+
 # %% [markdown]
 # # Training Setup
 
@@ -809,7 +847,9 @@ def iterate_through_dataloader(
                 )
     with loop_timer.add_section_timer("Confusion Matrix"):
         if len(all_ground_truths) > 0 and len(all_predictions) > 0:
-            wandb_log_dict[f"{phase.name.lower()}_confusion_matrix"] = wandb.plot.confusion_matrix(
+            wandb_log_dict[
+                f"{phase.name.lower()}_confusion_matrix"
+            ] = wandb.plot.confusion_matrix(
                 preds=all_predictions,
                 y_true=all_ground_truths,
                 class_names=["failure", "success"],

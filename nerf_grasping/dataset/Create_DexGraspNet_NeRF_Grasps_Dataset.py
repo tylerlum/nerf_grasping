@@ -42,7 +42,7 @@ from nerf_grasping.dataset.DexGraspNet_NeRF_Grasps_utils import (
     plot_mesh_and_transforms,
     get_object_code,
     get_object_scale,
-    get_validated_nerf_workspaces,
+    nerf_configs,
     load_nerf,
     NUM_PTS_X,
     NUM_PTS_Y,
@@ -90,7 +90,7 @@ OUTPUT_FILENAME = f"{datetime_str}_learned_metric_dataset.h5"
 PLOT_ONLY_ONE = False
 SAVE_DATASET = True
 PRINT_TIMING = True
-LIMIT_NUM_WORKSPACES = None  # None for no limit
+LIMIT_NUM_CONFIGS = None  # None for no limit
 
 # %%
 DEXGRASPNET_MESHDATA_ROOT = os.path.join(DEXGRASPNET_DATA_ROOT, "meshdata")
@@ -125,7 +125,7 @@ if os.path.exists(OUTPUT_FILE_PATH):
 
 
 # %%
-validated_nerf_workspaces = get_validated_nerf_workspaces(
+nerf_configs = get_nerf_configs(
     nerf_checkpoints_path=NERF_CHECKPOINTS_PATH,
 )
 
@@ -136,16 +136,16 @@ query_points_finger_frame = get_query_points_finger_frame()
 
 
 # %%
-if LIMIT_NUM_WORKSPACES is not None:
-    print(f"Limiting number of workspaces to {LIMIT_NUM_WORKSPACES}")
-    validated_nerf_workspaces = validated_nerf_workspaces[:LIMIT_NUM_WORKSPACES]
+if LIMIT_NUM_CONFIGS is not None:
+    print(f"Limiting number of configs to {LIMIT_NUM_CONFIGS}")
+    nerf_configs = nerf_configs[:LIMIT_NUM_CONFIGS]
 
 NUM_DATA_POINTS_PER_OBJECT = 500
 NUM_SCALES = 5
 APPROX_NUM_DATA_POINTS_PER_OBJECT_PER_SCALE = NUM_DATA_POINTS_PER_OBJECT // NUM_SCALES
 BUFFER_SCALING = 2
 MAX_NUM_DATA_POINTS = (
-    len(validated_nerf_workspaces) * APPROX_NUM_DATA_POINTS_PER_OBJECT_PER_SCALE * BUFFER_SCALING
+    len(nerf_configs) * APPROX_NUM_DATA_POINTS_PER_OBJECT_PER_SCALE * BUFFER_SCALING
 )
 print(f"MAX_NUM_DATA_POINTS: {MAX_NUM_DATA_POINTS}")
 
@@ -162,8 +162,8 @@ with h5py.File(OUTPUT_FILE_PATH, "w") as hdf5_file:
     grasp_success_dataset = hdf5_file.create_dataset(
         "/grasp_success", shape=(MAX_NUM_DATA_POINTS,), dtype="i"
     )
-    nerf_workspace_dataset = hdf5_file.create_dataset(
-        "/nerf_workspace", shape=(MAX_NUM_DATA_POINTS,), dtype=h5py.string_dtype()
+    nerf_config_dataset = hdf5_file.create_dataset(
+        "/nerf_config", shape=(MAX_NUM_DATA_POINTS,), dtype=h5py.string_dtype()
     )
     object_code_dataset = hdf5_file.create_dataset(
         "/object_code", shape=(MAX_NUM_DATA_POINTS,), dtype=h5py.string_dtype()
@@ -180,12 +180,12 @@ with h5py.File(OUTPUT_FILE_PATH, "w") as hdf5_file:
 
     # Iterate through all
     loop_timer = LoopTimer()
-    for workspace in tqdm(validated_nerf_workspaces, desc="nerf workspaces", dynamic_ncols=True):
+    for config in tqdm(nerf_configs, desc="nerf configs", dynamic_ncols=True):
         with loop_timer.add_section_timer("prepare to read in data"):
             # Prepare to read in data
-            workspace_path = os.path.join(NERF_CHECKPOINTS_PATH, workspace)
-            object_code = get_object_code(workspace)
-            object_scale = get_object_scale(workspace)
+
+            object_code = get_object_code(config)
+            object_scale = get_object_scale(config)
             mesh_path = os.path.join(
                 DEXGRASPNET_MESHDATA_ROOT,
                 object_code,
@@ -205,11 +205,7 @@ with h5py.File(OUTPUT_FILE_PATH, "w") as hdf5_file:
 
         # Read in data
         with loop_timer.add_section_timer("load_nerf"):
-            nerf_model = load_nerf(
-                path_to_workspace=workspace_path,
-                bound=TORCH_NGP_BOUND,
-                scale=TORCH_NGP_SCALE,
-            )
+            nerf_model = load_nerf(config)
 
         with loop_timer.add_section_timer("load mesh"):
             mesh = trimesh.load(mesh_path, force="mesh")
@@ -304,7 +300,7 @@ with h5py.File(OUTPUT_FILE_PATH, "w") as hdf5_file:
                         )
                         nerf_densities_dataset[current_idx] = nerf_densities
                         grasp_success_dataset[current_idx] = grasp_data["valid"]
-                        nerf_workspace_dataset[current_idx] = workspace_path
+                        nerf_config_dataset[current_idx] = str(config)
                         object_code_dataset[current_idx] = object_code
                         object_scale_dataset[current_idx] = object_scale
                         grasp_idx_dataset[current_idx] = grasp_idx
@@ -320,7 +316,7 @@ with h5py.File(OUTPUT_FILE_PATH, "w") as hdf5_file:
                     print()
                     print("-" * 80)
                     print(
-                        f"WARNING: Found {np.isnan(nerf_densities).sum()} nans in grasp {grasp_idx} of {workspace_path}"
+                        f"WARNING: Found {np.isnan(nerf_densities).sum()} nans in grasp {grasp_idx} of {config}"
                     )
                     print("-" * 80)
                     print()

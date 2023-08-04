@@ -383,6 +383,9 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
     @localscope.mfc(
         allowed=[
             "NUM_FINGERS",
+            "NUM_PTS_X",
+            "NUM_PTS_Y",
+            "NUM_PTS_Z",
         ]
     )
     def __getitem__(
@@ -685,9 +688,32 @@ def plot_example(batch_data: BatchData, idx_to_visualize: int = 0) -> go.Figure:
     return fig
 
 
-fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=1)
+fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=15)
 fig.show()
 
+# Try augment dataset with random rotation 
+# HOw do they feed into network?
+# Finger boxes (local)
+# Finger box location (global)
+
+# %%
+EXAMPLE_BATCH_DATA.grasp_success
+
+# %%
+fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=14)
+fig.show()
+
+# %%
+fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=17)
+fig.show()
+
+# %%
+fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=18)
+fig.show()
+
+# %%
+fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=19)
+fig.show()
 
 # %% [markdown]
 # # Create Neural Network Model
@@ -704,12 +730,11 @@ from nerf_grasping.models.tyler_new_models import (
 
 class CNN_3D_Classifier(nn.Module):
     # @localscope.mfc
-    def __init__(self, input_example_shape: Tuple[int, int, int, int]) -> None:
+    def __init__(self, input_shape: Tuple[int, int, int, int], n_fingers) -> None:
         # TODO: Make this not hardcoded
         super().__init__()
-        self.grid_input_example_shape = input_example_shape[1:]
-        self.n_fingers = input_example_shape[0]
-        self.input_shape = (1, *self.grid_input_example_shape)
+        self.input_shape = input_shape
+        self.n_fingers = n_fingers
 
         self.conv = conv_encoder(
             input_shape=self.input_shape,
@@ -725,7 +750,7 @@ class CNN_3D_Classifier(nn.Module):
             example_batch_size, self.n_fingers, *self.input_shape
         )
         example_input = example_input.reshape(
-            example_batch_size * self.n_fingers, 1, *self.grid_input_example_shape
+            example_batch_size * self.n_fingers, *self.input_shape
         )
         conv_output = self.conv(example_input)
         self.conv_output_dim = conv_output.shape[-1]
@@ -746,15 +771,11 @@ class CNN_3D_Classifier(nn.Module):
         assert x.shape == (
             batch_size,
             self.n_fingers,
-            *self.grid_input_example_shape,
+            *self.input_shape,
         ), f"{x.shape}"
 
         # Put n_fingers into batch dim
-        x = x.reshape(batch_size * self.n_fingers, 1, *self.grid_input_example_shape)
-        assert x.shape == (
-            batch_size * self.n_fingers,
-            *self.input_shape,
-        ), f"{x.shape} != {(batch_size, *self.input_shape)}"
+        x = x.reshape(batch_size * self.n_fingers, *self.input_shape)
 
         x = self.conv(x)
         assert x.shape == (
@@ -783,8 +804,10 @@ class CNN_3D_Classifier(nn.Module):
 
 # %%
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+INPUT_SHAPE = (NUM_XYZ + 1, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
 nerf_to_grasp_success_model = CNN_3D_Classifier(
-    input_example_shape=INPUT_EXAMPLE_SHAPE
+    input_shape=INPUT_SHAPE,
+    n_fingers=NUM_FINGERS,
 ).to(device)
 
 # %%
@@ -830,13 +853,13 @@ print(f"lr_scheduler = {lr_scheduler}")
 # %%
 summary(
     model=nerf_to_grasp_success_model,
-    input_size=(cfg.dataloader.batch_size, *INPUT_EXAMPLE_SHAPE),
+    input_size=(cfg.dataloader.batch_size, NUM_FINGERS, *INPUT_SHAPE),
     device=device,
 )
 
 # %%
 example_input = (
-    torch.zeros((cfg.dataloader.batch_size, *INPUT_EXAMPLE_SHAPE))
+    torch.zeros((cfg.dataloader.batch_size, NUM_FINGERS, *INPUT_SHAPE))
     .to(device)
     .requires_grad_(True)
 )
@@ -932,7 +955,7 @@ def iterate_through_dataloader(
             # Forward pass
             with loop_timer.add_section_timer("Fwd"):
                 grasp_success_logits = nerf_to_grasp_success_model.get_success_logits(
-                    batch_data.nerf_alphas
+                    batch_data.nerf_alphas_with_coords
                 )
                 ce_loss = ce_loss_fn(
                     input=grasp_success_logits, target=batch_data.grasp_success

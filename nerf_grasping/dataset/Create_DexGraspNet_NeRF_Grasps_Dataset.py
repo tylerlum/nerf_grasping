@@ -84,7 +84,7 @@ DEXGRASPNET_DATA_ROOT = "/juno/u/tylerlum/github_repos/DexGraspNet/data"
 GRASP_DATASET_FOLDER = (
     "2023-07-01_dataset_DESIRED_DIST_TOWARDS_OBJECT_SURFACE_MULTIPLE_STEPS_v2"
 )
-NERF_CHECKPOINTS_FOLDER = "2023-07-25_nerf_checkpoints"
+NERF_CHECKPOINTS_FOLDER = "nerfcheckpoints"
 OUTPUT_FOLDER = f"{GRASP_DATASET_FOLDER}_learned_metric_dataset"
 OUTPUT_FILENAME = f"{datetime_str}_learned_metric_dataset.h5"
 PLOT_ONLY_ONE = False
@@ -109,8 +109,6 @@ OUTPUT_FILE_PATH = os.path.join(
     OUTPUT_FOLDER_PATH,
     OUTPUT_FILENAME,
 )
-TORCH_NGP_BOUND = 2.0  # Copied from nerf collection script
-TORCH_NGP_SCALE = 1.0  # Copied from nerf collection script
 
 
 # %%

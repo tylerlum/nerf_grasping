@@ -3,53 +3,37 @@ from typing import Any, Dict, List, Tuple
 import numpy as np
 import torch
 import trimesh
+import pathlib
 import plotly.graph_objects as go
 import nerf_grasping
-from nerf import utils
+import nerfstudio
+from nerfstudio.utils import eval_utils
 
+def get_object_string(cfg_path: pathlib.Path) -> str:
+    assert "_0_" in str(cfg_path), f"_0_ not in {cfg_path}"
+    return [ss for ss in cfg_path.parts if "_0_" in ss][0]
 
-def get_object_scale(workspace: str) -> float:
+def get_object_scale(cfg_path: pathlib.Path) -> float:
     # BRITTLE
     # Assumes "_0_" only shows up once at the end
     # eg. sem-VideoGameConsole-49ba4f628a955bf03742135a31826a22_0_06
-    assert "_0_" in workspace, f"_0_ not in {workspace}"
-    idx = workspace.index("_0_")
-    scale = float(workspace[idx + 1 :].replace("_", "."))
-    return scale
+    obj_str = get_object_string(cfg_path)
+    idx = obj_str.index("_0_")
+    return float(obj_str[idx + 1 :].replace("_", "."))
 
 
-def get_object_code(workspace: str) -> str:
+def get_object_code(cfg_path: pathlib.Path) -> str:
     # BRITTLE
     # Assumes "_0_" only shows up once at the end
     # eg. sem-VideoGameConsole-49ba4f628a955bf03742135a31826a22_0_06
-    assert "_0_" in workspace, f"_0_ not in {workspace}"
-    idx = workspace.index("_0_")
-    object_code = workspace[:idx]
+    obj_str = get_object_string(cfg_path)
+    idx = obj_str.index("_0_")
+    object_code = obj_str[:idx]
     return object_code
 
 
-def get_validated_nerf_workspaces(nerf_checkpoints_path: str) -> List[str]:
-    workspaces = os.listdir(nerf_checkpoints_path)
-    print(f"Validating {len(workspaces)} workspaces in {nerf_checkpoints_path}")
-
-    validated_workspaces = []
-    for workspace in workspaces:
-        path = os.path.join(nerf_checkpoints_path, workspace, "checkpoints")
-        if not os.path.exists(path):
-            print(f"path {path} does not exist")
-            continue
-
-        # num_checkpoints = len(os.listdir(path))
-        # if num_checkpoints > 0:
-        if "ngp_ep0200.pth.tar" in os.listdir(path):
-            validated_workspaces.append(workspace)
-        else:
-            # print(f"no checkpoints in {workspace}")
-            print(f"ngp_ep0200.pth.tar not in {workspace}")
-
-    num_ok = len(validated_workspaces)
-    print(f"num_ok / len(workspaces): {num_ok} / {len(workspaces)}")
-    return validated_workspaces
+def get_validated_nerf_configs(nerf_checkpoints_path: str) -> List[str]:
+    return list(pathlib.Path().rglob(nerf_checkpoints_path + "/*/config.yml"))
 
 
 def get_contact_candidates_and_target_candidates(
@@ -135,55 +119,9 @@ def plot_mesh(mesh: trimesh.Trimesh, color="lightpink") -> go.Figure:
     return fig
 
 
-def load_nerf(path_to_workspace: str, bound: float, scale: float):
-    root_dir = nerf_grasping.get_repo_root()
-
-    parser = utils.get_config_parser()
-    opt = parser.parse_args(
-        [
-            "--workspace",
-            f"{path_to_workspace}",
-            "--fp16",
-            "--test",
-            "--bound",
-            f"{bound}",
-            "--scale",
-            f"{scale}",
-            "--mode",
-            "blender",
-            f"{root_dir}/torch-ngp",
-        ]
-    )
-    # Use options to determine proper network structure.
-    if opt.ff:
-        assert opt.fp16, "fully-fused mode must be used with fp16 mode"
-        from nerf.network_ff import NeRFNetwork
-    elif opt.tcnn:
-        assert opt.fp16, "tcnn mode must be used with fp16 mode"
-        from nerf.network_tcnn import NeRFNetwork
-    else:
-        from nerf.network import NeRFNetwork
-
-    # Create uninitialized network.
-    model = NeRFNetwork(
-        bound=opt.bound,
-        cuda_ray=opt.cuda_ray,
-    )
-
-    # Create trainer with NeRF; use its constructor to load network weights from file.
-    trainer = utils.Trainer(
-        "ngp",
-        vars(opt),
-        model,
-        workspace=opt.workspace,
-        criterion=None,
-        fp16=opt.fp16,
-        metrics=[None],
-        use_checkpoint="latest",
-    )
-    assert len(trainer.stats["checkpoints"]) != 0, "failed to load checkpoint"
-    return trainer.model
-
+def load_nerf(cfg_path: pathlib.Path) -> nerfstudio.Model:
+    _, pipeline, _, _ = eval_utils.eval_setup(cfg_path, test_mode="inference")
+    return pipeline.model
 
 def get_nerf_densities(nerf_model, query_points: torch.Tensor):
     """

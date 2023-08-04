@@ -166,3 +166,7 @@ assets/objects/
 
 # cluster_scripts
 cluster_scripts/
+
+# data
+*data
+nerfcheckpoints/

@@ -42,7 +42,7 @@ from nerf_grasping.dataset.DexGraspNet_NeRF_Grasps_utils import (
     plot_mesh_and_transforms,
     get_object_code,
     get_object_scale,
-    nerf_configs,
+    get_nerf_configs,
     load_nerf,
     NUM_PTS_X,
     NUM_PTS_Y,
@@ -80,9 +80,9 @@ tqdm = partial(std_tqdm, dynamic_ncols=True)
 
 # %%
 # PARAMS
-DEXGRASPNET_DATA_ROOT = "/juno/u/tylerlum/github_repos/DexGraspNet/data"
+DEXGRASPNET_DATA_ROOT = "."
 GRASP_DATASET_FOLDER = (
-    "2023-07-01_dataset_DESIRED_DIST_TOWARDS_OBJECT_SURFACE_MULTIPLE_STEPS_v2"
+    "graspdata"
 )
 NERF_CHECKPOINTS_FOLDER = "nerfcheckpoints"
 OUTPUT_FOLDER = f"{GRASP_DATASET_FOLDER}_learned_metric_dataset"
@@ -98,9 +98,7 @@ DEXGRASPNET_DATASET_ROOT = os.path.join(
     DEXGRASPNET_DATA_ROOT,
     GRASP_DATASET_FOLDER,
 )
-NERF_CHECKPOINTS_PATH = os.path.join(
-    nerf_grasping.get_repo_root(), NERF_CHECKPOINTS_FOLDER
-)
+
 OUTPUT_FOLDER_PATH = os.path.join(
     nerf_grasping.get_repo_root(),
     OUTPUT_FOLDER,
@@ -126,14 +124,12 @@ if os.path.exists(OUTPUT_FILE_PATH):
 
 # %%
 nerf_configs = get_nerf_configs(
-    nerf_checkpoints_path=NERF_CHECKPOINTS_PATH,
+    nerf_checkpoints_path=NERF_CHECKPOINTS_FOLDER,
 )
 
 
 # %%
 query_points_finger_frame = get_query_points_finger_frame()
-
-
 
 # %%
 if LIMIT_NUM_CONFIGS is not None:
@@ -242,6 +238,8 @@ with h5py.File(OUTPUT_FILE_PATH, "w") as hdf5_file:
                     get_transform(start_points[i], end_points[i], up_points[i])
                     for i in range(NUM_FINGERS)
                 ]
+
+            breakpoint()
 
             # Transform query points
             with loop_timer.add_section_timer("get_transformed_points"):

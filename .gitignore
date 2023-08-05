@@ -170,3 +170,4 @@ cluster_scripts/
 # data
 *data
 nerfcheckpoints/
+*.h5

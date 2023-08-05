@@ -33,7 +33,7 @@ def get_object_code(cfg_path: pathlib.Path) -> str:
 
 
 def get_nerf_configs(nerf_checkpoints_path: str) -> List[str]:
-    return list(pathlib.Path().rglob(nerf_checkpoints_path + "/*/config.yml"))
+    return list(pathlib.Path(nerf_checkpoints_path).rglob("config.yml"))
 
 
 def get_contact_candidates_and_target_candidates(
@@ -119,7 +119,7 @@ def plot_mesh(mesh: trimesh.Trimesh, color="lightpink") -> go.Figure:
     return fig
 
 
-def load_nerf(cfg_path: pathlib.Path) -> nerfstudio.Model:
+def load_nerf(cfg_path: pathlib.Path) -> nerfstudio.models.base_model.Model:
     _, pipeline, _, _ = eval_utils.eval_setup(cfg_path, test_mode="inference")
     return pipeline.model
 

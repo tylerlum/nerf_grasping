@@ -32,12 +32,11 @@ from tqdm import tqdm
 from datetime import datetime
 import time
 from nerf_grasping.dataset.DexGraspNet_NeRF_Grasps_utils import (
-    get_query_points_finger_frame,
+    get_ray_origins_finger_frame,
     get_contact_candidates_and_target_candidates,
     get_start_and_end_and_up_points,
     get_transform,
-    get_transformed_points,
-    get_nerf_densities,
+    get_ray_samples,
     plot_mesh_and_query_points,
     plot_mesh_and_transforms,
     get_object_code,
@@ -57,11 +56,12 @@ from functools import partial
 
 datetime_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
+
 # %%
 def is_notebook() -> bool:
     try:
         shell = get_ipython().__class__.__name__
-        if shell == "ZMQInteractiveShell":
+        if shell == "ZMQInteractireakeShell":
             return True  # Jupyter notebook or qtconsole
         elif shell == "TerminalInteractiveShell":
             return False  # Terminal running IPython
@@ -69,6 +69,7 @@ def is_notebook() -> bool:
             return False  # Other type (?)
     except NameError:
         return False  # Probably standard Python interpreter
+
 
 # %%
 if is_notebook():
@@ -81,9 +82,7 @@ tqdm = partial(std_tqdm, dynamic_ncols=True)
 # %%
 # PARAMS
 DEXGRASPNET_DATA_ROOT = "."
-GRASP_DATASET_FOLDER = (
-    "graspdata"
-)
+GRASP_DATASET_FOLDER = "graspdata"
 NERF_CHECKPOINTS_FOLDER = "nerfcheckpoints"
 OUTPUT_FOLDER = f"{GRASP_DATASET_FOLDER}_learned_metric_dataset"
 OUTPUT_FILENAME = f"{datetime_str}_learned_metric_dataset.h5"
@@ -129,7 +128,7 @@ nerf_configs = get_nerf_configs(
 
 
 # %%
-query_points_finger_frame = get_query_points_finger_frame()
+ray_origins_finger_frame = get_ray_origins_finger_frame()
 
 # %%
 if LIMIT_NUM_CONFIGS is not None:
@@ -215,14 +214,18 @@ with h5py.File(OUTPUT_FILE_PATH, "w") as hdf5_file:
                 if math.isclose(grasp_data["scale"], object_scale, rel_tol=1e-3)
             ]
 
-        for grasp_idx, grasp_data in (pbar := tqdm(
-            enumerate(correct_scale_grasp_data_list),
-            total=len(correct_scale_grasp_data_list),
-            dynamic_ncols=True,
-        )):
+        for grasp_idx, grasp_data in (
+            pbar := tqdm(
+                enumerate(correct_scale_grasp_data_list),
+                total=len(correct_scale_grasp_data_list),
+                dynamic_ncols=True,
+            )
+        ):
             pbar.set_description(f"grasp data, current_idx: {current_idx}")
             # Go from contact candidates to transforms
-            with loop_timer.add_section_timer("get_contact_candidates_and_target_candidates"):
+            with loop_timer.add_section_timer(
+                "get_contact_candidates_and_target_candidates"
+            ):
                 (
                     contact_candidates,
                     target_contact_candidates,
@@ -239,37 +242,33 @@ with h5py.File(OUTPUT_FILE_PATH, "w") as hdf5_file:
                     for i in range(NUM_FINGERS)
                 ]
 
-            breakpoint()
-
             # Transform query points
             with loop_timer.add_section_timer("get_transformed_points"):
-                query_points_object_frame_list = [
-                    get_transformed_points(
-                        query_points_finger_frame.reshape(-1, 3), transform
-                    )
+                ray_samples_list = [
+                    get_ray_samples(ray_origins_finger_frame, transform)
                     for transform in transforms
                 ]
-            with loop_timer.add_section_timer("ig_to_nerf"):
-                query_points_isaac_frame_list = [
-                    np.copy(query_points_object_frame)
-                    for query_points_object_frame in query_points_object_frame_list
-                ]
-                query_points_nerf_frame_list = [
-                    ig_to_nerf(query_points_isaac_frame, return_tensor=True)
-                    for query_points_isaac_frame in query_points_isaac_frame_list
-                ]
+
+            # TODO(pculbert): Check we can actually get rid of IG transform.
+            # with loop_timer.add_section_timer("ig_to_nerf"):
+            #     query_points_isaac_frame_list = [
+            #         np.copy(query_points_object_frame)
+            #         for query_points_object_frame in query_points_object_frame_list
+            #     ]
+            #     query_points_nerf_frame_list = [
+            #         ig_to_nerf(query_points_isaac_frame, return_tensor=True)
+            #         for query_points_isaac_frame in query_points_isaac_frame_list
+            #     ]
 
             # Get densities
             with loop_timer.add_section_timer("get_nerf_densities"):
                 nerf_densities = [
-                    get_nerf_densities(
-                        nerf_model, query_points_nerf_frame.float().cuda()
-                    )
+                    nerf_model.get_density(ray_samples.to("cuda"))[0]
                     .reshape(-1)
                     .detach()
                     .cpu()
                     .numpy()
-                    for query_points_nerf_frame in query_points_nerf_frame_list
+                    for ray_samples in ray_samples_list
                 ]
 
             # Plot

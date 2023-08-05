@@ -124,18 +124,7 @@ def plot_mesh(mesh: trimesh.Trimesh, color="lightpink") -> go.Figure:
 
 def load_nerf(cfg_path: pathlib.Path) -> nerfstudio.models.base_model.Model:
     _, pipeline, _, _ = eval_utils.eval_setup(cfg_path, test_mode="inference")
-    return pipeline.model
-
-
-def get_nerf_densities(nerf_model, query_points: torch.Tensor):
-    """
-    Evaluates density of a batch of grasp points, shape [N, 3].
-    query_points is torch.Tensor in nerf frame
-    """
-    N, _ = query_points.shape
-    query_points = query_points.reshape(1, N, 3)
-
-    return nerf_model.density(query_points).reshape(N)
+    return pipeline.model.field
 
 
 def normalize(x: np.ndarray) -> np.ndarray:
@@ -328,7 +317,7 @@ def get_ray_samples(
     ray_origins_world_frame = get_transformed_points(
         ray_origins_finger_frame.reshape(-1, 3), transform
     )
-    ray_origins_world_frame = torch.tensor(ray_origins_world_frame)
+    ray_origins_world_frame = torch.tensor(ray_origins_world_frame).float().contiguous()
 
     ray_dirs_finger_frame = np.array([0.0, 0.0, 1.0]).reshape(
         1, 3
@@ -336,12 +325,17 @@ def get_ray_samples(
     ray_dirs_world_frame = get_transformed_dirs(ray_dirs_finger_frame, transform)
 
     # Cast to Tensor + expand to match origins shape.
-    ray_dirs_world_frame = torch.tensor(ray_dirs_world_frame).expand(
-        ray_origins_world_frame.shape
+    ray_dirs_world_frame = (
+        torch.tensor(ray_dirs_world_frame)
+        .expand(ray_origins_world_frame.shape)
+        .float()
+        .contiguous()
     )
 
     # Create dummy pixel areas object.
-    pixel_area = torch.ones_like(ray_dirs_world_frame[..., 0]).unsqueeze(-1)
+    pixel_area = (
+        torch.ones_like(ray_dirs_world_frame[..., 0]).unsqueeze(-1).float().contiguous()
+    )
 
     ray_bundle = RayBundle(ray_origins_world_frame, ray_dirs_world_frame, pixel_area)
 
@@ -349,7 +343,7 @@ def get_ray_samples(
     sample_dists = torch.linspace(0.0, grasp_depth_m, steps=num_pts_z)
 
     sample_dists = sample_dists.reshape(1, num_pts_z, 1).expand(
-        ray_origins_world_frame[0], -1, -1
+        ray_origins_world_frame.shape[0], -1, -1
     )
 
     # Pull ray samples -- note these are degenerate, i.e., the deltas field is meaningless.

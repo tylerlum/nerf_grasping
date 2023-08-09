@@ -1,82 +1,72 @@
-import numpy as np
+# %%
+import pathlib
+import pytorch_kinematics as pk
+import pypose as pp
+import torch
 
-try:
-    import pinocchio as pin
-except:
-    pin = None
-    print("WARNING: Unable to import pinocchio, skipping import")
+from typing import List
 
-TIP_NAMES = ["finger_tip_link_0", "finger_tip_link_120", "finger_tip_link_240"]
+ALLEGRO_URDF_PATH = list(
+    pathlib.Path(".").rglob("*allegro_hand_description_right.urdf")
+)[0]
 
-
-def create_trifinger(urdf_filename):
-    """Builds a pinocchio model of the trifinger robot, and sets up its data."""
-    model = pin.buildModelFromUrdf(urdf_filename)
-    data = model.createData()
-
-    return model, data
-
-
-def get_tip_ids(model):
-    """Helper function to get the pinocchio frame ids for the fingertips."""
-    return [model.getFrameId(frame_name) for frame_name in TIP_NAMES]
+FINGERTIP_LINK_NAMES = [
+    "link_3.0_tip",
+    "link_7.0_tip",
+    "link_11.0_tip",
+    "link_15.0_tip",
+]
 
 
-def get_fingertip_pos(model, data, q):
-    """Computes forward kinematics for fingertip positions."""
-    tip_ids = get_tip_ids(model)
-
-    # First run pinocchio forward kinematics to update joint data.
-    pin.framesForwardKinematics(model, data, q)
-
-    # Return fingertip positions.
-    return np.concatenate(
-        [pin.updateFramePlacement(model, data, tt).translation for tt in tip_ids],
-        axis=0,
-    )
+def load_allegro(allegro_path: pathlib.Path = ALLEGRO_URDF_PATH) -> pk.chain.Chain:
+    return pk.build_chain_from_urdf(open(allegro_path).read())
 
 
-def get_fingertip_pos_vel(model, data, q, dq):
-    """Computes first-order forward kinematics to compute fingertip positions + velocities."""
-    tip_ids = get_tip_ids(model)
+class AllegroHandConfig(torch.nn.Module):
+    """
+    A container specifying a batch of configurations for an Allegro hand, i.e., the
+    wrist pose and the joint configurations.
+    """
 
-    # First run pinocchio forward kinematics to update joint data.
-    pin.forwardKinematics(model, data, q, dq)
+    def __init__(
+        self,
+        chain: pk.chain.Chain = load_allegro(),
+        batch_size: int = 1,
+        requires_grad: bool = True,
+    ):
+        super().__init__()
+        self.chain = chain
+        self.wrist_pose = pp.Parameter(
+            pp.randn_SE3(batch_size), requires_grad=requires_grad
+        )
+        self.hand_config = torch.nn.Parameter(
+            torch.zeros(batch_size, 16), requires_grad=requires_grad
+        )
 
-    # Compute fingertip placements.
-    p = np.concatenate(
-        [pin.updateFramePlacement(model, data, tt).translation for tt in tip_ids],
-        axis=0,
-    )
+    def set_wrist_pose(self, wrist_pose: pp.LieTensor):
+        assert (
+            wrist_pose.shape == self.wrist_pose.shape
+        ), f"New wrist pose, shape {wrist_pose.shape} does not match current wrist pose shape {self.wrist_pose.shape}"
+        self.wrist_pose.data = wrist_pose.data.clone()
 
-    # Compute fingertip velocities (expressed in world frame!).
-    v = np.concatenate(
-        [
-            pin.getFrameVelocity(model, data, tt, pin.ReferenceFrame.WORLD).linear
-            for tt in tip_ids
-        ],
-        axis=0,
-    )
+    def set_hand_config(self, hand_config: torch.Tensor):
+        assert (
+            hand_config.shape == self.hand_config.shape
+        ), f"New hand config, shape {hand_config.shape}, does not match shape of current hand config, {self.current_hand_config.shape}."
+        self.hand_config.data = hand_config
 
-    return p, v
+    def get_fingertip_transforms(self) -> List[pp.LieTensor]:
+        # Run batched FK from current hand config.
+        link_poses_hand_frame = self.chain.forward_kinematics(self.hand_config)
 
+        # Pull out fingertip poses + cast to PyPose.
+        fingertip_poses = [link_poses_hand_frame[ln] for ln in FINGERTIP_LINK_NAMES]
+        fingertip_pyposes = [
+            pp.from_matrix(fp.get_matrix(), pp.SE3_type) for fp in fingertip_poses
+        ]
 
-def get_fingertip_jacobian(model, data, q):
-    """Returns Jacobian (via pinocchio) for trifinger in configuration q."""
-    tip_ids = get_tip_ids(model)
-    pin.framesForwardKinematics(model, data, q)
-
-    # Compute Jacobian of every fingertip frame, expressed in world frame.
-    tip_jacs = [
-        pin.computeFrameJacobian(model, data, q, tt, pin.ReferenceFrame.WORLD)
-        for tt in tip_ids
-    ]
-
-    # Stack fingertip Jacobians to form a 9x9 matrix.
-    return np.concatenate([tj[:3, :] for tj in tip_jacs], axis=0)
+        # Apply wrist transformation to get world-frame fingertip poses.
+        return [self.wrist_pose @ fp for fp in fingertip_pyposes]
 
 
-def add_collision_frames(model):
-    """TODO: add operational frames to robot model to be used for collision terms."""
-
-    raise NotImplementedError
+# %%

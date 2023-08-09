@@ -32,11 +32,9 @@ from tqdm import tqdm
 from datetime import datetime
 import time
 from nerf_grasping.dataset.DexGraspNet_NeRF_Grasps_utils import (
-    get_ray_origins_finger_frame,
     get_contact_candidates_and_target_candidates,
     get_start_and_end_and_up_points,
     get_transform,
-    get_ray_samples,
     plot_mesh_and_query_points,
     plot_mesh_and_transforms,
     get_object_code,
@@ -44,15 +42,17 @@ from nerf_grasping.dataset.DexGraspNet_NeRF_Grasps_utils import (
     get_nerf_configs,
     plot_nerf_densities,
     load_nerf,
+)
+from nerf_grasping.dataset.timers import LoopTimer
+from nerf_grasping.grasp_utils import (
     NUM_PTS_X,
     NUM_PTS_Y,
     NUM_PTS_Z,
     GRASP_DEPTH_MM,
-    FINGER_WIDTH_MM,
-    FINGER_HEIGHT_MM,
     NUM_FINGERS,
+    get_ray_samples,
+    get_ray_origins_finger_frame,
 )
-from nerf_grasping.dataset.timers import LoopTimer
 from functools import partial
 
 datetime_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")

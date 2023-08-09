@@ -2,11 +2,7 @@
 Module implementing utils for grasping,
 including normal estimation and surface detection.
 """
-import logging
-
-# import lietorch
 import numpy as np
-import scipy
 import torch
 
 from nerfstudio.cameras.rays import RayBundle, RaySamples

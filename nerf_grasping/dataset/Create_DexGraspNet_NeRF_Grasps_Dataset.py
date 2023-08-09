@@ -277,10 +277,12 @@ with h5py.File(OUTPUT_FILE_PATH, "w") as hdf5_file:
 
             # Plot
             if PLOT_ONLY_ONE:
+                delta = GRASP_DEPTH_MM / NUM_PTS_Z
+                nerf_alphas = [1 - np.exp(-delta * dd) for dd in nerf_densities]
                 fig = plot_mesh_and_query_points(
                     mesh=mesh,
                     query_points_list=query_points_isaac_frame_list,
-                    query_points_colors_list=nerf_densities,
+                    query_points_colors_list=nerf_alphas,
                     num_fingers=NUM_FINGERS,
                 )
                 fig.show()

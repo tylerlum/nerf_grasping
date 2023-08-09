@@ -70,7 +70,51 @@ class AllegroHandConfig(torch.nn.Module):
         ]
 
         # Apply wrist transformation to get world-frame fingertip poses.
-        return [self.wrist_pose @ fp for fp in fingertip_pyposes]
+        return torch.stack(
+            [self.wrist_pose @ fp for fp in fingertip_pyposes]
+        )  # shape [B, batch_size, 7]
+
+
+class AllegroGraspConfig(torch.nn.Module):
+    """Container defining a batch of grasps -- both pre-grasps
+    and grasping directions -- for use in grasp optimization."""
+
+    def __init__(
+        self,
+        batch_size: int = 1,
+        chain: pk.chain.Chain = load_allegro(),
+        requires_grad: bool = True,
+    ):
+        super().__init__()
+        self.hand_config = AllegroHandConfig(batch_size, chain, requires_grad)
+        self.grasp_orientations = pp.LieParameter(
+            pp.identity_SO3(batch_size), requires_grad=requires_grad
+        )
+
+
+class GraspMetric(torch.nn.Module):
+    """
+    Wrapper for NeRF + grasp classifier to evaluate
+    a particular AllegroGraspConfig.
+    """
+
+    def __init__(self, nerf_model, classifier_model):
+        super().__init__()
+        self.nerf_model = nerf_model
+        self.classifier_model = classifier_model
+
+    def forward(self, grasp_config: AllegroGraspConfig):
+        # Generate fingertip transforms.
+        fingertip_poses = grasp_config.hand_config.get_fingertip_transforms()
+
+        # Rotate frame by grasp_direction transform.
+        fingertip_poses = fingertip_poses @ grasp_config.grasp_orientations.unsqueeze(0)
+
+        # Generate RaySamples.
+
+        # Query NeRF at RaySamples.
+        # Pass ray_samples.get_positions(), densities into classifier.
+        # Return classifier outputs.
 
 
 # %%

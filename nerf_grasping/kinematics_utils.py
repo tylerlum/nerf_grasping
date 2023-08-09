@@ -30,8 +30,8 @@ class AllegroHandConfig(torch.nn.Module):
 
     def __init__(
         self,
-        chain: pk.chain.Chain = load_allegro(),
         batch_size: int = 1,
+        chain: pk.chain.Chain = load_allegro(),
         requires_grad: bool = True,
     ):
         super().__init__()
@@ -42,6 +42,10 @@ class AllegroHandConfig(torch.nn.Module):
         self.hand_config = torch.nn.Parameter(
             torch.zeros(batch_size, 16), requires_grad=requires_grad
         )
+
+    def to(self, device=None, dtype=None):
+        super().to(device=device, dtype=dtype)
+        self.chain.to(device=torch.device(device), dtype=dtype)
 
     def set_wrist_pose(self, wrist_pose: pp.LieTensor):
         assert (

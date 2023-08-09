@@ -42,6 +42,7 @@ from nerf_grasping.dataset.DexGraspNet_NeRF_Grasps_utils import (
     get_object_code,
     get_object_scale,
     get_nerf_configs,
+    plot_nerf_densities,
     load_nerf,
     NUM_PTS_X,
     NUM_PTS_Y,
@@ -77,6 +78,9 @@ if is_notebook():
 else:
     from tqdm import tqdm as std_tqdm
 
+if not os.getcwd().split("/")[-1] == "nerf_grasping":
+    os.chdir("../..")
+
 tqdm = partial(std_tqdm, dynamic_ncols=True)
 
 # %%
@@ -86,7 +90,7 @@ GRASP_DATASET_FOLDER = "graspdata"
 NERF_CHECKPOINTS_FOLDER = "nerfcheckpoints"
 OUTPUT_FOLDER = f"{GRASP_DATASET_FOLDER}_learned_metric_dataset"
 OUTPUT_FILENAME = f"{datetime_str}_learned_metric_dataset.h5"
-PLOT_ONLY_ONE = False
+PLOT_ONLY_ONE = True
 SAVE_DATASET = True
 PRINT_TIMING = True
 LIMIT_NUM_CONFIGS = None  # None for no limit
@@ -250,15 +254,15 @@ with h5py.File(OUTPUT_FILE_PATH, "w") as hdf5_file:
                 ]
 
             # TODO(pculbert): Check we can actually get rid of IG transform.
-            # with loop_timer.add_section_timer("ig_to_nerf"):
-            #     query_points_isaac_frame_list = [
-            #         np.copy(query_points_object_frame)
-            #         for query_points_object_frame in query_points_object_frame_list
-            #     ]
-            #     query_points_nerf_frame_list = [
-            #         ig_to_nerf(query_points_isaac_frame, return_tensor=True)
-            #         for query_points_isaac_frame in query_points_isaac_frame_list
-            #     ]
+            with loop_timer.add_section_timer("ig_to_nerf"):
+                query_points_isaac_frame_list = [
+                    np.copy(rr.frustums.get_positions().cpu().numpy().reshape(-1, 3))
+                    for rr in ray_samples_list
+                ]
+                query_points_nerf_frame_list = [
+                    ig_to_nerf(query_points_isaac_frame, return_tensor=False)
+                    for query_points_isaac_frame in query_points_isaac_frame_list
+                ]
 
             # Get densities
             with loop_timer.add_section_timer("get_nerf_densities"):
@@ -275,7 +279,7 @@ with h5py.File(OUTPUT_FILE_PATH, "w") as hdf5_file:
             if PLOT_ONLY_ONE:
                 fig = plot_mesh_and_query_points(
                     mesh=mesh,
-                    query_points_list=query_points_object_frame_list,
+                    query_points_list=query_points_isaac_frame_list,
                     query_points_colors_list=nerf_densities,
                     num_fingers=NUM_FINGERS,
                 )

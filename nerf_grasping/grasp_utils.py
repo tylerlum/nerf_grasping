@@ -87,6 +87,11 @@ def get_ray_samples(
     # Collapse xy batch dims.
     ray_origins_finger_frame = ray_origins_finger_frame.reshape(-1, 3)
 
+    # Device / dtype cast for the transform.
+    ray_origins_finger_frame = ray_origins_finger_frame.to(
+        device=transform.device, dtype=transform.dtype
+    )
+
     # Add batch dims for transform.
     for _ in range(len(transform.lshape)):
         ray_origins_finger_frame = ray_origins_finger_frame.unsqueeze(0)
@@ -100,7 +105,7 @@ def get_ray_samples(
     )  # shape [*batch_dims, num_pts_x * num_pts_y, 3]
 
     ray_dirs_finger_frame = torch.tensor(
-        [0.0, 0.0, 1.0], device=ray_origins_finger_frame.device
+        [0.0, 0.0, 1.0], device=transform.device, dtype=transform.dtype
     )
 
     # Expand ray_dirs to add the batch dims.

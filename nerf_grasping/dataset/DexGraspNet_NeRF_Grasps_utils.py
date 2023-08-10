@@ -4,6 +4,7 @@ import numpy as np
 import torch
 import trimesh
 import pathlib
+import pypose as pp
 import plotly.graph_objects as go
 import nerf_grasping
 import nerfstudio
@@ -76,7 +77,7 @@ def get_transform(start: np.ndarray, end: np.ndarray, up: np.ndarray) -> np.ndar
     transform = np.eye(4)
     transform[:3, :3] = np.stack([new_x, new_y, new_z], axis=1)
     transform[:3, 3] = start
-    return transform
+    return pp.from_matrix(transform, pp.SE3_type)
 
 
 def get_start_and_end_and_up_points(

@@ -24,7 +24,6 @@
 import h5py
 import math
 import nerf_grasping
-from nerf_grasping.grasp_utils import ig_to_nerf
 import os
 import trimesh
 import numpy as np
@@ -255,13 +254,9 @@ with h5py.File(OUTPUT_FILE_PATH, "w") as hdf5_file:
 
             # TODO(pculbert): Check we can actually get rid of IG transform.
             with loop_timer.add_section_timer("ig_to_nerf"):
-                query_points_isaac_frame_list = [
+                query_points_list = [
                     np.copy(rr.frustums.get_positions().cpu().numpy().reshape(-1, 3))
                     for rr in ray_samples_list
-                ]
-                query_points_nerf_frame_list = [
-                    ig_to_nerf(query_points_isaac_frame, return_tensor=False)
-                    for query_points_isaac_frame in query_points_isaac_frame_list
                 ]
 
             # Get densities
@@ -281,14 +276,14 @@ with h5py.File(OUTPUT_FILE_PATH, "w") as hdf5_file:
                 nerf_alphas = [1 - np.exp(-delta * dd) for dd in nerf_densities]
                 fig = plot_mesh_and_query_points(
                     mesh=mesh,
-                    query_points_list=query_points_isaac_frame_list,
+                    query_points_list=query_points_list,
                     query_points_colors_list=nerf_alphas,
                     num_fingers=NUM_FINGERS,
                 )
                 fig.show()
                 fig2 = plot_mesh_and_transforms(
                     mesh=mesh,
-                    transforms=transforms,
+                    transforms=[tt.matrix().numpy() for tt in transforms],
                     num_fingers=NUM_FINGERS,
                 )
                 fig2.show()

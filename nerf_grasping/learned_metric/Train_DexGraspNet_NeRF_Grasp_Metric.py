@@ -126,6 +126,7 @@ def get_query_points_finger_frame_cached() -> np.ndarray:
     assert query_points_finger_frame.shape == (NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z, NUM_XYZ)
     return query_points_finger_frame
 
+
 # %%
 if is_notebook():
     from tqdm.notebook import tqdm as std_tqdm
@@ -291,6 +292,7 @@ wandb.init(
 # %% [markdown]
 # # Dataset and Dataloader
 
+
 # %%
 class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
     # @localscope.mfc  # ValueError: Cell is empty
@@ -318,8 +320,11 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
             assert (
                 len(hdf5_file["/grasp_success"].shape) == 1
             ), f"{hdf5_file['/grasp_success'].shape}"
-            assert (
-                hdf5_file["/nerf_densities"].shape[1:] == (NUM_FINGERS, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
+            assert hdf5_file["/nerf_densities"].shape[1:] == (
+                NUM_FINGERS,
+                NUM_PTS_X,
+                NUM_PTS_Y,
+                NUM_PTS_Z,
             ), f"{hdf5_file['/nerf_densities'].shape}"
             assert hdf5_file["/grasp_transforms"].shape[1:] == (
                 NUM_FINGERS,
@@ -506,7 +511,9 @@ class BatchData:
     def _coords_helper(self, grasp_transforms: torch.Tensor) -> torch.Tensor:
         assert grasp_transforms.shape == (self.batch_size, NUM_FINGERS, 4, 4)
         # TODO: Change this to not be np and be vectorized
-        query_points_finger_frame = get_query_points_finger_frame_cached().reshape(-1, NUM_XYZ)
+        query_points_finger_frame = get_query_points_finger_frame_cached().reshape(
+            -1, NUM_XYZ
+        )
         all_query_points_object_frame = []
         for i in range(self.batch_size):
             transforms = grasp_transforms[i]
@@ -523,7 +530,9 @@ class BatchData:
                 dim=0,
             )
             all_query_points_object_frame.append(query_points_object_frame)
-        all_query_points_object_frame = torch.stack(all_query_points_object_frame, dim=0).float().to(self.device)
+        all_query_points_object_frame = (
+            torch.stack(all_query_points_object_frame, dim=0).float().to(self.device)
+        )
         assert all_query_points_object_frame.shape == (
             self.batch_size,
             NUM_FINGERS,
@@ -563,7 +572,9 @@ class BatchData:
             NUM_PTS_Y,
             NUM_PTS_Z,
         )
-        reshaped_nerf_alphas = self.nerf_alphas.reshape(self.batch_size, NUM_FINGERS, 1, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
+        reshaped_nerf_alphas = self.nerf_alphas.reshape(
+            self.batch_size, NUM_FINGERS, 1, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z
+        )
         return_value = torch.cat(
             [
                 reshaped_nerf_alphas,
@@ -586,12 +597,15 @@ class BatchData:
         if self.random_rotate_transform is None:
             return self.grasp_transforms
 
-        # Vectorized implementation of above
         return_value = torch.matmul(
             self.random_rotate_transform.unsqueeze(dim=1),
             self.grasp_transforms,
         )
-        assert return_value.shape == self.grasp_transforms.shape == (self.batch_size, NUM_FINGERS, 4, 4)
+        assert (
+            return_value.shape
+            == self.grasp_transforms.shape
+            == (self.batch_size, NUM_FINGERS, 4, 4)
+        )
         return return_value
 
     @property
@@ -602,38 +616,67 @@ class BatchData:
     def device(self) -> torch.device:
         return self.grasp_success.device
 
+
 def sample_random_rotate_transforms(N: int) -> torch.Tensor:
     # Generate random angles for roll, pitch, and yaw
     roll_angles = torch.rand(N) * 2 * np.pi
     pitch_angles = torch.rand(N) * 2 * np.pi
     yaw_angles = torch.rand(N) * 2 * np.pi
-    
+
     # Generate rotation matrices for each axis
-    R_rolls = torch.stack([torch.tensor([[1, 0, 0],
-                                         [0, np.cos(angle), -np.sin(angle)],
-                                         [0, np.sin(angle), np.cos(angle)]]) for angle in roll_angles])
-    
-    R_pitches = torch.stack([torch.tensor([[np.cos(angle), 0, np.sin(angle)],
-                                           [0, 1, 0],
-                                           [-np.sin(angle), 0, np.cos(angle)]]) for angle in pitch_angles])
-    
-    R_yaws = torch.stack([torch.tensor([[np.cos(angle), -np.sin(angle), 0],
-                                        [np.sin(angle), np.cos(angle), 0],
-                                        [0, 0, 1]]) for angle in yaw_angles])
+    R_rolls = torch.stack(
+        [
+            torch.tensor(
+                [
+                    [1, 0, 0],
+                    [0, np.cos(angle), -np.sin(angle)],
+                    [0, np.sin(angle), np.cos(angle)],
+                ]
+            )
+            for angle in roll_angles
+        ]
+    )
+
+    R_pitches = torch.stack(
+        [
+            torch.tensor(
+                [
+                    [np.cos(angle), 0, np.sin(angle)],
+                    [0, 1, 0],
+                    [-np.sin(angle), 0, np.cos(angle)],
+                ]
+            )
+            for angle in pitch_angles
+        ]
+    )
+
+    R_yaws = torch.stack(
+        [
+            torch.tensor(
+                [
+                    [np.cos(angle), -np.sin(angle), 0],
+                    [np.sin(angle), np.cos(angle), 0],
+                    [0, 0, 1],
+                ]
+            )
+            for angle in yaw_angles
+        ]
+    )
     assert R_rolls.shape == R_pitches.shape == R_yaws.shape == (N, 3, 3)
-    
+
     # Combine rotation matrices
     R_combined = torch.matmul(R_yaws, torch.matmul(R_pitches, R_rolls))
     assert R_combined.shape == (N, 3, 3)
-    
+
     # Create the transformation matrices
     transformation_matrices = torch.zeros(N, 4, 4)
     transformation_matrices[:, :3, :3] = R_combined
     transformation_matrices[:, :3, 3] = 0.0
     transformation_matrices[:, 3, 3] = 1.0
-    assert transformation_matrices.shape == (N, 4, 4) 
+    assert transformation_matrices.shape == (N, 4, 4)
 
     return transformation_matrices
+
 
 @localscope.mfc
 def custom_collate_fn(
@@ -690,7 +733,9 @@ def print_shapes(batch_data: BatchData) -> None:
     print(f"len(nerf_workspace): {len(batch_data.nerf_workspace)}")
     print(f"coords.shape = {batch_data.coords.shape}")
     print(f"nerf_alphas_with_coords.shape = {batch_data.nerf_alphas_with_coords.shape}")
-    print(f"augmented_grasp_transforms.shape = {batch_data.augmented_grasp_transforms.shape}")
+    print(
+        f"augmented_grasp_transforms.shape = {batch_data.augmented_grasp_transforms.shape}"
+    )
 
 
 EXAMPLE_BATCH_DATA = next(iter(val_loader))
@@ -703,8 +748,23 @@ print_shapes(batch_data=EXAMPLE_BATCH_DATA)
 # %%
 
 
-@localscope.mfc(allowed=["NUM_FINGERS", "NUM_PTS_X", "NUM_PTS_Y", "NUM_PTS_Z", "NUM_XYZ"])
-def plot_example(batch_data: BatchData, idx_to_visualize: int = 0, augmented: bool = False) -> go.Figure:
+@localscope.mfc(
+    allowed=["NUM_FINGERS", "NUM_PTS_X", "NUM_PTS_Y", "NUM_PTS_Z", "NUM_XYZ"]
+)
+def plot_example(
+    batch_data: BatchData, idx_to_visualize: int = 0, augmented: bool = False
+) -> go.Figure:
+    if augmented:
+        query_points_list = batch_data.augmented_coords[idx_to_visualize]
+        additional_mesh_transform = (
+            batch_data.random_rotate_transform[idx_to_visualize].cpu().numpy()
+            if batch_data.random_rotate_transform is not None
+            else None
+        )
+    else:
+        query_points_list = batch_data.coords[idx_to_visualize]
+        additional_mesh_transform = None
+
     # Extract data
     colors = batch_data.nerf_alphas[idx_to_visualize]
     grasp_success = batch_data.grasp_success[idx_to_visualize].item()
@@ -729,10 +789,10 @@ def plot_example(batch_data: BatchData, idx_to_visualize: int = 0, augmented: bo
     print(f"Loading mesh from {mesh_path}...")
     mesh = trimesh.load(mesh_path, force="mesh")
     mesh.apply_transform(trimesh.transformations.scale_matrix(object_scale))
-    mesh.apply_transform(batch_data.random_rotate_transform[idx_to_visualize].cpu().numpy())
+    if additional_mesh_transform is not None:
+        mesh.apply_transform(additional_mesh_transform)
 
     # Get query points from grasp_transforms
-    query_points_list = batch_data.coords[idx_to_visualize]
     assert query_points_list.shape == (
         NUM_FINGERS,
         NUM_XYZ,
@@ -753,7 +813,8 @@ def plot_example(batch_data: BatchData, idx_to_visualize: int = 0, augmented: bo
         for finger_idx in range(NUM_FINGERS)
     ]
     query_point_colors_list = [
-        colors[finger_idx].reshape(-1).cpu().numpy() for finger_idx in range(NUM_FINGERS)
+        colors[finger_idx].reshape(-1).cpu().numpy()
+        for finger_idx in range(NUM_FINGERS)
     ]
     fig = plot_mesh_and_query_points(
         mesh=mesh,
@@ -771,14 +832,8 @@ fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=15)
 fig.show()
 
 # %%
-fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=10)
+fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=15, augmented=True)
 fig.show()
-
-# %%
-EXAMPLE_BATCH_DATA.augmented_grasp_transforms[0]
-
-# %%
-EXAMPLE_BATCH_DATA.grasp_transforms[0]
 
 # %%
 EXAMPLE_BATCH_DATA.grasp_success

@@ -4,6 +4,8 @@ import pytorch_kinematics as pk
 import pypose as pp
 import torch
 
+from nerf_grasping import grasp_utils
+
 from typing import List
 
 ALLEGRO_URDF_PATH = list(
@@ -102,6 +104,7 @@ class GraspMetric(torch.nn.Module):
         super().__init__()
         self.nerf_model = nerf_model
         self.classifier_model = classifier_model
+        self.ray_origins_finger_frame = grasp_utils.get_ray_origins_finger_frame()
 
     def forward(self, grasp_config: AllegroGraspConfig):
         # Generate fingertip transforms.
@@ -111,10 +114,18 @@ class GraspMetric(torch.nn.Module):
         fingertip_poses = fingertip_poses @ grasp_config.grasp_orientations.unsqueeze(0)
 
         # Generate RaySamples.
+        ray_samples = grasp_utils.get_ray_samples(
+            self.ray_origins_finger_frame, fingertip_poses
+        )
 
         # Query NeRF at RaySamples.
+        densities = self.nerf_model.get_density(ray_samples.to("cuda")).reshape(
+            4, -1, 3
+        )
+
+        # TODO(pculbert): fix this to match the classifier trace.
         # Pass ray_samples.get_positions(), densities into classifier.
-        # Return classifier outputs.
+        return self.classifier(densities, ray_samples.frustums.get_positions())
 
 
 # %%

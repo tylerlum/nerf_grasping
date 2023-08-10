@@ -494,14 +494,22 @@ class BatchData:
         DELTA = DIST_BTWN_PTS_MM / 1000
         return 1.0 - torch.exp(-DELTA * self.nerf_densities)
 
-    # @localscope.mfc(allowed=["NUM_FINGERS"])
     @property
     def coords(self) -> torch.Tensor:
+        return self._coords_helper(self.grasp_transforms)
+
+    @property
+    def augmented_coords(self) -> torch.Tensor:
+        return self._coords_helper(self.augmented_grasp_transforms)
+
+    # @localscope.mfc(allowed=["NUM_FINGERS"])
+    def _coords_helper(self, grasp_transforms: torch.Tensor) -> torch.Tensor:
+        assert grasp_transforms.shape == (self.batch_size, NUM_FINGERS, 4, 4)
         # TODO: Change this to not be np and be vectorized
         query_points_finger_frame = get_query_points_finger_frame_cached().reshape(-1, NUM_XYZ)
         all_query_points_object_frame = []
         for i in range(self.batch_size):
-            transforms = self.augmented_grasp_transforms[i]
+            transforms = grasp_transforms[i]
             query_points_object_frame = torch.stack(
                 [
                     torch.from_numpy(
@@ -540,11 +548,26 @@ class BatchData:
 
     @property
     def nerf_alphas_with_coords(self) -> torch.Tensor:
+        return self._nerf_alphas_with_coords_helper(self.coords)
+
+    @property
+    def nerf_alphas_with_augmented_coords(self) -> torch.Tensor:
+        return self._nerf_alphas_with_coords_helper(self.augmented_coords)
+
+    def _nerf_alphas_with_coords_helper(self, coords: torch.Tensor) -> torch.Tensor:
+        assert coords.shape == (
+            self.batch_size,
+            NUM_FINGERS,
+            NUM_XYZ,
+            NUM_PTS_X,
+            NUM_PTS_Y,
+            NUM_PTS_Z,
+        )
         reshaped_nerf_alphas = self.nerf_alphas.reshape(self.batch_size, NUM_FINGERS, 1, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
         return_value = torch.cat(
             [
                 reshaped_nerf_alphas,
-                self.coords,
+                coords,
             ],
             dim=2,
         )
@@ -563,20 +586,11 @@ class BatchData:
         if self.random_rotate_transform is None:
             return self.grasp_transforms
 
-        # TODO: Vectorize
-        return_value = []
-        for i in range(self.batch_size):
-            grasp_transforms = self.grasp_transforms[i]
-            random_rotate_transform = self.random_rotate_transform[i]
-            temp_list = []
-            for j in range(NUM_FINGERS):
-                grasp_transform = grasp_transforms[j]
-                new_transform = torch.matmul(random_rotate_transform, grasp_transform)
-                temp_list.append(new_transform)
-            temp_list = torch.stack(temp_list, dim=0)
-            assert temp_list.shape == (NUM_FINGERS, 4, 4)
-            return_value.append(temp_list)
-        return_value = torch.stack(return_value, dim=0)
+        # Vectorized implementation of above
+        return_value = torch.matmul(
+            self.random_rotate_transform.unsqueeze(dim=1),
+            self.grasp_transforms,
+        )
         assert return_value.shape == self.grasp_transforms.shape == (self.batch_size, NUM_FINGERS, 4, 4)
         return return_value
 
@@ -690,7 +704,7 @@ print_shapes(batch_data=EXAMPLE_BATCH_DATA)
 
 
 @localscope.mfc(allowed=["NUM_FINGERS", "NUM_PTS_X", "NUM_PTS_Y", "NUM_PTS_Z", "NUM_XYZ"])
-def plot_example(batch_data: BatchData, idx_to_visualize: int = 0) -> go.Figure:
+def plot_example(batch_data: BatchData, idx_to_visualize: int = 0, augmented: bool = False) -> go.Figure:
     # Extract data
     colors = batch_data.nerf_alphas[idx_to_visualize]
     grasp_success = batch_data.grasp_success[idx_to_visualize].item()

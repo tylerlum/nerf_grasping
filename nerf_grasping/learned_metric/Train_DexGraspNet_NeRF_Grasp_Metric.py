@@ -843,7 +843,15 @@ fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=14)
 fig.show()
 
 # %%
+fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=14, augmented=True)
+fig.show()
+
+# %%
 fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=17)
+fig.show()
+
+# %%
+fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=17, augmented=True)
 fig.show()
 
 # %%
@@ -851,7 +859,15 @@ fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=18)
 fig.show()
 
 # %%
+fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=18, augmented=True)
+fig.show()
+
+# %%
 fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=19)
+fig.show()
+
+# %%
+fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=19, augmented=True)
 fig.show()
 
 # %% [markdown]
@@ -1094,7 +1110,7 @@ def iterate_through_dataloader(
             # Forward pass
             with loop_timer.add_section_timer("Fwd"):
                 grasp_success_logits = nerf_to_grasp_success_model.get_success_logits(
-                    batch_data.nerf_alphas_with_coords
+                    batch_data.nerf_alphas_with_augmented_coords
                 )
                 ce_loss = ce_loss_fn(
                     input=grasp_success_logits, target=batch_data.grasp_success

@@ -306,7 +306,7 @@ def get_transformed_dirs(dirs: np.ndarray, transform: np.ndarray) -> np.ndarray:
 def get_ray_samples(
     ray_origins_finger_frame: np.ndarray,
     transform: np.ndarray,
-    num_pts_z=NUM_PTS_Z,
+    num_pts_z: int = NUM_PTS_Z,
     grasp_depth_mm: float = float(GRASP_DEPTH_MM),
 ) -> RaySamples:
     grasp_depth_m = grasp_depth_mm / 1000.0

@@ -3,53 +3,41 @@ from typing import Any, Dict, List, Tuple
 import numpy as np
 import torch
 import trimesh
+import pathlib
 import plotly.graph_objects as go
 import nerf_grasping
-from nerf import utils
+import nerfstudio
+from nerfstudio.utils import eval_utils
+from nerfstudio.cameras.rays import RayBundle, RaySamples
+from matplotlib import pyplot as plt
 
 
-def get_object_scale(workspace: str) -> float:
+def get_object_string(cfg_path: pathlib.Path) -> str:
+    assert "_0_" in str(cfg_path), f"_0_ not in {cfg_path}"
+    return [ss for ss in cfg_path.parts if "_0_" in ss][0]
+
+
+def get_object_scale(cfg_path: pathlib.Path) -> float:
     # BRITTLE
     # Assumes "_0_" only shows up once at the end
     # eg. sem-VideoGameConsole-49ba4f628a955bf03742135a31826a22_0_06
-    assert "_0_" in workspace, f"_0_ not in {workspace}"
-    idx = workspace.index("_0_")
-    scale = float(workspace[idx + 1 :].replace("_", "."))
-    return scale
+    obj_str = get_object_string(cfg_path)
+    idx = obj_str.index("_0_")
+    return float(obj_str[idx + 1 :].replace("_", "."))
 
 
-def get_object_code(workspace: str) -> str:
+def get_object_code(cfg_path: pathlib.Path) -> str:
     # BRITTLE
     # Assumes "_0_" only shows up once at the end
     # eg. sem-VideoGameConsole-49ba4f628a955bf03742135a31826a22_0_06
-    assert "_0_" in workspace, f"_0_ not in {workspace}"
-    idx = workspace.index("_0_")
-    object_code = workspace[:idx]
+    obj_str = get_object_string(cfg_path)
+    idx = obj_str.index("_0_")
+    object_code = obj_str[:idx]
     return object_code
 
 
-def get_validated_nerf_workspaces(nerf_checkpoints_path: str) -> List[str]:
-    workspaces = os.listdir(nerf_checkpoints_path)
-    print(f"Validating {len(workspaces)} workspaces in {nerf_checkpoints_path}")
-
-    validated_workspaces = []
-    for workspace in workspaces:
-        path = os.path.join(nerf_checkpoints_path, workspace, "checkpoints")
-        if not os.path.exists(path):
-            print(f"path {path} does not exist")
-            continue
-
-        # num_checkpoints = len(os.listdir(path))
-        # if num_checkpoints > 0:
-        if "ngp_ep0200.pth.tar" in os.listdir(path):
-            validated_workspaces.append(workspace)
-        else:
-            # print(f"no checkpoints in {workspace}")
-            print(f"ngp_ep0200.pth.tar not in {workspace}")
-
-    num_ok = len(validated_workspaces)
-    print(f"num_ok / len(workspaces): {num_ok} / {len(workspaces)}")
-    return validated_workspaces
+def get_nerf_configs(nerf_checkpoints_path: str) -> List[str]:
+    return list(pathlib.Path(nerf_checkpoints_path).rglob("config.yml"))
 
 
 def get_contact_candidates_and_target_candidates(
@@ -135,65 +123,9 @@ def plot_mesh(mesh: trimesh.Trimesh, color="lightpink") -> go.Figure:
     return fig
 
 
-def load_nerf(path_to_workspace: str, bound: float, scale: float):
-    root_dir = nerf_grasping.get_repo_root()
-
-    parser = utils.get_config_parser()
-    opt = parser.parse_args(
-        [
-            "--workspace",
-            f"{path_to_workspace}",
-            "--fp16",
-            "--test",
-            "--bound",
-            f"{bound}",
-            "--scale",
-            f"{scale}",
-            "--mode",
-            "blender",
-            f"{root_dir}/torch-ngp",
-        ]
-    )
-    # Use options to determine proper network structure.
-    if opt.ff:
-        assert opt.fp16, "fully-fused mode must be used with fp16 mode"
-        from nerf.network_ff import NeRFNetwork
-    elif opt.tcnn:
-        assert opt.fp16, "tcnn mode must be used with fp16 mode"
-        from nerf.network_tcnn import NeRFNetwork
-    else:
-        from nerf.network import NeRFNetwork
-
-    # Create uninitialized network.
-    model = NeRFNetwork(
-        bound=opt.bound,
-        cuda_ray=opt.cuda_ray,
-    )
-
-    # Create trainer with NeRF; use its constructor to load network weights from file.
-    trainer = utils.Trainer(
-        "ngp",
-        vars(opt),
-        model,
-        workspace=opt.workspace,
-        criterion=None,
-        fp16=opt.fp16,
-        metrics=[None],
-        use_checkpoint="latest",
-    )
-    assert len(trainer.stats["checkpoints"]) != 0, "failed to load checkpoint"
-    return trainer.model
-
-
-def get_nerf_densities(nerf_model, query_points: torch.Tensor):
-    """
-    Evaluates density of a batch of grasp points, shape [N, 3].
-    query_points is torch.Tensor in nerf frame
-    """
-    N, _ = query_points.shape
-    query_points = query_points.reshape(1, N, 3)
-
-    return nerf_model.density(query_points).reshape(N)
+def load_nerf(cfg_path: pathlib.Path) -> nerfstudio.models.base_model.Model:
+    _, pipeline, _, _ = eval_utils.eval_setup(cfg_path, test_mode="inference")
+    return pipeline.model.field
 
 
 def normalize(x: np.ndarray) -> np.ndarray:
@@ -294,10 +226,10 @@ NUM_PTS_Z = int(GRASP_DEPTH_MM / DIST_BTWN_PTS_MM) + 1
 
 NUM_FINGERS = 4
 
-def get_query_points_finger_frame_helper(
+
+def get_ray_origins_finger_frame_helper(
     num_pts_x: int,
     num_pts_y: int,
-    num_pts_z: int,
     grasp_depth_mm: float,
     finger_width_mm: float,
     finger_height_mm: float,
@@ -306,8 +238,9 @@ def get_query_points_finger_frame_helper(
     gripper_finger_width_m = finger_width_mm / 1000.0
     gripper_finger_height_m = finger_height_mm / 1000.0
 
-    # Create grid of points in grasp frame with shape (num_pts_x, num_pts_y, num_pts_z, 3)
-    # So that grid_of_points[2, 3, 5] = [x, y, z], where x, y, z are the coordinates of the point
+    # Create grid of grasp origins in finger frame with shape (num_pts_x, num_pts_y, 3)
+    # So that grid_of_points[2, 3] = [x, y, z], where x, y, z are the coordinates of the '
+    # ray origin for the [2, 3] "pixel" in the finger frame.
     # Origin of transform is at center of xy at 1/4 of the way into the depth z
     # x is width, y is height, z is depth
     x_coords = np.linspace(
@@ -316,29 +249,29 @@ def get_query_points_finger_frame_helper(
     y_coords = np.linspace(
         -gripper_finger_height_m / 2, gripper_finger_height_m / 2, num_pts_y
     )
-    z_coords = np.linspace(-grasp_depth_m / 4, 3 * grasp_depth_m / 4, num_pts_z)
+    # z_coords = np.linspace(-grasp_depth_m / 4, 3 * grasp_depth_m / 4, num_pts_z)
 
-    xx, yy, zz = np.meshgrid(x_coords, y_coords, z_coords, indexing="ij")
-    assert xx.shape == yy.shape == zz.shape == (num_pts_x, num_pts_y, num_pts_z)
-    grid_of_points = np.stack([xx, yy, zz], axis=-1)
-    assert grid_of_points.shape == (
-        num_pts_x,
-        num_pts_y,
-        num_pts_z,
-        3,
-    ), f"{grid_of_points.shape}"
-    return grid_of_points
+    xx, yy = np.meshgrid(x_coords, y_coords, indexing="ij")
+    zz = -grasp_depth_m / 4 * np.ones_like(xx)
 
-def get_query_points_finger_frame() -> np.ndarray:
-    query_points_finger_frame = get_query_points_finger_frame_helper(
+    assert xx.shape == yy.shape == zz.shape == (num_pts_x, num_pts_y)
+    ray_origins = np.stack([xx, yy, zz], axis=-1)
+
+    assert ray_origins.shape == (num_pts_x, num_pts_y, 3)
+
+    return ray_origins
+
+
+def get_ray_origins_finger_frame() -> np.ndarray:
+    ray_origins_finger_frame = get_ray_origins_finger_frame_helper(
         num_pts_x=NUM_PTS_X,
         num_pts_y=NUM_PTS_Y,
-        num_pts_z=NUM_PTS_Z,
         grasp_depth_mm=GRASP_DEPTH_MM,
         finger_width_mm=FINGER_WIDTH_MM,
         finger_height_mm=FINGER_HEIGHT_MM,
     )
-    return query_points_finger_frame
+    return ray_origins_finger_frame
+
 
 def get_transformed_points(points: np.ndarray, transform: np.ndarray) -> np.ndarray:
     n_points = points.shape[0]
@@ -355,6 +288,68 @@ def get_transformed_points(points: np.ndarray, transform: np.ndarray) -> np.ndar
     transformed_points = transformed_points[:, :3]
     assert transformed_points.shape == (n_points, 3), f"{transformed_points.shape}"
     return transformed_points
+
+
+def get_transformed_dirs(dirs: np.ndarray, transform: np.ndarray) -> np.ndarray:
+    """
+    Transforms direction vectors (i.e., doesn't apply the translation of a homologous tranform).
+    """
+    n_dirs = dirs.shape[0]
+    assert dirs.shape == (n_dirs, 3), f"{dirs.shape}"
+    assert transform.shape == (4, 4), f"{transform.shape}"
+
+    transformed_dirs = np.matmul(transform[:3, :3], dirs.T).T  # only rotate directions.
+
+    return transformed_dirs
+
+
+def get_ray_samples(
+    ray_origins_finger_frame: np.ndarray,
+    transform: np.ndarray,
+    num_pts_z: int = NUM_PTS_Z,
+    grasp_depth_mm: float = float(GRASP_DEPTH_MM),
+) -> RaySamples:
+    grasp_depth_m = grasp_depth_mm / 1000.0
+
+    num_pts_x, num_pts_y = ray_origins_finger_frame.shape[:2]
+
+    assert ray_origins_finger_frame.shape == (num_pts_x, num_pts_y, 3)
+
+    # Collapse batch dimensions + apply transform.
+    ray_origins_world_frame = get_transformed_points(
+        ray_origins_finger_frame.reshape(-1, 3), transform
+    )
+    ray_origins_world_frame = torch.tensor(ray_origins_world_frame).float().contiguous()
+
+    ray_dirs_finger_frame = np.array([0.0, 0.0, 1.0]).reshape(
+        1, 3
+    )  # Ray dirs are along +z axis.
+    ray_dirs_world_frame = get_transformed_dirs(ray_dirs_finger_frame, transform)
+
+    # Cast to Tensor + expand to match origins shape.
+    ray_dirs_world_frame = (
+        torch.tensor(ray_dirs_world_frame)
+        .expand(ray_origins_world_frame.shape)
+        .float()
+        .contiguous()
+    )
+
+    # Create dummy pixel areas object.
+    pixel_area = (
+        torch.ones_like(ray_dirs_world_frame[..., 0]).unsqueeze(-1).float().contiguous()
+    )
+
+    ray_bundle = RayBundle(ray_origins_world_frame, ray_dirs_world_frame, pixel_area)
+
+    # Work out sample lengths.
+    sample_dists = torch.linspace(0.0, grasp_depth_m, steps=num_pts_z)
+
+    sample_dists = sample_dists.reshape(1, num_pts_z, 1).expand(
+        ray_origins_world_frame.shape[0], -1, -1
+    )
+
+    # Pull ray samples -- note these are degenerate, i.e., the deltas field is meaningless.
+    return ray_bundle.get_ray_samples(sample_dists, sample_dists)
 
 
 def plot_mesh_and_query_points(
@@ -386,5 +381,60 @@ def plot_mesh_and_query_points(
         )
         fig.add_trace(query_point_plot)
 
-    fig.update_layout(legend_orientation="h")  # Avoid overlapping legend
+    fig.update_layout(
+        legend_orientation="h",
+        scene=dict(
+            xaxis=dict(nticks=4, range=[-0.1, 0.1]),
+            yaxis=dict(nticks=4, range=[-0.1, 0.1]),
+            zaxis=dict(nticks=4, range=[-0.1, 0.1]),
+        ),
+    )  # Avoid overlapping legend
+    fig.update_layout(scene_aspectmode="cube")
     return fig
+
+
+def get_bbox_ray_samples(
+    bbox_min: np.ndarray,
+    bbox_max: np.ndarray,
+    num_points_x: int = 5 * NUM_PTS_X,
+    num_points_y: int = 5 * NUM_PTS_Y,
+    num_points_z: int = 5 * NUM_PTS_Z,
+):
+    """
+    Creates a nerfstudio RaySamples object for querying the NeRF on a
+    grid inside an axis-aligned bounding box.
+    """
+
+    x_points = np.linspace(bbox_min[0], bbox_max[0], num_points_x)
+    y_points = np.linspace(bbox_min[1], bbox_max[1], num_points_y)
+
+    xx, yy = np.meshgrid(x_points, y_points, indexing="ij")
+    zz = bbox_min[-1] * np.ones_like(xx)
+
+    ray_origins = np.stack([xx, yy, zz], axis=-1)
+
+    transform = torch.eye(4)
+
+    return get_ray_samples(
+        ray_origins, transform, num_points_z, 1000 * (bbox_max[-1] - bbox_min[-1])
+    )
+
+
+def plot_nerf_densities(
+    mesh,
+    nerf_model,
+    bbox_min=np.array([-0.1, -0.05, -0.05]),
+    bbox_max=-np.array([-0.1, -0.05, -0.05]),
+    nerf_thresh=5.0,
+):
+    ray_samples = get_bbox_ray_samples(bbox_min, bbox_max)
+    densities = nerf_model.get_density(ray_samples.to("cuda"))[0].detach().cpu().numpy()
+    query_points = ray_samples.frustums.get_positions().detach().cpu().numpy()
+
+    valid_inds = np.where(densities.reshape(-1) > nerf_thresh)
+    return plot_mesh_and_query_points(
+        mesh,
+        [query_points.reshape(-1, 3)[valid_inds]],
+        [densities.reshape(-1)[valid_inds]],
+        1,
+    )

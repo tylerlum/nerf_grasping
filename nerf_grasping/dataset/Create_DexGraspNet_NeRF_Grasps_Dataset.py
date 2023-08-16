@@ -32,17 +32,17 @@ from tqdm import tqdm
 from datetime import datetime
 import time
 from nerf_grasping.dataset.DexGraspNet_NeRF_Grasps_utils import (
-    get_query_points_finger_frame,
+    get_ray_origins_finger_frame,
     get_contact_candidates_and_target_candidates,
     get_start_and_end_and_up_points,
     get_transform,
-    get_transformed_points,
-    get_nerf_densities,
+    get_ray_samples,
     plot_mesh_and_query_points,
     plot_mesh_and_transforms,
     get_object_code,
     get_object_scale,
-    get_validated_nerf_workspaces,
+    get_nerf_configs,
+    plot_nerf_densities,
     load_nerf,
     NUM_PTS_X,
     NUM_PTS_Y,
@@ -57,6 +57,7 @@ from functools import partial
 
 datetime_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
+
 # %%
 def is_notebook() -> bool:
     try:
@@ -70,27 +71,29 @@ def is_notebook() -> bool:
     except NameError:
         return False  # Probably standard Python interpreter
 
+
 # %%
 if is_notebook():
     from tqdm.notebook import tqdm as std_tqdm
 else:
     from tqdm import tqdm as std_tqdm
 
+if not os.getcwd().split("/")[-1] == "nerf_grasping":
+    os.chdir("../..")
+
 tqdm = partial(std_tqdm, dynamic_ncols=True)
 
 # %%
 # PARAMS
-DEXGRASPNET_DATA_ROOT = "/juno/u/tylerlum/github_repos/DexGraspNet/data"
-GRASP_DATASET_FOLDER = (
-    "2023-07-01_dataset_DESIRED_DIST_TOWARDS_OBJECT_SURFACE_MULTIPLE_STEPS_v2"
-)
-NERF_CHECKPOINTS_FOLDER = "2023-07-25_nerf_checkpoints"
+DEXGRASPNET_DATA_ROOT = "."
+GRASP_DATASET_FOLDER = "graspdata"
+NERF_CHECKPOINTS_FOLDER = "nerfcheckpoints"
 OUTPUT_FOLDER = f"{GRASP_DATASET_FOLDER}_learned_metric_dataset"
 OUTPUT_FILENAME = f"{datetime_str}_learned_metric_dataset.h5"
-PLOT_ONLY_ONE = False
+PLOT_ONLY_ONE = True
 SAVE_DATASET = True
 PRINT_TIMING = True
-LIMIT_NUM_WORKSPACES = None  # None for no limit
+LIMIT_NUM_CONFIGS = None  # None for no limit
 
 # %%
 DEXGRASPNET_MESHDATA_ROOT = os.path.join(DEXGRASPNET_DATA_ROOT, "meshdata")
@@ -98,9 +101,7 @@ DEXGRASPNET_DATASET_ROOT = os.path.join(
     DEXGRASPNET_DATA_ROOT,
     GRASP_DATASET_FOLDER,
 )
-NERF_CHECKPOINTS_PATH = os.path.join(
-    nerf_grasping.get_repo_root(), NERF_CHECKPOINTS_FOLDER
-)
+
 OUTPUT_FOLDER_PATH = os.path.join(
     nerf_grasping.get_repo_root(),
     OUTPUT_FOLDER,
@@ -109,8 +110,6 @@ OUTPUT_FILE_PATH = os.path.join(
     OUTPUT_FOLDER_PATH,
     OUTPUT_FILENAME,
 )
-TORCH_NGP_BOUND = 2.0  # Copied from nerf collection script
-TORCH_NGP_SCALE = 1.0  # Copied from nerf collection script
 
 
 # %%
@@ -127,27 +126,25 @@ if os.path.exists(OUTPUT_FILE_PATH):
 
 
 # %%
-validated_nerf_workspaces = get_validated_nerf_workspaces(
-    nerf_checkpoints_path=NERF_CHECKPOINTS_PATH,
+nerf_configs = get_nerf_configs(
+    nerf_checkpoints_path=NERF_CHECKPOINTS_FOLDER,
 )
 
 
 # %%
-query_points_finger_frame = get_query_points_finger_frame()
-
-
+ray_origins_finger_frame = get_ray_origins_finger_frame()
 
 # %%
-if LIMIT_NUM_WORKSPACES is not None:
-    print(f"Limiting number of workspaces to {LIMIT_NUM_WORKSPACES}")
-    validated_nerf_workspaces = validated_nerf_workspaces[:LIMIT_NUM_WORKSPACES]
+if LIMIT_NUM_CONFIGS is not None:
+    print(f"Limiting number of configs to {LIMIT_NUM_CONFIGS}")
+    nerf_configs = nerf_configs[:LIMIT_NUM_CONFIGS]
 
 NUM_DATA_POINTS_PER_OBJECT = 500
 NUM_SCALES = 5
 APPROX_NUM_DATA_POINTS_PER_OBJECT_PER_SCALE = NUM_DATA_POINTS_PER_OBJECT // NUM_SCALES
 BUFFER_SCALING = 2
 MAX_NUM_DATA_POINTS = (
-    len(validated_nerf_workspaces) * APPROX_NUM_DATA_POINTS_PER_OBJECT_PER_SCALE * BUFFER_SCALING
+    len(nerf_configs) * APPROX_NUM_DATA_POINTS_PER_OBJECT_PER_SCALE * BUFFER_SCALING
 )
 print(f"MAX_NUM_DATA_POINTS: {MAX_NUM_DATA_POINTS}")
 
@@ -164,8 +161,8 @@ with h5py.File(OUTPUT_FILE_PATH, "w") as hdf5_file:
     grasp_success_dataset = hdf5_file.create_dataset(
         "/grasp_success", shape=(MAX_NUM_DATA_POINTS,), dtype="i"
     )
-    nerf_workspace_dataset = hdf5_file.create_dataset(
-        "/nerf_workspace", shape=(MAX_NUM_DATA_POINTS,), dtype=h5py.string_dtype()
+    nerf_config_dataset = hdf5_file.create_dataset(
+        "/nerf_config", shape=(MAX_NUM_DATA_POINTS,), dtype=h5py.string_dtype()
     )
     object_code_dataset = hdf5_file.create_dataset(
         "/object_code", shape=(MAX_NUM_DATA_POINTS,), dtype=h5py.string_dtype()
@@ -182,12 +179,12 @@ with h5py.File(OUTPUT_FILE_PATH, "w") as hdf5_file:
 
     # Iterate through all
     loop_timer = LoopTimer()
-    for workspace in tqdm(validated_nerf_workspaces, desc="nerf workspaces", dynamic_ncols=True):
+    for config in tqdm(nerf_configs, desc="nerf configs", dynamic_ncols=True):
         with loop_timer.add_section_timer("prepare to read in data"):
             # Prepare to read in data
-            workspace_path = os.path.join(NERF_CHECKPOINTS_PATH, workspace)
-            object_code = get_object_code(workspace)
-            object_scale = get_object_scale(workspace)
+
+            object_code = get_object_code(config)
+            object_scale = get_object_scale(config)
             mesh_path = os.path.join(
                 DEXGRASPNET_MESHDATA_ROOT,
                 object_code,
@@ -207,11 +204,7 @@ with h5py.File(OUTPUT_FILE_PATH, "w") as hdf5_file:
 
         # Read in data
         with loop_timer.add_section_timer("load_nerf"):
-            nerf_model = load_nerf(
-                path_to_workspace=workspace_path,
-                bound=TORCH_NGP_BOUND,
-                scale=TORCH_NGP_SCALE,
-            )
+            nerf_model = load_nerf(config)
 
         with loop_timer.add_section_timer("load mesh"):
             mesh = trimesh.load(mesh_path, force="mesh")
@@ -225,14 +218,18 @@ with h5py.File(OUTPUT_FILE_PATH, "w") as hdf5_file:
                 if math.isclose(grasp_data["scale"], object_scale, rel_tol=1e-3)
             ]
 
-        for grasp_idx, grasp_data in (pbar := tqdm(
-            enumerate(correct_scale_grasp_data_list),
-            total=len(correct_scale_grasp_data_list),
-            dynamic_ncols=True,
-        )):
+        for grasp_idx, grasp_data in (
+            pbar := tqdm(
+                enumerate(correct_scale_grasp_data_list),
+                total=len(correct_scale_grasp_data_list),
+                dynamic_ncols=True,
+            )
+        ):
             pbar.set_description(f"grasp data, current_idx: {current_idx}")
             # Go from contact candidates to transforms
-            with loop_timer.add_section_timer("get_contact_candidates_and_target_candidates"):
+            with loop_timer.add_section_timer(
+                "get_contact_candidates_and_target_candidates"
+            ):
                 (
                     contact_candidates,
                     target_contact_candidates,
@@ -251,41 +248,41 @@ with h5py.File(OUTPUT_FILE_PATH, "w") as hdf5_file:
 
             # Transform query points
             with loop_timer.add_section_timer("get_transformed_points"):
-                query_points_object_frame_list = [
-                    get_transformed_points(
-                        query_points_finger_frame.reshape(-1, 3), transform
-                    )
+                ray_samples_list = [
+                    get_ray_samples(ray_origins_finger_frame, transform)
                     for transform in transforms
                 ]
+
+            # TODO(pculbert): Check we can actually get rid of IG transform.
             with loop_timer.add_section_timer("ig_to_nerf"):
                 query_points_isaac_frame_list = [
-                    np.copy(query_points_object_frame)
-                    for query_points_object_frame in query_points_object_frame_list
+                    np.copy(rr.frustums.get_positions().cpu().numpy().reshape(-1, 3))
+                    for rr in ray_samples_list
                 ]
                 query_points_nerf_frame_list = [
-                    ig_to_nerf(query_points_isaac_frame, return_tensor=True)
+                    ig_to_nerf(query_points_isaac_frame, return_tensor=False)
                     for query_points_isaac_frame in query_points_isaac_frame_list
                 ]
 
             # Get densities
             with loop_timer.add_section_timer("get_nerf_densities"):
                 nerf_densities = [
-                    get_nerf_densities(
-                        nerf_model, query_points_nerf_frame.float().cuda()
-                    )
+                    nerf_model.get_density(ray_samples.to("cuda"))[0]
                     .reshape(-1)
                     .detach()
                     .cpu()
                     .numpy()
-                    for query_points_nerf_frame in query_points_nerf_frame_list
+                    for ray_samples in ray_samples_list
                 ]
 
             # Plot
             if PLOT_ONLY_ONE:
+                delta = GRASP_DEPTH_MM / NUM_PTS_Z
+                nerf_alphas = [1 - np.exp(-delta * dd) for dd in nerf_densities]
                 fig = plot_mesh_and_query_points(
                     mesh=mesh,
-                    query_points_list=query_points_object_frame_list,
-                    query_points_colors_list=nerf_densities,
+                    query_points_list=query_points_isaac_frame_list,
+                    query_points_colors_list=nerf_alphas,
                     num_fingers=NUM_FINGERS,
                 )
                 fig.show()
@@ -306,7 +303,7 @@ with h5py.File(OUTPUT_FILE_PATH, "w") as hdf5_file:
                         )
                         nerf_densities_dataset[current_idx] = nerf_densities
                         grasp_success_dataset[current_idx] = grasp_data["valid"]
-                        nerf_workspace_dataset[current_idx] = workspace_path
+                        nerf_config_dataset[current_idx] = str(config)
                         object_code_dataset[current_idx] = object_code
                         object_scale_dataset[current_idx] = object_scale
                         grasp_idx_dataset[current_idx] = grasp_idx
@@ -322,7 +319,7 @@ with h5py.File(OUTPUT_FILE_PATH, "w") as hdf5_file:
                     print()
                     print("-" * 80)
                     print(
-                        f"WARNING: Found {np.isnan(nerf_densities).sum()} nans in grasp {grasp_idx} of {workspace_path}"
+                        f"WARNING: Found {np.isnan(nerf_densities).sum()} nans in grasp {grasp_idx} of {config}"
                     )
                     print("-" * 80)
                     print()

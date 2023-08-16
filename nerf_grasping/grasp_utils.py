@@ -5,7 +5,7 @@ including normal estimation and surface detection.
 import logging
 import math
 
-import lietorch
+# import lietorch
 import numpy as np
 import scipy
 import torch

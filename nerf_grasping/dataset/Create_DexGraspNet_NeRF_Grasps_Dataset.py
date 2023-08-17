@@ -345,6 +345,7 @@ with h5py.File(OUTPUT_FILE_PATH, "w") as hdf5_file:
                     ax.set_ylabel("alpha")
                     ax.set_title(f"finger {i}")
                     ax.set_ylim([0, 1])
+                fig4.tight_layout()
                 fig4.show()
 
                 # Plot images for each finger
@@ -357,8 +358,10 @@ with h5py.File(OUTPUT_FILE_PATH, "w") as hdf5_file:
                     for image_i in range(num_images):
                         ax = axes[finger_i, image_i]
                         image = alpha_images[finger_i][:, :, int(image_i * NUM_PTS_Z / num_images)]
-                        ax.imshow(image)
+                        ax.imshow(image, vmin=image.min(), vmax=image.max())
                         ax.set_title(f"finger {finger_i}, image {image_i}")
+                fig5.tight_layout()
+                fig5.show()
 
                 assert False, "PLOT_ONLY_ONE is True"
 

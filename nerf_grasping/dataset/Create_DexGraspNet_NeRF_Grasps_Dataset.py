@@ -279,7 +279,7 @@ with h5py.File(OUTPUT_FILE_PATH, "w") as hdf5_file:
 
             # Plot
             if PLOT_ONLY_ONE:
-                delta = GRASP_DEPTH_MM / NUM_PTS_Z
+                delta = GRASP_DEPTH_MM / 1000 / NUM_PTS_Z
                 nerf_alphas = [1 - np.exp(-delta * dd) for dd in nerf_densities]
                 fig = plot_mesh_and_query_points(
                     mesh=mesh,
@@ -297,9 +297,9 @@ with h5py.File(OUTPUT_FILE_PATH, "w") as hdf5_file:
 
                 ray_samples_in_mesh_region = get_ray_samples_in_mesh_region(
                     mesh=mesh,
-                    num_pts_x=30,
-                    num_pts_y=30,
-                    num_pts_z=30,
+                    num_pts_x=60,
+                    num_pts_y=60,
+                    num_pts_z=60,
                 )
                 query_points_in_mesh_region_isaac_frame = np.copy(
                     ray_samples_in_mesh_region.frustums.get_positions()
@@ -318,15 +318,37 @@ with h5py.File(OUTPUT_FILE_PATH, "w") as hdf5_file:
                     .cpu()
                     .numpy()
                 )
+                nerf_alphas_in_mesh_region = 1 - np.exp(-delta * nerf_densities_in_mesh_region)
 
                 fig3 = plot_mesh_and_high_density_points(
                     mesh=mesh,
                     query_points=query_points_in_mesh_region_isaac_frame,
-                    query_points_colors=nerf_densities_in_mesh_region,
-                    density_threshold=100,
+                    query_points_colors=nerf_alphas_in_mesh_region,
+                    density_threshold=0.01,
                 )
                 fig3.show()
+
+                # Plot alphas for each finger
+                import matplotlib.pyplot as plt
+                nrows, ncols = 2, 2
+                fig4, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=(10, 10))
+                axes = axes.flatten()
+                for i in range(NUM_FINGERS):
+                    ax = axes[i]
+                    finger_alphas = nerf_alphas[i].reshape(NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
+                    finger_alphas_maxes = np.max(finger_alphas, axis=(0, 1))
+                    finger_alphas_means = np.mean(finger_alphas, axis=(0, 1))
+                    ax.plot(finger_alphas_maxes, label="max")
+                    ax.plot(finger_alphas_means, label="mean")
+                    ax.legend()
+                    ax.set_xlabel("z")
+                    ax.set_ylabel("alpha")
+                    ax.set_title(f"finger {i}")
+                    ax.set_ylim([0, 1])
+                fig4.show()
+
                 assert False, "PLOT_ONLY_ONE is True"
+
             # Save values
             if SAVE_DATASET:
                 # Ensure no nans (most likely come from nerf densities)

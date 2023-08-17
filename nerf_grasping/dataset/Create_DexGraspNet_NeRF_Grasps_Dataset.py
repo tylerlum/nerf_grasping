@@ -39,9 +39,11 @@ from nerf_grasping.dataset.DexGraspNet_NeRF_Grasps_utils import (
     get_ray_samples,
     plot_mesh_and_query_points,
     plot_mesh_and_transforms,
+    plot_mesh_and_high_density_points,
     get_object_code,
     get_object_scale,
     get_nerf_configs,
+    get_ray_samples_in_mesh_region,
     plot_nerf_densities,
     load_nerf,
     NUM_PTS_X,
@@ -292,6 +294,38 @@ with h5py.File(OUTPUT_FILE_PATH, "w") as hdf5_file:
                     num_fingers=NUM_FINGERS,
                 )
                 fig2.show()
+
+                ray_samples_in_mesh_region = get_ray_samples_in_mesh_region(
+                    mesh=mesh,
+                    num_pts_x=30,
+                    num_pts_y=30,
+                    num_pts_z=30,
+                )
+                query_points_in_mesh_region_isaac_frame = np.copy(
+                    ray_samples_in_mesh_region.frustums.get_positions()
+                    .cpu()
+                    .numpy()
+                    .reshape(-1, 3)
+                )
+                query_points_in_mesh_region_nerf_frame = ig_to_nerf(
+                    query_points_in_mesh_region_isaac_frame, return_tensor=False
+                )
+
+                nerf_densities_in_mesh_region = (
+                    nerf_model.get_density(ray_samples_in_mesh_region.to("cuda"))[0]
+                    .reshape(-1)
+                    .detach()
+                    .cpu()
+                    .numpy()
+                )
+
+                fig3 = plot_mesh_and_high_density_points(
+                    mesh=mesh,
+                    query_points=query_points_in_mesh_region_isaac_frame,
+                    query_points_colors=nerf_densities_in_mesh_region,
+                    density_threshold=100,
+                )
+                fig3.show()
                 assert False, "PLOT_ONLY_ONE is True"
             # Save values
             if SAVE_DATASET:

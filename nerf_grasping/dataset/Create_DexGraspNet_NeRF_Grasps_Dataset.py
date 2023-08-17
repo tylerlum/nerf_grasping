@@ -89,6 +89,7 @@ tqdm = partial(std_tqdm, dynamic_ncols=True)
 # PARAMS
 DEXGRASPNET_DATA_ROOT = "."
 GRASP_DATASET_FOLDER = "graspdata"
+# NERF_CHECKPOINTS_FOLDER = "nerfcheckpoints_longer_2000"
 NERF_CHECKPOINTS_FOLDER = "nerfcheckpoints"
 OUTPUT_FOLDER = f"{GRASP_DATASET_FOLDER}_learned_metric_dataset"
 OUTPUT_FILENAME = f"{datetime_str}_learned_metric_dataset.h5"
@@ -112,7 +113,6 @@ OUTPUT_FILE_PATH = os.path.join(
     OUTPUT_FOLDER_PATH,
     OUTPUT_FILENAME,
 )
-
 
 # %%
 if not os.path.exists(OUTPUT_FOLDER_PATH):
@@ -182,6 +182,9 @@ with h5py.File(OUTPUT_FILE_PATH, "w") as hdf5_file:
     # Iterate through all
     loop_timer = LoopTimer()
     for config in tqdm(nerf_configs, desc="nerf configs", dynamic_ncols=True):
+        if "ddg-kit_ChoppedTomatoes_0_08" not in str(config):
+            continue
+
         with loop_timer.add_section_timer("prepare to read in data"):
             # Prepare to read in data
 
@@ -279,8 +282,9 @@ with h5py.File(OUTPUT_FILE_PATH, "w") as hdf5_file:
 
             # Plot
             if PLOT_ONLY_ONE:
-                delta = GRASP_DEPTH_MM / NUM_PTS_Z
+                delta = GRASP_DEPTH_MM / 1000 / NUM_PTS_Z
                 nerf_alphas = [1 - np.exp(-delta * dd) for dd in nerf_densities]
+                # nerf_alphas = [dd for dd in nerf_densities]
                 fig = plot_mesh_and_query_points(
                     mesh=mesh,
                     query_points_list=query_points_isaac_frame_list,
@@ -297,9 +301,9 @@ with h5py.File(OUTPUT_FILE_PATH, "w") as hdf5_file:
 
                 ray_samples_in_mesh_region = get_ray_samples_in_mesh_region(
                     mesh=mesh,
-                    num_pts_x=30,
-                    num_pts_y=30,
-                    num_pts_z=30,
+                    num_pts_x=60,
+                    num_pts_y=60,
+                    num_pts_z=60,
                 )
                 query_points_in_mesh_region_isaac_frame = np.copy(
                     ray_samples_in_mesh_region.frustums.get_positions()
@@ -319,11 +323,13 @@ with h5py.File(OUTPUT_FILE_PATH, "w") as hdf5_file:
                     .numpy()
                 )
 
+                nerf_alphas_in_mesh_region = 1 - np.exp(-delta * nerf_densities_in_mesh_region)
+
                 fig3 = plot_mesh_and_high_density_points(
                     mesh=mesh,
                     query_points=query_points_in_mesh_region_isaac_frame,
-                    query_points_colors=nerf_densities_in_mesh_region,
-                    density_threshold=100,
+                    query_points_colors=nerf_alphas_in_mesh_region,
+                    density_threshold=0.01,
                 )
                 fig3.show()
                 assert False, "PLOT_ONLY_ONE is True"
@@ -361,4 +367,37 @@ with h5py.File(OUTPUT_FILE_PATH, "w") as hdf5_file:
             loop_timer.pretty_print_section_times()
         print()
 
+# %%
+
+my_densities = nerf_alphas[0].reshape(NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
+my_points = query_points_isaac_frame_list[0].reshape(NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z, 3)
+my_densities.shape, my_points.shape
+
+# %%
+densities_along_z = np.max(my_densities, axis=(0, 1))
+densities_along_z.shape
+
+# %%
+import matplotlib.pyplot as plt
+plt.plot(densities_along_z)
+
+# %%
+import math
+n_rows = np.sqrt(NUM_PTS_Z).astype(int)
+n_cols = math.ceil(NUM_PTS_Z / n_rows)
+fig, axes = plt.subplots(n_rows, n_cols, figsize=(20, 20))
+axes = axes.flatten()
+for i in range(NUM_PTS_Z):
+    ax = axes[i]
+    ax.imshow(my_densities[:, :, i], vmin=0, vmax=my_densities.max(), cmap="jet")
+    ax.set_title(f"z={i}")
+    ax.axis("off")
+plt.colorbar()
+plt.show()
+
+# %%
+my_densities.min(), my_densities.mean(), my_densities.max()
+
+# %%
+plt.hist(nerf_alphas_in_mesh_region[nerf_alphas_in_mesh_region > 0.01], bins=100, log=True)
 # %%

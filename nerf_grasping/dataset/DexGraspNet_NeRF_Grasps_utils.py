@@ -36,7 +36,7 @@ def get_object_code(cfg_path: pathlib.Path) -> str:
     return object_code
 
 
-def get_nerf_configs(nerf_checkpoints_path: str) -> List[pathlib.Path]:
+def get_nerf_configs(nerf_checkpoints_path: str) -> List[str]:
     return list(pathlib.Path(nerf_checkpoints_path).rglob("config.yml"))
 
 

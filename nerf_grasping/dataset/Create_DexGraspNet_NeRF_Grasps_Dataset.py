@@ -17,7 +17,7 @@
 # # Create DexGraspNet NeRF Grasps
 #
 # ## Summary (Jul 26, 2023)
-
+#
 # The purpose of this script is to iterate through each NeRF object and labeled grasp, sample densities in the grasp trajectory, and storing the data
 
 # %%
@@ -33,7 +33,6 @@ from datetime import datetime
 import time
 from nerf_grasping.dataset.DexGraspNet_NeRF_Grasps_utils import (
     get_ray_origins_finger_frame,
-    get_ray_origins_finger_frame_helper,
     get_contact_candidates_and_target_candidates,
     get_start_and_end_and_up_points,
     get_transform,
@@ -133,19 +132,7 @@ nerf_configs = get_nerf_configs(
 
 
 # %%
-# ray_origins_finger_frame = get_ray_origins_finger_frame()
-
-# HACK
-NUM_FINGERS = 1
-DENSITY_SCALE = 4
-SCALE_UP_FACTOR = 30
-ray_origins_finger_frame = get_ray_origins_finger_frame_helper(
-    num_pts_x=NUM_PTS_X * DENSITY_SCALE,
-    num_pts_y=NUM_PTS_Y * DENSITY_SCALE,
-    grasp_depth_mm=GRASP_DEPTH_MM * SCALE_UP_FACTOR,
-    finger_width_mm=FINGER_WIDTH_MM * SCALE_UP_FACTOR,
-    finger_height_mm=FINGER_HEIGHT_MM * SCALE_UP_FACTOR,
-)
+ray_origins_finger_frame = get_ray_origins_finger_frame()
 
 # %%
 if LIMIT_NUM_CONFIGS is not None:
@@ -251,19 +238,18 @@ with h5py.File(OUTPUT_FILE_PATH, "w") as hdf5_file:
                 start_points, end_points, up_points = get_start_and_end_and_up_points(
                     contact_candidates=contact_candidates,
                     target_contact_candidates=target_contact_candidates,
-                    num_fingers=4,
+                    num_fingers=NUM_FINGERS,
                 )
             with loop_timer.add_section_timer("get_transforms"):
                 transforms = [
-                    # get_transform(start_points[i], end_points[i], up_points[i])
-                    np.eye(4)
+                    get_transform(start_points[i], end_points[i], up_points[i])
                     for i in range(NUM_FINGERS)
                 ]
 
             # Transform query points
             with loop_timer.add_section_timer("get_transformed_points"):
                 ray_samples_list = [
-                    get_ray_samples(ray_origins_finger_frame, transform, num_pts_z=NUM_PTS_Z * DENSITY_SCALE, grasp_depth_mm=GRASP_DEPTH_MM*SCALE_UP_FACTOR)
+                    get_ray_samples(ray_origins_finger_frame, transform)
                     for transform in transforms
                 ]
 

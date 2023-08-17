@@ -366,8 +366,6 @@ def plot_mesh_and_query_points(
     for finger_idx in range(num_fingers):
         query_points = query_points_list[finger_idx]
         query_points_colors = query_points_colors_list[finger_idx]
-        query_points = query_points[query_points_colors > 0.5]
-        query_points_colors = query_points_colors[query_points_colors > 0.5]
         query_point_plot = go.Scatter3d(
             x=query_points[:, 0],
             y=query_points[:, 1],

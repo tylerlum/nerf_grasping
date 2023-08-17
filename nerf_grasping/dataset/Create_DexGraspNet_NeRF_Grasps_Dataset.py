@@ -330,7 +330,7 @@ with h5py.File(OUTPUT_FILE_PATH, "w") as hdf5_file:
 
                 # Plot alphas for each finger
                 import matplotlib.pyplot as plt
-                nrows, ncols = 2, 2
+                nrows, ncols = NUM_FINGERS, 1
                 fig4, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=(10, 10))
                 axes = axes.flatten()
                 for i in range(NUM_FINGERS):
@@ -346,6 +346,19 @@ with h5py.File(OUTPUT_FILE_PATH, "w") as hdf5_file:
                     ax.set_title(f"finger {i}")
                     ax.set_ylim([0, 1])
                 fig4.show()
+
+                # Plot images for each finger
+                num_images = 5
+                nrows, ncols = NUM_FINGERS, num_images
+                fig5, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=(10, 10))
+                alpha_images = [x.reshape(NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z) for x in nerf_alphas]
+
+                for finger_i in range(NUM_FINGERS):
+                    for image_i in range(num_images):
+                        ax = axes[finger_i, image_i]
+                        image = alpha_images[finger_i][:, :, int(image_i * NUM_PTS_Z / num_images)]
+                        ax.imshow(image)
+                        ax.set_title(f"finger {finger_i}, image {image_i}")
 
                 assert False, "PLOT_ONLY_ONE is True"
 

@@ -384,9 +384,9 @@ def plot_mesh_and_query_points(
     fig.update_layout(
         legend_orientation="h",
         scene=dict(
-            xaxis=dict(nticks=4, range=[-0.1, 0.1]),
-            yaxis=dict(nticks=4, range=[-0.1, 0.1]),
-            zaxis=dict(nticks=4, range=[-0.1, 0.1]),
+            xaxis=dict(nticks=4, range=[-0.2, 0.2]),
+            yaxis=dict(nticks=4, range=[-0.2, 0.2]),
+            zaxis=dict(nticks=4, range=[-0.2, 0.2]),
         ),
     )  # Avoid overlapping legend
     fig.update_layout(scene_aspectmode="cube")

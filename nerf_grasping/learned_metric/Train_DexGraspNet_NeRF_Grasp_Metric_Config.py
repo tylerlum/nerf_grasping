@@ -32,7 +32,7 @@ class DataLoaderConfig:
     load_nerf_grid_inputs_in_ram: bool = MISSING
     load_grasp_successes_in_ram: bool = MISSING
     load_grasp_transforms_in_ram: bool = MISSING
-    load_nerf_workspaces_in_ram: bool = MISSING
+    load_nerf_configs_in_ram: bool = MISSING
 
 
 @dataclass

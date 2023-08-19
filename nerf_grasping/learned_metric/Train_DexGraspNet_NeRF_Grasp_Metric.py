@@ -1116,6 +1116,7 @@ def iterate_through_dataloader(
             # Forward pass
             with loop_timer.add_section_timer("Fwd"):
                 grasp_success_logits = nerf_to_grasp_success_model.get_success_logits(
+                    # TODO: Use config to set this, defines what input type we give
                     batch_data.nerf_alphas_with_augmented_coords
                     # batch_data.nerf_alphas_with_coords
                 )

@@ -252,31 +252,47 @@ with h5py.File(OUTPUT_FILE_PATH, "w") as hdf5_file:
                     for transform in transforms
                 ]
 
-            # TODO(pculbert): Check we can actually get rid of IG transform.
             with loop_timer.add_section_timer("ig_to_nerf"):
                 query_points_list = [
-                    np.copy(rr.frustums.get_positions().cpu().numpy().reshape(-1, 3))
+                    np.copy(
+                        rr.frustums.get_positions().cpu().numpy()
+                    )  # Shape [n_x, n_y, n_z, 3]
                     for rr in ray_samples_list
                 ]
+
+                assert query_points_list[0].shape == (
+                    NUM_PTS_X,
+                    NUM_PTS_Y,
+                    NUM_PTS_Z,
+                    3,
+                ), f"query_points_list[0].shape: {query_points_list[0].shape}"
 
             # Get densities
             with loop_timer.add_section_timer("get_nerf_densities"):
                 nerf_densities = [
                     nerf_model.get_density(ray_samples.to("cuda"))[0]
-                    .reshape(-1)
                     .detach()
                     .cpu()
                     .numpy()
-                    for ray_samples in ray_samples_list
+                    for ray_samples in ray_samples_list  # Shape [n_x, n_y, n_z].
                 ]
+
+                assert nerf_densities[0].shape == (
+                    NUM_PTS_X,
+                    NUM_PTS_Y,
+                    NUM_PTS_Z,
+                    1,
+                ), f"nerf_densities[0].shape: {nerf_densities[0].shape}"
 
             # Plot
             if PLOT_ONLY_ONE:
-                delta = GRASP_DEPTH_MM / NUM_PTS_Z
-                nerf_alphas = [1 - np.exp(-delta * dd) for dd in nerf_densities]
+                delta = GRASP_DEPTH_MM / 1000 / NUM_PTS_Z
+                nerf_alphas = [
+                    1 - np.exp(-delta * dd).reshape(-1) for dd in nerf_densities
+                ]
                 fig = plot_mesh_and_query_points(
                     mesh=mesh,
-                    query_points_list=query_points_list,
+                    query_points_list=[qq.reshape(-1, 3) for qq in query_points_list],
                     query_points_colors_list=nerf_alphas,
                     num_fingers=NUM_FINGERS,
                 )

@@ -84,9 +84,6 @@ def get_ray_samples(
 
     assert ray_origins_finger_frame.shape == (num_pts_x, num_pts_y, 3)
 
-    # Collapse xy batch dims.
-    ray_origins_finger_frame = ray_origins_finger_frame.reshape(-1, 3)
-
     # Device / dtype cast for the transform.
     ray_origins_finger_frame = ray_origins_finger_frame.to(
         device=transform.device, dtype=transform.dtype
@@ -97,12 +94,12 @@ def get_ray_samples(
         ray_origins_finger_frame = ray_origins_finger_frame.unsqueeze(0)
 
     # Add batch dims for finger-frame points.
-    transform = transform.unsqueeze(-2)
+    transform = transform.unsqueeze(-2).unsqueeze(-2)
 
     # Apply transform.
     ray_origins_world_frame = (
         transform @ ray_origins_finger_frame
-    )  # shape [*batch_dims, num_pts_x * num_pts_y, 3]
+    )  # shape [*batch_dims, num_pts_x, num_pts_y, 3]
 
     ray_dirs_finger_frame = torch.tensor(
         [0.0, 0.0, 1.0], device=transform.device, dtype=transform.dtype
@@ -112,14 +109,15 @@ def get_ray_samples(
     for _ in range(len(transform.lshape)):
         ray_dirs_finger_frame = ray_dirs_finger_frame.unsqueeze(0)
 
+    # Rotate ray directions (hence SO3 cast).
     ray_dirs_world_frame = (
         pp.from_matrix(transform.matrix(), pp.SO3_type) @ ray_dirs_finger_frame
-    )  # [*batch_dims, num_pts_x * num_pts_y, 3]
+    )  # [*batch_dims, num_pts_x,  num_pts_y, 3]
 
     # Create dummy pixel areas object.
     pixel_area = (
         torch.ones_like(ray_dirs_world_frame[..., 0]).unsqueeze(-1).float().contiguous()
-    )  # [*batch_dims, num_pts_x * num_pts_y, 1]
+    )  # [*batch_dims, num_pts_x, num_pts_y, 1]
 
     ray_bundle = RayBundle(ray_origins_world_frame, ray_dirs_world_frame, pixel_area)
 
@@ -133,7 +131,7 @@ def get_ray_samples(
         *ray_dirs_world_frame.shape[:-1], num_pts_z
     ).unsqueeze(
         -1
-    )  # [*batch_dims, num_pts_x * num_pts_y, num_pts_z, 1]
+    )  # [*batch_dims, num_pts_x, num_pts_y, num_pts_z, 1]
 
     # Pull ray samples -- note these are degenerate, i.e., the deltas field is meaningless.
     return ray_bundle.get_ray_samples(sample_dists, sample_dists)

@@ -88,8 +88,8 @@ tqdm = partial(std_tqdm, dynamic_ncols=True)
 # %%
 # PARAMS
 DEXGRASPNET_DATA_ROOT = "."
-GRASP_DATASET_FOLDER = "graspdata"
-NERF_CHECKPOINTS_FOLDER = "nerfcheckpoints"
+GRASP_DATASET_FOLDER = "2023-08-19_graspdata_one_object_only"
+NERF_CHECKPOINTS_FOLDER = "2023-08-19_nerfcheckpoints_one_object_only"
 OUTPUT_FOLDER = f"{GRASP_DATASET_FOLDER}_learned_metric_dataset"
 OUTPUT_FILENAME = f"{datetime_str}_learned_metric_dataset.h5"
 PLOT_ONLY_ONE = False

@@ -1116,8 +1116,8 @@ def iterate_through_dataloader(
             # Forward pass
             with loop_timer.add_section_timer("Fwd"):
                 grasp_success_logits = nerf_to_grasp_success_model.get_success_logits(
-                    # batch_data.nerf_alphas_with_augmented_coords
-                    batch_data.nerf_alphas_with_coords
+                    batch_data.nerf_alphas_with_augmented_coords
+                    # batch_data.nerf_alphas_with_coords
                 )
                 ce_loss = ce_loss_fn(
                     input=grasp_success_logits, target=batch_data.grasp_success
@@ -1390,3 +1390,7 @@ save_checkpoint(
     optimizer=optimizer,
     lr_scheduler=lr_scheduler,
 )
+
+# %%
+wandb.finish()
+# %%

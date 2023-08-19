@@ -496,6 +496,8 @@ class BatchData:
         # alpha = 1 - exp(-delta * sigma)
         #       = probability of collision within this segment starting from beginning of segment
         DELTA = DIST_BTWN_PTS_MM / 1000
+        OTHER_DELTA = GRASP_DEPTH_MM / (NUM_PTS_Z -1) / 1000
+        assert np.isclose(DELTA, OTHER_DELTA), f"{DELTA} != {OTHER_DELTA}"
         return 1.0 - torch.exp(-DELTA * self.nerf_densities)
 
     @property
@@ -834,37 +836,37 @@ fig.show()
 # %%
 EXAMPLE_BATCH_DATA.grasp_success
 
-# %%
-fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=14)
-fig.show()
-
-# %%
-fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=14, augmented=True)
-fig.show()
-
-# %%
-fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=17)
-fig.show()
-
-# %%
-fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=17, augmented=True)
-fig.show()
-
-# %%
-fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=18)
-fig.show()
-
-# %%
-fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=18, augmented=True)
-fig.show()
-
-# %%
-fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=19)
-fig.show()
-
-# %%
-fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=19, augmented=True)
-fig.show()
+# # %%
+# fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=14)
+# fig.show()
+# 
+# # %%
+# fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=14, augmented=True)
+# fig.show()
+# 
+# # %%
+# fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=17)
+# fig.show()
+# 
+# # %%
+# fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=17, augmented=True)
+# fig.show()
+# 
+# # %%
+# fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=18)
+# fig.show()
+# 
+# # %%
+# fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=18, augmented=True)
+# fig.show()
+# 
+# # %%
+# fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=19)
+# fig.show()
+# 
+# # %%
+# fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=19, augmented=True)
+# fig.show()
 
 # %% [markdown]
 # # Create Neural Network Model
@@ -933,6 +935,7 @@ class CNN_3D_Classifier(nn.Module):
             batch_size * self.n_fingers,
             self.conv_output_dim,
         ), f"{x.shape}"
+        x = x.reshape(batch_size, self.n_fingers, self.conv_output_dim)
         x = x.reshape(batch_size, self.n_fingers * self.conv_output_dim)
 
         x = self.mlp(x)
@@ -1102,11 +1105,19 @@ def iterate_through_dataloader(
 
             batch_idx = int(batch_idx)
             batch_data: BatchData = batch_data.to(device)
+            if torch.isnan(batch_data.nerf_alphas_with_augmented_coords).any():
+                print("!" * 80)
+                print(f"Found {torch.isnan(batch_data.nerf_alphas_with_augmented_coords).sum()} NANs in batch_data.nerf_alphas_with_augmented_coords")
+                print("Skipping batch...")
+                print("!" * 80)
+                print()
+                continue
 
             # Forward pass
             with loop_timer.add_section_timer("Fwd"):
                 grasp_success_logits = nerf_to_grasp_success_model.get_success_logits(
                     batch_data.nerf_alphas_with_augmented_coords
+                    # batch_data.nerf_alphas_with_coords
                 )
                 ce_loss = ce_loss_fn(
                     input=grasp_success_logits, target=batch_data.grasp_success

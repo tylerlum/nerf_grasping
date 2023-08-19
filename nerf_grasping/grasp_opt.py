@@ -1,477 +1,191 @@
-"""
-Module implementing methods for grasp optimization with NeRFs.
-"""
-import logging
-import sys
-from functools import partial
-
-import cvxopt as cvx
-import numpy as np
+# %%
+import pathlib
+import pytorch_kinematics as pk
+import pypose as pp
 import torch
-from pyhull import convex_hull as cvh
 
-import trimesh
+import nerf_grasping
+from nerf_grasping import grasp_utils
 
-from nerf_grasping import config, grasp_utils, mesh_utils, nerf_utils
+from typing import List
 
-
-def grasp_matrix(grasp_points, normals):
-    """
-    Constructs a grasp matrix for the object represented by the NeRF density,
-    evaluated at a set of grasp points.
-    Args:
-        nerf: NeRF model whose density represents the object.
-        grasp_points: a list of grasp points (torch.Tensors in 3D) at which to
-            construct the grasp matrix, shape [B, n_f, 3].
-    Returns a grasp matrix (torch.Tensor) for the given grasp.
-    """
-    B, n_f, _ = grasp_points.shape
-
-    normals = normals / (torch.norm(normals, dim=-1, keepdim=True) + 1e-5)
-
-    R = rot_from_vec(normals.reshape(-1, 3)).reshape(B, n_f, 3, 3)
-    p_cross = skew(grasp_points.reshape(-1, 3)).reshape(B, n_f, 3, 3)
-
-    grasp_mats = torch.cat([R, p_cross @ R], dim=-2)
-    return torch.cat([grasp_mats[:, ii, :, :] for ii in range(n_f)], dim=-1)
-
-
-def rot_from_vec(n_z, start_vec=None):
-    """
-    Creates rotation matrix which maps the basis vector e_3 to a vector n_z.
-    Gets poorly conditioned when n_z ≅ ±e_3.
-    Args:
-        n_z: Batch of normal dirs, shape [B, 3].
-    """
-    # Construct constants.
-    n_z = n_z.reshape(-1, 3)
-    Identity = (
-        torch.eye(3, device=n_z.device).reshape(1, 3, 3).expand(n_z.shape[0], 3, 3)
+ALLEGRO_URDF_PATH = list(
+    pathlib.Path(nerf_grasping.get_package_root()).rglob(
+        "*allegro_hand_description_right.urdf"
     )
-    if start_vec is None:
-        start_vec = Identity[:, :, 2]
+)[0]
 
-    # Compute cross product to find axis of rotation.
-    v = torch.cross(start_vec, n_z, dim=-1)
-    theta = torch.arccos(torch.sum(start_vec * n_z, dim=-1)).reshape(-1, 1, 1)
-    K = skew(v)
+Z_AXIS = torch.tensor([0, 0, 1], dtype=torch.float32)
 
-    ans = Identity + torch.sin(theta) * K + (1 - torch.cos(theta)) * K @ K
+FINGERTIP_LINK_NAMES = [
+    "link_3.0_tip",
+    "link_7.0_tip",
+    "link_11.0_tip",
+    "link_15.0_tip",
+]
 
-    return ans
+
+def load_allegro(allegro_path: pathlib.Path = ALLEGRO_URDF_PATH) -> pk.chain.Chain:
+    return pk.build_chain_from_urdf(open(allegro_path).read())
 
 
-def skew(v):
+class AllegroHandConfig(torch.nn.Module):
     """
-    Returns the skew-symmetric form of a batch of 3D vectors v (shape [B, 3]).
+    A container specifying a batch of configurations for an Allegro hand, i.e., the
+    wrist pose and the joint configurations.
     """
-    v = v.reshape(-1, 3)
 
-    K = torch.zeros(v.shape[0], 3, 3, device=v.device)
-
-    K[:, 0, 1] = -v[:, 2]
-    K[:, 0, 2] = v[:, 1]
-    K[:, 1, 0] = v[:, 2]
-    K[:, 1, 2] = -v[:, 0]
-    K[:, 2, 0] = -v[:, 1]
-    K[:, 2, 1] = v[:, 0]
-
-    return K
-
-
-def psv(grasp_points, normals):
-    """
-    Evaluates the minimum-singular-value grasp metric proposed in Li and Sastry '88.
-    Args:
-        grasp_points: a list of grasp points (torch.Tensors in 3D) at which to evaluate
-             the grasp metric.
-    Returns the product singular value of the grasp matrix formed by these points.
-    """
-    G = grasp_matrix(grasp_points, normals)
-    return torch.prod(torch.linalg.svdvals(G), dim=-1)
-
-
-def msv(grasp_points, normals):
-    """
-    Evaluates the minimum-singular-value grasp metric proposed in Li and Sastry '88.
-    Args:
-        grasp_points: a list of grasp points (torch.Tensors in 3D) at which to evaluate
-             the grasp metric.
-    Returns the minimum singular value of the grasp matrix formed by these points.
-    """
-    grasp_points = grasp_points
-    G = grasp_matrix(grasp_points, normals)
-    return torch.min(torch.linalg.svdvals(G), dim=-1)[0]
-
-
-def poly_area(grasp_points, normals):
-    """Computes the area of the triangle formed by the grasp points."""
-    v1 = grasp_points[:, 1] - grasp_points[:, 0]
-    v2 = grasp_points[:, 2] - grasp_points[:, 0]
-    d1 = torch.norm(v1, dim=-1)
-    d2 = torch.norm(v2, dim=-1)
-
-    # bad_inds = torch.argwhere(torch.all(grasp_points[:, 0] == grasp_points[:, 1], dim=-1))
-    # print('bad indices, inside_cost: ', bad_inds)
-
-    # bad_inds = torch.argwhere(d1 == 0)
-    # print(grasp_points[bad_inds, 1], grasp_points[bad_inds, 0])
-
-    angles = torch.sqrt(1 - torch.square(torch.sum(v1 * v2, dim=-1) / (d1 * d2)))
-    areas = 0.5 * d1 * d2 * torch.sin(angles)
-    return areas
-
-
-def ferrari_canny(grasp_points, normals):
-    """Calculates Ferrari Canny L1 grasp metric"""
-    G = grasp_matrix(grasp_points, normals)
-    if len(G.size()) == 3:
-        dists = []
-        for g in G:
-            dists.append(fc(g.cpu().numpy()))
-        dist = torch.as_tensor(dists).float()
-    else:
-        dist = fc(G)
-    return dist
-
-
-def fc(G):
-    hull = cvh.ConvexHull(G.T)
-    min_norm_in_hull, v = min_norm_vector_in_facet(G)
-    if len(hull.vertices) == 0:
-        logging.debug("Convex hull could not be computed")
-        return 0.0
-
-    if min_norm_in_hull > 1e-3:
-        logging.debug("Min norm in hull not negative")
-        return 0.0
-
-    if np.sum(v > 1e-4) <= G.shape[0] - 1:
-        logging.debug("Zero not in interior of convex hull")
-        return 0.0
-
-    min_dist = sys.float_info.max
-    closest_facet = None
-    for v in hull.vertices:
-        if (
-            np.max(np.array(v)) < G.shape[1]
-        ):  # because of some occasional odd behavior from pyhull
-            facet = G[:, v]
-            dist, _ = min_norm_vector_in_facet(facet)
-            if dist < min_dist:
-                min_dist = dist
-                closest_facet = v
-    del closest_facet
-    return min_dist
-
-
-def min_norm_vector_in_facet(facet, wrench_regularizer=1e-10):
-    """Finds the minimum norm point in the convex hull of a given facet (aka simplex) by solving a QP.
-    Parameters
-    ----------
-    facet : 6xN :obj:`numpy.ndarray`
-        vectors forming the facet
-    wrench_regularizer : float
-        small float to make quadratic program positive semidefinite
-    Returns
-    -------
-    float
-        minimum norm of any point in the convex hull of the facet
-    Nx1 :obj:`numpy.ndarray`
-        vector of coefficients that achieves the minimum
-    """
-    dim = facet.shape[1]  # num vertices in facet
-
-    # create alpha weights for vertices of facet
-    G = facet.T @ facet
-    grasp_matrix = G + wrench_regularizer * np.eye(G.shape[0])
-
-    # Solve QP to minimize .5 x'Px + q'x subject to Gx <= h, Ax = b
-
-    P = cvx.matrix(2 * grasp_matrix)  # quadratic cost for Euclidean dist
-    q = cvx.matrix(np.zeros((dim, 1)))
-    G = cvx.matrix(-np.eye(dim))  # greater than zero constraint
-    h = cvx.matrix(np.zeros((dim, 1)))
-    A = cvx.matrix(np.ones((1, dim)))  # sum constraint to enforce convex
-    b = cvx.matrix(np.ones(1))  # combinations of vertices
-
-    cvx.solvers.options["show_progress"] = False
-    sol = cvx.solvers.qp(P, q, G, h, A, b)
-    v = np.array(sol["x"])
-    min_norm = np.sqrt(sol["primal objective"])
-
-    return abs(min_norm), v
-
-
-def l1_metric(grasp_points_t, normals_t, mu=1.0, num_edges=10, grasp_mask=None):
-    """L1 Grasp quality metric using PyFastGrasp. Assumes object center of mass is at origin"""
-    import fastgrasp as fg
-
-    B, _, _ = grasp_points_t.shape
-
-    if grasp_mask is not None:
-        valid_inds = torch.argwhere(grasp_mask.reshape(-1)).cpu().numpy().reshape(-1)
-    else:
-        valid_inds = torch.arange(B)
-
-    device = normals_t.device
-    grasp_points = grasp_points_t.detach().cpu().numpy().reshape(-1, 9)[valid_inds, :]
-    normals = normals_t.detach().cpu().numpy().reshape(-1, 9)[valid_inds, :]
-    centroid = np.zeros((len(grasp_points), 3), dtype="float64")
-    grasps = np.concatenate([grasp_points, normals, centroid], axis=1)
-    result = np.zeros(len(grasps))
-    _ = fg.getLowerBoundsPurgeQHull(grasps, mu, num_edges, result)
-
-    result_full = np.zeros(B)
-    result_full[valid_inds] = result
-    return torch.tensor(result_full, device=device)
-
-
-def optimize_cem(
-    cost,
-    mu_0,
-    Sigma_0,
-    num_iters=25,
-    num_samples=250,
-    elite_frac=0.1,
-    projection=None,
-):
-    """
-    Implements the cross-entropy method to optimize a given cost function.
-    Args:
-        cost: a cost function mapping variables x to their cost J(x).
-        mu_0: mean of the initial sample distribution.
-        Sigma_0: covariance of initial sample distribution.
-        num_iters: number of iterations of CEM to run.
-        num_samples: number of samples to draw per iteration.
-        elite_frac: fraction of samples to use to re-fit sample distribution, in (0, 1).
-    """
-    n = mu_0.shape[0]
-    mu, Sigma = mu_0, Sigma_0
-    num_elite = int(elite_frac * num_samples)
-    device = mu_0.device
-    cost_history = []
-    best_point = None
-    best_cost = torch.inf
-    for ii in range(num_iters):
-        # Sample points from current distribution.
-        x = (
-            mu.reshape(1, n, 1)
-            + torch.linalg.cholesky(Sigma).reshape(1, n, n)
-            @ torch.randn(num_samples, n, 1, device=device)
-        ).reshape(num_samples, n)
-
-        if projection:
-            x = projection(x)
-
-        # Evaluate costs of each point.
-        with torch.no_grad():
-            cost_vals = cost(x)
-        cost_history.append(cost_vals)
-        print(
-            "minimum cost_val:",
-            torch.min(cost_vals),
-            "mean cost_val:",
-            torch.mean(cost_vals),
+    def __init__(
+        self,
+        batch_size: int = 1,  # TODO(pculbert): refactor for arbitrary batch sizes.
+        chain: pk.chain.Chain = load_allegro(),
+        requires_grad: bool = True,
+    ):
+        super().__init__()
+        self.chain = chain
+        self.wrist_pose = pp.Parameter(
+            pp.randn_SE3(batch_size), requires_grad=requires_grad
         )
-        # Get elite indices.
-        _, inds = torch.sort(cost_vals)
-        elite_inds = inds[:num_elite]
+        self.joint_angles = torch.nn.Parameter(
+            torch.zeros(batch_size, 16), requires_grad=requires_grad
+        )
+        self.batch_size = batch_size
 
-        if cost_vals[inds[0]] < best_cost:
-            best_point = x[inds[0]]
+    def to(self, device=None, dtype=None):
+        super().to(device=device, dtype=dtype)
+        self.chain.to(device=torch.device(device), dtype=dtype)
 
-        # Refit the sample distribution.
-        mu = torch.mean(x[elite_inds, :], dim=0)
-        residuals = x[elite_inds, :] - mu.reshape(1, n)
-        Sigma = (1 / (num_elite - 1)) * torch.sum(
-            torch.stack(
-                [
-                    residuals[ii, :][:, None] @ residuals[ii, :][None, :]
-                    for ii in range(num_elite)
-                ],
-                dim=0,
-            ),
-            dim=0,
-        ) + 1e-8 * torch.eye(n, device=device)
+    def set_wrist_pose(self, wrist_pose: pp.LieTensor):
+        assert (
+            wrist_pose.shape == self.wrist_pose.shape
+        ), f"New wrist pose, shape {wrist_pose.shape} does not match current wrist pose shape {self.wrist_pose.shape}"
+        self.wrist_pose.data = wrist_pose.data.clone()
 
-    return mu, Sigma, cost_history, best_point
+    def set_joint_angles(self, joint_angles: torch.Tensor):
+        assert (
+            joint_angles.shape == self.joint_angles.shape
+        ), f"New hand config, shape {joint_angles.shape}, does not match shape of current hand config, {self.joint_angles.shape}."
+        self.joint_angles.data = joint_angles
+
+    def get_fingertip_transforms(self) -> List[pp.LieTensor]:
+        # Run batched FK from current hand config.
+        link_poses_hand_frame = self.chain.forward_kinematics(self.joint_angles)
+
+        # Pull out fingertip poses + cast to PyPose.
+        fingertip_poses = [link_poses_hand_frame[ln] for ln in FINGERTIP_LINK_NAMES]
+        fingertip_pyposes = [
+            pp.from_matrix(fp.get_matrix(), pp.SE3_type) for fp in fingertip_poses
+        ]
+
+        # Apply wrist transformation to get world-frame fingertip poses.
+        return torch.stack(
+            [self.wrist_pose @ fp for fp in fingertip_pyposes], dim=1
+        )  # shape [B, batch_size, 7]
 
 
-def check_grasp_point_collapse(grasp_points, gps):
-    """Checks if sampled grasp points and model grasp points collapsed in x and y dimension"""
-    bad_inds = torch.argwhere(
-        torch.all(grasp_points[:, 0] == grasp_points[:, 1], dim=-1)
+class AllegroGraspConfig(torch.nn.Module):
+    """Container defining a batch of grasps -- both pre-grasps
+    and grasping directions -- for use in grasp optimization."""
+
+    def __init__(
+        self,
+        batch_size: int = 1,
+        chain: pk.chain.Chain = load_allegro(),
+        requires_grad: bool = True,
+    ):
+        self.batch_size = batch_size
+        super().__init__()
+        self.hand_config = AllegroHandConfig(batch_size, chain, requires_grad)
+        self.grasp_orientations = pp.Parameter(
+            pp.identity_SO3(batch_size), requires_grad=requires_grad
+        )
+
+    @property
+    def wrist_pose(self) -> pp.LieTensor:
+        return self.hand_config.wrist_pose
+
+    @property
+    def joint_angles(self) -> torch.Tensor:
+        return self.hand_config.joint_angles
+
+    @property
+    def fingertip_transforms(self) -> pp.LieTensor:
+        """Returns finger-to-world transforms."""
+        return self.hand_config.get_fingertip_transforms()
+
+    @property
+    def grasp_frame_transforms(self) -> pp.LieTensor:
+        """Returns SE(3) transforms for ``grasp frame'', i.e.,
+        z-axis pointing along grasp direction."""
+
+        return self.fingertip_transforms @ pp.from_matrix(
+            self.grasp_orientations.unsqueeze(1).matrix(), pp.SE3_type
+        )
+
+    @property
+    def grasp_dirs(self) -> torch.Tensor:  # shape [B, 4, 3].
+        return pp.from_matrix(
+            self.grasp_frame_transforms.matrix(), pp.SO3_type
+        ) @ Z_AXIS.to(
+            device=self.grasp_orientations.device, dtype=self.grasp_orientations.dtype
+        ).unsqueeze(
+            0
+        ).unsqueeze(
+            0
+        )
+
+
+class GraspMetric(torch.nn.Module):
+    """
+    Wrapper for NeRF + grasp classifier to evaluate
+    a particular AllegroGraspConfig.
+    """
+
+    def __init__(self, nerf_model, classifier_model):
+        super().__init__()
+        self.nerf_model = nerf_model
+        self.classifier_model = classifier_model
+        self.ray_origins_finger_frame = grasp_utils.get_ray_origins_finger_frame()
+
+    def forward(self, grasp_config: AllegroGraspConfig):
+        # Generate RaySamples.
+        ray_samples = grasp_utils.get_ray_samples(
+            self.ray_origins_finger_frame, grasp_config.grasp_frame_transforms
+        )
+
+        # Query NeRF at RaySamples.
+        densities = self.nerf_model.get_density(ray_samples.to("cuda"))[0][
+            ..., 0
+        ]  # Shape [B, 4, n_x, n_y, n_z]
+
+        assert densities.shape == (
+            grasp_config.batch_size,
+            4,
+            grasp_utils.NUM_PTS_X,
+            grasp_utils.NUM_PTS_Y,
+            grasp_utils.NUM_PTS_Z,
+        )
+
+        # TODO(pculbert): fix this to match the classifier trace.
+        # Pass ray_samples.get_positions(), densities into classifier.
+        return self.classifier_model(densities, ray_samples.frustums.get_positions())
+
+
+def dry_run():
+    # Some semi-hardcoded unit tests to make sure the code runs.
+
+    nerf_configs = grasp_utils.get_nerf_configs(
+        nerf_grasping.get_package_root() + "/../nerfcheckpoints"
     )
-    print(
-        "bad indices:",
-        bad_inds.shape,
-        "grasp_points:",
-        grasp_points.shape,
-        "gps:",
-        gps.shape,
-    )
-    print(
-        torch.all(
-            gps[torch.floor(bad_inds / 10).long(), 0]
-            == gps[torch.floor(bad_inds / 10).long(), 1],
-            dim=-1,
-        )
-    )
+    nerf_model = grasp_utils.load_nerf(nerf_configs[0])
+
+    batch_size = 32
+    grasp_config = AllegroGraspConfig(batch_size=batch_size)
+    classifier = lambda x, y: torch.zeros(batch_size)
+
+    grasp_metric = GraspMetric(nerf_model, classifier)
+
+    grasp_metric(grasp_config)
 
 
-def get_cost_function(exp_config, model):
-    """Factory for grasp cost function; generates grasp cost for CEM using config/model."""
-
-    centroid = torch.as_tensor(model.centroid)
-
-    def cost_function(grasp_vars):
-        # Reshape grasp vars into something useful, get dims.
-        n_f = exp_config.robot_config.num_fingers
-        gps = grasp_vars.reshape(-1, n_f, 6)
-        B = gps.shape[0]
-
-        # If model is a triangle mesh, extract points/normals from it.
-        if isinstance(model, trimesh.Trimesh):
-            grasp_points, grad_ests, grasp_mask = mesh_utils.get_grasp_points(
-                model, gps, not exp_config.dice_grasp
-            )
-            grasp_mask = grasp_mask.all(-1, keepdim=True)
-
-            risk_sensitivity = None
-            num_grasp_samples = 1
-
-        # Otherwise, use fuzzy NeRF method for point/normals.
-        elif isinstance(model, nerf_utils.NeRFModel):
-            risk_sensitivity = exp_config.risk_sensitivity
-            if exp_config.model_config.expected_surface:
-                num_grasp_samples = 1
-            else:
-                num_grasp_samples = exp_config.num_grasp_samples
-
-            grasp_points, grad_ests, grasp_mask = nerf_utils.sample_grasps(
-                gps, num_grasp_samples, model, exp_config.model_config
-            )
-
-        # check_grasp_point_collapse(grasp_points, gps)
-        # Reshape grasp points and grads for cost evaluation.
-        grasp_points = grasp_points.reshape(-1, n_f, 3)  # [B * num_grasps, n_f, 3]
-        grad_ests = grad_ests.reshape(-1, n_f, 3)  # [B * num_grasps, n_f, 3]
-
-        # Center grasp_points around centroid.
-        grasp_points_centered = grasp_points.to(centroid) - centroid.reshape(1, 1, 3)
-
-        # Switch-case for cost function.
-        if exp_config.cost_function == config.CostType.PSV:
-            grasp_metric = partial(psv)
-        elif exp_config.cost_function == config.CostType.MSV:
-            grasp_metric = partial(msv)
-        elif exp_config.cost_function == config.CostType.POLY_AREA:
-            grasp_metric = poly_area
-        elif exp_config.cost_function == config.CostType.FC:
-            grasp_metric = ferrari_canny
-        elif exp_config.cost_function == config.CostType.L1:
-            grasp_metric = partial(
-                l1_metric, grasp_mask=grasp_mask.expand(B, num_grasp_samples)
-            )
-
-        raw_cost = grasp_metric(grasp_points_centered, grad_ests).reshape(
-            B, num_grasp_samples
-        )
-
-        # Add cost term penalizing cosine distance between approach angle and normal.
-        rays_o, rays_d = gps[..., :3], gps[..., 3:]
-        rays_d = grasp_utils.res_to_true_dirs(
-            rays_o.reshape(-1, 3), rays_d.reshape(-1, 3), centroid
-        ).reshape(
-            -1, n_f, 3
-        )  # [B, n_f, 3]
-
-        rays_d = (
-            rays_d.unsqueeze(1)
-            .expand(-1, num_grasp_samples, -1, -1)
-            .reshape(-1, n_f, 3)
-        )
-        raw_cost -= 5e-2 * (
-            1 - torch.mean(grasp_utils.cos_similarity(rays_d, grad_ests), dim=-1)
-        ).reshape(B, num_grasp_samples)
-
-        # Exponentiate cost if using risk sensitivity.
-        if risk_sensitivity:
-            g_cost = torch.exp(-risk_sensitivity * raw_cost)
-        else:
-            g_cost = -raw_cost
-
-        # Take expectation along sample dim.
-        g_cost = g_cost.mean(-1)  # shape (B,)
-
-        # Set invalid grasp costs to an upper bound (here, 2.0).
-        g_cost = torch.where(
-            torch.all(grasp_mask, dim=-1), g_cost, 2.0 * torch.ones_like(g_cost)
-        )
-
-        if risk_sensitivity:
-            g_cost = (1 / risk_sensitivity) * torch.log(g_cost)
-
-        return g_cost
-
-    return cost_function
-
-
-def dice_the_grasp(
-    model,
-    cost_function,
-    exp_config,
-    projection=None,
-):
-    """Implements the sampling scheme proposed in Borst et al., '03."""
-
-    num_grasps = exp_config.cem_num_iters * exp_config.cem_num_samples
-
-    face_inds = np.arange(model.triangles_center.shape[0])
-
-    rays_o, rays_d = np.zeros((num_grasps, 3, 3)), np.zeros((num_grasps, 3, 3))
-    num_sampled = 0
-
-    lower_corner = np.array([oo[0] for oo in grasp_utils.OBJ_BOUNDS]).reshape(1, 1, 3)
-    upper_corner = np.array([oo[1] for oo in grasp_utils.OBJ_BOUNDS]).reshape(1, 1, 3)
-
-    while num_sampled < num_grasps:
-        curr_inds = np.random.choice(face_inds, size=(num_grasps, 3), replace=True)
-        curr_points = model.triangles_center[curr_inds, :]
-        curr_normals = model.face_normals[curr_inds, :]
-
-        # Correct so ray originas are off the mesh.
-        curr_points = curr_points + exp_config.model_config.des_z_dist * curr_normals
-
-        # Mask out invalid points.
-        grasp_mask = grasp_utils.dicing_rejection_heuristic(
-            curr_normals, exp_config.dice_mu
-        )
-        grasp_mask = grasp_mask * np.all(curr_points >= lower_corner, axis=(-1, -2))
-        grasp_mask = grasp_mask * np.all(curr_points <= upper_corner, axis=(-1, -2))
-
-        valid_inds = np.argwhere(grasp_mask)[:, 0]
-        num_added = min(num_grasps - num_sampled, valid_inds.shape[0])
-        end_slice = num_sampled + num_added
-
-        rays_o[num_sampled:end_slice] = curr_points[valid_inds[:num_added]]
-        rays_d[num_sampled:end_slice] = -curr_normals[valid_inds[:num_added]]
-
-        num_sampled += num_added
-
-    # Stack into "grasp var" form.
-    grasp_vars = np.concatenate([rays_o, rays_d], axis=-1)
-    grasp_vars = (
-        torch.from_numpy(grasp_vars)
-        .cuda()
-        .float()
-        .reshape(num_grasps, exp_config.robot_config.num_fingers, -1)
-    )
-
-    # Finally evaluate all with a desired grasp metric to find the best one.
-    costs = cost_function(grasp_vars)
-
-    best_grasp = np.argmin(costs.cpu())
-
-    return rays_o[best_grasp], rays_d[best_grasp]
+# %%

@@ -1,4 +1,5 @@
 # %%
+# TODO(pculbert): remove this.
 import pathlib
 import pytorch_kinematics as pk
 import pypose as pp

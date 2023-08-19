@@ -8,7 +8,6 @@ import pypose as pp
 import plotly.graph_objects as go
 import nerf_grasping
 import nerfstudio
-from nerfstudio.utils import eval_utils
 from matplotlib import pyplot as plt
 from nerf_grasping.grasp_utils import NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z, get_ray_samples
 
@@ -35,10 +34,6 @@ def get_object_code(cfg_path: pathlib.Path) -> str:
     idx = obj_str.index("_0_")
     object_code = obj_str[:idx]
     return object_code
-
-
-def get_nerf_configs(nerf_checkpoints_path: str) -> List[str]:
-    return list(pathlib.Path(nerf_checkpoints_path).rglob("config.yml"))
 
 
 def get_contact_candidates_and_target_candidates(
@@ -137,11 +132,6 @@ def plot_mesh(mesh: trimesh.Trimesh, color="lightpink") -> go.Figure:
 
     # Return the figure
     return fig
-
-
-def load_nerf(cfg_path: pathlib.Path) -> nerfstudio.models.base_model.Model:
-    _, pipeline, _, _ = eval_utils.eval_setup(cfg_path, test_mode="inference")
-    return pipeline.model.field
 
 
 def normalize(x: np.ndarray) -> np.ndarray:

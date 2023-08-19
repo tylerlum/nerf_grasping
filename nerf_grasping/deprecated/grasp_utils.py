@@ -144,3 +144,12 @@ def dicing_rejection_heuristic(grasp_normals, mu=0.5):
     ) > np.pi / 2 + np.arctan(mu)
 
     return np.any(valid_fingers, axis=-1)
+
+
+def load_nerf(cfg_path: pathlib.Path) -> nerfstudio.models.base_model.Model:
+    _, pipeline, _, _ = eval_utils.eval_setup(cfg_path, test_mode="inference")
+    return pipeline.model.field
+
+
+def get_nerf_configs(nerf_checkpoints_path: str) -> List[str]:
+    return list(pathlib.Path(nerf_checkpoints_path).rglob("config.yml"))

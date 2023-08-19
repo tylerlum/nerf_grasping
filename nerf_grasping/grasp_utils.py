@@ -2,13 +2,14 @@
 Module implementing utils for grasping,
 including normal estimation and surface detection.
 """
-import numpy as np
+import nerfstudio
+import pathlib
 import pypose as pp
 import torch
 
-from typing import Union
+from typing import List
 from nerfstudio.cameras.rays import RayBundle, RaySamples
-
+from nerfstudio.utils import eval_utils
 
 # Grid of points in grasp frame (x, y, z)
 GRASP_DEPTH_MM = 20
@@ -135,3 +136,12 @@ def get_ray_samples(
 
     # Pull ray samples -- note these are degenerate, i.e., the deltas field is meaningless.
     return ray_bundle.get_ray_samples(sample_dists, sample_dists)
+
+
+def get_nerf_configs(nerf_checkpoints_path: str) -> List[str]:
+    return list(pathlib.Path(nerf_checkpoints_path).rglob("config.yml"))
+
+
+def load_nerf(cfg_path: pathlib.Path) -> nerfstudio.models.base_model.Model:
+    _, pipeline, _, _ = eval_utils.eval_setup(cfg_path, test_mode="inference")
+    return pipeline.model.field

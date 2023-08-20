@@ -37,10 +37,11 @@ from nerf_grasping.grasp_utils import (
     NUM_PTS_X,
     NUM_PTS_Y,
     NUM_PTS_Z,
-    GRASP_DEPTH_MM,
-    FINGER_WIDTH_MM,
-    FINGER_HEIGHT_MM,
     NUM_FINGERS,
+)
+from nerf_grasping.learned_metric.DexGraspNet_batch_data import (
+    BatchData,
+    BatchDataInput,
 )
 from nerf_grasping.dataset.DexGraspNet_NeRF_Grasps_utils import (
     get_object_code,
@@ -141,10 +142,6 @@ OmegaConf.register_new_resolver("datetime_str", datetime_str, replace=True)
 
 
 # %%
-@functools.lru_cache()
-def get_ray_origins_finger_frame_cached():
-    ray_origins_finger_frame = get_ray_origins_finger_frame()
-    return ray_origins_finger_frame
 
 
 # %%
@@ -470,135 +467,6 @@ assert len(set.intersection(set(val_dataset.indices), set(test_dataset.indices))
 
 
 # %%
-@dataclass
-class BatchData:
-    nerf_densities: torch.Tensor
-    grasp_success: torch.Tensor
-    grasp_transforms: pp.LieTensor
-    nerf_config: List[str]
-    random_rotate_transform: Optional[pp.LieTensor] = None
-
-    @localscope.mfc
-    def to(self, device) -> BatchData:
-        self.nerf_densities = self.nerf_densities.to(device)
-        self.grasp_success = self.grasp_success.to(device)
-        self.grasp_transforms = self.grasp_transforms.to(device)
-        self.random_rotate_transform = (
-            self.random_rotate_transform.to(device=device)
-            if self.random_rotate_transform is not None
-            else None
-        )
-        return self
-
-    # @localscope.mfc(allowed=["DIST_BTWN_PTS_MM"])
-    @property
-    def nerf_alphas(self) -> torch.Tensor:
-        # alpha = 1 - exp(-delta * sigma)
-        #       = probability of collision within this segment starting from beginning of segment
-        DELTA = DIST_BTWN_PTS_MM / 1000
-        OTHER_DELTA = GRASP_DEPTH_MM / (NUM_PTS_Z - 1) / 1000
-        assert np.isclose(DELTA, OTHER_DELTA), f"{DELTA} != {OTHER_DELTA}"
-        return 1.0 - torch.exp(-DELTA * self.nerf_densities)
-
-    @property
-    def coords(self) -> torch.Tensor:
-        return self._coords_helper(self.grasp_transforms)
-
-    @property
-    def augmented_coords(self) -> torch.Tensor:
-        return self._coords_helper(self.augmented_grasp_transforms)
-
-    # @localscope.mfc(allowed=["NUM_FINGERS"])
-    def _coords_helper(self, grasp_transforms: pp.LieTensor) -> torch.Tensor:
-        assert grasp_transforms.lshape == (self.batch_size, NUM_FINGERS)
-        ray_origins_finger_frame = get_ray_origins_finger_frame_cached()
-
-        all_query_points = get_ray_samples(
-            ray_origins_finger_frame.to(
-                device=grasp_transforms.device, dtype=grasp_transforms.dtype
-            ),
-            grasp_transforms,
-        ).frustums.get_positions()
-
-        assert all_query_points.shape == (
-            self.batch_size,
-            NUM_FINGERS,
-            NUM_PTS_X,
-            NUM_PTS_Y,
-            NUM_PTS_Z,
-            NUM_XYZ,
-        )
-        all_query_points = all_query_points.permute(0, 1, 5, 2, 3, 4)
-        assert all_query_points.shape == (
-            self.batch_size,
-            NUM_FINGERS,
-            NUM_XYZ,
-            NUM_PTS_X,
-            NUM_PTS_Y,
-            NUM_PTS_Z,
-        )
-        return all_query_points
-
-    @property
-    def nerf_alphas_with_coords(self) -> torch.Tensor:
-        return self._nerf_alphas_with_coords_helper(self.coords)
-
-    @property
-    def nerf_alphas_with_augmented_coords(self) -> torch.Tensor:
-        return self._nerf_alphas_with_coords_helper(self.augmented_coords)
-
-    def _nerf_alphas_with_coords_helper(self, coords: torch.Tensor) -> torch.Tensor:
-        assert coords.shape == (
-            self.batch_size,
-            NUM_FINGERS,
-            NUM_XYZ,
-            NUM_PTS_X,
-            NUM_PTS_Y,
-            NUM_PTS_Z,
-        )
-        reshaped_nerf_alphas = self.nerf_alphas.reshape(
-            self.batch_size, NUM_FINGERS, 1, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z
-        )
-        return_value = torch.cat(
-            [
-                reshaped_nerf_alphas,
-                coords,
-            ],
-            dim=2,
-        )
-        assert return_value.shape == (
-            self.batch_size,
-            NUM_FINGERS,
-            NUM_XYZ + 1,
-            NUM_PTS_X,
-            NUM_PTS_Y,
-            NUM_PTS_Z,
-        )
-        return return_value
-
-    @property
-    def augmented_grasp_transforms(self) -> torch.Tensor:
-        if self.random_rotate_transform is None:
-            return self.grasp_transforms
-
-        # Unsqueeze because we're applying the same (single) random rotation to all fingers.
-        return_value = (
-            self.random_rotate_transform.unsqueeze(dim=1) @ self.grasp_transforms
-        )
-        assert (
-            return_value.lshape
-            == self.grasp_transforms.lshape
-            == (self.batch_size, NUM_FINGERS)
-        )
-        return return_value
-
-    @property
-    def batch_size(self) -> int:
-        return self.grasp_success.shape[0]
-
-    @property
-    def device(self) -> torch.device:
-        return self.grasp_success.device
 
 
 def sample_random_rotate_transforms(N: int) -> pp.LieTensor:
@@ -631,11 +499,13 @@ def custom_collate_fn(
     random_rotate_transform = sample_random_rotate_transforms(N=batch_size)
 
     return BatchData(
-        nerf_densities=nerf_densities,
+        input=BatchDataInput(
+            nerf_densities=nerf_densities,
+            grasp_transforms=grasp_transforms,
+            random_rotate_transform=random_rotate_transform,
+        ),
         grasp_success=grasp_successes,
-        grasp_transforms=grasp_transforms,
         nerf_config=nerf_configs,
-        random_rotate_transform=random_rotate_transform,
     )
 
 
@@ -669,14 +539,16 @@ test_loader = DataLoader(
 # %%
 @localscope.mfc
 def print_shapes(batch_data: BatchData) -> None:
-    print(f"nerf_alphas.shape: {batch_data.nerf_alphas.shape}")
+    print(f"nerf_alphas.shape: {batch_data.input.nerf_alphas.shape}")
     print(f"grasp_success.shape: {batch_data.grasp_success.shape}")
-    print(f"grasp_transforms.shape: {batch_data.grasp_transforms.shape}")
+    print(f"grasp_transforms.shape: {batch_data.input.grasp_transforms.shape}")
     print(f"len(nerf_config): {len(batch_data.nerf_config)}")
-    print(f"coords.shape = {batch_data.coords.shape}")
-    print(f"nerf_alphas_with_coords.shape = {batch_data.nerf_alphas_with_coords.shape}")
+    print(f"coords.shape = {batch_data.input.coords.shape}")
     print(
-        f"augmented_grasp_transforms.shape = {batch_data.augmented_grasp_transforms.shape}"
+        f"nerf_alphas_with_coords.shape = {batch_data.input.nerf_alphas_with_coords.shape}"
+    )
+    print(
+        f"augmented_grasp_transforms.shape = {batch_data.input.augmented_grasp_transforms.shape}"
     )
 
 
@@ -697,18 +569,21 @@ def plot_example(
     batch_data: BatchData, idx_to_visualize: int = 0, augmented: bool = False
 ) -> go.Figure:
     if augmented:
-        query_points_list = batch_data.augmented_coords[idx_to_visualize]
+        query_points_list = batch_data.input.augmented_coords[idx_to_visualize]
         additional_mesh_transform = (
-            batch_data.random_rotate_transform[idx_to_visualize].matrix().cpu().numpy()
-            if batch_data.random_rotate_transform is not None
+            batch_data.input.random_rotate_transform[idx_to_visualize]
+            .matrix()
+            .cpu()
+            .numpy()
+            if batch_data.input.random_rotate_transform is not None
             else None
         )
     else:
-        query_points_list = batch_data.coords[idx_to_visualize]
+        query_points_list = batch_data.input.coords[idx_to_visualize]
         additional_mesh_transform = None
 
     # Extract data
-    colors = batch_data.nerf_alphas[idx_to_visualize]
+    colors = batch_data.input.nerf_alphas[idx_to_visualize]
     grasp_success = batch_data.grasp_success[idx_to_visualize].item()
 
     assert colors.shape == (NUM_FINGERS, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
@@ -817,88 +692,9 @@ EXAMPLE_BATCH_DATA.grasp_success
 
 # %%
 import torch.nn as nn
-from nerf_grasping.models.tyler_new_models import (
-    ConvOutputTo1D,
-    PoolType,
-    conv_encoder,
-    mlp,
+from nerf_grasping.models.dexgraspnet_models import (
+    CNN_3D_Classifier,
 )
-
-
-class CNN_3D_Classifier(nn.Module):
-    # @localscope.mfc
-    def __init__(self, input_shape: Tuple[int, int, int, int], n_fingers) -> None:
-        # TODO: Make this not hardcoded
-        super().__init__()
-        self.input_shape = input_shape
-        self.n_fingers = n_fingers
-
-        self.conv = conv_encoder(
-            input_shape=self.input_shape,
-            conv_channels=[32, 64, 128],
-            pool_type=PoolType.MAX,
-            dropout_prob=0.1,
-            conv_output_to_1d=ConvOutputTo1D.AVG_POOL_SPATIAL,
-        )
-
-        # Get conv output shape
-        example_batch_size = 2
-        example_input = torch.zeros(
-            example_batch_size, self.n_fingers, *self.input_shape
-        )
-        example_input = example_input.reshape(
-            example_batch_size * self.n_fingers, *self.input_shape
-        )
-        conv_output = self.conv(example_input)
-        self.conv_output_dim = conv_output.shape[-1]
-        assert conv_output.shape == (
-            example_batch_size * self.n_fingers,
-            self.conv_output_dim,
-        )
-
-        self.mlp = mlp(
-            num_inputs=self.conv_output_dim * self.n_fingers,
-            num_outputs=self.n_classes,
-            hidden_layers=[256, 256],
-        )
-
-    @localscope.mfc
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        batch_size = x.shape[0]
-        assert x.shape == (
-            batch_size,
-            self.n_fingers,
-            *self.input_shape,
-        ), f"{x.shape}"
-
-        # Put n_fingers into batch dim
-        x = x.reshape(batch_size * self.n_fingers, *self.input_shape)
-
-        x = self.conv(x)
-        assert x.shape == (
-            batch_size * self.n_fingers,
-            self.conv_output_dim,
-        ), f"{x.shape}"
-        x = x.reshape(batch_size, self.n_fingers, self.conv_output_dim)
-        x = x.reshape(batch_size, self.n_fingers * self.conv_output_dim)
-
-        x = self.mlp(x)
-        assert x.shape == (batch_size, self.n_classes), f"{x.shape}"
-        return x
-
-    @localscope.mfc
-    def get_success_logits(self, x: torch.Tensor) -> torch.Tensor:
-        return self.forward(x)
-
-    @localscope.mfc
-    def get_success_probability(self, x: torch.Tensor) -> torch.Tensor:
-        return nn.functional.softmax(self.get_success_logits(x), dim=-1)
-
-    @property
-    @functools.lru_cache
-    def n_classes(self) -> int:
-        return 2
-
 
 # %%
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -1049,10 +845,10 @@ def iterate_through_dataloader(
 
             batch_idx = int(batch_idx)
             batch_data: BatchData = batch_data.to(device)
-            if torch.isnan(batch_data.nerf_alphas_with_augmented_coords).any():
+            if torch.isnan(batch_data.input.nerf_alphas_with_augmented_coords).any():
                 print("!" * 80)
                 print(
-                    f"Found {torch.isnan(batch_data.nerf_alphas_with_augmented_coords).sum()} NANs in batch_data.nerf_alphas_with_augmented_coords"
+                    f"Found {torch.isnan(batch_data.input.nerf_alphas_with_augmented_coords).sum()} NANs in batch_data.input.nerf_alphas_with_augmented_coords"
                 )
                 print("Skipping batch...")
                 print("!" * 80)
@@ -1063,8 +859,8 @@ def iterate_through_dataloader(
             with loop_timer.add_section_timer("Fwd"):
                 grasp_success_logits = nerf_to_grasp_success_model.get_success_logits(
                     # TODO: Use config to set this, defines what input type we give
-                    batch_data.nerf_alphas_with_augmented_coords
-                    # batch_data.nerf_alphas_with_coords
+                    batch_data.input.nerf_alphas_with_augmented_coords
+                    # batch_data.input.nerf_alphas_with_coords
                 )
                 ce_loss = ce_loss_fn(
                     input=grasp_success_logits, target=batch_data.grasp_success

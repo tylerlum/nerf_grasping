@@ -86,8 +86,8 @@ tqdm = partial(std_tqdm, dynamic_ncols=True)
 # %%
 # PARAMS
 DEXGRASPNET_DATA_ROOT = "."
-GRASP_DATASET_FOLDER = "2023-08-19_graspdata_one_object_only"
-NERF_CHECKPOINTS_FOLDER = "2023-08-19_nerfcheckpoints_one_object_only"
+GRASP_DATASET_FOLDER = "graspdata"
+NERF_CHECKPOINTS_FOLDER = "nerfcheckpoints"
 OUTPUT_FOLDER = f"{GRASP_DATASET_FOLDER}_learned_metric_dataset"
 OUTPUT_FILENAME = f"{datetime_str}_learned_metric_dataset.h5"
 PLOT_ONLY_ONE = False
@@ -331,7 +331,9 @@ with h5py.File(OUTPUT_FILE_PATH, "w") as hdf5_file:
                         .cpu()
                         .numpy()
                     )
-                    nerf_alphas_in_mesh_region = 1 - np.exp(-delta * nerf_densities_in_mesh_region)
+                    nerf_alphas_in_mesh_region = 1 - np.exp(
+                        -delta * nerf_densities_in_mesh_region
+                    )
 
                     fig3 = plot_mesh_and_high_density_points(
                         mesh=mesh,
@@ -344,12 +346,17 @@ with h5py.File(OUTPUT_FILE_PATH, "w") as hdf5_file:
                 PLOT_ALPHAS_EACH_FINGER_1D = True
                 if PLOT_ALPHAS_EACH_FINGER_1D:
                     import matplotlib.pyplot as plt
+
                     nrows, ncols = NUM_FINGERS, 1
-                    fig4, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=(10, 10))
+                    fig4, axes = plt.subplots(
+                        nrows=nrows, ncols=ncols, figsize=(10, 10)
+                    )
                     axes = axes.flatten()
                     for i in range(NUM_FINGERS):
                         ax = axes[i]
-                        finger_alphas = nerf_alphas[i].reshape(NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
+                        finger_alphas = nerf_alphas[i].reshape(
+                            NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z
+                        )
                         finger_alphas_maxes = np.max(finger_alphas, axis=(0, 1))
                         finger_alphas_means = np.mean(finger_alphas, axis=(0, 1))
                         ax.plot(finger_alphas_maxes, label="max")
@@ -366,13 +373,19 @@ with h5py.File(OUTPUT_FILE_PATH, "w") as hdf5_file:
                 if PLOT_ALPHA_IMAGES_EACH_FINGER:
                     num_images = 5
                     nrows, ncols = NUM_FINGERS, num_images
-                    fig5, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=(10, 10))
-                    alpha_images = [x.reshape(NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z) for x in nerf_alphas]
+                    fig5, axes = plt.subplots(
+                        nrows=nrows, ncols=ncols, figsize=(10, 10)
+                    )
+                    alpha_images = [
+                        x.reshape(NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z) for x in nerf_alphas
+                    ]
 
                     for finger_i in range(NUM_FINGERS):
                         for image_i in range(num_images):
                             ax = axes[finger_i, image_i]
-                            image = alpha_images[finger_i][:, :, int(image_i * NUM_PTS_Z / num_images)]
+                            image = alpha_images[finger_i][
+                                :, :, int(image_i * NUM_PTS_Z / num_images)
+                            ]
                             ax.imshow(image, vmin=image.min(), vmax=image.max())
                             ax.set_title(f"finger {finger_i}, image {image_i}")
                     fig5.tight_layout()
@@ -386,7 +399,9 @@ with h5py.File(OUTPUT_FILE_PATH, "w") as hdf5_file:
                     nerf_densities = np.stack(nerf_densities, axis=0).reshape(
                         NUM_FINGERS, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z
                     )
-                    transforms = np.stack(transforms, axis=0)
+                    transforms = np.stack(
+                        [tt.matrix().cpu().numpy() for tt in transforms], axis=0
+                    )
 
                     # Ensure no nans (most likely come from nerf densities)
                     if np.isnan(nerf_densities).any() or np.isnan(transforms).any():

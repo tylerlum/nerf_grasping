@@ -476,7 +476,7 @@ class BatchData:
     grasp_success: torch.Tensor
     grasp_transforms: pp.LieTensor
     nerf_config: List[str]
-    random_rotate_transform: Optional[torch.Tensor] = None
+    random_rotate_transform: Optional[pp.LieTensor] = None
 
     @localscope.mfc
     def to(self, device) -> BatchData:
@@ -513,7 +513,12 @@ class BatchData:
         assert grasp_transforms.lshape == (self.batch_size, NUM_FINGERS)
         ray_origins_finger_frame = get_ray_origins_finger_frame_cached()
 
-        all_query_points = get_ray_samples(ray_origins_finger_frame, grasp_transforms)
+        all_query_points = get_ray_samples(
+            ray_origins_finger_frame.to(
+                device=grasp_transforms.device, dtype=grasp_transforms.dtype
+            ),
+            grasp_transforms,
+        ).frustums.get_positions()
 
         assert all_query_points.shape == (
             self.batch_size,
@@ -577,12 +582,12 @@ class BatchData:
             return self.grasp_transforms
 
         return_value = (
-            self.random_rotate_transform.unsqueeze(dim=1) @ self.grasp_transforms,
+            self.random_rotate_transform.unsqueeze(dim=1) @ self.grasp_transforms
         )
         assert (
-            return_value.shape
-            == self.grasp_transforms.shape
-            == (self.batch_size, NUM_FINGERS, 4, 4)
+            return_value.lshape
+            == self.grasp_transforms.lshape
+            == (self.batch_size, NUM_FINGERS)
         )
         return return_value
 
@@ -600,7 +605,14 @@ def sample_random_rotate_transforms(N: int) -> pp.LieTensor:
     log_random_rotations = pp.so3(4 * torch.pi * (2 * torch.rand(N, 3) - 1))
 
     # Return exponentiated rotations.
-    return log_random_rotations.Exp()
+    random_SO3_rotations = log_random_rotations.Exp()
+
+    # A bit annoying -- need to cast SO(3) -> SE(3).
+    random_rotate_transforms = pp.from_matrix(
+        random_SO3_rotations.matrix(), pp.SE3_type
+    )
+
+    return random_rotate_transforms
 
 
 @localscope.mfc
@@ -609,6 +621,8 @@ def custom_collate_fn(
 ) -> BatchData:
     batch = torch.utils.data.dataloader.default_collate(batch)
     nerf_densities, grasp_successes, grasp_transforms, nerf_configs = batch
+
+    grasp_transforms = pp.from_matrix(grasp_transforms, pp.SE3_type)
 
     batch_size = nerf_densities.shape[0]
     random_rotate_transform = sample_random_rotate_transforms(N=batch_size)
@@ -702,7 +716,7 @@ def plot_example(
     object_scale = get_object_scale(nerf_config_path)
 
     # Path to meshes
-    DEXGRASPNET_DATA_ROOT = "/juno/u/tylerlum/github_repos/DexGraspNet/data"
+    DEXGRASPNET_DATA_ROOT = nerf_grasping.get_repo_root()
     DEXGRASPNET_MESHDATA_ROOT = os.path.join(DEXGRASPNET_DATA_ROOT, "meshdata")
     mesh_path = os.path.join(
         DEXGRASPNET_MESHDATA_ROOT,
@@ -1121,7 +1135,11 @@ def iterate_through_dataloader(
                     y_true=all_ground_truths, y_pred=all_predictions
                 )
     with loop_timer.add_section_timer("Confusion Matrix"):
-        if len(all_ground_truths) > 0 and len(all_predictions) > 0:
+        if (
+            len(all_ground_truths) > 0
+            and len(all_predictions) > 0
+            and wandb.run is not None
+        ):
             wandb_log_dict[
                 f"{phase.name.lower()}_confusion_matrix"
             ] = wandb.plot.confusion_matrix(

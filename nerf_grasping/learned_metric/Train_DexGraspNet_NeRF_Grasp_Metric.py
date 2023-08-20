@@ -29,19 +29,10 @@ import nerf_grasping
 from dataclasses import dataclass
 from torchinfo import summary
 from torchviz import make_dot
-from nerf_grasping.dataset.DexGraspNet_NeRF_Grasps_utils import (
+from nerf_grasping.grasp_utils import (
     DIST_BTWN_PTS_MM,
     get_ray_samples,
     get_ray_origins_finger_frame,
-    get_contact_candidates_and_target_candidates,
-    get_start_and_end_and_up_points,
-    get_transform,
-    get_scene_dict,
-    get_transformed_points,
-    plot_mesh_and_query_points,
-    plot_mesh_and_transforms,
-    get_object_code,
-    get_object_scale,
     load_nerf,
     NUM_PTS_X,
     NUM_PTS_Y,
@@ -51,12 +42,18 @@ from nerf_grasping.dataset.DexGraspNet_NeRF_Grasps_utils import (
     FINGER_HEIGHT_MM,
     NUM_FINGERS,
 )
+from nerf_grasping.dataset.DexGraspNet_NeRF_Grasps_utils import (
+    get_object_code,
+    get_object_scale,
+    plot_mesh_and_query_points,
+)
 from nerf_grasping.dataset.timers import LoopTimer
 from nerf_grasping.learned_metric.Train_DexGraspNet_NeRF_Grasp_Metric_Config import (
     Config,
     TrainingConfig,
 )
 import os
+import pypose as pp
 import h5py
 from typing import Optional, Tuple, List
 from sklearn.metrics import (
@@ -142,11 +139,13 @@ def datetime_str() -> str:
 OmegaConf.register_new_resolver("eval", eval, replace=True)
 OmegaConf.register_new_resolver("datetime_str", datetime_str, replace=True)
 
+
 # %%
 @functools.lru_cache()
 def get_ray_origins_finger_frame_cached():
     ray_origins_finger_frame = get_ray_origins_finger_frame()
     return ray_origins_finger_frame
+
 
 # %%
 config_store = ConfigStore.instance()
@@ -347,16 +346,17 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
 
             # This is small enough to fit in RAM
             self.grasp_transforms = (
-                torch.from_numpy(hdf5_file["/grasp_transforms"][()]).float()
+                pp.from_matrix(
+                    torch.from_numpy(hdf5_file["/grasp_transforms"][()]).float(),
+                    pp.SE3_type,
+                )
                 if load_grasp_transforms_in_ram
                 else None
             )
 
             # This is small enough to fit in RAM
             self.nerf_configs = (
-                hdf5_file["/nerf_config"][()]
-                if load_nerf_configs_in_ram
-                else None
+                hdf5_file["/nerf_config"][()] if load_nerf_configs_in_ram else None
             )
 
     @localscope.mfc
@@ -474,7 +474,7 @@ assert len(set.intersection(set(val_dataset.indices), set(test_dataset.indices))
 class BatchData:
     nerf_densities: torch.Tensor
     grasp_success: torch.Tensor
-    grasp_transforms: torch.Tensor
+    grasp_transforms: pp.LieTensor
     nerf_config: List[str]
     random_rotate_transform: Optional[torch.Tensor] = None
 
@@ -484,7 +484,7 @@ class BatchData:
         self.grasp_success = self.grasp_success.to(device)
         self.grasp_transforms = self.grasp_transforms.to(device)
         self.random_rotate_transform = (
-            self.random_rotate_transform.to(device)
+            self.random_rotate_transform.to(device=device)
             if self.random_rotate_transform is not None
             else None
         )
@@ -496,7 +496,7 @@ class BatchData:
         # alpha = 1 - exp(-delta * sigma)
         #       = probability of collision within this segment starting from beginning of segment
         DELTA = DIST_BTWN_PTS_MM / 1000
-        OTHER_DELTA = GRASP_DEPTH_MM / (NUM_PTS_Z -1) / 1000
+        OTHER_DELTA = GRASP_DEPTH_MM / (NUM_PTS_Z - 1) / 1000
         assert np.isclose(DELTA, OTHER_DELTA), f"{DELTA} != {OTHER_DELTA}"
         return 1.0 - torch.exp(-DELTA * self.nerf_densities)
 
@@ -509,40 +509,21 @@ class BatchData:
         return self._coords_helper(self.augmented_grasp_transforms)
 
     # @localscope.mfc(allowed=["NUM_FINGERS"])
-    def _coords_helper(self, grasp_transforms: torch.Tensor) -> torch.Tensor:
-        assert grasp_transforms.shape == (self.batch_size, NUM_FINGERS, 4, 4)
+    def _coords_helper(self, grasp_transforms: pp.LieTensor) -> torch.Tensor:
+        assert grasp_transforms.lshape == (self.batch_size, NUM_FINGERS)
         ray_origins_finger_frame = get_ray_origins_finger_frame_cached()
 
-        # TODO: Change this to not be np and be vectorized
-        all_query_points = []
-        for i in range(self.batch_size):
-            transforms = grasp_transforms[i]
-            intermediate_query_points_list = []
+        all_query_points = get_ray_samples(ray_origins_finger_frame, grasp_transforms)
 
-            # TODO: SLOW?
-            for j in range(NUM_FINGERS):
-                transform = transforms[j]
-                ray_samples = get_ray_samples(ray_origins_finger_frame, transform.cpu().numpy())
-                query_points = np.copy(ray_samples.frustums.get_positions().cpu().numpy().reshape(-1, 3))
-                intermediate_query_points_list.append(query_points)
-            intermediate_query_points = np.stack(intermediate_query_points_list, axis=0)
-
-            all_query_points.append(torch.from_numpy(intermediate_query_points))
-        all_query_points = (
-            torch.stack(all_query_points, dim=0).float().to(self.device)
-        )
         assert all_query_points.shape == (
             self.batch_size,
             NUM_FINGERS,
-            NUM_PTS_X * NUM_PTS_Y * NUM_PTS_Z,
+            NUM_PTS_X,
+            NUM_PTS_Y,
+            NUM_PTS_Z,
             NUM_XYZ,
         )
-        all_query_points = all_query_points.reshape(
-            self.batch_size, NUM_FINGERS, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z, NUM_XYZ
-        )
-        all_query_points = all_query_points.permute(
-            0, 1, 5, 2, 3, 4
-        )
+        all_query_points = all_query_points.permute(0, 1, 5, 2, 3, 4)
         assert all_query_points.shape == (
             self.batch_size,
             NUM_FINGERS,
@@ -595,9 +576,8 @@ class BatchData:
         if self.random_rotate_transform is None:
             return self.grasp_transforms
 
-        return_value = torch.matmul(
-            self.random_rotate_transform.unsqueeze(dim=1),
-            self.grasp_transforms,
+        return_value = (
+            self.random_rotate_transform.unsqueeze(dim=1) @ self.grasp_transforms,
         )
         assert (
             return_value.shape
@@ -615,65 +595,12 @@ class BatchData:
         return self.grasp_success.device
 
 
-def sample_random_rotate_transforms(N: int) -> torch.Tensor:
-    # Generate random angles for roll, pitch, and yaw
-    roll_angles = torch.rand(N) * 2 * np.pi
-    pitch_angles = torch.rand(N) * 2 * np.pi
-    yaw_angles = torch.rand(N) * 2 * np.pi
+def sample_random_rotate_transforms(N: int) -> pp.LieTensor:
+    # Sample big rotations in tangent space of SO(3).
+    log_random_rotations = pp.so3(4 * torch.pi * (2 * torch.rand(N, 3) - 1))
 
-    # Generate rotation matrices for each axis
-    R_rolls = torch.stack(
-        [
-            torch.tensor(
-                [
-                    [1, 0, 0],
-                    [0, np.cos(angle), -np.sin(angle)],
-                    [0, np.sin(angle), np.cos(angle)],
-                ]
-            )
-            for angle in roll_angles
-        ]
-    )
-
-    R_pitches = torch.stack(
-        [
-            torch.tensor(
-                [
-                    [np.cos(angle), 0, np.sin(angle)],
-                    [0, 1, 0],
-                    [-np.sin(angle), 0, np.cos(angle)],
-                ]
-            )
-            for angle in pitch_angles
-        ]
-    )
-
-    R_yaws = torch.stack(
-        [
-            torch.tensor(
-                [
-                    [np.cos(angle), -np.sin(angle), 0],
-                    [np.sin(angle), np.cos(angle), 0],
-                    [0, 0, 1],
-                ]
-            )
-            for angle in yaw_angles
-        ]
-    )
-    assert R_rolls.shape == R_pitches.shape == R_yaws.shape == (N, 3, 3)
-
-    # Combine rotation matrices
-    R_combined = torch.matmul(R_yaws, torch.matmul(R_pitches, R_rolls))
-    assert R_combined.shape == (N, 3, 3)
-
-    # Create the transformation matrices
-    transformation_matrices = torch.zeros(N, 4, 4)
-    transformation_matrices[:, :3, :3] = R_combined
-    transformation_matrices[:, :3, 3] = 0.0
-    transformation_matrices[:, 3, 3] = 1.0
-    assert transformation_matrices.shape == (N, 4, 4)
-
-    return transformation_matrices
+    # Return exponentiated rotations.
+    return log_random_rotations.Exp()
 
 
 @localscope.mfc
@@ -755,7 +682,7 @@ def plot_example(
     if augmented:
         query_points_list = batch_data.augmented_coords[idx_to_visualize]
         additional_mesh_transform = (
-            batch_data.random_rotate_transform[idx_to_visualize].cpu().numpy()
+            batch_data.random_rotate_transform[idx_to_visualize].matrix().cpu().numpy()
             if batch_data.random_rotate_transform is not None
             else None
         )
@@ -839,31 +766,31 @@ EXAMPLE_BATCH_DATA.grasp_success
 # # %%
 # fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=14)
 # fig.show()
-# 
+#
 # # %%
 # fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=14, augmented=True)
 # fig.show()
-# 
+#
 # # %%
 # fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=17)
 # fig.show()
-# 
+#
 # # %%
 # fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=17, augmented=True)
 # fig.show()
-# 
+#
 # # %%
 # fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=18)
 # fig.show()
-# 
+#
 # # %%
 # fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=18, augmented=True)
 # fig.show()
-# 
+#
 # # %%
 # fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=19)
 # fig.show()
-# 
+#
 # # %%
 # fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=19, augmented=True)
 # fig.show()
@@ -1107,7 +1034,9 @@ def iterate_through_dataloader(
             batch_data: BatchData = batch_data.to(device)
             if torch.isnan(batch_data.nerf_alphas_with_augmented_coords).any():
                 print("!" * 80)
-                print(f"Found {torch.isnan(batch_data.nerf_alphas_with_augmented_coords).sum()} NANs in batch_data.nerf_alphas_with_augmented_coords")
+                print(
+                    f"Found {torch.isnan(batch_data.nerf_alphas_with_augmented_coords).sum()} NANs in batch_data.nerf_alphas_with_augmented_coords"
+                )
                 print("Skipping batch...")
                 print("!" * 80)
                 print()
@@ -1394,4 +1323,3 @@ save_checkpoint(
 
 # %%
 wandb.finish()
-# %%

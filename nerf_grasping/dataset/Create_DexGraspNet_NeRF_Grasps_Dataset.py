@@ -88,11 +88,11 @@ tqdm = partial(std_tqdm, dynamic_ncols=True)
 # %%
 # PARAMS
 DEXGRASPNET_DATA_ROOT = "."
-GRASP_DATASET_FOLDER = "graspdata"
-NERF_CHECKPOINTS_FOLDER = "nerfcheckpoints"
+GRASP_DATASET_FOLDER = "2023-08-19_graspdata_one_object_only"
+NERF_CHECKPOINTS_FOLDER = "2023-08-19_nerfcheckpoints_one_object_only"
 OUTPUT_FOLDER = f"{GRASP_DATASET_FOLDER}_learned_metric_dataset"
 OUTPUT_FILENAME = f"{datetime_str}_learned_metric_dataset.h5"
-PLOT_ONLY_ONE = True
+PLOT_ONLY_ONE = False
 SAVE_DATASET = True
 PRINT_TIMING = True
 LIMIT_NUM_CONFIGS = None  # None for no limit
@@ -279,7 +279,10 @@ with h5py.File(OUTPUT_FILE_PATH, "w") as hdf5_file:
 
             # Plot
             if PLOT_ONLY_ONE:
-                delta = GRASP_DEPTH_MM / 1000 / NUM_PTS_Z
+                delta = DIST_BTWN_PTS_MM
+                other_delta = GRASP_DEPTH_MM / 1000 / (NUM_PTS_Z - 1)
+                assert np.isclose(delta, other_delta)
+
                 nerf_alphas = [1 - np.exp(-delta * dd) for dd in nerf_densities]
                 fig = plot_mesh_and_query_points(
                     mesh=mesh,
@@ -371,34 +374,36 @@ with h5py.File(OUTPUT_FILE_PATH, "w") as hdf5_file:
 
             # Save values
             if SAVE_DATASET:
-                # Ensure no nans (most likely come from nerf densities)
-                if not np.isnan(nerf_densities).any():
-                    with loop_timer.add_section_timer("save values"):
-                        nerf_densities = np.stack(nerf_densities, axis=0).reshape(
-                            NUM_FINGERS, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z
-                        )
-                        nerf_densities_dataset[current_idx] = nerf_densities
-                        grasp_success_dataset[current_idx] = grasp_data["valid"]
-                        nerf_config_dataset[current_idx] = str(config)
-                        object_code_dataset[current_idx] = object_code
-                        object_scale_dataset[current_idx] = object_scale
-                        grasp_idx_dataset[current_idx] = grasp_idx
-                        grasp_transforms_dataset[current_idx] = np.stack(
-                            transforms, axis=0
-                        )
-
-                        current_idx += 1
-
-                        # May not be max_num_data_points if nan grasps
-                        hdf5_file.attrs["num_data_points"] = current_idx
-                else:
-                    print()
-                    print("-" * 80)
-                    print(
-                        f"WARNING: Found {np.isnan(nerf_densities).sum()} nans in grasp {grasp_idx} of {config}"
+                with loop_timer.add_section_timer("save values"):
+                    nerf_densities = np.stack(nerf_densities, axis=0).reshape(
+                        NUM_FINGERS, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z
                     )
-                    print("-" * 80)
-                    print()
+                    transforms = np.stack(transforms, axis=0)
+
+                    # Ensure no nans (most likely come from nerf densities)
+                    if np.isnan(nerf_densities).any() or np.isnan(transforms).any():
+                        print()
+                        print("-" * 80)
+                        print(
+                            f"WARNING: Found {np.isnan(nerf_densities).sum()} nerf density nans and {np.isnan(transforms).sum()} transform nans in grasp {grasp_idx} of {config}"
+                        )
+                        print("Skipping this one...")
+                        print("-" * 80)
+                        print()
+                        continue
+
+                    nerf_densities_dataset[current_idx] = nerf_densities
+                    grasp_success_dataset[current_idx] = grasp_data["valid"]
+                    nerf_config_dataset[current_idx] = str(config)
+                    object_code_dataset[current_idx] = object_code
+                    object_scale_dataset[current_idx] = object_scale
+                    grasp_idx_dataset[current_idx] = grasp_idx
+                    grasp_transforms_dataset[current_idx] = transforms
+
+                    current_idx += 1
+
+                    # May not be max_num_data_points if nan grasps
+                    hdf5_file.attrs["num_data_points"] = current_idx
         if PRINT_TIMING:
             loop_timer.pretty_print_section_times()
         print()

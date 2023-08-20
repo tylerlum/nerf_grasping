@@ -59,6 +59,7 @@ class CNN_3D_Classifier(Classifier):
     def forward(
         self, nerf_densities: torch.Tensor, grasp_transforms: pp.LieTensor
     ) -> torch.Tensor:
+        # Prepare data
         batch_size = nerf_densities.shape[0]
         dummy_grasp_success = torch.zeros(
             batch_size, dtype=nerf_densities.dtype, device=nerf_densities.device
@@ -70,6 +71,8 @@ class CNN_3D_Classifier(Classifier):
             grasp_transforms=grasp_transforms,
             nerf_config=dummy_nerf_config,
         ).to(nerf_densities.device)
+
+        # Run model
         scores = self.model(batch_data.nerf_alphas_with_augmented_coords)
 
         N_CLASSES = 2
@@ -81,6 +84,7 @@ class CNN_3D_Classifier(Classifier):
 
 
 def main() -> None:
+    # Prepare inputs
     CONFIG = (
         pathlib.Path(nerf_grasping.get_package_root())
         / "learned_metric"
@@ -90,14 +94,18 @@ def main() -> None:
     )
     assert CONFIG.exists(), f"CONFIG: {CONFIG} does not exist"
     DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    # Create model
     cnn_3d_classifier = CNN_3D_Classifier(config=CONFIG).to(DEVICE)
 
+    # Example input
     batch_size = 2
     nerf_densities = torch.rand(
         batch_size, NUM_FINGERS, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z
     ).to(DEVICE)
     grasp_transforms = pp.identity_SE3(batch_size, NUM_FINGERS).to(DEVICE)
 
+    # Run model
     scores = cnn_3d_classifier(nerf_densities, grasp_transforms)
     print(f"scores: {scores}")
     print(f"scores.shape: {scores.shape}")

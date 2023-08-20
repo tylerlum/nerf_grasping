@@ -581,6 +581,7 @@ class BatchData:
         if self.random_rotate_transform is None:
             return self.grasp_transforms
 
+        # Unsqueeze because we're applying the same (single) random rotation to all fingers.
         return_value = (
             self.random_rotate_transform.unsqueeze(dim=1) @ self.grasp_transforms
         )
@@ -602,6 +603,8 @@ class BatchData:
 
 def sample_random_rotate_transforms(N: int) -> pp.LieTensor:
     # Sample big rotations in tangent space of SO(3).
+    # Choose 4 * \pi as a heuristic to get pretty evenly spaced rotations.
+    # TODO(pculbert): Figure out better uniform sampling on SO(3).
     log_random_rotations = pp.so3(4 * torch.pi * (2 * torch.rand(N, 3) - 1))
 
     # Return exponentiated rotations.

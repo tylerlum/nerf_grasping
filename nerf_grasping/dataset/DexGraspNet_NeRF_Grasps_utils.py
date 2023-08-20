@@ -200,6 +200,7 @@ def plot_mesh_and_transforms(
         fig.add_trace(z_plot)
 
     fig.update_layout(legend_orientation="h")
+    return fig
 
 
 def plot_mesh_and_query_points(

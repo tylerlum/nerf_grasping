@@ -37,64 +37,6 @@ def get_object_code(cfg_path: pathlib.Path) -> str:
     return object_code
 
 
-def get_contact_candidates_and_target_candidates(
-    grasp_data: Dict[str, Any]
-) -> Tuple[np.ndarray, np.ndarray]:
-    link_name_to_contact_candidates = grasp_data["link_name_to_contact_candidates"]
-    link_name_to_target_contact_candidates = grasp_data[
-        "link_name_to_target_contact_candidates"
-    ]
-    contact_candidates = np.concatenate(
-        [
-            contact_candidate
-            for _, contact_candidate in link_name_to_contact_candidates.items()
-        ],
-        axis=0,
-    )
-    target_contact_candidates = np.concatenate(
-        [
-            target_contact_candidate
-            for _, target_contact_candidate in link_name_to_target_contact_candidates.items()
-        ],
-        axis=0,
-    )
-    return contact_candidates, target_contact_candidates
-
-
-def get_transform(start: np.ndarray, end: np.ndarray, up: np.ndarray) -> np.ndarray:
-    # BRITTLE: Assumes new_z and new_y are pretty much perpendicular
-    # If not, tries to find closest possible
-    new_z = normalize(end - start)
-    # new_y should be perpendicular to new_z
-    up_dir = normalize(up - start)
-    new_y = normalize(up_dir - np.dot(up_dir, new_z) * new_z)
-    new_x = np.cross(new_y, new_z)
-
-    transform = np.eye(4)
-    transform[:3, :3] = np.stack([new_x, new_y, new_z], axis=1)
-    transform[:3, 3] = start
-    return pp.from_matrix(transform, pp.SE3_type)
-
-
-def get_start_and_end_and_up_points(
-    contact_candidates: np.ndarray,
-    target_contact_candidates: np.ndarray,
-    num_fingers: int,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-    # BRITTLE: Assumes same number of contact points per finger
-    # BRITTLE: Assumes UP_POINT_IDX is position of contact candidate up from center
-    UP_POINT_IDX = 3
-    contact_candidates_per_finger = contact_candidates.reshape(num_fingers, -1, 3)
-    target_contact_candidates_per_finger = target_contact_candidates.reshape(
-        num_fingers, -1, 3
-    )
-    start_points = contact_candidates_per_finger.mean(axis=1)
-    end_points = target_contact_candidates_per_finger.mean(axis=1)
-    up_points = contact_candidates_per_finger[:, UP_POINT_IDX, :]
-    assert start_points.shape == end_points.shape == up_points.shape == (num_fingers, 3)
-    return np.array(start_points), np.array(end_points), np.array(up_points)
-
-
 def get_scene_dict() -> Dict[str, Any]:
     return dict(
         xaxis=dict(title="X"),
@@ -133,10 +75,6 @@ def plot_mesh(mesh: trimesh.Trimesh, color="lightpink") -> go.Figure:
 
     # Return the figure
     return fig
-
-
-def normalize(x: np.ndarray) -> np.ndarray:
-    return x / np.linalg.norm(x)
 
 
 def plot_mesh_and_transforms(

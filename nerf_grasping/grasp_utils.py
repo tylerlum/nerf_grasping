@@ -2,6 +2,7 @@
 Module implementing utils for grasping,
 including normal estimation and surface detection.
 """
+from __future__ import annotations
 import nerfstudio
 import numpy as np
 import pathlib
@@ -176,7 +177,7 @@ def load_nerf(cfg_path: pathlib.Path) -> nerfstudio.models.base_model.Model:
     return pipeline.model.field
 
 
-def grasp_config_from_grasp_data(
+def get_grasp_config_from_grasp_data(
     grasp_data: dict,
 ) -> Tuple[pp.LieTensor, torch.Tensor, pp.LieTensor]:
     """
@@ -189,8 +190,8 @@ def grasp_config_from_grasp_data(
     assert wrist_translation.shape == (3,)
 
     euler_angles = torch.tensor([qpos[rn] for rn in DEXGRASPNET_ROT_NAMES])
-    wrist_quat = torch.tensor(transforms3d.euler.euler2mat(*euler_angles, axes="sxyz"))
-    wrist_quat = wrist_quat[1, 2, 3, 0]  # Convert (x, y, z, w) -> (w, x, y, z)
+    wrist_quat = torch.tensor(transforms3d.euler.euler2quat(*euler_angles, axes="sxyz"))
+    wrist_quat = wrist_quat[[1, 2, 3, 0]]  # Convert (x, y, z, w) -> (w, x, y, z)
     assert wrist_quat.shape == (4,)
 
     wrist_pose = pp.SE3(torch.cat([wrist_translation, wrist_quat], dim=0))
@@ -228,6 +229,10 @@ def get_contact_candidates_and_target_candidates(
         axis=0,
     )
     return contact_candidates, target_contact_candidates
+
+
+def normalize(x: np.ndarray) -> np.ndarray:
+    return x / np.linalg.norm(x)
 
 
 def get_transform(start: np.ndarray, end: np.ndarray, up: np.ndarray) -> np.ndarray:
@@ -275,16 +280,15 @@ def get_fingertip_transforms_from_grasp_data(grasp_data: dict) -> pp.LieTensor:
     start_points, end_points, up_points = get_start_and_end_and_up_points(
         contact_candidates, target_contact_candidates, NUM_FINGERS
     )
-    transforms = torch.from_tensor(
-        np.stack(
-            [
-                get_transform(start, end, up)
-                for start, end, up in zip(start_points, end_points, up_points)
-            ],
-            axis=0,
-        )
+    transforms = torch.stack(
+        [
+            get_transform(start, end, up)
+            for start, end, up in zip(start_points, end_points, up_points)
+        ],
+        axis=0,
     )
 
-    assert transforms.shape == (NUM_FINGERS, 4, 4)
+    assert transforms.lshape == (NUM_FINGERS,)
+    assert transforms.ltype == pp.SE3_type
 
-    return pp.from_matrix(transforms, pp.SE3_type)
+    return transforms

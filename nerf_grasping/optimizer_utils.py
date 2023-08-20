@@ -98,7 +98,8 @@ class AllegroGraspConfig(torch.nn.Module):
         super().__init__()
         self.hand_config = AllegroHandConfig(batch_size, chain, requires_grad)
         self.grasp_orientations = pp.Parameter(
-            pp.identity_SO3(batch_size), requires_grad=requires_grad
+            pp.identity_SO3(batch_size, grasp_utils.NUM_FINGERS),
+            requires_grad=requires_grad,
         )
 
     @classmethod
@@ -121,15 +122,31 @@ class AllegroGraspConfig(torch.nn.Module):
 
         state_dict = {}
         state_dict["grasp_orientations"] = pp.so3(
-            std_orientation * torch.randn(batch_size, 3)
+            std_orientation
+            * torch.randn(
+                batch_size,
+                grasp_utils.NUM_FINGERS,
+                3,
+                device=grasp_config.grasp_orientations.device,
+                dtype=grasp_config.grasp_orientations.dtype,
+            )
         ).Exp()
 
         state_dict["hand_config.wrist_pose"] = pp.se3(
-            std_wrist_pose * torch.randn(batch_size, 6)
+            std_wrist_pose
+            * torch.randn(
+                batch_size,
+                6,
+                dtype=grasp_config.grasp_orientations.dtype,
+                device=grasp_config.grasp_orientations.device,
+            )
         ).Exp()
 
         state_dict["hand_config.joint_angles"] = std_joint_angles * torch.randn(
-            batch_size, 16
+            batch_size,
+            16,
+            dtype=grasp_config.grasp_orientations.dtype,
+            device=grasp_config.grasp_orientations.device,
         )
 
         grasp_config.load_state_dict(state_dict)
@@ -139,16 +156,46 @@ class AllegroGraspConfig(torch.nn.Module):
     @classmethod
     def from_grasp_data(cls, grasp_data_path: pathlib.Path, batch_size: int = 1):
         # Load grasp data + instantiate correctly-sized config object.
-        grasp_data = np.load(str(grasp_data_path))
+        grasp_data = np.load(str(grasp_data_path), allow_pickle=True)
         grasp_config = cls(batch_size)
 
         # Sample (with replacement) random indices into grasp data.
-        indices = np.random.choice(np.arange(grasp_data), batch_size)
+        indices = np.random.choice(np.arange(len(grasp_data)), batch_size)
         grasp_data = grasp_data[indices]
 
         # Assemble these samples into the data we need for the grasp config.
+        grasp_data_tuples = [
+            grasp_utils.get_grasp_config_from_grasp_data(gd) for gd in grasp_data
+        ]
 
+        # List of tuples -> tuple of lists.
+        grasp_data_list = list(zip(*grasp_data_tuples))
+
+        # Set the grasp config's data.
         state_dict = {}
+        state_dict["hand_config.wrist_pose"] = torch.stack(
+            grasp_data_list[0], dim=0
+        ).to(
+            device=grasp_config.grasp_orientations.device,
+            dtype=grasp_config.grasp_orientations.dtype,
+        )
+
+        state_dict["hand_config.joint_angles"] = torch.stack(
+            grasp_data_list[1], dim=0
+        ).to(
+            device=grasp_config.grasp_orientations.device,
+            dtype=grasp_config.grasp_orientations.dtype,
+        )
+
+        state_dict["grasp_orientations"] = torch.stack(grasp_data_list[2], dim=0).to(
+            device=grasp_config.grasp_orientations.device,
+            dtype=grasp_config.grasp_orientations.dtype,
+        )
+
+        # Load state dict for module.
+        grasp_config.load_state_dict(state_dict)
+
+        return grasp_config
 
     @property
     def wrist_pose(self) -> pp.LieTensor:

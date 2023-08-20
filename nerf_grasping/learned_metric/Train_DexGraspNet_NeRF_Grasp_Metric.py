@@ -533,14 +533,14 @@ test_loader = DataLoader(
 # %%
 @localscope.mfc
 def print_shapes(batch_data: BatchData) -> None:
-    print(f"nerf_alphas.shape: {batch_data.nerf_alphas.shape}")
+    print(f"nerf_alphas.shape: {batch_data.input.nerf_alphas.shape}")
     print(f"grasp_success.shape: {batch_data.grasp_success.shape}")
-    print(f"grasp_transforms.shape: {batch_data.grasp_transforms.shape}")
+    print(f"grasp_transforms.shape: {batch_data.input.grasp_transforms.shape}")
     print(f"len(nerf_config): {len(batch_data.nerf_config)}")
-    print(f"coords.shape = {batch_data.coords.shape}")
-    print(f"nerf_alphas_with_coords.shape = {batch_data.nerf_alphas_with_coords.shape}")
+    print(f"coords.shape = {batch_data.input.coords.shape}")
+    print(f"nerf_alphas_with_coords.shape = {batch_data.input.nerf_alphas_with_coords.shape}")
     print(
-        f"augmented_grasp_transforms.shape = {batch_data.augmented_grasp_transforms.shape}"
+        f"augmented_grasp_transforms.shape = {batch_data.input.augmented_grasp_transforms.shape}"
     )
 
 
@@ -561,19 +561,19 @@ def plot_example(
     batch_data: BatchData, idx_to_visualize: int = 0, augmented: bool = False
 ) -> go.Figure:
     if augmented:
-        query_points_list = batch_data.augmented_coords[idx_to_visualize]
+        query_points_list = batch_data.input.augmented_coords[idx_to_visualize]
         additional_mesh_transform = (
-            batch_data.random_rotate_transform[idx_to_visualize].matrix().cpu().numpy()
-            if batch_data.random_rotate_transform is not None
+            batch_data.input.random_rotate_transform[idx_to_visualize].matrix().cpu().numpy()
+            if batch_data.input.random_rotate_transform is not None
             else None
         )
     else:
-        query_points_list = batch_data.coords[idx_to_visualize]
+        query_points_list = batch_data.input.coords[idx_to_visualize]
         additional_mesh_transform = None
 
     # Extract data
-    colors = batch_data.nerf_alphas[idx_to_visualize]
-    grasp_success = batch_data.grasp_success[idx_to_visualize].item()
+    colors = batch_data.input.nerf_alphas[idx_to_visualize]
+    grasp_success = batch_data.input.grasp_success[idx_to_visualize].item()
 
     assert colors.shape == (NUM_FINGERS, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
     assert grasp_success in [0, 1]
@@ -834,10 +834,10 @@ def iterate_through_dataloader(
 
             batch_idx = int(batch_idx)
             batch_data: BatchData = batch_data.to(device)
-            if torch.isnan(batch_data.nerf_alphas_with_augmented_coords).any():
+            if torch.isnan(batch_data.input.nerf_alphas_with_augmented_coords).any():
                 print("!" * 80)
                 print(
-                    f"Found {torch.isnan(batch_data.nerf_alphas_with_augmented_coords).sum()} NANs in batch_data.nerf_alphas_with_augmented_coords"
+                    f"Found {torch.isnan(batch_data.input.nerf_alphas_with_augmented_coords).sum()} NANs in batch_data.input.nerf_alphas_with_augmented_coords"
                 )
                 print("Skipping batch...")
                 print("!" * 80)
@@ -848,8 +848,8 @@ def iterate_through_dataloader(
             with loop_timer.add_section_timer("Fwd"):
                 grasp_success_logits = nerf_to_grasp_success_model.get_success_logits(
                     # TODO: Use config to set this, defines what input type we give
-                    batch_data.nerf_alphas_with_augmented_coords
-                    # batch_data.nerf_alphas_with_coords
+                    batch_data.input.nerf_alphas_with_augmented_coords
+                    # batch_data.input.nerf_alphas_with_coords
                 )
                 ce_loss = ce_loss_fn(
                     input=grasp_success_logits, target=batch_data.grasp_success

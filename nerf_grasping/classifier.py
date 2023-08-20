@@ -10,7 +10,7 @@ from nerf_grasping.grasp_utils import (
 )
 import pathlib
 from nerf_grasping.models.dexgraspnet_models import CNN_3D_Classifier as CNN_3D_Model
-from nerf_grasping.learned_metric.DexGraspNet_batch_data import BatchData
+from nerf_grasping.learned_metric.DexGraspNet_batch_data import BatchDataInput
 
 
 class Classifier(nn.Module):
@@ -62,13 +62,13 @@ class CNN_3D_Classifier(Classifier):
         batch_size = nerf_densities.shape[0]
 
         # Prepare data
-        batch_data = BatchData.create_input_only_batch(
+        batch_data_input = BatchDataInput(
             nerf_densities=nerf_densities,
             grasp_transforms=grasp_transforms,
         ).to(nerf_densities.device)
 
         # Run model
-        scores = self.model(batch_data.nerf_alphas_with_augmented_coords)
+        scores = self.model(batch_data_input.nerf_alphas_with_augmented_coords)
 
         N_CLASSES = 2
         assert scores.shape == (batch_size, N_CLASSES)

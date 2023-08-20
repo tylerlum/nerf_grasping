@@ -28,16 +28,13 @@ def get_ray_origins_finger_frame_cached():
 
 
 @dataclass
-class BatchData:
+class BatchDataInput:
     nerf_densities: torch.Tensor
-    grasp_success: torch.Tensor
     grasp_transforms: pp.LieTensor
-    nerf_config: List[str]
     random_rotate_transform: Optional[pp.LieTensor] = None
 
-    def to(self, device) -> BatchData:
+    def to(self, device) -> BatchDataInput:
         self.nerf_densities = self.nerf_densities.to(device)
-        self.grasp_success = self.grasp_success.to(device)
         self.grasp_transforms = self.grasp_transforms.to(device)
         self.random_rotate_transform = (
             self.random_rotate_transform.to(device=device)
@@ -45,26 +42,6 @@ class BatchData:
             else None
         )
         return self
-
-    @classmethod
-    def create_input_only_batch(
-        cls, nerf_densities: torch.Tensor, grasp_transforms: pp.LieTensor
-    ) -> BatchData:
-        # This is a hacky way to create a BatchData object with only the input data
-        # This way, won't have to handle Optional/None properties
-        # Better solution: create a BatchDataInput class that BatchData stores
-        batch_size = nerf_densities.shape[0]
-        dummy_grasp_success = torch.zeros(
-            batch_size, dtype=nerf_densities.dtype, device=nerf_densities.device
-        )
-        dummy_nerf_config = ["dummy" for _ in range(batch_size)]
-        batch_data = BatchData(
-            nerf_densities=nerf_densities,
-            grasp_success=dummy_grasp_success,
-            grasp_transforms=grasp_transforms,
-            nerf_config=dummy_nerf_config,
-        ).to(nerf_densities.device)
-        return batch_data
 
     @property
     def nerf_alphas(self) -> torch.Tensor:
@@ -109,11 +86,11 @@ class BatchData:
 
     @property
     def batch_size(self) -> int:
-        return self.grasp_success.shape[0]
+        return self.nerf_densities.shape[0]
 
     @property
     def device(self) -> torch.device:
-        return self.grasp_success.device
+        return self.nerf_densities.device
 
     def _coords_helper(self, grasp_transforms: pp.LieTensor) -> torch.Tensor:
         assert grasp_transforms.lshape == (self.batch_size, NUM_FINGERS)
@@ -173,3 +150,23 @@ class BatchData:
             NUM_PTS_Z,
         )
         return return_value
+
+
+@dataclass
+class BatchData:
+    input: BatchDataInput
+    grasp_success: torch.Tensor
+    nerf_config: List[str]
+
+    def to(self, device) -> BatchData:
+        self.input = self.input.to(device)
+        self.grasp_success = self.grasp_success.to(device)
+        return self
+
+    @property
+    def batch_size(self) -> int:
+        return self.grasp_success.shape[0]
+
+    @property
+    def device(self) -> torch.device:
+        return self.grasp_success.device

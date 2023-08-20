@@ -1,4 +1,5 @@
 # %%
+import numpy as np
 import pathlib
 import pytorch_kinematics as pk
 import pypose as pp
@@ -107,6 +108,47 @@ class AllegroGraspConfig(torch.nn.Module):
         grasp_config = cls(batch_size)
         grasp_config.load_state_dict(state_dict)
         return grasp_config
+
+    @classmethod
+    def randn(
+        cls,
+        batch_size: int = 1,
+        std_orientation: float = 0.1,
+        std_wrist_pose: float = 0.1,
+        std_joint_angles: float = 0.1,
+    ):
+        grasp_config = cls(batch_size)
+
+        state_dict = {}
+        state_dict["grasp_orientations"] = pp.so3(
+            std_orientation * torch.randn(batch_size, 3)
+        ).Exp()
+
+        state_dict["hand_config.wrist_pose"] = pp.se3(
+            std_wrist_pose * torch.randn(batch_size, 6)
+        ).Exp()
+
+        state_dict["hand_config.joint_angles"] = std_joint_angles * torch.randn(
+            batch_size, 16
+        )
+
+        grasp_config.load_state_dict(state_dict)
+
+        return grasp_config
+
+    @classmethod
+    def from_grasp_data(cls, grasp_data_path: pathlib.Path, batch_size: int = 1):
+        # Load grasp data + instantiate correctly-sized config object.
+        grasp_data = np.load(str(grasp_data_path))
+        grasp_config = cls(batch_size)
+
+        # Sample (with replacement) random indices into grasp data.
+        indices = np.random.choice(np.arange(grasp_data), batch_size)
+        grasp_data = grasp_data[indices]
+
+        # Assemble these samples into the data we need for the grasp config.
+
+        state_dict = {}
 
     @property
     def wrist_pose(self) -> pp.LieTensor:

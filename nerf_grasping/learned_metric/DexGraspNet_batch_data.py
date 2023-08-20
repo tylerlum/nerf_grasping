@@ -1,6 +1,7 @@
 from __future__ import annotations
 import functools
 from dataclasses import dataclass
+import pypose as pp
 import torch
 from typing import List, Optional
 import numpy as np
@@ -30,16 +31,16 @@ def get_ray_origins_finger_frame_cached():
 class BatchData:
     nerf_densities: torch.Tensor
     grasp_success: torch.Tensor
-    grasp_transforms: torch.Tensor
+    grasp_transforms: pp.LieTensor
     nerf_config: List[str]
-    random_rotate_transform: Optional[torch.Tensor] = None
+    random_rotate_transform: Optional[pp.LieTensor] = None
 
     def to(self, device) -> BatchData:
         self.nerf_densities = self.nerf_densities.to(device)
         self.grasp_success = self.grasp_success.to(device)
         self.grasp_transforms = self.grasp_transforms.to(device)
         self.random_rotate_transform = (
-            self.random_rotate_transform.to(device)
+            self.random_rotate_transform.to(device=device)
             if self.random_rotate_transform is not None
             else None
         )
@@ -62,38 +63,24 @@ class BatchData:
     def augmented_coords(self) -> torch.Tensor:
         return self._coords_helper(self.augmented_grasp_transforms)
 
-    def _coords_helper(self, grasp_transforms: torch.Tensor) -> torch.Tensor:
-        assert grasp_transforms.shape == (self.batch_size, NUM_FINGERS, 4, 4)
+    def _coords_helper(self, grasp_transforms: pp.LieTensor) -> torch.Tensor:
+        assert grasp_transforms.lshape == (self.batch_size, NUM_FINGERS)
         ray_origins_finger_frame = get_ray_origins_finger_frame_cached()
 
-        # TODO: Change this to not be np and be vectorized
-        all_query_points = []
-        for i in range(self.batch_size):
-            transforms = grasp_transforms[i]
-            intermediate_query_points_list = []
+        all_query_points = get_ray_samples(
+            ray_origins_finger_frame.to(
+                device=grasp_transforms.device, dtype=grasp_transforms.dtype
+            ),
+            grasp_transforms,
+        ).frustums.get_positions()
 
-            # TODO: SLOW?
-            for j in range(NUM_FINGERS):
-                transform = transforms[j]
-                ray_samples = get_ray_samples(
-                    ray_origins_finger_frame, transform.cpu().numpy()
-                )
-                query_points = np.copy(
-                    ray_samples.frustums.get_positions().cpu().numpy().reshape(-1, 3)
-                )
-                intermediate_query_points_list.append(query_points)
-            intermediate_query_points = np.stack(intermediate_query_points_list, axis=0)
-
-            all_query_points.append(torch.from_numpy(intermediate_query_points))
-        all_query_points = torch.stack(all_query_points, dim=0).float().to(self.device)
         assert all_query_points.shape == (
             self.batch_size,
             NUM_FINGERS,
-            NUM_PTS_X * NUM_PTS_Y * NUM_PTS_Z,
+            NUM_PTS_X,
+            NUM_PTS_Y,
+            NUM_PTS_Z,
             NUM_XYZ,
-        )
-        all_query_points = all_query_points.reshape(
-            self.batch_size, NUM_FINGERS, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z, NUM_XYZ
         )
         all_query_points = all_query_points.permute(0, 1, 5, 2, 3, 4)
         assert all_query_points.shape == (
@@ -148,14 +135,14 @@ class BatchData:
         if self.random_rotate_transform is None:
             return self.grasp_transforms
 
-        return_value = torch.matmul(
-            self.random_rotate_transform.unsqueeze(dim=1),
-            self.grasp_transforms,
+        # Unsqueeze because we're applying the same (single) random rotation to all fingers.
+        return_value = (
+            self.random_rotate_transform.unsqueeze(dim=1) @ self.grasp_transforms
         )
         assert (
-            return_value.shape
-            == self.grasp_transforms.shape
-            == (self.batch_size, NUM_FINGERS, 4, 4)
+            return_value.lshape
+            == self.grasp_transforms.lshape
+            == (self.batch_size, NUM_FINGERS)
         )
         return return_value
 

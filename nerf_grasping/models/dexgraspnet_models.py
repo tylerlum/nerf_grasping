@@ -69,6 +69,7 @@ class CNN_3D_Classifier(nn.Module):
     def get_success_probability(self, x: torch.Tensor) -> torch.Tensor:
         return nn.functional.softmax(self.get_success_logits(x), dim=-1)
 
+    @property
     @lru_cache()
     def n_classes(self) -> int:
         return 2

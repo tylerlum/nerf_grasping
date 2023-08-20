@@ -13,7 +13,7 @@ data:
   frac_test: 0.1
   frac_train: ${eval:1 - ${data.frac_val} - ${data.frac_test}}
   input_dataset_root_dir: "graspdata_learned_metric_dataset"
-  input_dataset_path: "2023-08-18_13-27-27_learned_metric_dataset.h5"  Medium with 30k
+  input_dataset_path: "2023-08-18_13-27-27_learned_metric_dataset.h5"  # Medium with 30k
   # input_dataset_root_dir: "2023-08-19_graspdata_one_object_only_learned_metric_dataset"
   # input_dataset_path: "2023-08-19_16-17-31_learned_metric_dataset.h5"
 

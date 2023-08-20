@@ -45,12 +45,14 @@ class CNN_3D_Classifier(Classifier):
         self.model = self.load_model(config)
 
     def load_model(self, config: pathlib.Path) -> CNN_3D_Model:
+        # TODO: Later will need to find another way of using config to get model architecture
+        # Currently has many hardcoded/default values
         NUM_XYZ = 3
         model = CNN_3D_Model(
             input_shape=(NUM_XYZ + 1, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z),
             n_fingers=NUM_FINGERS,
         )
-        state_dict = torch.load(config)["nerf_to_grasp_success_model"] 
+        state_dict = torch.load(config)["nerf_to_grasp_success_model"]
         model.load_state_dict(state_dict)
         return model
 

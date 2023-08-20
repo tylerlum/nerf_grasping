@@ -645,15 +645,15 @@ def plot_example(
 
 
 # %%
-fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=15)
-fig.show()
+# fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=15)
+# fig.show()
 
 # %%
-fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=15, augmented=True)
-fig.show()
+# fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=15, augmented=True)
+# fig.show()
 
 # %%
-EXAMPLE_BATCH_DATA.grasp_success
+# EXAMPLE_BATCH_DATA.grasp_success
 
 # # %%
 # fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=14)
@@ -1140,3 +1140,5 @@ save_checkpoint(
 
 # %%
 wandb.finish()
+
+# %%

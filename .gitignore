@@ -172,3 +172,7 @@ cluster_scripts/
 nerfcheckpoints/
 *.h5
 outputs
+
+# models
+*.pt
+*.pth

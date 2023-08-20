@@ -123,7 +123,13 @@ def get_ray_samples(
     ray_bundle = RayBundle(ray_origins_world_frame, ray_dirs_world_frame, pixel_area)
 
     # Work out sample lengths.
-    sample_dists = torch.linspace(0.0, grasp_depth_m, steps=num_pts_z)  # [num_pts_z]
+    sample_dists = torch.linspace(
+        0.0,
+        grasp_depth_m,
+        steps=num_pts_z,
+        dtype=transform.dtype,
+        device=transform.device,
+    )  # [num_pts_z]
 
     for _ in range(len(transform.lshape)):
         sample_dists = sample_dists.unsqueeze(0)

@@ -10,6 +10,7 @@ import nerf_grasping
 import nerfstudio
 from matplotlib import pyplot as plt
 from nerf_grasping.grasp_utils import NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z, get_ray_samples
+from nerfstudio.cameras.rays import RayBundle, RaySamples
 
 
 def get_object_string(cfg_path: pathlib.Path) -> str:
@@ -198,7 +199,10 @@ def plot_mesh_and_transforms(
         fig.add_trace(y_plot)
         fig.add_trace(z_plot)
 
-    fig.update_layout(legend_orientation="h"
+    fig.update_layout(legend_orientation="h")
+    return fig
+
+
 def plot_mesh_and_query_points(
     mesh: trimesh.Trimesh,
     query_points_list: List[np.ndarray],
@@ -282,6 +286,7 @@ def plot_mesh_and_high_density_points(
     fig.update_layout(scene_aspectmode="cube")
     return fig
 
+
 def get_ray_samples_in_mesh_region(
     mesh: trimesh.Trimesh, num_pts_x: int, num_pts_y: int, num_pts_z: int
 ) -> RaySamples:
@@ -311,7 +316,7 @@ def get_ray_samples_in_mesh_region(
     )
     return ray_samples
 
-                      
+
 def get_bbox_ray_samples(
     bbox_min: np.ndarray,
     bbox_max: np.ndarray,

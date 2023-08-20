@@ -19,6 +19,7 @@
 
 # %%
 from __future__ import annotations
+import pathlib
 import trimesh
 import time
 from collections import defaultdict
@@ -30,13 +31,13 @@ from torchinfo import summary
 from torchviz import make_dot
 from nerf_grasping.dataset.DexGraspNet_NeRF_Grasps_utils import (
     DIST_BTWN_PTS_MM,
-    get_query_points_finger_frame,
+    get_ray_samples,
+    get_ray_origins_finger_frame,
     get_contact_candidates_and_target_candidates,
     get_start_and_end_and_up_points,
     get_transform,
     get_scene_dict,
     get_transformed_points,
-    get_nerf_densities,
     plot_mesh_and_query_points,
     plot_mesh_and_transforms,
     get_object_code,
@@ -120,13 +121,6 @@ class Phase(Enum):
 
 
 # %%
-@functools.lru_cache()
-def get_query_points_finger_frame_cached() -> np.ndarray:
-    query_points_finger_frame = get_query_points_finger_frame()
-    assert query_points_finger_frame.shape == (NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z, NUM_XYZ)
-    return query_points_finger_frame
-
-# %%
 if is_notebook():
     from tqdm.notebook import tqdm as std_tqdm
 else:
@@ -147,6 +141,12 @@ def datetime_str() -> str:
 
 OmegaConf.register_new_resolver("eval", eval, replace=True)
 OmegaConf.register_new_resolver("datetime_str", datetime_str, replace=True)
+
+# %%
+@functools.lru_cache()
+def get_ray_origins_finger_frame_cached():
+    ray_origins_finger_frame = get_ray_origins_finger_frame()
+    return ray_origins_finger_frame
 
 # %%
 config_store = ConfigStore.instance()
@@ -291,6 +291,7 @@ wandb.init(
 # %% [markdown]
 # # Dataset and Dataloader
 
+
 # %%
 class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
     # @localscope.mfc  # ValueError: Cell is empty
@@ -301,7 +302,7 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
         load_nerf_densities_in_ram: bool = False,
         load_grasp_successes_in_ram: bool = True,
         load_grasp_transforms_in_ram: bool = True,
-        load_nerf_workspaces_in_ram: bool = True,
+        load_nerf_configs_in_ram: bool = True,
     ) -> None:
         super().__init__()
         self.input_hdf5_filepath = input_hdf5_filepath
@@ -318,8 +319,11 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
             assert (
                 len(hdf5_file["/grasp_success"].shape) == 1
             ), f"{hdf5_file['/grasp_success'].shape}"
-            assert (
-                hdf5_file["/nerf_densities"].shape[1:] == (NUM_FINGERS, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
+            assert hdf5_file["/nerf_densities"].shape[1:] == (
+                NUM_FINGERS,
+                NUM_PTS_X,
+                NUM_PTS_Y,
+                NUM_PTS_Z,
             ), f"{hdf5_file['/nerf_densities'].shape}"
             assert hdf5_file["/grasp_transforms"].shape[1:] == (
                 NUM_FINGERS,
@@ -349,9 +353,9 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
             )
 
             # This is small enough to fit in RAM
-            self.nerf_workspaces = (
-                hdf5_file["/nerf_workspace"][()]
-                if load_nerf_workspaces_in_ram
+            self.nerf_configs = (
+                hdf5_file["/nerf_config"][()]
+                if load_nerf_configs_in_ram
                 else None
             )
 
@@ -419,17 +423,17 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
             else self.grasp_transforms[idx]
         )
 
-        nerf_workspace = (
-            self.hdf5_file["/nerf_workspace"][idx]
-            if self.nerf_workspaces is None
-            else self.nerf_workspaces[idx]
+        nerf_config = (
+            self.hdf5_file["/nerf_config"][idx]
+            if self.nerf_configs is None
+            else self.nerf_configs[idx]
         ).decode("utf-8")
 
         assert nerf_densities.shape == (NUM_FINGERS, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
         assert grasp_success.shape == ()
         assert grasp_transforms.shape == (NUM_FINGERS, 4, 4)
 
-        return nerf_densities, grasp_success, grasp_transforms, nerf_workspace
+        return nerf_densities, grasp_success, grasp_transforms, nerf_config
 
 
 # %%
@@ -445,7 +449,7 @@ full_dataset = NeRFGrid_To_GraspSuccess_HDF5_Dataset(
     load_nerf_densities_in_ram=cfg.dataloader.load_nerf_grid_inputs_in_ram,
     load_grasp_successes_in_ram=cfg.dataloader.load_grasp_successes_in_ram,
     load_grasp_transforms_in_ram=cfg.dataloader.load_grasp_transforms_in_ram,
-    load_nerf_workspaces_in_ram=cfg.dataloader.load_nerf_workspaces_in_ram,
+    load_nerf_configs_in_ram=cfg.dataloader.load_nerf_configs_in_ram,
 )
 
 train_dataset, val_dataset, test_dataset = random_split(
@@ -471,13 +475,19 @@ class BatchData:
     nerf_densities: torch.Tensor
     grasp_success: torch.Tensor
     grasp_transforms: torch.Tensor
-    nerf_workspace: List[str]
+    nerf_config: List[str]
+    random_rotate_transform: Optional[torch.Tensor] = None
 
     @localscope.mfc
     def to(self, device) -> BatchData:
         self.nerf_densities = self.nerf_densities.to(device)
         self.grasp_success = self.grasp_success.to(device)
         self.grasp_transforms = self.grasp_transforms.to(device)
+        self.random_rotate_transform = (
+            self.random_rotate_transform.to(device)
+            if self.random_rotate_transform is not None
+            else None
+        )
         return self
 
     # @localscope.mfc(allowed=["DIST_BTWN_PTS_MM"])
@@ -486,43 +496,54 @@ class BatchData:
         # alpha = 1 - exp(-delta * sigma)
         #       = probability of collision within this segment starting from beginning of segment
         DELTA = DIST_BTWN_PTS_MM / 1000
+        OTHER_DELTA = GRASP_DEPTH_MM / (NUM_PTS_Z -1) / 1000
+        assert np.isclose(DELTA, OTHER_DELTA), f"{DELTA} != {OTHER_DELTA}"
         return 1.0 - torch.exp(-DELTA * self.nerf_densities)
 
-    # @localscope.mfc(allowed=["NUM_FINGERS"])
     @property
     def coords(self) -> torch.Tensor:
+        return self._coords_helper(self.grasp_transforms)
+
+    @property
+    def augmented_coords(self) -> torch.Tensor:
+        return self._coords_helper(self.augmented_grasp_transforms)
+
+    # @localscope.mfc(allowed=["NUM_FINGERS"])
+    def _coords_helper(self, grasp_transforms: torch.Tensor) -> torch.Tensor:
+        assert grasp_transforms.shape == (self.batch_size, NUM_FINGERS, 4, 4)
+        ray_origins_finger_frame = get_ray_origins_finger_frame_cached()
+
         # TODO: Change this to not be np and be vectorized
-        query_points_finger_frame = get_query_points_finger_frame_cached().reshape(-1, NUM_XYZ)
-        all_query_points_object_frame = []
+        all_query_points = []
         for i in range(self.batch_size):
-            transforms = self.grasp_transforms[i]
-            query_points_object_frame = torch.stack(
-                [
-                    torch.from_numpy(
-                        get_transformed_points(
-                            points=query_points_finger_frame,
-                            transform=transforms[finger_idx].cpu().numpy(),
-                        )
-                    )
-                    for finger_idx in range(NUM_FINGERS)
-                ],
-                dim=0,
-            )
-            all_query_points_object_frame.append(query_points_object_frame)
-        all_query_points_object_frame = torch.stack(all_query_points_object_frame, dim=0).float().to(self.device)
-        assert all_query_points_object_frame.shape == (
+            transforms = grasp_transforms[i]
+            intermediate_query_points_list = []
+
+            # TODO: SLOW?
+            for j in range(NUM_FINGERS):
+                transform = transforms[j]
+                ray_samples = get_ray_samples(ray_origins_finger_frame, transform.cpu().numpy())
+                query_points = np.copy(ray_samples.frustums.get_positions().cpu().numpy().reshape(-1, 3))
+                intermediate_query_points_list.append(query_points)
+            intermediate_query_points = np.stack(intermediate_query_points_list, axis=0)
+
+            all_query_points.append(torch.from_numpy(intermediate_query_points))
+        all_query_points = (
+            torch.stack(all_query_points, dim=0).float().to(self.device)
+        )
+        assert all_query_points.shape == (
             self.batch_size,
             NUM_FINGERS,
             NUM_PTS_X * NUM_PTS_Y * NUM_PTS_Z,
             NUM_XYZ,
         )
-        all_query_points_object_frame = all_query_points_object_frame.reshape(
+        all_query_points = all_query_points.reshape(
             self.batch_size, NUM_FINGERS, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z, NUM_XYZ
         )
-        all_query_points_object_frame = all_query_points_object_frame.permute(
+        all_query_points = all_query_points.permute(
             0, 1, 5, 2, 3, 4
         )
-        assert all_query_points_object_frame.shape == (
+        assert all_query_points.shape == (
             self.batch_size,
             NUM_FINGERS,
             NUM_XYZ,
@@ -530,15 +551,32 @@ class BatchData:
             NUM_PTS_Y,
             NUM_PTS_Z,
         )
-        return all_query_points_object_frame
+        return all_query_points
 
     @property
     def nerf_alphas_with_coords(self) -> torch.Tensor:
-        reshaped_nerf_alphas = self.nerf_alphas.reshape(self.batch_size, NUM_FINGERS, 1, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
+        return self._nerf_alphas_with_coords_helper(self.coords)
+
+    @property
+    def nerf_alphas_with_augmented_coords(self) -> torch.Tensor:
+        return self._nerf_alphas_with_coords_helper(self.augmented_coords)
+
+    def _nerf_alphas_with_coords_helper(self, coords: torch.Tensor) -> torch.Tensor:
+        assert coords.shape == (
+            self.batch_size,
+            NUM_FINGERS,
+            NUM_XYZ,
+            NUM_PTS_X,
+            NUM_PTS_Y,
+            NUM_PTS_Z,
+        )
+        reshaped_nerf_alphas = self.nerf_alphas.reshape(
+            self.batch_size, NUM_FINGERS, 1, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z
+        )
         return_value = torch.cat(
             [
                 reshaped_nerf_alphas,
-                self.coords,
+                coords,
             ],
             dim=2,
         )
@@ -553,6 +591,22 @@ class BatchData:
         return return_value
 
     @property
+    def augmented_grasp_transforms(self) -> torch.Tensor:
+        if self.random_rotate_transform is None:
+            return self.grasp_transforms
+
+        return_value = torch.matmul(
+            self.random_rotate_transform.unsqueeze(dim=1),
+            self.grasp_transforms,
+        )
+        assert (
+            return_value.shape
+            == self.grasp_transforms.shape
+            == (self.batch_size, NUM_FINGERS, 4, 4)
+        )
+        return return_value
+
+    @property
     def batch_size(self) -> int:
         return self.grasp_success.shape[0]
 
@@ -561,18 +615,83 @@ class BatchData:
         return self.grasp_success.device
 
 
+def sample_random_rotate_transforms(N: int) -> torch.Tensor:
+    # Generate random angles for roll, pitch, and yaw
+    roll_angles = torch.rand(N) * 2 * np.pi
+    pitch_angles = torch.rand(N) * 2 * np.pi
+    yaw_angles = torch.rand(N) * 2 * np.pi
+
+    # Generate rotation matrices for each axis
+    R_rolls = torch.stack(
+        [
+            torch.tensor(
+                [
+                    [1, 0, 0],
+                    [0, np.cos(angle), -np.sin(angle)],
+                    [0, np.sin(angle), np.cos(angle)],
+                ]
+            )
+            for angle in roll_angles
+        ]
+    )
+
+    R_pitches = torch.stack(
+        [
+            torch.tensor(
+                [
+                    [np.cos(angle), 0, np.sin(angle)],
+                    [0, 1, 0],
+                    [-np.sin(angle), 0, np.cos(angle)],
+                ]
+            )
+            for angle in pitch_angles
+        ]
+    )
+
+    R_yaws = torch.stack(
+        [
+            torch.tensor(
+                [
+                    [np.cos(angle), -np.sin(angle), 0],
+                    [np.sin(angle), np.cos(angle), 0],
+                    [0, 0, 1],
+                ]
+            )
+            for angle in yaw_angles
+        ]
+    )
+    assert R_rolls.shape == R_pitches.shape == R_yaws.shape == (N, 3, 3)
+
+    # Combine rotation matrices
+    R_combined = torch.matmul(R_yaws, torch.matmul(R_pitches, R_rolls))
+    assert R_combined.shape == (N, 3, 3)
+
+    # Create the transformation matrices
+    transformation_matrices = torch.zeros(N, 4, 4)
+    transformation_matrices[:, :3, :3] = R_combined
+    transformation_matrices[:, :3, 3] = 0.0
+    transformation_matrices[:, 3, 3] = 1.0
+    assert transformation_matrices.shape == (N, 4, 4)
+
+    return transformation_matrices
+
+
 @localscope.mfc
 def custom_collate_fn(
     batch: List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor, str]]
 ) -> BatchData:
     batch = torch.utils.data.dataloader.default_collate(batch)
-    nerf_densities, grasp_successes, grasp_transforms, nerf_workspaces = batch
+    nerf_densities, grasp_successes, grasp_transforms, nerf_configs = batch
+
+    batch_size = nerf_densities.shape[0]
+    random_rotate_transform = sample_random_rotate_transforms(N=batch_size)
 
     return BatchData(
         nerf_densities=nerf_densities,
         grasp_success=grasp_successes,
         grasp_transforms=grasp_transforms,
-        nerf_workspace=nerf_workspaces,
+        nerf_config=nerf_configs,
+        random_rotate_transform=random_rotate_transform,
     )
 
 
@@ -609,9 +728,12 @@ def print_shapes(batch_data: BatchData) -> None:
     print(f"nerf_alphas.shape: {batch_data.nerf_alphas.shape}")
     print(f"grasp_success.shape: {batch_data.grasp_success.shape}")
     print(f"grasp_transforms.shape: {batch_data.grasp_transforms.shape}")
-    print(f"len(nerf_workspace): {len(batch_data.nerf_workspace)}")
+    print(f"len(nerf_config): {len(batch_data.nerf_config)}")
     print(f"coords.shape = {batch_data.coords.shape}")
     print(f"nerf_alphas_with_coords.shape = {batch_data.nerf_alphas_with_coords.shape}")
+    print(
+        f"augmented_grasp_transforms.shape = {batch_data.augmented_grasp_transforms.shape}"
+    )
 
 
 EXAMPLE_BATCH_DATA = next(iter(val_loader))
@@ -624,20 +746,33 @@ print_shapes(batch_data=EXAMPLE_BATCH_DATA)
 # %%
 
 
-@localscope.mfc(allowed=["NUM_FINGERS", "NUM_PTS_X", "NUM_PTS_Y", "NUM_PTS_Z", "NUM_XYZ"])
-def plot_example(batch_data: BatchData, idx_to_visualize: int = 0) -> go.Figure:
+@localscope.mfc(
+    allowed=["NUM_FINGERS", "NUM_PTS_X", "NUM_PTS_Y", "NUM_PTS_Z", "NUM_XYZ"]
+)
+def plot_example(
+    batch_data: BatchData, idx_to_visualize: int = 0, augmented: bool = False
+) -> go.Figure:
+    if augmented:
+        query_points_list = batch_data.augmented_coords[idx_to_visualize]
+        additional_mesh_transform = (
+            batch_data.random_rotate_transform[idx_to_visualize].cpu().numpy()
+            if batch_data.random_rotate_transform is not None
+            else None
+        )
+    else:
+        query_points_list = batch_data.coords[idx_to_visualize]
+        additional_mesh_transform = None
+
     # Extract data
-    grasp_transforms = batch_data.grasp_transforms[idx_to_visualize]
     colors = batch_data.nerf_alphas[idx_to_visualize]
     grasp_success = batch_data.grasp_success[idx_to_visualize].item()
 
-    assert grasp_transforms.shape == (NUM_FINGERS, 4, 4)
     assert colors.shape == (NUM_FINGERS, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
     assert grasp_success in [0, 1]
 
-    _, nerf_workspace = os.path.split(batch_data.nerf_workspace[idx_to_visualize])
-    object_code = get_object_code(nerf_workspace)
-    object_scale = get_object_scale(nerf_workspace)
+    nerf_config_path = pathlib.Path(batch_data.nerf_config[idx_to_visualize])
+    object_code = get_object_code(nerf_config_path)
+    object_scale = get_object_scale(nerf_config_path)
 
     # Path to meshes
     DEXGRASPNET_DATA_ROOT = "/juno/u/tylerlum/github_repos/DexGraspNet/data"
@@ -652,9 +787,10 @@ def plot_example(batch_data: BatchData, idx_to_visualize: int = 0) -> go.Figure:
     print(f"Loading mesh from {mesh_path}...")
     mesh = trimesh.load(mesh_path, force="mesh")
     mesh.apply_transform(trimesh.transformations.scale_matrix(object_scale))
+    if additional_mesh_transform is not None:
+        mesh.apply_transform(additional_mesh_transform)
 
     # Get query points from grasp_transforms
-    query_points_list = batch_data.coords[idx_to_visualize]
     assert query_points_list.shape == (
         NUM_FINGERS,
         NUM_XYZ,
@@ -675,7 +811,8 @@ def plot_example(batch_data: BatchData, idx_to_visualize: int = 0) -> go.Figure:
         for finger_idx in range(NUM_FINGERS)
     ]
     query_point_colors_list = [
-        colors[finger_idx].reshape(-1).cpu().numpy() for finger_idx in range(NUM_FINGERS)
+        colors[finger_idx].reshape(-1).cpu().numpy()
+        for finger_idx in range(NUM_FINGERS)
     ]
     fig = plot_mesh_and_query_points(
         mesh=mesh,
@@ -688,32 +825,48 @@ def plot_example(batch_data: BatchData, idx_to_visualize: int = 0) -> go.Figure:
     return fig
 
 
+# %%
 fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=15)
 fig.show()
 
-# Try augment dataset with random rotation 
-# HOw do they feed into network?
-# Finger boxes (local)
-# Finger box location (global)
+# %%
+fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=15, augmented=True)
+fig.show()
 
 # %%
 EXAMPLE_BATCH_DATA.grasp_success
 
-# %%
-fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=14)
-fig.show()
-
-# %%
-fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=17)
-fig.show()
-
-# %%
-fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=18)
-fig.show()
-
-# %%
-fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=19)
-fig.show()
+# # %%
+# fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=14)
+# fig.show()
+# 
+# # %%
+# fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=14, augmented=True)
+# fig.show()
+# 
+# # %%
+# fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=17)
+# fig.show()
+# 
+# # %%
+# fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=17, augmented=True)
+# fig.show()
+# 
+# # %%
+# fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=18)
+# fig.show()
+# 
+# # %%
+# fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=18, augmented=True)
+# fig.show()
+# 
+# # %%
+# fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=19)
+# fig.show()
+# 
+# # %%
+# fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=19, augmented=True)
+# fig.show()
 
 # %% [markdown]
 # # Create Neural Network Model
@@ -782,6 +935,7 @@ class CNN_3D_Classifier(nn.Module):
             batch_size * self.n_fingers,
             self.conv_output_dim,
         ), f"{x.shape}"
+        x = x.reshape(batch_size, self.n_fingers, self.conv_output_dim)
         x = x.reshape(batch_size, self.n_fingers * self.conv_output_dim)
 
         x = self.mlp(x)
@@ -951,11 +1105,20 @@ def iterate_through_dataloader(
 
             batch_idx = int(batch_idx)
             batch_data: BatchData = batch_data.to(device)
+            if torch.isnan(batch_data.nerf_alphas_with_augmented_coords).any():
+                print("!" * 80)
+                print(f"Found {torch.isnan(batch_data.nerf_alphas_with_augmented_coords).sum()} NANs in batch_data.nerf_alphas_with_augmented_coords")
+                print("Skipping batch...")
+                print("!" * 80)
+                print()
+                continue
 
             # Forward pass
             with loop_timer.add_section_timer("Fwd"):
                 grasp_success_logits = nerf_to_grasp_success_model.get_success_logits(
-                    batch_data.nerf_alphas_with_coords
+                    # TODO: Use config to set this, defines what input type we give
+                    batch_data.nerf_alphas_with_augmented_coords
+                    # batch_data.nerf_alphas_with_coords
                 )
                 ce_loss = ce_loss_fn(
                     input=grasp_success_logits, target=batch_data.grasp_success
@@ -1228,3 +1391,7 @@ save_checkpoint(
     optimizer=optimizer,
     lr_scheduler=lr_scheduler,
 )
+
+# %%
+wandb.finish()
+# %%

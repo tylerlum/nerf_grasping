@@ -198,10 +198,7 @@ def plot_mesh_and_transforms(
         fig.add_trace(y_plot)
         fig.add_trace(z_plot)
 
-    fig.update_layout(legend_orientation="h")
-    return fig
-
-
+    fig.update_layout(legend_orientation="h"
 def plot_mesh_and_query_points(
     mesh: trimesh.Trimesh,
     query_points_list: List[np.ndarray],
@@ -234,6 +231,49 @@ def plot_mesh_and_query_points(
     fig.update_layout(
         legend_orientation="h",
         scene=dict(
+            xaxis=dict(nticks=4, range=[-0.2, 0.2]),
+            yaxis=dict(nticks=4, range=[-0.2, 0.2]),
+            zaxis=dict(nticks=4, range=[-0.2, 0.2]),
+        ),
+    )  # Avoid overlapping legend
+    fig.update_layout(scene_aspectmode="cube")
+    return fig
+
+
+def plot_mesh_and_high_density_points(
+    mesh: trimesh.Trimesh,
+    query_points: np.ndarray,
+    query_points_colors: np.ndarray,
+    density_threshold: float,
+) -> go.Figure:
+    n_pts = query_points.shape[0]
+    assert query_points.shape == (n_pts, 3), f"{query_points.shape}"
+    assert query_points_colors.shape == (n_pts,), f"{query_points_colors.shape}"
+
+    fig = plot_mesh(mesh)
+
+    # Filter
+    query_points = query_points[query_points_colors > density_threshold]
+    query_points_colors = query_points_colors[query_points_colors > density_threshold]
+
+    query_point_plot = go.Scatter3d(
+        x=query_points[:, 0],
+        y=query_points[:, 1],
+        z=query_points[:, 2],
+        mode="markers",
+        marker=dict(
+            size=4,
+            color=query_points_colors,
+            colorscale="viridis",
+            colorbar=dict(title="Density Scale"),
+        ),
+        name="Query Point Densities",
+    )
+    fig.add_trace(query_point_plot)
+
+    fig.update_layout(
+        legend_orientation="h",
+        scene=dict(
             xaxis=dict(nticks=4, range=[-0.1, 0.1]),
             yaxis=dict(nticks=4, range=[-0.1, 0.1]),
             zaxis=dict(nticks=4, range=[-0.1, 0.1]),
@@ -242,27 +282,36 @@ def plot_mesh_and_query_points(
     fig.update_layout(scene_aspectmode="cube")
     return fig
 
+def get_ray_samples_in_mesh_region(
+    mesh: trimesh.Trimesh, num_pts_x: int, num_pts_y: int, num_pts_z: int
+) -> RaySamples:
+    # Get bounds from mesh
+    min_bounds, max_bounds = mesh.bounds
+    x_min, y_min, z_min = min_bounds
+    x_max, y_max, z_max = max_bounds
+    finger_width_mm = (x_max - x_min) * 1000
+    finger_height_mm = (y_max - y_min) * 1000
+    grasp_depth_mm = (z_max - z_min) * 1000
 
-def plot_nerf_densities(
-    mesh,
-    nerf_model,
-    bbox_min=np.array([-0.1, -0.05, -0.05]),
-    bbox_max=-np.array([-0.1, -0.05, -0.05]),
-    nerf_thresh=5.0,
-):
-    ray_samples = get_bbox_ray_samples(bbox_min, bbox_max)
-    densities = nerf_model.get_density(ray_samples.to("cuda"))[0].detach().cpu().numpy()
-    query_points = ray_samples.frustums.get_positions().detach().cpu().numpy()
-
-    valid_inds = np.where(densities.reshape(-1) > nerf_thresh)
-    return plot_mesh_and_query_points(
-        mesh,
-        [query_points.reshape(-1, 3)[valid_inds]],
-        [densities.reshape(-1)[valid_inds]],
-        1,
+    # Prepare ray samples
+    # BRITTLE: Want this to be centered on object so adjust grasp_depth_mm to do that
+    ray_origins_object_frame = get_ray_origins_finger_frame_helper(
+        num_pts_x=num_pts_x,
+        num_pts_y=num_pts_y,
+        grasp_depth_mm=2 * grasp_depth_mm,
+        finger_width_mm=finger_width_mm,
+        finger_height_mm=finger_height_mm,
     )
+    identity_transform = np.eye(4)
+    ray_samples = get_ray_samples(
+        ray_origins_object_frame,
+        identity_transform,
+        num_pts_z=num_pts_z,
+        grasp_depth_mm=grasp_depth_mm,
+    )
+    return ray_samples
 
-
+                      
 def get_bbox_ray_samples(
     bbox_min: np.ndarray,
     bbox_max: np.ndarray,

@@ -36,9 +36,10 @@ from nerf_grasping.dataset.DexGraspNet_NeRF_Grasps_utils import (
     get_transform,
     plot_mesh_and_query_points,
     plot_mesh_and_transforms,
+    plot_mesh_and_high_density_points,
     get_object_code,
     get_object_scale,
-    plot_nerf_densities,
+    get_ray_samples_in_mesh_region,
 )
 from nerf_grasping.dataset.timers import LoopTimer
 from nerf_grasping.grasp_utils import (
@@ -61,7 +62,7 @@ datetime_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 def is_notebook() -> bool:
     try:
         shell = get_ipython().__class__.__name__
-        if shell == "ZMQInteractireakeShell":
+        if shell == "ZMQInteractiveShell":
             return True  # Jupyter notebook or qtconsole
         elif shell == "TerminalInteractiveShell":
             return False  # Terminal running IPython
@@ -85,11 +86,11 @@ tqdm = partial(std_tqdm, dynamic_ncols=True)
 # %%
 # PARAMS
 DEXGRASPNET_DATA_ROOT = "."
-GRASP_DATASET_FOLDER = "graspdata"
-NERF_CHECKPOINTS_FOLDER = "nerfcheckpoints"
+GRASP_DATASET_FOLDER = "2023-08-19_graspdata_one_object_only"
+NERF_CHECKPOINTS_FOLDER = "2023-08-19_nerfcheckpoints_one_object_only"
 OUTPUT_FOLDER = f"{GRASP_DATASET_FOLDER}_learned_metric_dataset"
 OUTPUT_FILENAME = f"{datetime_str}_learned_metric_dataset.h5"
-PLOT_ONLY_ONE = True
+PLOT_ONLY_ONE = False
 SAVE_DATASET = True
 PRINT_TIMING = True
 LIMIT_NUM_CONFIGS = None  # None for no limit
@@ -286,10 +287,11 @@ with h5py.File(OUTPUT_FILE_PATH, "w") as hdf5_file:
 
             # Plot
             if PLOT_ONLY_ONE:
-                delta = GRASP_DEPTH_MM / 1000 / NUM_PTS_Z
-                nerf_alphas = [
-                    1 - np.exp(-delta * dd).reshape(-1) for dd in nerf_densities
-                ]
+                delta = DIST_BTWN_PTS_MM
+                other_delta = GRASP_DEPTH_MM / 1000 / (NUM_PTS_Z - 1)
+                assert np.isclose(delta, other_delta)
+
+                nerf_alphas = [1 - np.exp(-delta * dd) for dd in nerf_densities]
                 fig = plot_mesh_and_query_points(
                     mesh=mesh,
                     query_points_list=[qq.reshape(-1, 3) for qq in query_points_list],
@@ -303,37 +305,113 @@ with h5py.File(OUTPUT_FILE_PATH, "w") as hdf5_file:
                     num_fingers=NUM_FINGERS,
                 )
                 fig2.show()
-                assert False, "PLOT_ONLY_ONE is True"
+
+                PLOT_ALL_HIGH_DENSITY_POINTS = True
+                if PLOT_ALL_HIGH_DENSITY_POINTS:
+                    ray_samples_in_mesh_region = get_ray_samples_in_mesh_region(
+                        mesh=mesh,
+                        num_pts_x=60,
+                        num_pts_y=60,
+                        num_pts_z=60,
+                    )
+                    query_points_in_mesh_region_isaac_frame = np.copy(
+                        ray_samples_in_mesh_region.frustums.get_positions()
+                        .cpu()
+                        .numpy()
+                        .reshape(-1, 3)
+                    )
+                    query_points_in_mesh_region_nerf_frame = ig_to_nerf(
+                        query_points_in_mesh_region_isaac_frame, return_tensor=False
+                    )
+
+                    nerf_densities_in_mesh_region = (
+                        nerf_model.get_density(ray_samples_in_mesh_region.to("cuda"))[0]
+                        .reshape(-1)
+                        .detach()
+                        .cpu()
+                        .numpy()
+                    )
+                    nerf_alphas_in_mesh_region = 1 - np.exp(-delta * nerf_densities_in_mesh_region)
+
+                    fig3 = plot_mesh_and_high_density_points(
+                        mesh=mesh,
+                        query_points=query_points_in_mesh_region_isaac_frame,
+                        query_points_colors=nerf_alphas_in_mesh_region,
+                        density_threshold=0.01,
+                    )
+                    fig3.show()
+
+                PLOT_ALPHAS_EACH_FINGER_1D = True
+                if PLOT_ALPHAS_EACH_FINGER_1D:
+                    import matplotlib.pyplot as plt
+                    nrows, ncols = NUM_FINGERS, 1
+                    fig4, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=(10, 10))
+                    axes = axes.flatten()
+                    for i in range(NUM_FINGERS):
+                        ax = axes[i]
+                        finger_alphas = nerf_alphas[i].reshape(NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
+                        finger_alphas_maxes = np.max(finger_alphas, axis=(0, 1))
+                        finger_alphas_means = np.mean(finger_alphas, axis=(0, 1))
+                        ax.plot(finger_alphas_maxes, label="max")
+                        ax.plot(finger_alphas_means, label="mean")
+                        ax.legend()
+                        ax.set_xlabel("z")
+                        ax.set_ylabel("alpha")
+                        ax.set_title(f"finger {i}")
+                        ax.set_ylim([0, 1])
+                    fig4.tight_layout()
+                    fig4.show()
+
+                PLOT_ALPHA_IMAGES_EACH_FINGER = True
+                if PLOT_ALPHA_IMAGES_EACH_FINGER:
+                    num_images = 5
+                    nrows, ncols = NUM_FINGERS, num_images
+                    fig5, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=(10, 10))
+                    alpha_images = [x.reshape(NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z) for x in nerf_alphas]
+
+                    for finger_i in range(NUM_FINGERS):
+                        for image_i in range(num_images):
+                            ax = axes[finger_i, image_i]
+                            image = alpha_images[finger_i][:, :, int(image_i * NUM_PTS_Z / num_images)]
+                            ax.imshow(image, vmin=image.min(), vmax=image.max())
+                            ax.set_title(f"finger {finger_i}, image {image_i}")
+                    fig5.tight_layout()
+                    fig5.show()
+
+                    assert False, "PLOT_ONLY_ONE is True"
+
             # Save values
             if SAVE_DATASET:
-                # Ensure no nans (most likely come from nerf densities)
-                if not np.isnan(nerf_densities).any():
-                    with loop_timer.add_section_timer("save values"):
-                        nerf_densities = np.stack(nerf_densities, axis=0).reshape(
-                            NUM_FINGERS, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z
-                        )
-                        nerf_densities_dataset[current_idx] = nerf_densities
-                        grasp_success_dataset[current_idx] = grasp_data["valid"]
-                        nerf_config_dataset[current_idx] = str(config)
-                        object_code_dataset[current_idx] = object_code
-                        object_scale_dataset[current_idx] = object_scale
-                        grasp_idx_dataset[current_idx] = grasp_idx
-                        grasp_transforms_dataset[current_idx] = np.stack(
-                            transforms, axis=0
-                        )
-
-                        current_idx += 1
-
-                        # May not be max_num_data_points if nan grasps
-                        hdf5_file.attrs["num_data_points"] = current_idx
-                else:
-                    print()
-                    print("-" * 80)
-                    print(
-                        f"WARNING: Found {np.isnan(nerf_densities).sum()} nans in grasp {grasp_idx} of {config}"
+                with loop_timer.add_section_timer("save values"):
+                    nerf_densities = np.stack(nerf_densities, axis=0).reshape(
+                        NUM_FINGERS, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z
                     )
-                    print("-" * 80)
-                    print()
+                    transforms = np.stack(transforms, axis=0)
+
+                    # Ensure no nans (most likely come from nerf densities)
+                    if np.isnan(nerf_densities).any() or np.isnan(transforms).any():
+                        print()
+                        print("-" * 80)
+                        print(
+                            f"WARNING: Found {np.isnan(nerf_densities).sum()} nerf density nans and {np.isnan(transforms).sum()} transform nans in grasp {grasp_idx} of {config}"
+                        )
+                        print("Skipping this one...")
+                        print("-" * 80)
+                        print()
+                        continue
+
+                    nerf_densities_dataset[current_idx] = nerf_densities
+                    grasp_success_dataset[current_idx] = grasp_data["valid"]
+                    nerf_config_dataset[current_idx] = str(config)
+                    object_code_dataset[current_idx] = object_code
+                    object_scale_dataset[current_idx] = object_scale
+                    grasp_idx_dataset[current_idx] = grasp_idx
+                    grasp_transforms_dataset[current_idx] = transforms
+
+                    current_idx += 1
+
+                    # May not be max_num_data_points if nan grasps
+                    hdf5_file.attrs["num_data_points"] = current_idx
         if PRINT_TIMING:
             loop_timer.pretty_print_section_times()
         print()

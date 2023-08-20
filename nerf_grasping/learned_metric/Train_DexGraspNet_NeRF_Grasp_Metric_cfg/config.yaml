@@ -12,10 +12,11 @@ data:
   frac_val: 0.1
   frac_test: 0.1
   frac_train: ${eval:1 - ${data.frac_val} - ${data.frac_test}}
-  input_dataset_root_dir: "2023-07-01_dataset_DESIRED_DIST_TOWARDS_OBJECT_SURFACE_MULTIPLE_STEPS_v2_learned_metric_dataset"
-  # input_dataset_path: "2023-07-27_01-25-58_learned_metric_dataset.h5"
-  # input_dataset_path: "2023-07-27_00-44-26_learned_metric_dataset.h5"
-  input_dataset_path: "2023-08-02_14-03-40_learned_metric_dataset.h5"
+  # input_dataset_root_dir: "graspdata_learned_metric_dataset"
+  # input_dataset_path: "2023-08-18_13-27-27_learned_metric_dataset.h5"  Medium with 30k
+  input_dataset_root_dir: "2023-08-19_graspdata_one_object_only_learned_metric_dataset"
+  input_dataset_path: "2023-08-19_16-17-31_learned_metric_dataset.h5"
+
   max_num_data_points: ${eval:None}
 
 dataloader:
@@ -25,7 +26,7 @@ dataloader:
   load_nerf_grid_inputs_in_ram: False
   load_grasp_successes_in_ram: False
   load_grasp_transforms_in_ram: False
-  load_nerf_workspaces_in_ram: False
+  load_nerf_configs_in_ram: False
 
 training:
   grad_clip_val: 1.0
@@ -35,9 +36,9 @@ training:
   label_smoothing: 0.0
   lr_scheduler_name: "constant"
   lr_scheduler_num_warmup_steps: 0
-  n_epochs: 100
+  n_epochs: 1000
   val_freq: 5
-  val_on_epoch_0: True
+  val_on_epoch_0: False
   save_checkpoint_freq: 5
   save_checkpoint_on_epoch_0: False
 

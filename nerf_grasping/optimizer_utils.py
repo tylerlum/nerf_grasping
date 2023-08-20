@@ -100,6 +100,14 @@ class AllegroGraspConfig(torch.nn.Module):
             pp.identity_SO3(batch_size), requires_grad=requires_grad
         )
 
+    @classmethod
+    def from_path(cls, path: pathlib.Path):
+        state_dict = torch.load(str(path))
+        batch_size = state_dict["hand_config.wrist_pose"].shape[0]
+        grasp_config = cls(batch_size)
+        grasp_config.load_state_dict(state_dict)
+        return grasp_config
+
     @property
     def wrist_pose(self) -> pp.LieTensor:
         return self.hand_config.wrist_pose

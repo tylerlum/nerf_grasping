@@ -4,12 +4,12 @@ import numpy as np
 import torch
 import trimesh
 import pathlib
+import pypose as pp
 import plotly.graph_objects as go
 import nerf_grasping
 import nerfstudio
-from nerfstudio.utils import eval_utils
-from nerfstudio.cameras.rays import RayBundle, RaySamples
 from matplotlib import pyplot as plt
+from nerf_grasping.grasp_utils import NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z, get_ray_samples
 
 
 def get_object_string(cfg_path: pathlib.Path) -> str:
@@ -36,10 +36,6 @@ def get_object_code(cfg_path: pathlib.Path) -> str:
     return object_code
 
 
-def get_nerf_configs(nerf_checkpoints_path: str) -> List[str]:
-    return list(pathlib.Path(nerf_checkpoints_path).rglob("config.yml"))
-
-
 def get_contact_candidates_and_target_candidates(
     grasp_data: Dict[str, Any]
 ) -> Tuple[np.ndarray, np.ndarray]:
@@ -62,6 +58,21 @@ def get_contact_candidates_and_target_candidates(
         axis=0,
     )
     return contact_candidates, target_contact_candidates
+
+
+def get_transform(start: np.ndarray, end: np.ndarray, up: np.ndarray) -> np.ndarray:
+    # BRITTLE: Assumes new_z and new_y are pretty much perpendicular
+    # If not, tries to find closest possible
+    new_z = normalize(end - start)
+    # new_y should be perpendicular to new_z
+    up_dir = normalize(up - start)
+    new_y = normalize(up_dir - np.dot(up_dir, new_z) * new_z)
+    new_x = np.cross(new_y, new_z)
+
+    transform = np.eye(4)
+    transform[:3, :3] = np.stack([new_x, new_y, new_z], axis=1)
+    transform[:3, 3] = start
+    return pp.from_matrix(transform, pp.SE3_type)
 
 
 def get_start_and_end_and_up_points(
@@ -123,28 +134,8 @@ def plot_mesh(mesh: trimesh.Trimesh, color="lightpink") -> go.Figure:
     return fig
 
 
-def load_nerf(cfg_path: pathlib.Path) -> nerfstudio.models.base_model.Model:
-    _, pipeline, _, _ = eval_utils.eval_setup(cfg_path, test_mode="inference")
-    return pipeline.model.field
-
-
 def normalize(x: np.ndarray) -> np.ndarray:
     return x / np.linalg.norm(x)
-
-
-def get_transform(start: np.ndarray, end: np.ndarray, up: np.ndarray) -> np.ndarray:
-    # BRITTLE: Assumes new_z and new_y are pretty much perpendicular
-    # If not, tries to find closest possible
-    new_z = normalize(end - start)
-    # new_y should be perpendicular to new_z
-    up_dir = normalize(up - start)
-    new_y = normalize(up_dir - np.dot(up_dir, new_z) * new_z)
-    new_x = np.cross(new_y, new_z)
-
-    transform = np.eye(4)
-    transform[:3, :3] = np.stack([new_x, new_y, new_z], axis=1)
-    transform[:3, 3] = start
-    return transform
 
 
 def plot_mesh_and_transforms(
@@ -207,151 +198,7 @@ def plot_mesh_and_transforms(
         fig.add_trace(y_plot)
         fig.add_trace(z_plot)
 
-    fig.update_layout(legend_orientation="h")
-    return fig
-
-
-# Grid of points in grasp frame (x, y, z)
-GRASP_DEPTH_MM = 20
-FINGER_WIDTH_MM = 10
-FINGER_HEIGHT_MM = 15
-
-# Want points equally spread out in space
-DIST_BTWN_PTS_MM = 0.5
-
-# +1 to include both end points
-NUM_PTS_X = int(FINGER_WIDTH_MM / DIST_BTWN_PTS_MM) + 1
-NUM_PTS_Y = int(FINGER_HEIGHT_MM / DIST_BTWN_PTS_MM) + 1
-NUM_PTS_Z = int(GRASP_DEPTH_MM / DIST_BTWN_PTS_MM) + 1
-
-NUM_FINGERS = 4
-
-
-def get_ray_origins_finger_frame_helper(
-    num_pts_x: int,
-    num_pts_y: int,
-    grasp_depth_mm: float,
-    finger_width_mm: float,
-    finger_height_mm: float,
-) -> np.ndarray:
-    grasp_depth_m = grasp_depth_mm / 1000.0
-    gripper_finger_width_m = finger_width_mm / 1000.0
-    gripper_finger_height_m = finger_height_mm / 1000.0
-
-    # Create grid of grasp origins in finger frame with shape (num_pts_x, num_pts_y, 3)
-    # So that grid_of_points[2, 3] = [x, y, z], where x, y, z are the coordinates of the '
-    # ray origin for the [2, 3] "pixel" in the finger frame.
-    # Origin of transform is at center of xy at 1/4 of the way into the depth z
-    # x is width, y is height, z is depth
-    x_coords = np.linspace(
-        -gripper_finger_width_m / 2, gripper_finger_width_m / 2, num_pts_x
-    )
-    y_coords = np.linspace(
-        -gripper_finger_height_m / 2, gripper_finger_height_m / 2, num_pts_y
-    )
-    # z_coords = np.linspace(-grasp_depth_m / 4, 3 * grasp_depth_m / 4, num_pts_z)
-
-    xx, yy = np.meshgrid(x_coords, y_coords, indexing="ij")
-    zz = -grasp_depth_m / 4 * np.ones_like(xx)
-
-    assert xx.shape == yy.shape == zz.shape == (num_pts_x, num_pts_y)
-    ray_origins = np.stack([xx, yy, zz], axis=-1)
-
-    assert ray_origins.shape == (num_pts_x, num_pts_y, 3)
-
-    return ray_origins
-
-
-def get_ray_origins_finger_frame() -> np.ndarray:
-    ray_origins_finger_frame = get_ray_origins_finger_frame_helper(
-        num_pts_x=NUM_PTS_X,
-        num_pts_y=NUM_PTS_Y,
-        grasp_depth_mm=GRASP_DEPTH_MM,
-        finger_width_mm=FINGER_WIDTH_MM,
-        finger_height_mm=FINGER_HEIGHT_MM,
-    )
-    return ray_origins_finger_frame
-
-
-def get_transformed_points(points: np.ndarray, transform: np.ndarray) -> np.ndarray:
-    n_points = points.shape[0]
-    assert points.shape == (n_points, 3), f"{points.shape}"
-    assert transform.shape == (4, 4), f"{transform.shape}"
-
-    extra_ones = np.ones((n_points, 1))
-    points_homogeneous = np.concatenate([points, extra_ones], axis=1)
-
-    # First (4, 4) @ (4, N) = (4, N)
-    # Then transpose to get (N, 4)
-    transformed_points = np.matmul(transform, points_homogeneous.T).T
-
-    transformed_points = transformed_points[:, :3]
-    assert transformed_points.shape == (n_points, 3), f"{transformed_points.shape}"
-    return transformed_points
-
-
-def get_transformed_dirs(dirs: np.ndarray, transform: np.ndarray) -> np.ndarray:
-    """
-    Transforms direction vectors (i.e., doesn't apply the translation of a homologous tranform).
-    """
-    n_dirs = dirs.shape[0]
-    assert dirs.shape == (n_dirs, 3), f"{dirs.shape}"
-    assert transform.shape == (4, 4), f"{transform.shape}"
-
-    transformed_dirs = np.matmul(transform[:3, :3], dirs.T).T  # only rotate directions.
-
-    return transformed_dirs
-
-
-def get_ray_samples(
-    ray_origins_finger_frame: np.ndarray,
-    transform: np.ndarray,
-    num_pts_z: int = NUM_PTS_Z,
-    grasp_depth_mm: float = float(GRASP_DEPTH_MM),
-) -> RaySamples:
-    grasp_depth_m = grasp_depth_mm / 1000.0
-
-    num_pts_x, num_pts_y = ray_origins_finger_frame.shape[:2]
-
-    assert ray_origins_finger_frame.shape == (num_pts_x, num_pts_y, 3)
-
-    # Collapse batch dimensions + apply transform.
-    ray_origins_world_frame = get_transformed_points(
-        ray_origins_finger_frame.reshape(-1, 3), transform
-    )
-    ray_origins_world_frame = torch.tensor(ray_origins_world_frame).float().contiguous()
-
-    ray_dirs_finger_frame = np.array([0.0, 0.0, 1.0]).reshape(
-        1, 3
-    )  # Ray dirs are along +z axis.
-    ray_dirs_world_frame = get_transformed_dirs(ray_dirs_finger_frame, transform)
-
-    # Cast to Tensor + expand to match origins shape.
-    ray_dirs_world_frame = (
-        torch.tensor(ray_dirs_world_frame)
-        .expand(ray_origins_world_frame.shape)
-        .float()
-        .contiguous()
-    )
-
-    # Create dummy pixel areas object.
-    pixel_area = (
-        torch.ones_like(ray_dirs_world_frame[..., 0]).unsqueeze(-1).float().contiguous()
-    )
-
-    ray_bundle = RayBundle(ray_origins_world_frame, ray_dirs_world_frame, pixel_area)
-
-    # Work out sample lengths.
-    sample_dists = torch.linspace(0.0, grasp_depth_m, steps=num_pts_z)
-
-    sample_dists = sample_dists.reshape(1, num_pts_z, 1).expand(
-        ray_origins_world_frame.shape[0], -1, -1
-    )
-
-    # Pull ray samples -- note these are degenerate, i.e., the deltas field is meaningless.
-    return ray_bundle.get_ray_samples(sample_dists, sample_dists)
-
-
+    fig.update_layout(legend_orientation="h"
 def plot_mesh_and_query_points(
     mesh: trimesh.Trimesh,
     query_points_list: List[np.ndarray],
@@ -435,7 +282,6 @@ def plot_mesh_and_high_density_points(
     fig.update_layout(scene_aspectmode="cube")
     return fig
 
-
 def get_ray_samples_in_mesh_region(
     mesh: trimesh.Trimesh, num_pts_x: int, num_pts_y: int, num_pts_z: int
 ) -> RaySamples:
@@ -465,7 +311,7 @@ def get_ray_samples_in_mesh_region(
     )
     return ray_samples
 
-
+                      
 def get_bbox_ray_samples(
     bbox_min: np.ndarray,
     bbox_max: np.ndarray,
@@ -490,24 +336,4 @@ def get_bbox_ray_samples(
 
     return get_ray_samples(
         ray_origins, transform, num_points_z, 1000 * (bbox_max[-1] - bbox_min[-1])
-    )
-
-
-def plot_nerf_densities(
-    mesh,
-    nerf_model,
-    bbox_min=np.array([-0.1, -0.05, -0.05]),
-    bbox_max=-np.array([-0.1, -0.05, -0.05]),
-    nerf_thresh=5.0,
-):
-    ray_samples = get_bbox_ray_samples(bbox_min, bbox_max)
-    densities = nerf_model.get_density(ray_samples.to("cuda"))[0].detach().cpu().numpy()
-    query_points = ray_samples.frustums.get_positions().detach().cpu().numpy()
-
-    valid_inds = np.where(densities.reshape(-1) > nerf_thresh)
-    return plot_mesh_and_query_points(
-        mesh,
-        [query_points.reshape(-1, 3)[valid_inds]],
-        [densities.reshape(-1)[valid_inds]],
-        1,
     )

@@ -1,5 +1,5 @@
 from nerf_grasping.sim import ig_objects
-from nerf_grasping import config, grasp_opt, grasp_utils, mesh_utils, nerf_utils
+from nerf_grasping import config, grasp_opt_utils, grasp_utils, mesh_utils, nerf_utils
 from functools import partial
 
 import dcargs
@@ -12,6 +12,7 @@ import yaml
 
 NUM_FINGERS = 3
 NUM_XYZ = 3
+
 
 def compute_sampled_grasps(model, grasp_points, centroid):
     """Converts grasp vars to ray origins/directions; attempts to clip
@@ -66,9 +67,7 @@ def main(exp_config: config.Experiment):
 
     # Init grasp points
     grasp_points = (
-        torch.tensor([[0.09, 0.0, -0.045],
-                      [-0.09, 0.0, -0.045],
-                      [0, 0.0, 0.09]])
+        torch.tensor([[0.09, 0.0, -0.045], [-0.09, 0.0, -0.045], [0, 0.0, 0.09]])
         .reshape(1, NUM_FINGERS, NUM_XYZ)
         .to(centroid)
     )
@@ -79,7 +78,10 @@ def main(exp_config: config.Experiment):
     mu_0 = torch.cat([grasp_points, grasp_dirs], dim=-1).reshape(-1).to(centroid)
     Sigma_0 = torch.diag(
         torch.cat(
-            [torch.tensor([1e-2, 1e-2, 1e-2, 5e-3, 5e-3, 5e-3]) for _ in range(NUM_FINGERS)]
+            [
+                torch.tensor([1e-2, 1e-2, 1e-2, 5e-3, 5e-3, 5e-3])
+                for _ in range(NUM_FINGERS)
+            ]
         )
     ).to(centroid)
 
@@ -91,13 +93,13 @@ def main(exp_config: config.Experiment):
     sampled_grasps = np.zeros((exp_config.num_grasps, NUM_FINGERS, NUM_XYZ * 2))
     object_bounds = grasp_utils.OBJ_BOUNDS
     projection_fn = partial(grasp_utils.box_projection, object_bounds=object_bounds)
-    cost_function = grasp_opt.get_cost_function(exp_config, model)
+    cost_function = grasp_opt_utils.get_cost_function(exp_config, model)
 
     for ii in range(exp_config.num_grasps):
         if exp_config.dice_grasp:
             assert isinstance(exp_config.model_config, config.Mesh)
 
-            rays_o, rays_d = grasp_opt.dice_the_grasp(
+            rays_o, rays_d = grasp_opt_utils.dice_the_grasp(
                 model, cost_function, exp_config, projection_fn
             )
 
@@ -108,7 +110,7 @@ def main(exp_config: config.Experiment):
             sampled_grasps[ii, :, 3:] = rays_d.cpu()
 
         else:
-            mu_f, Sigma_f, cost_history, best_point = grasp_opt.optimize_cem(
+            mu_f, Sigma_f, cost_history, best_point = grasp_opt_utils.optimize_cem(
                 cost_function,
                 mu_0,
                 Sigma_0,

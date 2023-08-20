@@ -24,7 +24,6 @@
 import h5py
 import math
 import nerf_grasping
-from nerf_grasping.grasp_utils import ig_to_nerf
 import os
 import trimesh
 import numpy as np
@@ -32,29 +31,28 @@ from tqdm import tqdm
 from datetime import datetime
 import time
 from nerf_grasping.dataset.DexGraspNet_NeRF_Grasps_utils import (
-    get_ray_origins_finger_frame,
     get_contact_candidates_and_target_candidates,
     get_start_and_end_and_up_points,
     get_transform,
-    get_ray_samples,
     plot_mesh_and_query_points,
     plot_mesh_and_transforms,
     plot_mesh_and_high_density_points,
     get_object_code,
     get_object_scale,
-    get_nerf_configs,
     get_ray_samples_in_mesh_region,
-    plot_nerf_densities,
-    load_nerf,
+)
+from nerf_grasping.dataset.timers import LoopTimer
+from nerf_grasping.grasp_utils import (
     NUM_PTS_X,
     NUM_PTS_Y,
     NUM_PTS_Z,
     GRASP_DEPTH_MM,
-    FINGER_WIDTH_MM,
-    FINGER_HEIGHT_MM,
     NUM_FINGERS,
+    get_ray_samples,
+    get_ray_origins_finger_frame,
+    get_nerf_configs,
+    load_nerf,
 )
-from nerf_grasping.dataset.timers import LoopTimer
 from functools import partial
 
 datetime_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -255,27 +253,37 @@ with h5py.File(OUTPUT_FILE_PATH, "w") as hdf5_file:
                     for transform in transforms
                 ]
 
-            # TODO(pculbert): Check we can actually get rid of IG transform.
             with loop_timer.add_section_timer("ig_to_nerf"):
-                query_points_isaac_frame_list = [
-                    np.copy(rr.frustums.get_positions().cpu().numpy().reshape(-1, 3))
+                query_points_list = [
+                    np.copy(
+                        rr.frustums.get_positions().cpu().numpy()
+                    )  # Shape [n_x, n_y, n_z, 3]
                     for rr in ray_samples_list
                 ]
-                query_points_nerf_frame_list = [
-                    ig_to_nerf(query_points_isaac_frame, return_tensor=False)
-                    for query_points_isaac_frame in query_points_isaac_frame_list
-                ]
+
+                assert query_points_list[0].shape == (
+                    NUM_PTS_X,
+                    NUM_PTS_Y,
+                    NUM_PTS_Z,
+                    3,
+                ), f"query_points_list[0].shape: {query_points_list[0].shape}"
 
             # Get densities
             with loop_timer.add_section_timer("get_nerf_densities"):
                 nerf_densities = [
                     nerf_model.get_density(ray_samples.to("cuda"))[0]
-                    .reshape(-1)
                     .detach()
                     .cpu()
                     .numpy()
-                    for ray_samples in ray_samples_list
+                    for ray_samples in ray_samples_list  # Shape [n_x, n_y, n_z].
                 ]
+
+                assert nerf_densities[0].shape == (
+                    NUM_PTS_X,
+                    NUM_PTS_Y,
+                    NUM_PTS_Z,
+                    1,
+                ), f"nerf_densities[0].shape: {nerf_densities[0].shape}"
 
             # Plot
             if PLOT_ONLY_ONE:
@@ -286,14 +294,14 @@ with h5py.File(OUTPUT_FILE_PATH, "w") as hdf5_file:
                 nerf_alphas = [1 - np.exp(-delta * dd) for dd in nerf_densities]
                 fig = plot_mesh_and_query_points(
                     mesh=mesh,
-                    query_points_list=query_points_isaac_frame_list,
+                    query_points_list=[qq.reshape(-1, 3) for qq in query_points_list],
                     query_points_colors_list=nerf_alphas,
                     num_fingers=NUM_FINGERS,
                 )
                 fig.show()
                 fig2 = plot_mesh_and_transforms(
                     mesh=mesh,
-                    transforms=transforms,
+                    transforms=[tt.matrix().numpy() for tt in transforms],
                     num_fingers=NUM_FINGERS,
                 )
                 fig2.show()

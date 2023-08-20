@@ -59,17 +59,12 @@ class CNN_3D_Classifier(Classifier):
     def forward(
         self, nerf_densities: torch.Tensor, grasp_transforms: pp.LieTensor
     ) -> torch.Tensor:
-        # Prepare data
         batch_size = nerf_densities.shape[0]
-        dummy_grasp_success = torch.zeros(
-            batch_size, dtype=nerf_densities.dtype, device=nerf_densities.device
-        )
-        dummy_nerf_config = ["dummy" for _ in range(batch_size)]
-        batch_data = BatchData(
+
+        # Prepare data
+        batch_data = BatchData.create_input_only_batch(
             nerf_densities=nerf_densities,
-            grasp_success=dummy_grasp_success,
             grasp_transforms=grasp_transforms,
-            nerf_config=dummy_nerf_config,
         ).to(nerf_densities.device)
 
         # Run model

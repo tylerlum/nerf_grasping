@@ -46,6 +46,26 @@ class BatchData:
         )
         return self
 
+    @classmethod
+    def create_input_only_batch(
+        cls, nerf_densities: torch.Tensor, grasp_transforms: pp.LieTensor
+    ) -> BatchData:
+        # This is a hacky way to create a BatchData object with only the input data
+        # This way, won't have to handle Optional/None properties
+        # Better solution: create a BatchDataInput class that BatchData stores
+        batch_size = nerf_densities.shape[0]
+        dummy_grasp_success = torch.zeros(
+            batch_size, dtype=nerf_densities.dtype, device=nerf_densities.device
+        )
+        dummy_nerf_config = ["dummy" for _ in range(batch_size)]
+        batch_data = BatchData(
+            nerf_densities=nerf_densities,
+            grasp_success=dummy_grasp_success,
+            grasp_transforms=grasp_transforms,
+            nerf_config=dummy_nerf_config,
+        ).to(nerf_densities.device)
+        return batch_data
+
     @property
     def nerf_alphas(self) -> torch.Tensor:
         # alpha = 1 - exp(-delta * sigma)
@@ -62,6 +82,38 @@ class BatchData:
     @property
     def augmented_coords(self) -> torch.Tensor:
         return self._coords_helper(self.augmented_grasp_transforms)
+
+    @property
+    def nerf_alphas_with_coords(self) -> torch.Tensor:
+        return self._nerf_alphas_with_coords_helper(self.coords)
+
+    @property
+    def nerf_alphas_with_augmented_coords(self) -> torch.Tensor:
+        return self._nerf_alphas_with_coords_helper(self.augmented_coords)
+
+    @property
+    def augmented_grasp_transforms(self) -> torch.Tensor:
+        if self.random_rotate_transform is None:
+            return self.grasp_transforms
+
+        # Unsqueeze because we're applying the same (single) random rotation to all fingers.
+        return_value = (
+            self.random_rotate_transform.unsqueeze(dim=1) @ self.grasp_transforms
+        )
+        assert (
+            return_value.lshape
+            == self.grasp_transforms.lshape
+            == (self.batch_size, NUM_FINGERS)
+        )
+        return return_value
+
+    @property
+    def batch_size(self) -> int:
+        return self.grasp_success.shape[0]
+
+    @property
+    def device(self) -> torch.device:
+        return self.grasp_success.device
 
     def _coords_helper(self, grasp_transforms: pp.LieTensor) -> torch.Tensor:
         assert grasp_transforms.lshape == (self.batch_size, NUM_FINGERS)
@@ -93,14 +145,6 @@ class BatchData:
         )
         return all_query_points
 
-    @property
-    def nerf_alphas_with_coords(self) -> torch.Tensor:
-        return self._nerf_alphas_with_coords_helper(self.coords)
-
-    @property
-    def nerf_alphas_with_augmented_coords(self) -> torch.Tensor:
-        return self._nerf_alphas_with_coords_helper(self.augmented_coords)
-
     def _nerf_alphas_with_coords_helper(self, coords: torch.Tensor) -> torch.Tensor:
         assert coords.shape == (
             self.batch_size,
@@ -129,27 +173,3 @@ class BatchData:
             NUM_PTS_Z,
         )
         return return_value
-
-    @property
-    def augmented_grasp_transforms(self) -> torch.Tensor:
-        if self.random_rotate_transform is None:
-            return self.grasp_transforms
-
-        # Unsqueeze because we're applying the same (single) random rotation to all fingers.
-        return_value = (
-            self.random_rotate_transform.unsqueeze(dim=1) @ self.grasp_transforms
-        )
-        assert (
-            return_value.lshape
-            == self.grasp_transforms.lshape
-            == (self.batch_size, NUM_FINGERS)
-        )
-        return return_value
-
-    @property
-    def batch_size(self) -> int:
-        return self.grasp_success.shape[0]
-
-    @property
-    def device(self) -> torch.device:
-        return self.grasp_success.device

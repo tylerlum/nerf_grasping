@@ -29,24 +29,29 @@ import nerf_grasping
 from dataclasses import dataclass
 from torchinfo import summary
 from torchviz import make_dot
-from nerf_grasping.dataset.DexGraspNet_NeRF_Grasps_utils import (
-    plot_mesh_and_query_points,
-    get_object_code,
-    get_object_scale,
-)
 from nerf_grasping.grasp_utils import (
+    DIST_BTWN_PTS_MM,
+    get_ray_samples,
+    get_ray_origins_finger_frame,
+    load_nerf,
     NUM_PTS_X,
     NUM_PTS_Y,
     NUM_PTS_Z,
     NUM_FINGERS,
 )
 from nerf_grasping.learned_metric.DexGraspNet_batch_data import BatchData
+from nerf_grasping.dataset.DexGraspNet_NeRF_Grasps_utils import (
+    get_object_code,
+    get_object_scale,
+    plot_mesh_and_query_points,
+)
 from nerf_grasping.dataset.timers import LoopTimer
 from nerf_grasping.learned_metric.Train_DexGraspNet_NeRF_Grasp_Metric_Config import (
     Config,
     TrainingConfig,
 )
 import os
+import pypose as pp
 import h5py
 from typing import Optional, Tuple, List
 from sklearn.metrics import (
@@ -132,7 +137,9 @@ def datetime_str() -> str:
 OmegaConf.register_new_resolver("eval", eval, replace=True)
 OmegaConf.register_new_resolver("datetime_str", datetime_str, replace=True)
 
+
 # %%
+
 
 # %%
 config_store = ConfigStore.instance()
@@ -333,16 +340,17 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
 
             # This is small enough to fit in RAM
             self.grasp_transforms = (
-                torch.from_numpy(hdf5_file["/grasp_transforms"][()]).float()
+                pp.from_matrix(
+                    torch.from_numpy(hdf5_file["/grasp_transforms"][()]).float(),
+                    pp.SE3_type,
+                )
                 if load_grasp_transforms_in_ram
                 else None
             )
 
             # This is small enough to fit in RAM
             self.nerf_configs = (
-                hdf5_file["/nerf_config"][()]
-                if load_nerf_configs_in_ram
-                else None
+                hdf5_file["/nerf_config"][()] if load_nerf_configs_in_ram else None
             )
 
     @localscope.mfc
@@ -457,65 +465,21 @@ assert len(set.intersection(set(val_dataset.indices), set(test_dataset.indices))
 
 # %%
 
-def sample_random_rotate_transforms(N: int) -> torch.Tensor:
-    # Generate random angles for roll, pitch, and yaw
-    roll_angles = torch.rand(N) * 2 * np.pi
-    pitch_angles = torch.rand(N) * 2 * np.pi
-    yaw_angles = torch.rand(N) * 2 * np.pi
+def sample_random_rotate_transforms(N: int) -> pp.LieTensor:
+    # Sample big rotations in tangent space of SO(3).
+    # Choose 4 * \pi as a heuristic to get pretty evenly spaced rotations.
+    # TODO(pculbert): Figure out better uniform sampling on SO(3).
+    log_random_rotations = pp.so3(4 * torch.pi * (2 * torch.rand(N, 3) - 1))
 
-    # Generate rotation matrices for each axis
-    R_rolls = torch.stack(
-        [
-            torch.tensor(
-                [
-                    [1, 0, 0],
-                    [0, np.cos(angle), -np.sin(angle)],
-                    [0, np.sin(angle), np.cos(angle)],
-                ]
-            )
-            for angle in roll_angles
-        ]
+    # Return exponentiated rotations.
+    random_SO3_rotations = log_random_rotations.Exp()
+
+    # A bit annoying -- need to cast SO(3) -> SE(3).
+    random_rotate_transforms = pp.from_matrix(
+        random_SO3_rotations.matrix(), pp.SE3_type
     )
 
-    R_pitches = torch.stack(
-        [
-            torch.tensor(
-                [
-                    [np.cos(angle), 0, np.sin(angle)],
-                    [0, 1, 0],
-                    [-np.sin(angle), 0, np.cos(angle)],
-                ]
-            )
-            for angle in pitch_angles
-        ]
-    )
-
-    R_yaws = torch.stack(
-        [
-            torch.tensor(
-                [
-                    [np.cos(angle), -np.sin(angle), 0],
-                    [np.sin(angle), np.cos(angle), 0],
-                    [0, 0, 1],
-                ]
-            )
-            for angle in yaw_angles
-        ]
-    )
-    assert R_rolls.shape == R_pitches.shape == R_yaws.shape == (N, 3, 3)
-
-    # Combine rotation matrices
-    R_combined = torch.matmul(R_yaws, torch.matmul(R_pitches, R_rolls))
-    assert R_combined.shape == (N, 3, 3)
-
-    # Create the transformation matrices
-    transformation_matrices = torch.zeros(N, 4, 4)
-    transformation_matrices[:, :3, :3] = R_combined
-    transformation_matrices[:, :3, 3] = 0.0
-    transformation_matrices[:, 3, 3] = 1.0
-    assert transformation_matrices.shape == (N, 4, 4)
-
-    return transformation_matrices
+    return random_rotate_transforms
 
 
 @localscope.mfc
@@ -524,6 +488,8 @@ def custom_collate_fn(
 ) -> BatchData:
     batch = torch.utils.data.dataloader.default_collate(batch)
     nerf_densities, grasp_successes, grasp_transforms, nerf_configs = batch
+
+    grasp_transforms = pp.from_matrix(grasp_transforms, pp.SE3_type)
 
     batch_size = nerf_densities.shape[0]
     random_rotate_transform = sample_random_rotate_transforms(N=batch_size)
@@ -597,7 +563,7 @@ def plot_example(
     if augmented:
         query_points_list = batch_data.augmented_coords[idx_to_visualize]
         additional_mesh_transform = (
-            batch_data.random_rotate_transform[idx_to_visualize].cpu().numpy()
+            batch_data.random_rotate_transform[idx_to_visualize].matrix().cpu().numpy()
             if batch_data.random_rotate_transform is not None
             else None
         )
@@ -617,7 +583,7 @@ def plot_example(
     object_scale = get_object_scale(nerf_config_path)
 
     # Path to meshes
-    DEXGRASPNET_DATA_ROOT = "/juno/u/tylerlum/github_repos/DexGraspNet/data"
+    DEXGRASPNET_DATA_ROOT = nerf_grasping.get_repo_root()
     DEXGRASPNET_MESHDATA_ROOT = os.path.join(DEXGRASPNET_DATA_ROOT, "meshdata")
     mesh_path = os.path.join(
         DEXGRASPNET_MESHDATA_ROOT,
@@ -681,31 +647,31 @@ EXAMPLE_BATCH_DATA.grasp_success
 # # %%
 # fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=14)
 # fig.show()
-# 
+#
 # # %%
 # fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=14, augmented=True)
 # fig.show()
-# 
+#
 # # %%
 # fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=17)
 # fig.show()
-# 
+#
 # # %%
 # fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=17, augmented=True)
 # fig.show()
-# 
+#
 # # %%
 # fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=18)
 # fig.show()
-# 
+#
 # # %%
 # fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=18, augmented=True)
 # fig.show()
-# 
+#
 # # %%
 # fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=19)
 # fig.show()
-# 
+#
 # # %%
 # fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=19, augmented=True)
 # fig.show()
@@ -870,7 +836,9 @@ def iterate_through_dataloader(
             batch_data: BatchData = batch_data.to(device)
             if torch.isnan(batch_data.nerf_alphas_with_augmented_coords).any():
                 print("!" * 80)
-                print(f"Found {torch.isnan(batch_data.nerf_alphas_with_augmented_coords).sum()} NANs in batch_data.nerf_alphas_with_augmented_coords")
+                print(
+                    f"Found {torch.isnan(batch_data.nerf_alphas_with_augmented_coords).sum()} NANs in batch_data.nerf_alphas_with_augmented_coords"
+                )
                 print("Skipping batch...")
                 print("!" * 80)
                 print()
@@ -955,7 +923,11 @@ def iterate_through_dataloader(
                     y_true=all_ground_truths, y_pred=all_predictions
                 )
     with loop_timer.add_section_timer("Confusion Matrix"):
-        if len(all_ground_truths) > 0 and len(all_predictions) > 0:
+        if (
+            len(all_ground_truths) > 0
+            and len(all_predictions) > 0
+            and wandb.run is not None
+        ):
             wandb_log_dict[
                 f"{phase.name.lower()}_confusion_matrix"
             ] = wandb.plot.confusion_matrix(
@@ -1157,4 +1129,3 @@ save_checkpoint(
 
 # %%
 wandb.finish()
-# %%

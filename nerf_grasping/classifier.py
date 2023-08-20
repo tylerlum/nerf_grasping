@@ -50,7 +50,6 @@ class CNN_3D_Classifier(Classifier):
             input_shape=(NUM_XYZ + 1, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z),
             n_fingers=NUM_FINGERS,
         )
-        breakpoint()
         state_dict = torch.load(config)["nerf_to_grasp_success_model"] 
         model.load_state_dict(state_dict)
         return model
@@ -66,7 +65,7 @@ class CNN_3D_Classifier(Classifier):
         batch_data = BatchData(
             nerf_densities=nerf_densities,
             grasp_success=dummy_grasp_success,
-            grasp_transforms=grasp_transforms,
+            grasp_transforms=grasp_transforms.matrix(),
             nerf_config=dummy_nerf_config,
         ).to(nerf_densities.device)
         scores = self.model(batch_data.nerf_alphas_with_augmented_coords)

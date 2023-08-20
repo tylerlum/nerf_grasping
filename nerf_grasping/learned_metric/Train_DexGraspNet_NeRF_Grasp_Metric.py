@@ -39,7 +39,10 @@ from nerf_grasping.grasp_utils import (
     NUM_PTS_Z,
     NUM_FINGERS,
 )
-from nerf_grasping.learned_metric.DexGraspNet_batch_data import BatchData
+from nerf_grasping.learned_metric.DexGraspNet_batch_data import (
+    BatchData,
+    BatchDataInput,
+)
 from nerf_grasping.dataset.DexGraspNet_NeRF_Grasps_utils import (
     get_object_code,
     get_object_scale,
@@ -465,6 +468,7 @@ assert len(set.intersection(set(val_dataset.indices), set(test_dataset.indices))
 
 # %%
 
+
 def sample_random_rotate_transforms(N: int) -> pp.LieTensor:
     # Sample big rotations in tangent space of SO(3).
     # Choose 4 * \pi as a heuristic to get pretty evenly spaced rotations.
@@ -495,11 +499,13 @@ def custom_collate_fn(
     random_rotate_transform = sample_random_rotate_transforms(N=batch_size)
 
     return BatchData(
-        nerf_densities=nerf_densities,
+        input=BatchDataInput(
+            nerf_densities=nerf_densities,
+            grasp_transforms=grasp_transforms,
+            random_rotate_transform=random_rotate_transform,
+        ),
         grasp_success=grasp_successes,
-        grasp_transforms=grasp_transforms,
         nerf_config=nerf_configs,
-        random_rotate_transform=random_rotate_transform,
     )
 
 
@@ -538,7 +544,9 @@ def print_shapes(batch_data: BatchData) -> None:
     print(f"grasp_transforms.shape: {batch_data.input.grasp_transforms.shape}")
     print(f"len(nerf_config): {len(batch_data.nerf_config)}")
     print(f"coords.shape = {batch_data.input.coords.shape}")
-    print(f"nerf_alphas_with_coords.shape = {batch_data.input.nerf_alphas_with_coords.shape}")
+    print(
+        f"nerf_alphas_with_coords.shape = {batch_data.input.nerf_alphas_with_coords.shape}"
+    )
     print(
         f"augmented_grasp_transforms.shape = {batch_data.input.augmented_grasp_transforms.shape}"
     )
@@ -563,7 +571,10 @@ def plot_example(
     if augmented:
         query_points_list = batch_data.input.augmented_coords[idx_to_visualize]
         additional_mesh_transform = (
-            batch_data.input.random_rotate_transform[idx_to_visualize].matrix().cpu().numpy()
+            batch_data.input.random_rotate_transform[idx_to_visualize]
+            .matrix()
+            .cpu()
+            .numpy()
             if batch_data.input.random_rotate_transform is not None
             else None
         )
@@ -573,7 +584,7 @@ def plot_example(
 
     # Extract data
     colors = batch_data.input.nerf_alphas[idx_to_visualize]
-    grasp_success = batch_data.input.grasp_success[idx_to_visualize].item()
+    grasp_success = batch_data.grasp_success[idx_to_visualize].item()
 
     assert colors.shape == (NUM_FINGERS, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
     assert grasp_success in [0, 1]

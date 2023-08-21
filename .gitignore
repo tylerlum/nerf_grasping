@@ -176,3 +176,10 @@ outputs
 # models
 *.pt
 *.pth
+
+# workspace
+*Train_DexGraspNet_NeRF_Grasp_Metric_workspaces*
+
+# nerfcheckpoints
+*nerfcheckpoint*
+*nerf_checkpoint*

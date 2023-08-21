@@ -355,7 +355,7 @@ def dry_run():
     # Some semi-hardcoded unit tests to make sure the code runs.
 
     nerf_configs = grasp_utils.get_nerf_configs(
-        nerf_grasping.get_package_root() + "/../nerfcheckpoints"
+        nerf_grasping.get_repo_root() + "/nerfcheckpoints"
     )
     nerf_model = grasp_utils.load_nerf(nerf_configs[0])
 

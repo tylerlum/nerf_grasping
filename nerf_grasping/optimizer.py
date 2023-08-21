@@ -12,13 +12,9 @@ from functools import partial
 from rich.console import Console
 from rich.table import Table
 
-from rich.progress import (
-    Progress,
-    BarColumn,
-    SpinnerColumn,
-    TextColumn,
-    TimeElapsedColumn,
-)
+from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
+
+PRINT_FREQ = 5
 
 
 def is_notebook() -> bool:
@@ -92,11 +88,13 @@ class SGDOptimizer(Optimizer):
         init_grasps: AllegroGraspConfig,
         nerf_config: pathlib.Path,
         classifier_config: pathlib.Path,
+        console=Console(width=120),
         **kwargs,
     ) -> SGDOptimizer:
         with Progress(
             SpinnerColumn(),
-            TextColumn("[bold blue]{task.description}"),
+            TextColumn("[bold blue]{task.description} "),
+            console=console,
         ) as progress:
             task = progress.add_task("Loading NeRF", total=1)
             nerf = grasp_utils.load_nerf(nerf_config)
@@ -107,7 +105,8 @@ class SGDOptimizer(Optimizer):
 
         with Progress(
             SpinnerColumn(),
-            TextColumn("[bold blue]{task.description}"),
+            TextColumn("[bold blue]{task.description} "),
+            console=console,
         ) as progress:
             task = progress.add_task("Loading CNN", total=1)
             cnn = CNN_3D_Classifier(classifier_config).to(device=device)
@@ -146,18 +145,16 @@ def run_optimizer_loop(
     """
 
     start_column = TextColumn("[bold green]{task.description}[/bold green]")
-    end_column = TextColumn(
-        "Min score: {task.fields[min_score]} | Mean score: {task.fields[mean_score]} | Std score: {task.fields[std_score]}"
-    )
     progress = Progress(
-        SpinnerColumn(), *Progress.get_default_columns(), end_column, console=console
+        SpinnerColumn(),
+        *Progress.get_default_columns(),
+        TextColumn("=>"),
+        TimeElapsedColumn(),
+        console=console,
     )
     with progress:
         task_id = progress.add_task(
             "Optimizing grasps...",
-            min_score="?",
-            mean_score="?",
-            std_score="?",
             total=num_steps,
         )
         for iter in range(num_steps):
@@ -166,11 +163,13 @@ def run_optimizer_loop(
             # Update progress bar.
             progress.update(
                 task_id,
-                min_score=f"{optimizer.grasp_scores.min():.5f}",
-                mean_score=f"{optimizer.grasp_scores.mean():.5f}",
-                std_score=f"{optimizer.grasp_scores.std():.5f}",
                 advance=1,
             )
+
+            if iter % PRINT_FREQ == 0:
+                console.print(
+                    f"Iter: {iter} | Min score: {optimizer.grasp_scores.min():.3f} | Max score: {optimizer.grasp_scores.max():.3f} | Mean score: {optimizer.grasp_scores.mean():.3f} | Std dev: {optimizer.grasp_scores.std():.3f}"
+                )
 
             # TODO(pculbert): Add logging for grasps and scores.
             # Likely want to log min/mean of scores, and store the grasp configs
@@ -200,10 +199,14 @@ def main() -> None:
         / "sem-Camera-7bff4fd4dc53de7496dece3f86cb5dd5.npy"
     )
 
+    # Create rich.Console object.
+    console = Console(width=120)
+
     # Sample a batch of grasps from the grasp data.
     with Progress(
         SpinnerColumn(),
-        TextColumn("[bold blue]{task.description}"),
+        TextColumn("[bold blue]{task.description} "),
+        console=console,
     ) as progress:
         task = progress.add_task("Loading grasp data", total=1)
         init_grasps = AllegroGraspConfig.from_grasp_data(GRASP_DATA_PATH, batch_size=64)
@@ -211,10 +214,13 @@ def main() -> None:
 
     # Create SGDOptimizer.
     optimizer = SGDOptimizer.from_configs(
-        init_grasps, NERF_CONFIG, CLASSIFIER_CHECKPOINT_PATH, lr=1e-4, momentum=0.9
+        init_grasps,
+        NERF_CONFIG,
+        CLASSIFIER_CHECKPOINT_PATH,
+        console=console,
+        lr=1e-4,
+        momentum=0.9,
     )
-
-    console = Console()
 
     table = Table(title="Grasp scores")
     table.add_column("Iteration", justify="right")

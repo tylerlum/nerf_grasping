@@ -241,10 +241,18 @@ with h5py.File(OUTPUT_FILE_PATH, "w") as hdf5_file:
                     num_fingers=NUM_FINGERS,
                 )
             with loop_timer.add_section_timer("get_transforms"):
-                transforms = [
-                    get_transform(start_points[i], end_points[i], up_points[i])
-                    for i in range(NUM_FINGERS)
-                ]
+                try:
+                    transforms = [
+                        get_transform(start_points[i], end_points[i], up_points[i])
+                        for i in range(NUM_FINGERS)
+                    ]
+                except ValueError as e:
+                    print("+" * 80)
+                    print(f"ValueError: {e}")
+                    print(f"Skipping grasp_idx: {grasp_idx} for config: {config}")
+                    print("+" * 80)
+                    print()
+                    continue
 
             # Transform query points
             with loop_timer.add_section_timer("get_transformed_points"):

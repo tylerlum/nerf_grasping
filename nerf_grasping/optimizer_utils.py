@@ -52,10 +52,6 @@ class AllegroHandConfig(torch.nn.Module):
         )
         self.batch_size = batch_size
 
-    def to(self, device=None, dtype=None):
-        super().to(device=device, dtype=dtype)
-        self.chain.to(device=torch.device(device), dtype=dtype)
-
     def set_wrist_pose(self, wrist_pose: pp.LieTensor):
         assert (
             wrist_pose.shape == self.wrist_pose.shape
@@ -69,6 +65,9 @@ class AllegroHandConfig(torch.nn.Module):
         self.joint_angles.data = joint_angles
 
     def get_fingertip_transforms(self) -> List[pp.LieTensor]:
+        # Pretty hacky -- need to cast chain to the same device as the wrist pose.
+        self.chain = self.chain.to(device=self.wrist_pose.device)
+
         # Run batched FK from current hand config.
         link_poses_hand_frame = self.chain.forward_kinematics(self.joint_angles)
 
@@ -216,7 +215,7 @@ class AllegroGraspConfig(torch.nn.Module):
         z-axis pointing along grasp direction."""
 
         return self.fingertip_transforms @ pp.from_matrix(
-            self.grasp_orientations.unsqueeze(1).matrix(), pp.SE3_type
+            self.grasp_orientations.matrix(), pp.SE3_type
         )
 
     @property
@@ -250,6 +249,8 @@ class GraspMetric(torch.nn.Module):
             self.ray_origins_finger_frame, grasp_config.grasp_frame_transforms
         )
 
+        print(ray_samples.frustums.get_positions().shape)
+
         # Query NeRF at RaySamples.
         densities = self.nerf_model.get_density(ray_samples.to("cuda"))[0][
             ..., 0
@@ -265,7 +266,8 @@ class GraspMetric(torch.nn.Module):
 
         # TODO(pculbert): fix this to match the classifier trace.
         # Pass ray_samples.get_positions(), densities into classifier.
-        return self.classifier_model(densities, ray_samples.frustums.get_positions())
+        logits = self.classifier_model(densities, ray_samples.frustums.get_positions())
+        return torch.nn.functional.softmax(1e-2 * logits, dim=-1)[:, 0]
 
 
 def dry_run():

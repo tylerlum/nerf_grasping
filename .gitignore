@@ -172,3 +172,8 @@ cluster_scripts/
 nerfcheckpoints/
 *.h5
 outputs
+
+# Model weights
+*.pt
+wandb*
+model_graph*

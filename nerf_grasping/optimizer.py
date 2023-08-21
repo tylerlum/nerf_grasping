@@ -23,6 +23,7 @@ def is_notebook() -> bool:
         return False  # Probably standard Python interpreter
 
 
+# Switch to format the tqdm progress bar based on whether we're in a notebook or not.
 if is_notebook():
     from tqdm.notebook import tqdm as std_tqdm
 else:
@@ -30,7 +31,8 @@ else:
 
 tqdm = partial(std_tqdm, dynamic_ncols=True)
 
-# Hardcoding some values for now.
+###### REMOVE THIS ######
+# A nasty copy-paste from the classifier train script.
 import functools
 from localscope import localscope
 import torch.nn as nn
@@ -132,7 +134,15 @@ class CNN_3D_Classifier(nn.Module):
         return 2
 
 
+# >>>>> REMOVE THIS <<<<<
+
+
 class ClassifierWrapper(nn.Module):
+    """
+    Wrapper for the classifier to assemble the
+    input tensor from query points and densities.
+    """
+
     def __init__(self, classifier: CNN_3D_Classifier):
         super().__init__()
         self.classifier = classifier
@@ -150,6 +160,10 @@ class ClassifierWrapper(nn.Module):
 
 
 class Optimizer:
+    """
+    A base class for grasp optimizers.
+    """
+
     def __init__(self, init_grasps: AllegroGraspConfig, grasp_metric: GraspMetric):
         self.grasp_config = init_grasps
         self.grasp_metric = grasp_metric
@@ -161,26 +175,29 @@ class Optimizer:
         nerf_config: pathlib.Path,
         classifier_config: pathlib.Path,
     ) -> Optimizer:
+        """
+        Factory method for creating an Optimizer from configs.
+        """
         nerf = grasp_utils.load_nerf(nerf_config)
         classifier = Classifier(classifier_config)
         grasp_metric = GraspMetric(nerf, classifier)
         return cls(init_grasps, grasp_metric)
 
     def optimize(self) -> Tuple[torch.tensor, AllegroGraspConfig]:
-        pass
+        raise NotImplementedError
 
 
-class AdamOptimizer(Optimizer):
+class SGDOptimizer(Optimizer):
     def __init__(
         self, init_grasps: AllegroGraspConfig, grasp_metric: GraspMetric, **kwargs
     ):
         """
-        Constructor for AdamOptimizer.
+        Constructor for SGDOptimizer.
 
         Args:
             init_grasps: Initial grasp configuration.
             grasp_metric: GraspMetric object defining the metric to optimize.
-            **kwargs: Keyword arguments to pass to torch.optim.Adam.
+            **kwargs: Keyword arguments to pass to torch.optim.SGD.
         """
         super().__init__(init_grasps, grasp_metric)
         self.optimizer = torch.optim.SGD(self.grasp_config.parameters(), **kwargs)
@@ -192,7 +209,7 @@ class AdamOptimizer(Optimizer):
         nerf_config: pathlib.Path,
         classifier_config: pathlib.Path,
         **kwargs,
-    ) -> AdamOptimizer:
+    ) -> SGDOptimizer:
         nerf = grasp_utils.load_nerf(nerf_config)
 
         # TODO(pculbert): BRITTLE! Support more classifiers etc.
@@ -207,15 +224,21 @@ class AdamOptimizer(Optimizer):
         )
         cnn.eval()
 
+        # Put grasps on the correc device.
         init_grasps = init_grasps.to(device=device)
 
+        # Wrap Nerf and Classifier in GraspMetric.
         grasp_metric = GraspMetric(nerf, ClassifierWrapper(cnn))
+
         return cls(init_grasps, grasp_metric, **kwargs)
 
     def step(self):
         self.optimizer.zero_grad()
         loss = self.grasp_metric(self.grasp_config)
         assert loss.shape == (self.grasp_config.batch_size,)
+
+        # TODO(pculbert): Think about clipping joint angles
+        # to feasible range.
         loss.mean().backward()
         self.optimizer.step()
 
@@ -227,6 +250,9 @@ class AdamOptimizer(Optimizer):
 def run_optimizer_loop(
     optimizer: Optimizer, num_steps: int
 ) -> Tuple[torch.tensor, AllegroGraspConfig]:
+    """
+    Convenience function for running the optimizer loop.
+    """
     description = "Optimizing grasps"
     for iter in (
         pbar := tqdm(
@@ -244,6 +270,7 @@ def run_optimizer_loop(
 
         # TODO(pculbert): Track best grasps across steps.
 
+    # Sort grasp scores and configs by score.
     _, sort_indices = torch.sort(optimizer.grasp_scores, descending=False)
     return (optimizer.grasp_scores[sort_indices], optimizer.grasp_config[sort_indices])
 
@@ -265,8 +292,11 @@ def main() -> None:
         / "sem-Camera-7bff4fd4dc53de7496dece3f86cb5dd5.npy"
     )
 
+    # Sample a batch of grasps from the grasp data.
     init_grasps = AllegroGraspConfig.from_grasp_data(GRASP_DATA_PATH, batch_size=64)
-    optimizer = AdamOptimizer.from_configs(
+
+    # Create SGDOptimizer.
+    optimizer = SGDOptimizer.from_configs(
         init_grasps, NERF_CONFIG, CLASSIFIER_CHECKPOINT_PATH, lr=1e-3, momentum=0.9
     )
 

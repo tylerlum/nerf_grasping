@@ -191,7 +191,7 @@ def get_grasp_config_from_grasp_data(
 
     euler_angles = torch.tensor([qpos[rn] for rn in DEXGRASPNET_ROT_NAMES])
     wrist_quat = torch.tensor(transforms3d.euler.euler2quat(*euler_angles, axes="sxyz"))
-    wrist_quat = wrist_quat[[1, 2, 3, 0]]  # Convert (x, y, z, w) -> (w, x, y, z)
+    wrist_quat = wrist_quat[[1, 2, 3, 0]]  # Convert (w, x, y, z) -> (x, y, z, w)
     assert wrist_quat.shape == (4,)
 
     wrist_pose = pp.SE3(torch.cat([wrist_translation, wrist_quat], dim=0))

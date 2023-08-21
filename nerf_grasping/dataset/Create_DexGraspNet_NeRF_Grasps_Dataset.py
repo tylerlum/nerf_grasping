@@ -31,9 +31,6 @@ from tqdm import tqdm
 from datetime import datetime
 import time
 from nerf_grasping.dataset.DexGraspNet_NeRF_Grasps_utils import (
-    get_contact_candidates_and_target_candidates,
-    get_start_and_end_and_up_points,
-    get_transform,
     plot_mesh_and_query_points,
     plot_mesh_and_transforms,
     plot_mesh_and_high_density_points,
@@ -52,6 +49,9 @@ from nerf_grasping.grasp_utils import (
     get_ray_origins_finger_frame,
     get_nerf_configs,
     load_nerf,
+    get_contact_candidates_and_target_candidates,
+    get_start_and_end_and_up_points,
+    get_transform,
 )
 from functools import partial
 

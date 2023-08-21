@@ -131,10 +131,17 @@ class AllegroGraspConfig(torch.nn.Module):
         return grasp_config
 
     @classmethod
-    def from_values(cls, wrist_pose, joint_angles, grasp_orientations):
+    def from_values(
+        cls,
+        wrist_pose: pp.LieTensor,
+        joint_angles: torch.Tensor,
+        grasp_orientations: pp.LieTensor,
+    ):
         batch_size = wrist_pose.shape[0]
+        # TODO (pculbert): refactor for arbitrary batch sizes via lshape.
         assert joint_angles.shape == (batch_size, 16)
-        assert grasp_orientations.shape == (batch_size, grasp_utils.NUM_FINGERS, 3, 3)
+        assert wrist_pose.shape == (batch_size, 7)
+        assert grasp_orientations.shape == (batch_size, grasp_utils.NUM_FINGERS, 4)
 
         grasp_config = cls(batch_size).to(
             device=wrist_pose.device, dtype=wrist_pose.dtype
@@ -237,6 +244,16 @@ class AllegroGraspConfig(torch.nn.Module):
         ), f"New grasp orientations, shape {grasp_orientations.shape}, do not match current grasp orientations shape {self.grasp_orientations.shape}"
         self.grasp_orientations.data = grasp_orientations.data.clone()
 
+    def __getitem__(self, idxs):
+        """
+        Enables indexing into a batch of grasp configs.
+        """
+        return type(self).from_values(
+            self.wrist_pose[idxs],
+            self.joint_angles[idxs],
+            self.grasp_orientations[idxs],
+        )
+
     @property
     def wrist_pose(self) -> pp.LieTensor:
         return self.hand_config.wrist_pose
@@ -289,8 +306,6 @@ class GraspMetric(torch.nn.Module):
         ray_samples = grasp_utils.get_ray_samples(
             self.ray_origins_finger_frame, grasp_config.grasp_frame_transforms
         )
-
-        print(ray_samples.frustums.get_positions().shape)
 
         # Query NeRF at RaySamples.
         densities = self.nerf_model.get_density(ray_samples.to("cuda"))[0][

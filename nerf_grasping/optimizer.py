@@ -208,12 +208,6 @@ class AdamOptimizer(Optimizer):
         cnn.eval()
 
         init_grasps = init_grasps.to(device=device)
-        print(
-            init_grasps.grasp_orientations.device,
-            init_grasps.hand_config.wrist_pose.device,
-            init_grasps.hand_config.joint_angles.device,
-            init_grasps.hand_config.chain.device,
-        )
 
         grasp_metric = GraspMetric(nerf, ClassifierWrapper(cnn))
         return cls(init_grasps, grasp_metric, **kwargs)
@@ -250,7 +244,7 @@ def run_optimizer_loop(
 
         # TODO(pculbert): Track best grasps across steps.
 
-    _, sort_indices = torch.sort(optimizer.grasp_scores, descending=True)
+    _, sort_indices = torch.sort(optimizer.grasp_scores, descending=False)
     return (optimizer.grasp_scores[sort_indices], optimizer.grasp_config[sort_indices])
 
 
@@ -271,19 +265,21 @@ def main() -> None:
         / "sem-Camera-7bff4fd4dc53de7496dece3f86cb5dd5.npy"
     )
 
-    init_grasps = AllegroGraspConfig.from_grasp_data(GRASP_DATA_PATH, batch_size=8)
+    init_grasps = AllegroGraspConfig.from_grasp_data(GRASP_DATA_PATH, batch_size=64)
     optimizer = AdamOptimizer.from_configs(
-        init_grasps, NERF_CONFIG, CLASSIFIER_CHECKPOINT_PATH, lr=1e-2, momentum=0.9
+        init_grasps, NERF_CONFIG, CLASSIFIER_CHECKPOINT_PATH, lr=1e-3, momentum=0.9
     )
 
-    scores, grasp_configs = run_optimizer_loop(optimizer, 100)
+    scores, grasp_configs = run_optimizer_loop(optimizer, num_steps=35)
 
     assert (
-        scores.shape[0] == grasp_configs.shape[0]
+        scores.shape[0] == grasp_configs.batch_size
     ), f"{scores.shape[0]} != {grasp_configs.shape[0]}"
     assert all(
         x <= y for x, y in zip(scores[:-1], scores[1:])
     ), f"Scores are not sorted: {scores}"
+
+    print(f"best score: {scores[0]}")
 
 
 if __name__ == "__main__":

@@ -16,7 +16,7 @@ class CNN_3D_Classifier(nn.Module):
             conv_channels=[32, 64, 128],
             pool_type=PoolType.MAX,
             dropout_prob=0.1,
-            conv_output_to_1d=ConvOutputTo1D.AVG_POOL_CHANNEL,
+            conv_output_to_1d=ConvOutputTo1D.AVG_POOL_SPATIAL,
         )
 
         # Get conv output shape

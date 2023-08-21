@@ -52,6 +52,27 @@ class AllegroHandConfig(torch.nn.Module):
         )
         self.batch_size = batch_size
 
+    @classmethod
+    def from_values(
+        cls,
+        wrist_pose: pp.LieTensor,
+        joint_angles: torch.Tensor,
+        chain: pk.chain.Chain = load_allegro(),
+        requires_grad: bool = True,
+    ):
+        """
+        Create an AllegroHandConfig from a wrist pose and joint angles.
+        """
+        batch_size = wrist_pose.shape[0]
+        assert joint_angles.shape == (batch_size, 16)
+
+        hand_config = cls(batch_size, chain, requires_grad).to(
+            device=wrist_pose.device, dtype=wrist_pose.dtype
+        )
+        hand_config.set_wrist_pose(wrist_pose)
+        hand_config.set_joint_angles(joint_angles)
+        return hand_config
+
     def set_wrist_pose(self, wrist_pose: pp.LieTensor):
         assert (
             wrist_pose.shape == self.wrist_pose.shape
@@ -107,6 +128,20 @@ class AllegroGraspConfig(torch.nn.Module):
         batch_size = state_dict["hand_config.wrist_pose"].shape[0]
         grasp_config = cls(batch_size)
         grasp_config.load_state_dict(state_dict)
+        return grasp_config
+
+    @classmethod
+    def from_values(cls, wrist_pose, joint_angles, grasp_orientations):
+        batch_size = wrist_pose.shape[0]
+        assert joint_angles.shape == (batch_size, 16)
+        assert grasp_orientations.shape == (batch_size, grasp_utils.NUM_FINGERS, 3, 3)
+
+        grasp_config = cls(batch_size).to(
+            device=wrist_pose.device, dtype=wrist_pose.dtype
+        )
+        grasp_config.hand_config.set_wrist_pose(wrist_pose)
+        grasp_config.hand_config.set_joint_angles(joint_angles)
+        grasp_config.set_grasp_orientations(grasp_orientations)
         return grasp_config
 
     @classmethod
@@ -195,6 +230,12 @@ class AllegroGraspConfig(torch.nn.Module):
         grasp_config.load_state_dict(state_dict)
 
         return grasp_config
+
+    def set_grasp_orientations(self, grasp_orientations: pp.LieTensor):
+        assert (
+            grasp_orientations.shape == self.grasp_orientations.shape
+        ), f"New grasp orientations, shape {grasp_orientations.shape}, do not match current grasp orientations shape {self.grasp_orientations.shape}"
+        self.grasp_orientations.data = grasp_orientations.data.clone()
 
     @property
     def wrist_pose(self) -> pp.LieTensor:

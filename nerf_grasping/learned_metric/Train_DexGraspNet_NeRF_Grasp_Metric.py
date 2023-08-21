@@ -93,6 +93,10 @@ from wandb.util import generate_id
 from enum import Enum, auto
 from nerf_grasping.models.tyler_new_models import get_scheduler
 
+# %%
+# Avoid error out from this: https://github.com/wandb/wandb/issues/5214
+os.environ["WANDB__SERVICE_WAIT"] = "1200"
+
 
 # %%
 def is_notebook() -> bool:

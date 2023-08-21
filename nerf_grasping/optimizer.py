@@ -12,7 +12,13 @@ from functools import partial
 from rich.console import Console
 from rich.table import Table
 
-from rich.progress import Progress, BarColumn, SpinnerColumn, TextColumn
+from rich.progress import (
+    Progress,
+    BarColumn,
+    SpinnerColumn,
+    TextColumn,
+    TimeElapsedColumn,
+)
 
 
 def is_notebook() -> bool:
@@ -88,11 +94,25 @@ class SGDOptimizer(Optimizer):
         classifier_config: pathlib.Path,
         **kwargs,
     ) -> SGDOptimizer:
-        nerf = grasp_utils.load_nerf(nerf_config)
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[bold blue]{task.description}"),
+        ) as progress:
+            task = progress.add_task("Loading NeRF", total=1)
+            nerf = grasp_utils.load_nerf(nerf_config)
+            progress.update(task, advance=1)
 
         # TODO(pculbert): BRITTLE! Support more classifiers etc.
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        cnn = CNN_3D_Classifier(classifier_config).to(device=device)
+
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[bold blue]{task.description}"),
+        ) as progress:
+            task = progress.add_task("Loading CNN", total=1)
+            cnn = CNN_3D_Classifier(classifier_config).to(device=device)
+            progress.update(task, advance=1)
+
         cnn.eval()
 
         # Put grasps on the correc device.
@@ -181,7 +201,13 @@ def main() -> None:
     )
 
     # Sample a batch of grasps from the grasp data.
-    init_grasps = AllegroGraspConfig.from_grasp_data(GRASP_DATA_PATH, batch_size=64)
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[bold blue]{task.description}"),
+    ) as progress:
+        task = progress.add_task("Loading grasp data", total=1)
+        init_grasps = AllegroGraspConfig.from_grasp_data(GRASP_DATA_PATH, batch_size=64)
+        progress.update(task, advance=1)
 
     # Create SGDOptimizer.
     optimizer = SGDOptimizer.from_configs(
@@ -195,7 +221,7 @@ def main() -> None:
     table.add_column("Min value")
     table.add_column("Mean value")
     table.add_column("Max value")
-    table.add_column("Std deviation")
+    table.add_column("Std dev.")
 
     table.add_row(
         "0",

@@ -175,14 +175,9 @@ def get_nerf_configs(nerf_checkpoints_path: str) -> List[str]:
 
 
 def load_nerf(cfg_path: pathlib.Path) -> nerfstudio.models.base_model.Model:
-    with Progress(
-        SpinnerColumn(), TextColumn("[bold blue]{task.description}")
-    ) as progress:
-        task = progress.add_task("Loading NeRF", total=1)
-        _, pipeline, _, _ = eval_utils.eval_setup(cfg_path, test_mode="inference")
-        progress.update(task, advance=1)
+    _, pipeline, _, _ = eval_utils.eval_setup(cfg_path, test_mode="inference")
 
-        return pipeline.model.field
+    return pipeline.model.field
 
 
 def get_grasp_config_from_grasp_data(

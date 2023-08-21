@@ -344,16 +344,11 @@ class GraspMetric(torch.nn.Module):
             grasp_utils.NUM_PTS_Z,
         )
 
-        # TODO(pculbert): fix this to match the classifier trace.
-        # Pass ray_samples.get_positions(), densities into classifier.
-        logits = self.classifier_model(densities, ray_samples.frustums.get_positions())
+        # TODO(pculbert): I think this doubles up some work since we've already computed
+        # the sample positions -- check this isn't a big performance hit.
 
-        # REMOVE, using to ensure gradients are non-zero
-        # for overfit classifier.
-        PROB_SCALING = 1e-2
-
-        # Return failure probabilities (as loss).
-        return torch.nn.functional.softmax(PROB_SCALING * logits, dim=-1)[:, 0]
+        # Pass grasp transforms, densities into classifier.
+        return self.classifier_model(densities, grasp_config.grasp_frame_transforms)
 
 
 def dry_run():

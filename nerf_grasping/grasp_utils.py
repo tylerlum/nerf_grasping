@@ -14,6 +14,8 @@ from typing import List, Tuple
 from nerfstudio.cameras.rays import RayBundle, RaySamples
 from nerfstudio.utils import eval_utils
 
+from rich.progress import Progress, BarColumn, SpinnerColumn, TextColumn
+
 # Grid of points in grasp frame (x, y, z)
 GRASP_DEPTH_MM = 20
 FINGER_WIDTH_MM = 10
@@ -173,8 +175,14 @@ def get_nerf_configs(nerf_checkpoints_path: str) -> List[str]:
 
 
 def load_nerf(cfg_path: pathlib.Path) -> nerfstudio.models.base_model.Model:
-    _, pipeline, _, _ = eval_utils.eval_setup(cfg_path, test_mode="inference")
-    return pipeline.model.field
+    with Progress(
+        SpinnerColumn(), TextColumn("[bold blue]{task.description}")
+    ) as progress:
+        task = progress.add_task("Loading NeRF", total=1)
+        _, pipeline, _, _ = eval_utils.eval_setup(cfg_path, test_mode="inference")
+        progress.update(task, advance=1)
+
+        return pipeline.model.field
 
 
 def get_grasp_config_from_grasp_data(

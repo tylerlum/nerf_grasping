@@ -68,14 +68,17 @@ class CNN_3D_Classifier(Classifier):
         ).to(nerf_densities.device)
 
         # Run model
-        scores = self.model(batch_data_input.nerf_alphas_with_augmented_coords)
+        logits = self.model(batch_data_input.nerf_alphas_with_augmented_coords)
 
         N_CLASSES = 2
-        assert scores.shape == (batch_size, N_CLASSES)
+        assert logits.shape == (batch_size, N_CLASSES)
 
-        scores = scores[:, 1]  # take the "grasp success" score
+        # REMOVE, using to ensure gradients are non-zero
+        # for overfit classifier.
+        PROB_SCALING = 1e0
 
-        return scores
+        # Return failure probabilities (as loss).
+        return nn.functional.softmax(PROB_SCALING * logits, dim=-1)[:, 0]
 
 
 def main() -> None:
@@ -84,7 +87,7 @@ def main() -> None:
         pathlib.Path(nerf_grasping.get_package_root())
         / "learned_metric"
         / "Train_DexGraspNet_NeRF_Grasp_Metric_workspaces"
-        / "2023-08-19_16-26-29"
+        / "2023-08-20_17-18-07"
         / "checkpoint_1000.pt"
     )
     assert CONFIG.exists(), f"CONFIG: {CONFIG} does not exist"

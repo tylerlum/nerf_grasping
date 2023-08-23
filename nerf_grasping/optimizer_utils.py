@@ -8,7 +8,7 @@ import torch
 import nerf_grasping
 from nerf_grasping import grasp_utils
 
-from typing import List
+from typing import List, Dict, Any
 
 ALLEGRO_URDF_PATH = list(
     pathlib.Path(nerf_grasping.get_package_root()).rglob(
@@ -225,7 +225,11 @@ class AllegroGraspConfig(torch.nn.Module):
         grasp_config = cls(batch_size)
 
         # Sample (with replacement) random indices into grasp data.
-        indices = np.random.choice(np.arange(len(grasp_data)), batch_size)
+        RANDOMIZE = False
+        if RANDOMIZE:
+            indices = np.random.choice(np.arange(len(grasp_data)), batch_size)
+        else:
+            indices = np.arange(batch_size)
         grasp_data = grasp_data[indices]
 
         # Assemble these samples into the data we need for the grasp config.
@@ -261,6 +265,24 @@ class AllegroGraspConfig(torch.nn.Module):
         grasp_config.load_state_dict(state_dict)
 
         return grasp_config
+
+    def to_dexgraspnet_dicts(self) -> List[Dict[str, Any]]:
+        qpos_list = grasp_utils.get_dexgraspnet_qpos_list(
+            joint_angles=self.joint_angles.detach(),
+            rotation_matrix=self.wrist_pose.rotation().matrix().detach(),
+            translation=self.wrist_pose.translation().detach(),
+        )
+        grasp_dirs = self.grasp_dirs
+        assert len(qpos_list) == self.batch_size
+        n_fingers = 4
+        assert grasp_dirs.shape == (self.batch_size, n_fingers, 3)
+
+        dexgraspnet_dicts = []
+        for i in range(self.batch_size):
+            dexgraspnet_dict = {}
+            dexgraspnet_dict["qpos"] = qpos_list[i]
+            dexgraspnet_dict["grasp_dirs"] = grasp_dirs[i].tolist()
+        return dexgraspnet_dicts
 
     def set_grasp_orientations(self, grasp_orientations: pp.LieTensor):
         assert (

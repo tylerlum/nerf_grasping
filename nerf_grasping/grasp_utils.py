@@ -10,7 +10,7 @@ import pypose as pp
 import torch
 import transforms3d
 
-from typing import List, Tuple
+from typing import List, Tuple, Dict, Any
 from nerfstudio.cameras.rays import RayBundle, RaySamples
 from nerfstudio.utils import eval_utils
 
@@ -295,3 +295,29 @@ def get_fingertip_transforms_from_grasp_data(grasp_data: dict) -> pp.LieTensor:
     assert transforms.ltype == pp.SE3_type
 
     return transforms
+
+
+def get_dexgraspnet_qpos_list(
+    joint_angles: torch.Tensor, rotation_matrix: torch.Tensor, translation: torch.Tensor
+) -> List[Dict[str, Any]]:
+    batch_size = joint_angles.shape[0]
+    assert joint_angles.shape == (batch_size, len(ALLEGRO_JOINT_NAMES))
+    assert rotation_matrix.shape == (batch_size, 3, 3)
+    assert translation.shape == (batch_size, 3)
+
+    qpos_list = []
+    for i in range(batch_size):
+        qpos = {}
+        qpos.update(dict(zip(ALLEGRO_JOINT_NAMES, joint_angles[i].tolist())))
+        qpos.update(
+            dict(
+                zip(
+                    DEXGRASPNET_ROT_NAMES,
+                    list(transforms3d.euler.mat2euler(rotation_matrix[i], axes="sxyz")),
+                )
+            )
+        )
+        qpos.update(dict(zip(DEXGRASPNET_TRANS_NAMES, translation[i].tolist())))
+        qpos_list.append(qpos)
+
+    return qpos_list

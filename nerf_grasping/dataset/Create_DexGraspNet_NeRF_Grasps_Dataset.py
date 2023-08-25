@@ -36,7 +36,6 @@ from nerf_grasping.dataset.DexGraspNet_NeRF_Grasps_utils import (
     plot_mesh_and_query_points,
     plot_mesh_and_transforms,
     plot_mesh_and_high_density_points,
-    get_object_scale,
     get_ray_samples_in_mesh_region,
 )
 from nerf_grasping.dataset.timers import LoopTimer
@@ -51,8 +50,6 @@ from nerf_grasping.grasp_utils import (
     get_ray_origins_finger_frame,
     get_nerf_configs,
     load_nerf,
-    get_contact_candidates_and_target_candidates,
-    get_start_and_end_and_up_points,
     get_transform,
 )
 from functools import partial

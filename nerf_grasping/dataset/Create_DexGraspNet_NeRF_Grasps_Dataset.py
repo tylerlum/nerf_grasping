@@ -39,6 +39,7 @@ from nerf_grasping.dataset.DexGraspNet_NeRF_Grasps_utils import (
     get_ray_samples_in_mesh_region,
 )
 from nerf_grasping.dataset.timers import LoopTimer
+from nerf_grasping.optimizer_utils import AllegroHandConfig
 from nerf_grasping.grasp_utils import (
     NUM_PTS_X,
     NUM_PTS_Y,
@@ -212,9 +213,11 @@ with h5py.File(OUTPUT_FILE_PATH, "w") as hdf5_file:
             mesh.apply_transform(trimesh.transformations.scale_matrix(object_scale))
 
         with loop_timer.add_section_timer("load grasp data"):
-            evaled_grasp_config_dicts: List[Dict[str, Any]] = np.load(evaled_grasp_config_dicts_filepath, allow_pickle=True)
+            evaled_grasp_config_dicts: List[Dict[str, Any]] = np.load(
+                evaled_grasp_config_dicts_filepath, allow_pickle=True
+            )
 
-        for grasp_idx, grasp_data in (
+        for grasp_idx, evaled_grasp_config_dict in (
             pbar := tqdm(
                 enumerate(evaled_grasp_config_dicts),
                 total=len(evaled_grasp_config_dicts),
@@ -225,10 +228,12 @@ with h5py.File(OUTPUT_FILE_PATH, "w") as hdf5_file:
             with loop_timer.add_section_timer("get_transforms"):
                 try:
                     # TODO: Convert grasp_orienttions and fingertip positoins to transforms
-                    transforms = [
-                        get_transform(start_points[i], end_points[i], up_points[i])
-                        for i in range(NUM_FINGERS)
-                    ]
+                    hand_config = AllegroHandConfig.from_hand_config_dicts(
+                        evaled_grasp_config_dicts[grasp_idx : grasp_idx + 1],
+                    )
+                    transforms = hand_config.get_fingertip_transforms()
+                    assert transforms.lshape == (1, NUM_FINGERS)
+                    transforms = [transforms[0, i] for i in range(NUM_FINGERS)]
                 except ValueError as e:
                     print("+" * 80)
                     print(f"ValueError: {e}")
@@ -403,7 +408,9 @@ with h5py.File(OUTPUT_FILE_PATH, "w") as hdf5_file:
                         continue
 
                     nerf_densities_dataset[current_idx] = nerf_densities
-                    grasp_success_dataset[current_idx] = grasp_data["passed_eval"]
+                    grasp_success_dataset[current_idx] = evaled_grasp_config_dict[
+                        "passed_eval"
+                    ]
                     nerf_config_dataset[current_idx] = str(config)
                     object_code_dataset[current_idx] = object_code
                     object_scale_dataset[current_idx] = object_scale

@@ -180,13 +180,10 @@ def load_nerf(cfg_path: pathlib.Path) -> nerfstudio.models.base_model.Model:
     return pipeline.model.field
 
 
-def get_grasp_config_from_grasp_data(
-    grasp_data: dict,
-) -> Tuple[pp.LieTensor, torch.Tensor, pp.LieTensor]:
-    """
-    Given a dict of grasp data, return a tuple of the wrist pose, joint angles, and fingertip transforms.
-    """
-    qpos = grasp_data["qpos"]
+def get_hand_config_from_hand_config_dict(
+    hand_config_dict: dict,
+) -> Tuple[pp.LieTensor, torch.Tensor]:
+    qpos = hand_config_dict["qpos"]
 
     # Get wrist pose.
     wrist_translation = torch.tensor([qpos[tn] for tn in DEXGRASPNET_TRANS_NAMES])
@@ -203,18 +200,14 @@ def get_grasp_config_from_grasp_data(
     joint_angles = torch.tensor([qpos[jn] for jn in ALLEGRO_JOINT_NAMES])
     assert joint_angles.shape == (16,)
 
-    # Get grasp orientations.
-    fingertip_transforms = get_fingertip_transforms_from_grasp_data(grasp_data)
-    grasp_orientations = pp.from_matrix(fingertip_transforms.matrix(), pp.SO3_type)
-
-    return wrist_pose, joint_angles, grasp_orientations
+    return wrist_pose, joint_angles
 
 
 def normalize(x: np.ndarray) -> np.ndarray:
     return x / np.linalg.norm(x)
 
 
-def get_transform(start: np.ndarray, end: np.ndarray, up: np.ndarray) -> np.ndarray:
+def get_transform(start: np.ndarray, end: np.ndarray, up: np.ndarray) -> pp.LieTensor:
     # BRITTLE: Assumes new_z and new_y are pretty much perpendicular
     # If not, tries to find closest possible
     new_z = normalize(end - start)

@@ -16,11 +16,12 @@
 # %% [markdown]
 # # Create DexGraspNet NeRF Grasps
 #
-# ## Summary (Jul 26, 2023)
+# ## Summary (Aug 25, 2023)
 #
-# The purpose of this script is to iterate through each NeRF object and labeled grasp, sample densities in the grasp trajectory, and storing the data
+# The purpose of this script is to iterate through each NeRF object and evaled grasp config, sample densities in the grasp trajectory, and store the data
 
 # %%
+import pathlib
 import h5py
 import math
 import nerf_grasping
@@ -30,11 +31,11 @@ import numpy as np
 from tqdm import tqdm
 from datetime import datetime
 import time
+from typing import Tuple, List, Dict, Any
 from nerf_grasping.dataset.DexGraspNet_NeRF_Grasps_utils import (
     plot_mesh_and_query_points,
     plot_mesh_and_transforms,
     plot_mesh_and_high_density_points,
-    get_object_code,
     get_object_scale,
     get_ray_samples_in_mesh_region,
 )
@@ -45,6 +46,7 @@ from nerf_grasping.grasp_utils import (
     NUM_PTS_Z,
     GRASP_DEPTH_MM,
     NUM_FINGERS,
+    DIST_BTWN_PTS_MM,
     get_ray_samples,
     get_ray_origins_finger_frame,
     get_nerf_configs,
@@ -83,51 +85,57 @@ if not os.getcwd().split("/")[-1] == "nerf_grasping":
 
 tqdm = partial(std_tqdm, dynamic_ncols=True)
 
+
+# %%
+def parse_object_code_and_scale(object_code_and_scale_str: str) -> Tuple[str, float]:
+    keyword = "_0_"
+    idx = object_code_and_scale_str.rfind(keyword)
+    object_code = object_code_and_scale_str[:idx]
+
+    idx_offset_for_scale = keyword.index("0")
+    object_scale = float(
+        object_code_and_scale_str[idx + idx_offset_for_scale :].replace("_", ".")
+    )
+    return object_code, object_scale
+
+
 # %%
 # PARAMS
-DEXGRASPNET_DATA_ROOT = "."
-GRASP_DATASET_FOLDER = "graspdata"
-NERF_CHECKPOINTS_FOLDER = "nerfcheckpoints"
-OUTPUT_FOLDER = f"{GRASP_DATASET_FOLDER}_learned_metric_dataset"
+DEXGRASPNET_DATA_ROOT = pathlib.Path(".")
+EVALED_GRASP_CONFIG_DICTS_FOLDER = "2023-08-25_evaled_grasp_config_dicts"
+NERF_CHECKPOINTS_FOLDER = "2023-08-25_nerfcheckpoints"
+OUTPUT_FOLDER = f"{EVALED_GRASP_CONFIG_DICTS_FOLDER}_learned_metric_dataset"
 OUTPUT_FILENAME = f"{datetime_str}_learned_metric_dataset.h5"
-PLOT_ONLY_ONE = False
+PLOT_ONLY_ONE = True
 SAVE_DATASET = True
 PRINT_TIMING = True
 LIMIT_NUM_CONFIGS = None  # None for no limit
 
 # %%
-DEXGRASPNET_MESHDATA_ROOT = os.path.join(DEXGRASPNET_DATA_ROOT, "meshdata")
-DEXGRASPNET_DATASET_ROOT = os.path.join(
-    DEXGRASPNET_DATA_ROOT,
-    GRASP_DATASET_FOLDER,
+DEXGRASPNET_MESHDATA_ROOT_PATH = DEXGRASPNET_DATA_ROOT / "meshdata"
+EVALED_GRASP_CONFIG_DICTS_PATH = (
+    DEXGRASPNET_DATA_ROOT / EVALED_GRASP_CONFIG_DICTS_FOLDER
 )
 
-OUTPUT_FOLDER_PATH = os.path.join(
-    nerf_grasping.get_repo_root(),
-    OUTPUT_FOLDER,
-)
-OUTPUT_FILE_PATH = os.path.join(
-    OUTPUT_FOLDER_PATH,
-    OUTPUT_FILENAME,
-)
-
+OUTPUT_FOLDER_PATH = pathlib.Path(nerf_grasping.get_repo_root()) / OUTPUT_FOLDER
+OUTPUT_FILE_PATH = OUTPUT_FOLDER_PATH / OUTPUT_FILENAME
 
 # %%
-if not os.path.exists(OUTPUT_FOLDER_PATH):
+if not OUTPUT_FOLDER_PATH.exists():
     print(f"Creating output folder {OUTPUT_FOLDER_PATH}")
-    os.makedirs(OUTPUT_FOLDER_PATH)
+    OUTPUT_FOLDER_PATH.mkdir(parents=True)
 else:
     print(f"Output folder {OUTPUT_FOLDER_PATH} already exists")
 
 # %%
-if os.path.exists(OUTPUT_FILE_PATH):
+if OUTPUT_FILE_PATH.exists():
     print(f"Output file {OUTPUT_FILE_PATH} already exists")
     assert False, "Output file already exists"
 
 
 # %%
 nerf_configs = get_nerf_configs(
-    nerf_checkpoints_path=NERF_CHECKPOINTS_FOLDER,
+    nerf_checkpoints_path=str(NERF_CHECKPOINTS_FOLDER),
 )
 
 
@@ -139,19 +147,14 @@ if LIMIT_NUM_CONFIGS is not None:
     print(f"Limiting number of configs to {LIMIT_NUM_CONFIGS}")
     nerf_configs = nerf_configs[:LIMIT_NUM_CONFIGS]
 
-NUM_DATA_POINTS_PER_OBJECT = 500
-NUM_SCALES = 5
-APPROX_NUM_DATA_POINTS_PER_OBJECT_PER_SCALE = NUM_DATA_POINTS_PER_OBJECT // NUM_SCALES
-BUFFER_SCALING = 2
-MAX_NUM_DATA_POINTS = (
-    len(nerf_configs) * APPROX_NUM_DATA_POINTS_PER_OBJECT_PER_SCALE * BUFFER_SCALING
-)
+NUM_DATA_POINTS_PER_FILE = 500
+BUFFER_SCALING = 2  # Not sure if need this, but just in case
+MAX_NUM_DATA_POINTS = len(nerf_configs) * NUM_DATA_POINTS_PER_FILE * BUFFER_SCALING
 print(f"MAX_NUM_DATA_POINTS: {MAX_NUM_DATA_POINTS}")
 
 with h5py.File(OUTPUT_FILE_PATH, "w") as hdf5_file:
     current_idx = 0
 
-    # TODO: Figure out what needs to be stored
     nerf_densities_dataset = hdf5_file.create_dataset(
         "/nerf_densities",
         shape=(MAX_NUM_DATA_POINTS, NUM_FINGERS, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z),
@@ -181,26 +184,27 @@ with h5py.File(OUTPUT_FILE_PATH, "w") as hdf5_file:
     loop_timer = LoopTimer()
     for config in tqdm(nerf_configs, desc="nerf configs", dynamic_ncols=True):
         with loop_timer.add_section_timer("prepare to read in data"):
-            # Prepare to read in data
-
-            object_code = get_object_code(config)
-            object_scale = get_object_scale(config)
-            mesh_path = os.path.join(
-                DEXGRASPNET_MESHDATA_ROOT,
-                object_code,
-                "coacd",
-                "decomposed.obj",
+            object_code_and_scale_str = config.name
+            object_code, object_scale = parse_object_code_and_scale(
+                object_code_and_scale_str
             )
-            grasp_dataset_path = os.path.join(
-                DEXGRASPNET_DATASET_ROOT,
-                f"{object_code}.npy",
+
+            # Prepare to read in data
+            mesh_path = (
+                DEXGRASPNET_MESHDATA_ROOT_PATH
+                / object_code
+                / "coacd"
+                / "decomposed.obj"
+            )
+            evaled_grasp_config_dicts_filepath = (
+                EVALED_GRASP_CONFIG_DICTS_PATH / f"{object_code_and_scale_str}.npy"
             )
 
             # Check that mesh and grasp dataset exist
             assert os.path.exists(mesh_path), f"mesh_path {mesh_path} does not exist"
             assert os.path.exists(
-                grasp_dataset_path
-            ), f"grasp_dataset_path {grasp_dataset_path} does not exist"
+                evaled_grasp_config_dicts_filepath
+            ), f"evaled_grasp_config_dicts_filepath {evaled_grasp_config_dicts_filepath} does not exist"
 
         # Read in data
         with loop_timer.add_section_timer("load_nerf"):
@@ -211,37 +215,19 @@ with h5py.File(OUTPUT_FILE_PATH, "w") as hdf5_file:
             mesh.apply_transform(trimesh.transformations.scale_matrix(object_scale))
 
         with loop_timer.add_section_timer("load grasp data"):
-            full_grasp_data_list = np.load(grasp_dataset_path, allow_pickle=True)
-            correct_scale_grasp_data_list = [
-                grasp_data
-                for grasp_data in full_grasp_data_list
-                if math.isclose(grasp_data["scale"], object_scale, rel_tol=1e-3)
-            ]
+            evaled_grasp_config_dicts: List[Dict[str, Any]] = np.load(evaled_grasp_config_dicts_filepath, allow_pickle=True)
 
         for grasp_idx, grasp_data in (
             pbar := tqdm(
-                enumerate(correct_scale_grasp_data_list),
-                total=len(correct_scale_grasp_data_list),
+                enumerate(evaled_grasp_config_dicts),
+                total=len(evaled_grasp_config_dicts),
                 dynamic_ncols=True,
             )
         ):
             pbar.set_description(f"grasp data, current_idx: {current_idx}")
-            # Go from contact candidates to transforms
-            with loop_timer.add_section_timer(
-                "get_contact_candidates_and_target_candidates"
-            ):
-                (
-                    contact_candidates,
-                    target_contact_candidates,
-                ) = get_contact_candidates_and_target_candidates(grasp_data)
-            with loop_timer.add_section_timer("get_start_and_end_and_up_points"):
-                start_points, end_points, up_points = get_start_and_end_and_up_points(
-                    contact_candidates=contact_candidates,
-                    target_contact_candidates=target_contact_candidates,
-                    num_fingers=NUM_FINGERS,
-                )
             with loop_timer.add_section_timer("get_transforms"):
                 try:
+                    # TODO: Convert grasp_orienttions and fingertip positoins to transforms
                     transforms = [
                         get_transform(start_points[i], end_points[i], up_points[i])
                         for i in range(NUM_FINGERS)
@@ -261,7 +247,7 @@ with h5py.File(OUTPUT_FILE_PATH, "w") as hdf5_file:
                     for transform in transforms
                 ]
 
-            with loop_timer.add_section_timer("ig_to_nerf"):
+            with loop_timer.add_section_timer("get_query_points"):
                 query_points_list = [
                     np.copy(
                         rr.frustums.get_positions().cpu().numpy()
@@ -328,10 +314,6 @@ with h5py.File(OUTPUT_FILE_PATH, "w") as hdf5_file:
                         .numpy()
                         .reshape(-1, 3)
                     )
-                    query_points_in_mesh_region_nerf_frame = ig_to_nerf(
-                        query_points_in_mesh_region_isaac_frame, return_tensor=False
-                    )
-
                     nerf_densities_in_mesh_region = (
                         nerf_model.get_density(ray_samples_in_mesh_region.to("cuda"))[0]
                         .reshape(-1)
@@ -424,7 +406,7 @@ with h5py.File(OUTPUT_FILE_PATH, "w") as hdf5_file:
                         continue
 
                     nerf_densities_dataset[current_idx] = nerf_densities
-                    grasp_success_dataset[current_idx] = grasp_data["valid"]
+                    grasp_success_dataset[current_idx] = grasp_data["passed_eval"]
                     nerf_config_dataset[current_idx] = str(config)
                     object_code_dataset[current_idx] = object_code
                     object_scale_dataset[current_idx] = object_scale

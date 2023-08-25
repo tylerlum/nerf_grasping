@@ -30,7 +30,6 @@ import trimesh
 import numpy as np
 from tqdm import tqdm
 from datetime import datetime
-import time
 from typing import Tuple, List, Dict, Any
 from nerf_grasping.dataset.DexGraspNet_NeRF_Grasps_utils import (
     plot_mesh_and_query_points,
@@ -39,7 +38,7 @@ from nerf_grasping.dataset.DexGraspNet_NeRF_Grasps_utils import (
     get_ray_samples_in_mesh_region,
 )
 from nerf_grasping.dataset.timers import LoopTimer
-from nerf_grasping.optimizer_utils import AllegroHandConfig
+from nerf_grasping.optimizer_utils import AllegroGraspConfig
 from nerf_grasping.grasp_utils import (
     NUM_PTS_X,
     NUM_PTS_Y,
@@ -51,7 +50,6 @@ from nerf_grasping.grasp_utils import (
     get_ray_origins_finger_frame,
     get_nerf_configs,
     load_nerf,
-    get_transform,
 )
 from functools import partial
 
@@ -95,6 +93,14 @@ def parse_object_code_and_scale(object_code_and_scale_str: str) -> Tuple[str, fl
         object_code_and_scale_str[idx + idx_offset_for_scale :].replace("_", ".")
     )
     return object_code, object_scale
+
+
+def parse_nerf_config(nerf_config: pathlib.Path) -> str:
+    # Eg. PosixPath('2023-08-25_nerfcheckpoints/sem-Gun-4745991e7c0c7966a93f1ea6ebdeec6f_0_10/nerfacto/2023-08-25_132225')
+    # Return sem-Gun-4745991e7c0c7966a93f1ea6ebdeec6f_0_10
+    parts = nerf_config.parts
+    object_code_and_scale_str = parts[-4]
+    return object_code_and_scale_str
 
 
 # %%
@@ -182,7 +188,7 @@ with h5py.File(OUTPUT_FILE_PATH, "w") as hdf5_file:
     loop_timer = LoopTimer()
     for config in tqdm(nerf_configs, desc="nerf configs", dynamic_ncols=True):
         with loop_timer.add_section_timer("prepare to read in data"):
-            object_code_and_scale_str = config.name
+            object_code_and_scale_str = parse_nerf_config(config)
             object_code, object_scale = parse_object_code_and_scale(
                 object_code_and_scale_str
             )
@@ -227,13 +233,14 @@ with h5py.File(OUTPUT_FILE_PATH, "w") as hdf5_file:
             pbar.set_description(f"grasp data, current_idx: {current_idx}")
             with loop_timer.add_section_timer("get_transforms"):
                 try:
-                    # TODO: Convert grasp_orienttions and fingertip positoins to transforms
-                    hand_config = AllegroHandConfig.from_hand_config_dicts(
+                    grasp_config = AllegroGraspConfig.from_grasp_config_dicts(
                         evaled_grasp_config_dicts[grasp_idx : grasp_idx + 1],
                     )
-                    transforms = hand_config.get_fingertip_transforms()
+                    transforms = grasp_config.grasp_frame_transforms
                     assert transforms.lshape == (1, NUM_FINGERS)
-                    transforms = [transforms[0, i] for i in range(NUM_FINGERS)]
+                    transforms = [
+                        transforms[0, i].detach().clone() for i in range(NUM_FINGERS)
+                    ]
                 except ValueError as e:
                     print("+" * 80)
                     print(f"ValueError: {e}")
@@ -283,7 +290,7 @@ with h5py.File(OUTPUT_FILE_PATH, "w") as hdf5_file:
 
             # Plot
             if PLOT_ONLY_ONE:
-                delta = DIST_BTWN_PTS_MM
+                delta = DIST_BTWN_PTS_MM / 1000
                 other_delta = GRASP_DEPTH_MM / 1000 / (NUM_PTS_Z - 1)
                 assert np.isclose(delta, other_delta)
 
@@ -424,5 +431,3 @@ with h5py.File(OUTPUT_FILE_PATH, "w") as hdf5_file:
         if PRINT_TIMING:
             loop_timer.pretty_print_section_times()
         print()
-
-# %%

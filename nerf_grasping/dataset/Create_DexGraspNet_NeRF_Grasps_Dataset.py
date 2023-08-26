@@ -265,6 +265,7 @@ with h5py.File(args.output_filepath, "w") as hdf5_file:
             )
         ):
             pbar.set_description(f"grasp data, current_idx: {current_idx}")
+            # TODO: Break up section timer into load/FK calls to see what's slowing us down.
             with loop_timer.add_section_timer("get_transforms"):
                 try:
                     # TODO: Potentially clean this up using AllegroGraspConfig.from_grasp_config_dicts

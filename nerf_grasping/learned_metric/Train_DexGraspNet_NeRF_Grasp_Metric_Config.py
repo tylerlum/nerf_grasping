@@ -22,6 +22,8 @@ class DataConfig:
     input_dataset_path: str = MISSING
     max_num_data_points: Optional[int] = MISSING
 
+    use_random_rotations: bool = MISSING
+
 
 @dataclass
 class DataLoaderConfig:
@@ -64,6 +66,8 @@ class Config:
     dataloader: DataLoaderConfig = field(default_factory=DataLoaderConfig)
     wandb: WandbConfig = field(default_factory=WandbConfig)
     training: TrainingConfig = field(default_factory=TrainingConfig)
-    checkpoint_workspace: CheckpointWorkspaceConfig = field(default_factory=CheckpointWorkspaceConfig)
+    checkpoint_workspace: CheckpointWorkspaceConfig = field(
+        default_factory=CheckpointWorkspaceConfig
+    )
     random_seed: int = MISSING
     dry_run: bool = MISSING

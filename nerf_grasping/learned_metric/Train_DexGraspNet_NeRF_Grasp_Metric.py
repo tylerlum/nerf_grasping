@@ -268,7 +268,7 @@ else:
 
 # %%
 # Add to config
-wandb.init(
+run = wandb.init(
     entity=cfg.wandb.entity,
     project=cfg.wandb.project,
     name=cfg.wandb.name,
@@ -484,7 +484,8 @@ def sample_random_rotate_transforms(N: int) -> pp.LieTensor:
 
 @localscope.mfc
 def custom_collate_fn(
-    batch: List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor, str]]
+    batch: List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor, str]],
+    use_random_rotations: bool = True,
 ) -> BatchData:
     batch = torch.utils.data.dataloader.default_collate(batch)
     nerf_densities, grasp_successes, grasp_transforms, nerf_configs = batch
@@ -492,7 +493,10 @@ def custom_collate_fn(
     grasp_transforms = pp.from_matrix(grasp_transforms, pp.SE3_type)
 
     batch_size = nerf_densities.shape[0]
-    random_rotate_transform = sample_random_rotate_transforms(N=batch_size)
+    if use_random_rotations:
+        random_rotate_transform = sample_random_rotate_transforms(N=batch_size)
+    else:
+        random_rotate_transform = None
 
     return BatchData(
         input=BatchDataInput(
@@ -512,7 +516,9 @@ train_loader = DataLoader(
     shuffle=True,
     pin_memory=cfg.dataloader.pin_memory,
     num_workers=cfg.dataloader.num_workers,
-    collate_fn=custom_collate_fn,
+    collate_fn=partial(
+        custom_collate_fn, use_random_rotations=cfg.data.use_random_rotations
+    ),
 )
 val_loader = DataLoader(
     val_dataset,
@@ -520,7 +526,9 @@ val_loader = DataLoader(
     shuffle=False,
     pin_memory=cfg.dataloader.pin_memory,
     num_workers=cfg.dataloader.num_workers,
-    collate_fn=custom_collate_fn,
+    collate_fn=partial(
+        custom_collate_fn, use_random_rotations=False
+    ),  # Run val over actual grasp transforms (no random rotations)
 )
 test_loader = DataLoader(
     test_dataset,
@@ -528,8 +536,15 @@ test_loader = DataLoader(
     shuffle=False,
     pin_memory=cfg.dataloader.pin_memory,
     num_workers=cfg.dataloader.num_workers,
-    collate_fn=custom_collate_fn,
+    collate_fn=partial(
+        custom_collate_fn, use_random_rotations=False
+    ),  # Run test over actual test transforms.
 )
+
+if cfg.data.use_random_rotations:
+    print("Using random rotations for training")
+else:
+    print("Not using random rotations for training")
 
 
 # %%
@@ -590,8 +605,9 @@ def plot_example(
     object_scale = get_object_scale(nerf_config_path)
 
     # Path to meshes
-    DEXGRASPNET_DATA_ROOT = nerf_grasping.get_repo_root()
-    DEXGRASPNET_MESHDATA_ROOT = os.path.join(DEXGRASPNET_DATA_ROOT, "meshdata")
+    DEXGRASPNET_DATA_ROOT = str(pathlib.Path(nerf_grasping.get_repo_root()) / "data")
+    # TODO: add to cfg.
+    DEXGRASPNET_MESHDATA_ROOT = os.path.join(DEXGRASPNET_DATA_ROOT, "meshdata_trial")
     mesh_path = os.path.join(
         DEXGRASPNET_MESHDATA_ROOT,
         object_code,
@@ -640,13 +656,14 @@ def plot_example(
     return fig
 
 
+# Add config var to enable / disable plotting.
 # %%
-fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=15)
-fig.show()
+# fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=15)
+# fig.show()
 
 # %%
-fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=15, augmented=True)
-fig.show()
+# fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=15, augmented=True)
+# fig.show()
 
 # %%
 EXAMPLE_BATCH_DATA.grasp_success

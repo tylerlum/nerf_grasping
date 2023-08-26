@@ -77,10 +77,6 @@ class AllegroHandConfig(torch.nn.Module):
 
     @classmethod
     def from_hand_config_dicts(cls, hand_config_dicts: List[Dict[str, Any]]):
-        # Load grasp data + instantiate correctly-sized config object.
-        batch_size = len(hand_config_dicts)
-        hand_config = cls(batch_size)
-
         # Assemble these samples into the data we need for the grasp config.
         hand_data_tuples = [
             grasp_utils.get_hand_config_from_hand_config_dict(x)
@@ -89,25 +85,9 @@ class AllegroHandConfig(torch.nn.Module):
 
         # List of tuples -> tuple of lists.
         wrist_pose, joint_angles = list(zip(*hand_data_tuples))
-
-        # Set the grasp config's data.
-        device = hand_config.wrist_pose.device
-        dtype = hand_config.wrist_pose.dtype
-        state_dict = {}
-        state_dict["wrist_pose"] = torch.stack(wrist_pose, dim=0).to(
-            device=device,
-            dtype=dtype,
-        )
-
-        state_dict["joint_angles"] = torch.stack(joint_angles, dim=0).to(
-            device=device,
-            dtype=dtype,
-        )
-
-        # Load state dict for module.
-        hand_config.load_state_dict(state_dict)
-
-        return hand_config
+        wrist_pose = torch.stack(wrist_pose, dim=0)
+        joint_angles = torch.stack(joint_angles, dim=0)
+        return cls.from_values(wrist_pose=wrist_pose, joint_angles=joint_angles)
 
     def set_wrist_pose(self, wrist_pose: pp.LieTensor):
         assert (

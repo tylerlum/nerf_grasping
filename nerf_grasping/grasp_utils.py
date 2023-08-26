@@ -205,37 +205,3 @@ def get_hand_config_from_hand_config_dict(
 
 def normalize(x: np.ndarray) -> np.ndarray:
     return x / np.linalg.norm(x)
-
-
-def get_transform(start: np.ndarray, end: np.ndarray, up: np.ndarray) -> pp.LieTensor:
-    # BRITTLE: Assumes new_z and new_y are pretty much perpendicular
-    # If not, tries to find closest possible
-    new_z = normalize(end - start)
-    # new_y should be perpendicular to new_z
-    up_dir = normalize(up - start)
-    new_y = normalize(up_dir - np.dot(up_dir, new_z) * new_z)
-    new_x = np.cross(new_y, new_z)
-
-    transform = np.eye(4)
-    transform[:3, :3] = np.stack([new_x, new_y, new_z], axis=1)
-    transform[:3, 3] = start
-    return pp.from_matrix(transform, pp.SE3_type)
-
-
-def get_fingertip_transforms_from_grasp_data(grasp_data: dict) -> pp.LieTensor:
-    """
-    Given a dict of grasp data, return a tensor of fingertip transforms.
-    """
-    # TODO: Update this
-    transforms = torch.stack(
-        [
-            get_transform(start, end, up)
-            for start, end, up in zip(start_points, end_points, up_points)
-        ],
-        axis=0,
-    )
-
-    assert transforms.lshape == (NUM_FINGERS,)
-    assert transforms.ltype == pp.SE3_type
-
-    return transforms

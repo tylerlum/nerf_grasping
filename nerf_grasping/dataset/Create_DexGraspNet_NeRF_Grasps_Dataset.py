@@ -86,6 +86,8 @@ tqdm = partial(std_tqdm, dynamic_ncols=True)
 
 # %%
 def parse_object_code_and_scale(object_code_and_scale_str: str) -> Tuple[str, float]:
+    # Input: sem-Gun-4745991e7c0c7966a93f1ea6ebdeec6f_0_10
+    # Output: sem-Gun-4745991e7c0c7966a93f1ea6ebdeec6f, 0.10
     keyword = "_0_"
     idx = object_code_and_scale_str.rfind(keyword)
     object_code = object_code_and_scale_str[:idx]
@@ -98,7 +100,7 @@ def parse_object_code_and_scale(object_code_and_scale_str: str) -> Tuple[str, fl
 
 
 def parse_nerf_config(nerf_config: pathlib.Path) -> str:
-    # Eg. PosixPath('2023-08-25_nerfcheckpoints/sem-Gun-4745991e7c0c7966a93f1ea6ebdeec6f_0_10/nerfacto/2023-08-25_132225')
+    # Input: PosixPath('2023-08-25_nerfcheckpoints/sem-Gun-4745991e7c0c7966a93f1ea6ebdeec6f_0_10/nerfacto/2023-08-25_132225/config.yml')
     # Return sem-Gun-4745991e7c0c7966a93f1ea6ebdeec6f_0_10
     parts = nerf_config.parts
     object_code_and_scale_str = parts[-4]
@@ -112,7 +114,7 @@ EVALED_GRASP_CONFIG_DICTS_FOLDER = "2023-08-25_evaled_grasp_config_dicts"
 NERF_CHECKPOINTS_FOLDER = "2023-08-25_nerfcheckpoints"
 OUTPUT_FOLDER = f"{EVALED_GRASP_CONFIG_DICTS_FOLDER}_learned_metric_dataset"
 OUTPUT_FILENAME = f"{datetime_str}_learned_metric_dataset.h5"
-PLOT_ONLY_ONE = True
+PLOT_ONLY_ONE = False
 SAVE_DATASET = True
 PRINT_TIMING = True
 LIMIT_NUM_CONFIGS = None  # None for no limit
@@ -240,7 +242,9 @@ with h5py.File(OUTPUT_FILE_PATH, "w") as hdf5_file:
                         evaled_grasp_config_dicts[grasp_idx : grasp_idx + 1],
                     )
                     fingertip_positions = (
-                        hand_config.get_fingertip_transforms().translation().squeeze(dim=0)
+                        hand_config.get_fingertip_transforms()
+                        .translation()
+                        .squeeze(dim=0)
                     )
                     assert fingertip_positions.shape == (NUM_FINGERS, 3)
 

@@ -80,8 +80,7 @@ if is_notebook():
 else:
     from tqdm import tqdm as std_tqdm
 
-if not os.getcwd().split("/")[-1] == "nerf_grasping":
-    os.chdir("../..")
+os.chdir(nerf_grasping.get_repo_root())
 
 tqdm = partial(std_tqdm, dynamic_ncols=True)
 
@@ -112,10 +111,20 @@ def parse_nerf_config(nerf_config: pathlib.Path) -> str:
 # %%
 # PARAMS
 class CreateDexGraspNetNerfGraspsArgumentParser(Tap):
+    """
+    Container for all config params needed for classifier datagen.
+
+    Paths are currently default for (i) the "overfit" experiment,
+    (ii) assume the GCP bucket is synced under "data" in the repo root, and
+    (iii) assume the current working directory is the repo root.
+
+    (iii) is hardcoded in a step above, FYI.
+    """
+
     dexgraspnet_data_root: pathlib.Path = pathlib.Path("./data")
     dexgraspnet_meshdata_root: pathlib.Path = dexgraspnet_data_root / "meshdata_trial"
     evaled_grasp_config_dicts_path: pathlib.Path = (
-        dexgraspnet_data_root / "2023-08-25_overfit_evaled_grasp_config_dicts"
+        dexgraspnet_data_root / "2023-08-26_evaled_overfit_grasp_config_dicts"
     )
     nerf_checkpoints_path: pathlib.Path = (
         dexgraspnet_data_root / "nerfcheckpoints_trial"
@@ -124,7 +133,7 @@ class CreateDexGraspNetNerfGraspsArgumentParser(Tap):
         pathlib.Path(str(evaled_grasp_config_dicts_path) + "_learned_metric_dataset")
         / f"{datetime_str}_learned_metric_dataset.h5"
     )
-    plot_only_one: bool = True
+    plot_only_one: bool = False
     save_dataset: bool = True
     print_timing: bool = True
     limit_num_configs: Optional[int] = None  # None for no limit
@@ -431,7 +440,11 @@ with h5py.File(args.output_filepath, "w") as hdf5_file:
                             image = alpha_images[finger_i][
                                 :, :, int(image_i * NUM_PTS_Z / num_images)
                             ]
-                            ax.imshow(image, vmin=image.min(), vmax=image.max())
+                            ax.imshow(
+                                image,
+                                vmin=nerf_alphas[i].min(),
+                                vmax=nerf_alphas[i].max(),
+                            )
                             ax.set_title(f"finger {finger_i}, image {image_i}")
                     fig5.tight_layout()
                     fig5.show()

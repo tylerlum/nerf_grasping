@@ -8,13 +8,40 @@ from nerf_grasping.classifier import Classifier, CNN_3D_Classifier
 from typing import Tuple
 import nerf_grasping
 from functools import partial
+import numpy as np
 
 from rich.console import Console
 from rich.table import Table
 
 from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
+from tap import Tap
 
 PRINT_FREQ = 5
+
+
+class GraspOptimizerConfig(Tap):
+    nerf_config: pathlib.Path = (
+        pathlib.Path(nerf_grasping.get_repo_root())
+        / "data"
+        / "nerfcheckpoints_trial"
+        / "mug_0_10"
+        / "nerfacto"
+        / "2023-08-25_130206"
+        / "config.yml"
+    )
+    classifier_checkpoint_path: pathlib.Path = (
+        pathlib.Path(nerf_grasping.get_repo_root())
+        / "Train_DexGraspNet_NeRF_Grasp_Metric_workspaces"
+        / "2023-08-26_12-10-12"
+        / "checkpoint_0100.pt"
+    )
+    grasp_data_path: pathlib.Path = (
+        pathlib.Path(nerf_grasping.get_repo_root())
+        / "data"
+        / "2023-08-26_evaled_overfit_grasp_config_dicts"
+        / "mug_0_10.npy"
+    )
+    num_grasps: int = 64
 
 
 def is_notebook() -> bool:
@@ -181,24 +208,7 @@ def run_optimizer_loop(
     return (optimizer.grasp_scores[sort_indices], optimizer.grasp_config[sort_indices])
 
 
-def main() -> None:
-    NERF_CONFIG = (
-        pathlib.Path(nerf_grasping.get_repo_root())
-        / "nerfcheckpoints/sem-Camera-7bff4fd4dc53de7496dece3f86cb5dd5_0_10/depth-nerfacto/2023-08-09_104724/config.yml"
-    )
-    CLASSIFIER_CHECKPOINT_PATH = (
-        pathlib.Path(nerf_grasping.get_package_root())
-        / "learned_metric"
-        / "Train_DexGraspNet_NeRF_Grasp_Metric_workspaces"
-        / "2023-08-20_17-18-07"
-        / "checkpoint_1000.pt"
-    )
-    GRASP_DATA_PATH = (
-        pathlib.Path(nerf_grasping.get_repo_root())
-        / "graspdata"
-        / "sem-Camera-7bff4fd4dc53de7496dece3f86cb5dd5.npy"
-    )
-
+def main(args: GraspOptimizerConfig) -> None:
     # Create rich.Console object.
     console = Console(width=120)
 
@@ -209,14 +219,21 @@ def main() -> None:
         console=console,
     ) as progress:
         task = progress.add_task("Loading grasp data", total=1)
-        init_grasps = AllegroGraspConfig.from_grasp_data(GRASP_DATA_PATH, batch_size=64)
+
+        # TODO: Find a way to load a particular split of the grasp_data.
+        grasp_config_dicts = np.load(args.grasp_data_path, allow_pickle=True)
+        init_grasps = AllegroGraspConfig.from_grasp_config_dicts(grasp_config_dicts)
+        data_inds = np.random.choice(
+            np.arange(init_grasps.batch_size), size=args.num_grasps
+        )
+        init_grasps = init_grasps[data_inds]
         progress.update(task, advance=1)
 
     # Create SGDOptimizer.
     optimizer = SGDOptimizer.from_configs(
         init_grasps,
-        NERF_CONFIG,
-        CLASSIFIER_CHECKPOINT_PATH,
+        args.nerf_config,
+        args.classifier_checkpoint_path,
         console=console,
         lr=1e-4,
         momentum=0.9,
@@ -257,4 +274,5 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    args = GraspOptimizerConfig().parse_args()
+    main(args)

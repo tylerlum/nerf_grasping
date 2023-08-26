@@ -24,6 +24,8 @@
 import pathlib
 import h5py
 import math
+import torch
+import pypose as pp
 import nerf_grasping
 import os
 import trimesh
@@ -38,7 +40,7 @@ from nerf_grasping.dataset.DexGraspNet_NeRF_Grasps_utils import (
     get_ray_samples_in_mesh_region,
 )
 from nerf_grasping.dataset.timers import LoopTimer
-from nerf_grasping.optimizer_utils import AllegroGraspConfig
+from nerf_grasping.optimizer_utils import AllegroHandConfig
 from nerf_grasping.grasp_utils import (
     NUM_PTS_X,
     NUM_PTS_Y,
@@ -233,13 +235,35 @@ with h5py.File(OUTPUT_FILE_PATH, "w") as hdf5_file:
             pbar.set_description(f"grasp data, current_idx: {current_idx}")
             with loop_timer.add_section_timer("get_transforms"):
                 try:
-                    grasp_config = AllegroGraspConfig.from_grasp_config_dicts(
+                    # TODO: Potentially clean this up using AllegroGraspConfig.from_grasp_config_dicts
+                    hand_config = AllegroHandConfig.from_hand_config_dicts(
                         evaled_grasp_config_dicts[grasp_idx : grasp_idx + 1],
                     )
-                    transforms = grasp_config.grasp_frame_transforms
-                    assert transforms.lshape == (1, NUM_FINGERS)
+                    fingertip_positions = (
+                        hand_config.get_fingertip_transforms().translation().squeeze(dim=0)
+                    )
+                    assert fingertip_positions.shape == (NUM_FINGERS, 3)
+
+                    grasp_orientations = torch.tensor(
+                        evaled_grasp_config_dicts[grasp_idx]["grasp_orientations"],
+                        dtype=fingertip_positions.dtype,
+                        device=fingertip_positions.device,
+                    )
+                    assert grasp_orientations.shape == (NUM_FINGERS, 3, 3)
+                    grasp_orientations = pp.from_matrix(grasp_orientations, pp.SO3_type)
+
+                    transforms = pp.SE3(
+                        torch.cat(
+                            [
+                                fingertip_positions,
+                                grasp_orientations,
+                            ],
+                            dim=-1,
+                        )
+                    )
+                    assert transforms.lshape == (NUM_FINGERS,)
                     transforms = [
-                        transforms[0, i].detach().clone() for i in range(NUM_FINGERS)
+                        transforms[i].detach().clone() for i in range(NUM_FINGERS)
                     ]
                 except ValueError as e:
                     print("+" * 80)
@@ -431,3 +455,5 @@ with h5py.File(OUTPUT_FILE_PATH, "w") as hdf5_file:
         if PRINT_TIMING:
             loop_timer.pretty_print_section_times()
         print()
+
+# %%

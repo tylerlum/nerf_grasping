@@ -80,8 +80,6 @@ class AllegroHandConfig(torch.nn.Module):
         # Load grasp data + instantiate correctly-sized config object.
         batch_size = len(hand_config_dicts)
         hand_config = cls(batch_size)
-        device = hand_config.wrist_pose.device
-        dtype = hand_config.wrist_pose.dtype
 
         # Assemble these samples into the data we need for the grasp config.
         hand_data_tuples = [
@@ -93,6 +91,8 @@ class AllegroHandConfig(torch.nn.Module):
         wrist_pose, joint_angles = list(zip(*hand_data_tuples))
 
         # Set the grasp config's data.
+        device = hand_config.wrist_pose.device
+        dtype = hand_config.wrist_pose.dtype
         state_dict = {}
         state_dict["wrist_pose"] = torch.stack(wrist_pose, dim=0).to(
             device=device,
@@ -121,7 +121,7 @@ class AllegroHandConfig(torch.nn.Module):
         ), f"New hand config, shape {joint_angles.shape}, does not match shape of current hand config, {self.joint_angles.shape}."
         self.joint_angles.data = joint_angles
 
-    def get_fingertip_transforms(self) -> List[pp.LieTensor]:
+    def get_fingertip_transforms(self) -> pp.LieTensor:
         # Pretty hacky -- need to cast chain to the same device as the wrist pose.
         self.chain = self.chain.to(device=self.wrist_pose.device)
 
@@ -264,6 +264,8 @@ class AllegroGraspConfig(torch.nn.Module):
             grasp_config_dicts
         )
 
+        # TODO: Figure out if this needs to be modified
+        # Is grasp orientations relative to finger frame or world frame
         grasp_orientations_list = []
         for i in range(batch_size):
             grasp_config_dict = grasp_config_dicts[i]
@@ -273,18 +275,10 @@ class AllegroGraspConfig(torch.nn.Module):
             assert grasp_orientations.shape == (grasp_utils.NUM_FINGERS, 3, 3)
             grasp_orientations = pp.from_matrix(grasp_orientations, pp.SO3_type)
             grasp_orientations_list.append(grasp_orientations)
+        grasp_orientations_list = torch.stack(grasp_orientations_list, dim=0)
 
         # Set the grasp config's data.
-        state_dict = {}
-        state_dict["grasp_orientations"] = torch.stack(
-            grasp_orientations_list, dim=0
-        ).to(
-            device=device,
-            dtype=dtype,
-        )
-
-        # Load state dict for module.
-        grasp_config.load_state_dict(state_dict, strict=False)
+        grasp_config.set_grasp_orientations(grasp_orientations_list)
 
         return grasp_config
 
@@ -321,16 +315,9 @@ class AllegroGraspConfig(torch.nn.Module):
     def grasp_frame_transforms(self) -> pp.LieTensor:
         """Returns SE(3) transforms for ``grasp frame'', i.e.,
         z-axis pointing along grasp direction."""
-        grasp_frame_transforms = pp.SE3(
-            torch.cat(
-                [
-                    self.fingertip_transforms.translation(),
-                    self.grasp_orientations,
-                ],
-                dim=-1
-            )
-          )
-        return grasp_frame_transforms
+        return self.fingertip_transforms @ pp.from_matrix(
+            self.grasp_orientations.matrix(), pp.SE3_type
+        )
 
     @property
     def grasp_dirs(self) -> torch.Tensor:  # shape [B, 4, 3].

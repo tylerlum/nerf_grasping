@@ -313,9 +313,9 @@ with h5py.File(OUTPUT_FILE_PATH, "w") as hdf5_file:
                 if PLOT_ALL_HIGH_DENSITY_POINTS:
                     ray_samples_in_mesh_region = get_ray_samples_in_mesh_region(
                         mesh=mesh,
-                        num_pts_x=60,
-                        num_pts_y=60,
-                        num_pts_z=60,
+                        num_pts_x=10,
+                        num_pts_y=10,
+                        num_pts_z=10,
                     )
                     query_points_in_mesh_region_isaac_frame = np.copy(
                         ray_samples_in_mesh_region.frustums.get_positions()

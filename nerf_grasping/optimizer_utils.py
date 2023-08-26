@@ -321,10 +321,16 @@ class AllegroGraspConfig(torch.nn.Module):
     def grasp_frame_transforms(self) -> pp.LieTensor:
         """Returns SE(3) transforms for ``grasp frame'', i.e.,
         z-axis pointing along grasp direction."""
-
-        return self.fingertip_transforms @ pp.from_matrix(
-            self.grasp_orientations.matrix(), pp.SE3_type
-        )
+        grasp_frame_transforms = pp.SE3(
+            torch.cat(
+                [
+                    self.fingertip_transforms.translation(),
+                    self.grasp_orientations,
+                ],
+                dim=-1
+            )
+          )
+        return grasp_frame_transforms
 
     @property
     def grasp_dirs(self) -> torch.Tensor:  # shape [B, 4, 3].

@@ -237,11 +237,9 @@ def get_ray_samples_in_mesh_region(
     grasp_depth_mm = (z_max - z_min) * 1000
 
     # Prepare ray samples
-    # BRITTLE: Want this to be centered on object so adjust grasp_depth_mm to do that
     ray_origins_object_frame = get_ray_origins_finger_frame_helper(
         num_pts_x=num_pts_x,
         num_pts_y=num_pts_y,
-        grasp_depth_mm=2 * grasp_depth_mm,
         finger_width_mm=finger_width_mm,
         finger_height_mm=finger_height_mm,
     )

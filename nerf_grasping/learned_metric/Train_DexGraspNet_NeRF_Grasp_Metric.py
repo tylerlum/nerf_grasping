@@ -30,10 +30,6 @@ from dataclasses import dataclass
 from torchinfo import summary
 from torchviz import make_dot
 from nerf_grasping.grasp_utils import (
-    DIST_BTWN_PTS_MM,
-    get_ray_samples,
-    get_ray_origins_finger_frame,
-    load_nerf,
     NUM_PTS_X,
     NUM_PTS_Y,
     NUM_PTS_Z,

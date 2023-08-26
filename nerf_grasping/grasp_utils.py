@@ -56,18 +56,16 @@ ALLEGRO_JOINT_NAMES = [
 def get_ray_origins_finger_frame_helper(
     num_pts_x: int,
     num_pts_y: int,
-    grasp_depth_mm: float,
     finger_width_mm: float,
     finger_height_mm: float,
 ) -> torch.tensor:
-    grasp_depth_m = grasp_depth_mm / 1000.0
     gripper_finger_width_m = finger_width_mm / 1000.0
     gripper_finger_height_m = finger_height_mm / 1000.0
 
     # Create grid of grasp origins in finger frame with shape (num_pts_x, num_pts_y, 3)
     # So that grid_of_points[2, 3] = [x, y, z], where x, y, z are the coordinates of the '
     # ray origin for the [2, 3] "pixel" in the finger frame.
-    # Origin of transform is at center of xy at 1/4 of the way into the depth z
+    # Origin of transform is at center of xy at z=0
     # x is width, y is height, z is depth
     x_coords = torch.linspace(
         -gripper_finger_width_m / 2, gripper_finger_width_m / 2, num_pts_x
@@ -75,10 +73,9 @@ def get_ray_origins_finger_frame_helper(
     y_coords = torch.linspace(
         -gripper_finger_height_m / 2, gripper_finger_height_m / 2, num_pts_y
     )
-    # z_coords = np.linspace(-grasp_depth_m / 4, 3 * grasp_depth_m / 4, num_pts_z)
 
     xx, yy = torch.meshgrid(x_coords, y_coords, indexing="ij")
-    zz = -grasp_depth_m / 4 * torch.ones_like(xx)
+    zz = torch.zeros_like(xx)
 
     assert xx.shape == yy.shape == zz.shape == (num_pts_x, num_pts_y)
     ray_origins = torch.stack([xx, yy, zz], axis=-1)
@@ -92,7 +89,6 @@ def get_ray_origins_finger_frame() -> torch.tensor:
     ray_origins_finger_frame = get_ray_origins_finger_frame_helper(
         num_pts_x=NUM_PTS_X,
         num_pts_y=NUM_PTS_Y,
-        grasp_depth_mm=GRASP_DEPTH_MM,
         finger_width_mm=FINGER_WIDTH_MM,
         finger_height_mm=FINGER_HEIGHT_MM,
     )

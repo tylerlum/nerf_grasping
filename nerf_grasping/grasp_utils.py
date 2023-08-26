@@ -56,18 +56,16 @@ ALLEGRO_JOINT_NAMES = [
 def get_ray_origins_finger_frame_helper(
     num_pts_x: int,
     num_pts_y: int,
-    grasp_depth_mm: float,
     finger_width_mm: float,
     finger_height_mm: float,
 ) -> torch.tensor:
-    grasp_depth_m = grasp_depth_mm / 1000.0
     gripper_finger_width_m = finger_width_mm / 1000.0
     gripper_finger_height_m = finger_height_mm / 1000.0
 
     # Create grid of grasp origins in finger frame with shape (num_pts_x, num_pts_y, 3)
     # So that grid_of_points[2, 3] = [x, y, z], where x, y, z are the coordinates of the '
     # ray origin for the [2, 3] "pixel" in the finger frame.
-    # Origin of transform is at center of xy at 1/4 of the way into the depth z
+    # Origin of transform is at center of xy at z=0
     # x is width, y is height, z is depth
     x_coords = torch.linspace(
         -gripper_finger_width_m / 2, gripper_finger_width_m / 2, num_pts_x
@@ -75,10 +73,9 @@ def get_ray_origins_finger_frame_helper(
     y_coords = torch.linspace(
         -gripper_finger_height_m / 2, gripper_finger_height_m / 2, num_pts_y
     )
-    # z_coords = np.linspace(-grasp_depth_m / 4, 3 * grasp_depth_m / 4, num_pts_z)
 
     xx, yy = torch.meshgrid(x_coords, y_coords, indexing="ij")
-    zz = -grasp_depth_m / 4 * torch.ones_like(xx)
+    zz = torch.zeros_like(xx)
 
     assert xx.shape == yy.shape == zz.shape == (num_pts_x, num_pts_y)
     ray_origins = torch.stack([xx, yy, zz], axis=-1)
@@ -92,7 +89,6 @@ def get_ray_origins_finger_frame() -> torch.tensor:
     ray_origins_finger_frame = get_ray_origins_finger_frame_helper(
         num_pts_x=NUM_PTS_X,
         num_pts_y=NUM_PTS_Y,
-        grasp_depth_mm=GRASP_DEPTH_MM,
         finger_width_mm=FINGER_WIDTH_MM,
         finger_height_mm=FINGER_HEIGHT_MM,
     )
@@ -180,13 +176,10 @@ def load_nerf(cfg_path: pathlib.Path) -> nerfstudio.models.base_model.Model:
     return pipeline.model.field
 
 
-def get_grasp_config_from_grasp_data(
-    grasp_data: dict,
-) -> Tuple[pp.LieTensor, torch.Tensor, pp.LieTensor]:
-    """
-    Given a dict of grasp data, return a tuple of the wrist pose, joint angles, and fingertip transforms.
-    """
-    qpos = grasp_data["qpos"]
+def get_hand_config_from_hand_config_dict(
+    hand_config_dict: dict,
+) -> Tuple[pp.LieTensor, torch.Tensor]:
+    qpos = hand_config_dict["qpos"]
 
     # Get wrist pose.
     wrist_translation = torch.tensor([qpos[tn] for tn in DEXGRASPNET_TRANS_NAMES])
@@ -203,95 +196,8 @@ def get_grasp_config_from_grasp_data(
     joint_angles = torch.tensor([qpos[jn] for jn in ALLEGRO_JOINT_NAMES])
     assert joint_angles.shape == (16,)
 
-    # Get grasp orientations.
-    fingertip_transforms = get_fingertip_transforms_from_grasp_data(grasp_data)
-    grasp_orientations = pp.from_matrix(fingertip_transforms.matrix(), pp.SO3_type)
-
-    return wrist_pose, joint_angles, grasp_orientations
-
-
-def get_contact_candidates_and_target_candidates(
-    grasp_data: Dict[str, Any]
-) -> Tuple[np.ndarray, np.ndarray]:
-    link_name_to_contact_candidates = grasp_data["link_name_to_contact_candidates"]
-    link_name_to_target_contact_candidates = grasp_data[
-        "link_name_to_target_contact_candidates"
-    ]
-    contact_candidates = np.concatenate(
-        [
-            contact_candidate
-            for _, contact_candidate in link_name_to_contact_candidates.items()
-        ],
-        axis=0,
-    )
-    target_contact_candidates = np.concatenate(
-        [
-            target_contact_candidate
-            for _, target_contact_candidate in link_name_to_target_contact_candidates.items()
-        ],
-        axis=0,
-    )
-    return contact_candidates, target_contact_candidates
+    return wrist_pose, joint_angles
 
 
 def normalize(x: np.ndarray) -> np.ndarray:
     return x / np.linalg.norm(x)
-
-
-def get_transform(start: np.ndarray, end: np.ndarray, up: np.ndarray) -> np.ndarray:
-    # BRITTLE: Assumes new_z and new_y are pretty much perpendicular
-    # If not, tries to find closest possible
-    new_z = normalize(end - start)
-    # new_y should be perpendicular to new_z
-    up_dir = normalize(up - start)
-    new_y = normalize(up_dir - np.dot(up_dir, new_z) * new_z)
-    new_x = np.cross(new_y, new_z)
-
-    transform = np.eye(4)
-    transform[:3, :3] = np.stack([new_x, new_y, new_z], axis=1)
-    transform[:3, 3] = start
-    return pp.from_matrix(transform, pp.SE3_type)
-
-
-def get_start_and_end_and_up_points(
-    contact_candidates: np.ndarray,
-    target_contact_candidates: np.ndarray,
-    num_fingers: int,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-    # BRITTLE: Assumes same number of contact points per finger
-    # BRITTLE: Assumes UP_POINT_IDX is position of contact candidate up from center
-    UP_POINT_IDX = 3
-    contact_candidates_per_finger = contact_candidates.reshape(num_fingers, -1, 3)
-    target_contact_candidates_per_finger = target_contact_candidates.reshape(
-        num_fingers, -1, 3
-    )
-    start_points = contact_candidates_per_finger.mean(axis=1)
-    end_points = target_contact_candidates_per_finger.mean(axis=1)
-    up_points = contact_candidates_per_finger[:, UP_POINT_IDX, :]
-    assert start_points.shape == end_points.shape == up_points.shape == (num_fingers, 3)
-    return np.array(start_points), np.array(end_points), np.array(up_points)
-
-
-def get_fingertip_transforms_from_grasp_data(grasp_data: dict) -> pp.LieTensor:
-    """
-    Given a dict of grasp data, return a tensor of fingertip transforms.
-    """
-    (
-        contact_candidates,
-        target_contact_candidates,
-    ) = get_contact_candidates_and_target_candidates(grasp_data)
-    start_points, end_points, up_points = get_start_and_end_and_up_points(
-        contact_candidates, target_contact_candidates, NUM_FINGERS
-    )
-    transforms = torch.stack(
-        [
-            get_transform(start, end, up)
-            for start, end, up in zip(start_points, end_points, up_points)
-        ],
-        axis=0,
-    )
-
-    assert transforms.lshape == (NUM_FINGERS,)
-    assert transforms.ltype == pp.SE3_type
-
-    return transforms

@@ -134,7 +134,7 @@ def get_ray_samples(
 
     # Rotate ray directions (hence SO3 cast).
     ray_dirs_world_frame = (
-        pp.from_matrix(transform.matrix(), pp.SO3_type) @ ray_dirs_finger_frame
+        transform.rotation() @ ray_dirs_finger_frame
     )  # [*batch_dims, num_pts_x,  num_pts_y, 3]
 
     # Create dummy pixel areas object.

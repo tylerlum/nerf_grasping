@@ -85,8 +85,8 @@ class AllegroHandConfig(torch.nn.Module):
 
         # List of tuples -> tuple of lists.
         wrist_pose, joint_angles = list(zip(*hand_data_tuples))
-        wrist_pose = torch.stack(wrist_pose, dim=0)
-        joint_angles = torch.stack(joint_angles, dim=0)
+        wrist_pose = torch.stack(wrist_pose, dim=0).float()
+        joint_angles = torch.stack(joint_angles, dim=0).float()
         return cls.from_values(wrist_pose=wrist_pose, joint_angles=joint_angles)
 
     def set_wrist_pose(self, wrist_pose: pp.LieTensor):

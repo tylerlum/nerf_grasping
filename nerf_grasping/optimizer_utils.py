@@ -362,7 +362,7 @@ def dry_run():
 def SO3_to_SE3(R: pp.LieTensor):
     assert R.ltype == pp.SO3_type, f"R must be an SO3, not {R.ltype}"
 
-    return pp.SE3(torch.cat((torch.zeros_like(R[..., :3]), R), dim=-1))
+    return pp.SE3(torch.cat((torch.zeros_like(R[..., :3]), R.tensor()), dim=-1))
 
 
 # %%

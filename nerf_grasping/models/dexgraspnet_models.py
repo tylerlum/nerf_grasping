@@ -1,8 +1,18 @@
 import torch
 import torch.nn as nn
-from typing import Tuple
+from typing import Tuple, Optional
 from functools import lru_cache
-from nerf_grasping.models.tyler_new_models import conv_encoder, PoolType, ConvOutputTo1D, mlp
+from nerf_grasping.models.tyler_new_models import (
+    conv_encoder,
+    PoolType,
+    ConvOutputTo1D,
+    mlp,
+)
+
+
+def assert_equals(a, b):
+    assert a == b, f"{a} != {b}"
+
 
 class CNN_3D_Classifier(nn.Module):
     def __init__(self, input_shape: Tuple[int, int, int, int], n_fingers) -> None:
@@ -74,3 +84,74 @@ class CNN_3D_Classifier(nn.Module):
     def n_classes(self) -> int:
         return 2
 
+
+class CNN_2D_1D_Classifier(nn.Module):
+    def __init__(self) -> None:
+        # TODO: Make this not hardcoded
+        super().__init__()
+
+    def forward(
+        self, x: torch.Tensor, conditioning: Optional[torch.Tensor] = None
+    ) -> torch.Tensor:
+        batch_size = x.shape[0]
+        n_fingers = 4
+        n_pts_x, n_pts_y, n_pts_z = 32, 32, 32
+        seq_len = n_pts_z
+        conditioning_dim = 16
+        assert_equals(x.shape, (batch_size, n_fingers, n_pts_x, n_pts_y, seq_len))
+
+        if conditioning is not None:
+            assert_equals(conditioning.shape, (batch_size, n_fingers, 4, 4))
+            conditioning = conditioning.reshape(batch_size, n_fingers, conditioning_dim)
+
+        x = x.reshape(batch_size * n_fingers, n_pts_x, n_pts_y, seq_len)
+        if conditioning is not None:
+            conditioning = conditioning.reshape(
+                batch_size * n_fingers, conditioning_dim
+            )
+
+        x = x.permute(0, 3, 1, 2)
+        assert_equals(x.shape, (batch_size * n_fingers, seq_len, n_pts_x, n_pts_y))
+
+        output_list = []
+        for i in range(seq_len):
+            input = x[:, i : i + 1, :, :]
+            assert_equals(input.shape, (batch_size * n_fingers, 1, n_pts_x, n_pts_y))
+            output = self.conv_2d(x, conditioning=conditioning)
+            assert_equals(
+                output.shape, (batch_size * n_fingers, self.conv_2d.output_dim)
+            )
+            output_list.append(output)
+
+        x = torch.stack(output_list, dim=1)
+        assert_equals(
+            x.shape, (batch_size * n_fingers, seq_len, self.conv_2d.output_dim)
+        )
+
+        x = x.permute(0, 2, 1)
+        assert_equals(
+            x.shape, (batch_size * n_fingers, self.conv_2d.output_dim, seq_len)
+        )
+        x = self.conv_1d(x, conditioning=conditioning)
+        assert_equals(x.shape, (batch_size * n_fingers, self.conv_1d.output_dim))
+
+        x = x.reshape(batch_size, n_fingers, self.conv_1d.output_dim)
+        x = x.reshape(batch_size, n_fingers * self.conv_1d.output_dim)
+
+        if conditioning is not None:
+            conditioning = conditioning.reshape(batch_size, n_fingers, conditioning_dim)
+            conditioning = conditioning.reshape(
+                batch_size, n_fingers * conditioning_dim
+            )
+        x = torch.cat([x, conditioning], dim=1)
+        assert_equals(
+            x.shape,
+            (
+                batch_size,
+                n_fingers * self.conv_1d.output_dim + n_fingers * conditioning_dim,
+            ),
+        )
+
+        x = self.mlp(x)
+        assert_equals(x.shape, (batch_size, self.n_classes))
+        return x

@@ -48,6 +48,7 @@ from nerf_grasping.dataset.timers import LoopTimer
 from nerf_grasping.learned_metric.Train_DexGraspNet_NeRF_Grasp_Metric_Config import (
     Config,
     TrainingConfig,
+    get_classifier,
 )
 import os
 import pypose as pp
@@ -167,11 +168,8 @@ try:
         raw_cfg = compose(config_name="config", overrides=arguments)
 
     # Runtime type-checking
-    cfg: Config = instantiate(
-        raw_cfg, classifier={"input_shape": INPUT_SHAPE}, _convert_="all"
-    )
-
-    breakpoint()
+    cfg: Config = instantiate(raw_cfg, classifier={"input_shape": INPUT_SHAPE})
+    
 except ConfigCompositionException as e:
     print(f"ConfigCompositionException: {e}")
     print()
@@ -716,7 +714,7 @@ import torch.nn as nn
 # TODO(pculbert): double-check the specific instantiate call here is needed.
 breakpoint()
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-nerf_to_grasp_success_model = cfg.classifier.to(device)
+nerf_to_grasp_success_model = get_classifier(cfg.classifier).to(device)
 
 # %%
 start_epoch = 0

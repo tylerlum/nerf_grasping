@@ -1,91 +1,77 @@
 from dataclasses import dataclass, field
-from omegaconf import MISSING
-from typing import Any, Dict, List, Optional, Tuple, Type
+from typing import Optional, Tuple
 from nerf_grasping.classifier import Classifier, CNN_3D_XYZ_Classifier
+from datetime import datetime
 
-from hydra.core.config_store import ConfigStore
+DATETIME_STR = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
 
 @dataclass
 class WandbConfig:
-    entity: str = MISSING
-    project: str = MISSING
-    name: str = MISSING
-    group: str = MISSING
-    job_type: str = MISSING
+    entity: str = "tylerlum"
+    project: str = "NeRF_Grasp_Metric_V2"
+    name: str = DATETIME_STR
+    group: str = ""
+    job_type: str = ""
 
 
 @dataclass
 class DataConfig:
-    frac_val: float = MISSING
-    frac_test: float = MISSING
-    frac_train: float = MISSING
+    frac_val: float = 0.1
+    frac_test: float = 0.1
+    frac_train: float = 1 - frac_val - frac_test
 
-    input_dataset_root_dir: str = MISSING
-    input_dataset_path: str = MISSING
-    max_num_data_points: Optional[int] = MISSING
+    input_dataset_root_dir: str = (
+        "data/2023-08-26_evaled_overfit_grasp_config_dicts_learned_metric_dataset"
+    )
+    input_dataset_path: str = "2023-08-26_11-24-44_learned_metric_dataset.h5"
+    max_num_data_points: Optional[int] = None
 
-    use_random_rotations: bool = MISSING
+    use_random_rotations: bool = True
 
 
 @dataclass
 class DataLoaderConfig:
-    batch_size: int = MISSING
-    num_workers: int = MISSING
-    pin_memory: bool = MISSING
+    batch_size: int = 64
+    num_workers: int = 8
+    pin_memory: bool = True
 
-    load_nerf_grid_inputs_in_ram: bool = MISSING
-    load_grasp_successes_in_ram: bool = MISSING
-    load_grasp_transforms_in_ram: bool = MISSING
-    load_nerf_configs_in_ram: bool = MISSING
+    load_nerf_grid_inputs_in_ram: bool = False
+    load_grasp_successes_in_ram: bool = False
+    load_grasp_transforms_in_ram: bool = False
+    load_nerf_configs_in_ram: bool = False
 
 
 @dataclass
 class TrainingConfig:
-    grad_clip_val: float = MISSING
-    lr: float = MISSING
-    weight_decay: float = MISSING
-    betas: Tuple[float, float] = MISSING
-    label_smoothing: float = MISSING
-    lr_scheduler_name: str = MISSING
-    lr_scheduler_num_warmup_steps: int = MISSING
-    n_epochs: int = MISSING
-    val_freq: int = MISSING
-    val_on_epoch_0: bool = MISSING
-    save_checkpoint_freq: int = MISSING
-    save_checkpoint_on_epoch_0: bool = MISSING
+    grad_clip_val: float = 1.0
+    lr: float = 1e-4
+    weight_decay: float = 1e-3
+    betas: Tuple[float, float] = [0.9, 0.999]
+    label_smoothing: float = 0.0
+    lr_scheduler_name: str = "constant"
+    lr_scheduler_num_warmup_steps: int = 0
+    n_epochs: int = 1000
+    val_freq: int = 5
+    val_on_epoch_0: bool = False
+    save_checkpoint_freq: int = 5
+    save_checkpoint_on_epoch_0: bool = False
 
 
 @dataclass
 class CheckpointWorkspaceConfig:
-    root_dir: str = MISSING
-    leaf_dir: str = MISSING
-    force_no_resume: bool = MISSING
-
-
-# @dataclass
-# class ClassifierConfig:
-
-
-# @dataclass
-# class CNN_3D_XYZ_ClassifierConfig(ClassifierConfig):
+    root_dir: str = "Train_DexGraspNet_NeRF_Grasp_Metric_workspaces"
+    leaf_dir: str = DATETIME_STR
+    force_no_resume: bool = True
 
 
 @dataclass
 class Config:
-    data: DataConfig = field(default_factory=DataConfig)
-    dataloader: DataLoaderConfig = field(default_factory=DataLoaderConfig)
-    wandb: WandbConfig = field(default_factory=WandbConfig)
-    training: TrainingConfig = field(default_factory=TrainingConfig)
-    checkpoint_workspace: CheckpointWorkspaceConfig = field(
-        default_factory=CheckpointWorkspaceConfig
-    )
-    classifier: Classifier = MISSING
-    random_seed: int = MISSING
-    dry_run: bool = MISSING
-
-
-# Register ClassifierConfig subclasses.
-cs = ConfigStore.instance()
-cs.store(name="config", node=Config)
-cs.store(group="classifier", name="CNN_3D_XYZ_Classifier", node=CNN_3D_XYZ_Classifier)
+    data: DataConfig
+    dataloader: DataLoaderConfig
+    wandb: WandbConfig
+    training: TrainingConfig
+    checkpoint_workspace: CheckpointWorkspaceConfig
+    classifier: Classifier = CNN_3D_XYZ_Classifier()
+    random_seed: int = 42
+    dry_run: bool = False

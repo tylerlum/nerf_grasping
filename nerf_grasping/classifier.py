@@ -14,10 +14,12 @@ from nerf_grasping.learned_metric.DexGraspNet_batch_data import BatchDataInput
 from typing import List
 from dataclasses import dataclass
 
+NUM_XYZ = 3
+
 
 @dataclass
 class Classifier(nn.Module):
-    input_shape: List[int]
+    input_shape: List[int] = [NUM_XYZ + 1, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z]
 
     def __init__(self, input_shape: List[int]) -> None:
         super().__init__()
@@ -46,9 +48,9 @@ class Classifier(nn.Module):
 
 @dataclass
 class CNN_3D_XYZ_Classifier(Classifier):
-    conv_channels: List[int]
-    mlp_hidden_layers: List[int]
-    n_fingers: int = 4
+    n_fingers: int = NUM_FINGERS
+    conv_channels: List[int] = [32, 64, 128]
+    mlp_hidden_layers: List[int] = [256, 256]
 
     def __init__(
         self,

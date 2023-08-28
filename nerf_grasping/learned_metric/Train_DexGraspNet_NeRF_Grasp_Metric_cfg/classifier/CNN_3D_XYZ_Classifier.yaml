@@ -1,4 +1,0 @@
-# _target_: nerf_grasping.classifier.CNN_3D_XYZ_Classifier
-conv_channels: [32, 64, 128]
-mlp_hidden_layers: [256, 256]
-n_fingers: 4

@@ -11,17 +11,11 @@ from nerf_grasping.grasp_utils import (
 import pathlib
 from nerf_grasping.models.dexgraspnet_models import CNN_3D_Classifier as CNN_3D_Model
 from nerf_grasping.learned_metric.DexGraspNet_batch_data import BatchDataInput
-from typing import List
-from dataclasses import dataclass
-
-NUM_XYZ = 3
+from typing import Iterable
 
 
-@dataclass
 class Classifier(nn.Module):
-    input_shape: List[int] = [NUM_XYZ + 1, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z]
-
-    def __init__(self, input_shape: List[int]) -> None:
+    def __init__(self, input_shape: Iterable[int]) -> None:
         super().__init__()
         self.input_shape = input_shape
 
@@ -46,21 +40,14 @@ class Classifier(nn.Module):
         return hardcoded_output
 
 
-@dataclass
 class CNN_3D_XYZ_Classifier(Classifier):
-    n_fingers: int = NUM_FINGERS
-    conv_channels: List[int] = [32, 64, 128]
-    mlp_hidden_layers: List[int] = [256, 256]
-
     def __init__(
         self,
-        input_shape: List[int],
-        conv_channels: List[int],
-        mlp_hidden_layers: List[int],
+        input_shape: Iterable[int],
+        conv_channels: Iterable[int],
+        mlp_hidden_layers: Iterable[int],
         n_fingers,
-    ) -> CNN_3D_Model:
-        # TODO: Later will need to find another way of using config to get model architecture
-        # Currently has many hardcoded/default values
+    ) -> None:
         super().__init__(input_shape=input_shape)
         self.conv_channels = conv_channels
         self.mlp_hidden_layers = mlp_hidden_layers

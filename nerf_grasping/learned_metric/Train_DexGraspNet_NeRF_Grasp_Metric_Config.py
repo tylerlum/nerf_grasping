@@ -1,21 +1,31 @@
 from dataclasses import dataclass, field
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Iterable, Union
 from nerf_grasping.classifier import Classifier, CNN_3D_XYZ_Classifier
 from datetime import datetime
 
+# TODO(pculbert): refactor grasp_utils to make these configurable.
+from nerf_grasping.grasp_utils import (
+    NUM_PTS_X,
+    NUM_PTS_Y,
+    NUM_PTS_Z,
+    NUM_FINGERS,
+)
+
 DATETIME_STR = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+NUM_XYZ = 3
+DEFAULT_INPUT_SHAPE = [NUM_XYZ + 1, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z]
 
 
-@dataclass
+@dataclass(frozen=True)
 class WandbConfig:
     entity: str = "tylerlum"
     project: str = "NeRF_Grasp_Metric_V2"
-    name: str = DATETIME_STR
+    name: str = field(default_factory=lambda: DATETIME_STR)
     group: str = ""
     job_type: str = ""
 
 
-@dataclass
+@dataclass(frozen=True)
 class DataConfig:
     frac_val: float = 0.1
     frac_test: float = 0.1
@@ -30,7 +40,7 @@ class DataConfig:
     use_random_rotations: bool = True
 
 
-@dataclass
+@dataclass(frozen=True)
 class DataLoaderConfig:
     batch_size: int = 64
     num_workers: int = 8
@@ -42,12 +52,12 @@ class DataLoaderConfig:
     load_nerf_configs_in_ram: bool = False
 
 
-@dataclass
+@dataclass(frozen=True)
 class TrainingConfig:
     grad_clip_val: float = 1.0
     lr: float = 1e-4
     weight_decay: float = 1e-3
-    betas: Tuple[float, float] = [0.9, 0.999]
+    betas: Tuple[float, float] = (0.9, 0.999)
     label_smoothing: float = 0.0
     lr_scheduler_name: str = "constant"
     lr_scheduler_num_warmup_steps: int = 0
@@ -58,11 +68,31 @@ class TrainingConfig:
     save_checkpoint_on_epoch_0: bool = False
 
 
-@dataclass
+@dataclass(frozen=True)
 class CheckpointWorkspaceConfig:
     root_dir: str = "Train_DexGraspNet_NeRF_Grasp_Metric_workspaces"
-    leaf_dir: str = DATETIME_STR
+    leaf_dir: str = field(default_factory=lambda: DATETIME_STR)
     force_no_resume: bool = True
+
+
+@dataclass(frozen=True)
+class ClassifierConfig:
+    input_shape: Iterable[int] = field(default_factory=lambda: DEFAULT_INPUT_SHAPE)
+
+
+@dataclass(frozen=True)
+class CNN_3D_XYZ_ClassifierConfig(ClassifierConfig):
+    n_fingers: int = 4
+    conv_channels: Iterable[int] = (32, 64, 128)
+    mlp_hidden_layers: Iterable[int] = (256, 256)
+
+    def get_classifier(self):
+        return CNN_3D_XYZ_Classifier(
+            input_shape=self.input_shape,
+            n_fingers=self.n_fingers,
+            conv_channels=self.conv_channels,
+            mlp_hidden_layers=self.mlp_hidden_layers,
+        )
 
 
 @dataclass
@@ -72,6 +102,6 @@ class Config:
     wandb: WandbConfig
     training: TrainingConfig
     checkpoint_workspace: CheckpointWorkspaceConfig
-    classifier: Classifier = CNN_3D_XYZ_Classifier()
+    classifier: ClassifierConfig = CNN_3D_XYZ_ClassifierConfig()
     random_seed: int = 42
     dry_run: bool = False

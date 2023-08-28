@@ -42,12 +42,6 @@ from nerf_grasping.dataset.DexGraspNet_NeRF_Grasps_utils import (
 from nerf_grasping.dataset.timers import LoopTimer
 from nerf_grasping.optimizer_utils import AllegroHandConfig
 from nerf_grasping.grasp_utils import (
-    NUM_PTS_X,
-    NUM_PTS_Y,
-    NUM_PTS_Z,
-    GRASP_DEPTH_MM,
-    NUM_FINGERS,
-    DIST_BTWN_PTS_MM,
     get_ray_samples,
     get_ray_origins_finger_frame,
     get_nerf_configs,

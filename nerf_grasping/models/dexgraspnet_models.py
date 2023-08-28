@@ -153,7 +153,7 @@ class CNN_2D_1D_Classifier(nn.Module):
         for i in range(seq_len):
             input = x[:, i : i + 1, :, :]
             assert_equals(input.shape, (batch_size * n_fingers, 1, n_pts_x, n_pts_y))
-            output = self.conv_2d(x, conditioning=conditioning)
+            output = self.conv_2d(input, conditioning=conditioning)
             assert_equals(
                 output.shape, (batch_size * n_fingers, self.conv_2d.output_dim)
             )

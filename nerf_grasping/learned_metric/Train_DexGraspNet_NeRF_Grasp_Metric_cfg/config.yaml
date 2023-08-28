@@ -21,7 +21,7 @@ data:
   max_num_data_points: ${eval:None}
 
 dataloader:
-  batch_size: 64
+  batch_size: 1
   num_workers: 8
   pin_memory: True
   load_nerf_grid_inputs_in_ram: False

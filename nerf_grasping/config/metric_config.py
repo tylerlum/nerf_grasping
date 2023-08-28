@@ -29,10 +29,6 @@ class GraspMetricConfig:
             )
         else:
             self.classifier_config = ClassifierConfig()
-            if self.classifier_config.config_filepath.exists():
-                self.classifier_config = tyro.extras.from_yaml(
-                    ClassifierConfig, self.classifier_config.config_filepath
-                )
 
 
 if __name__ == "__main__":

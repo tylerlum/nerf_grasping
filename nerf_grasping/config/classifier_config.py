@@ -196,13 +196,11 @@ class ClassifierConfig:
     checkpoint_workspace: CheckpointWorkspaceConfig
     nerfdata_cfg_path: Optional[pathlib.Path] = None
     model_config: Optional[UnionClassifierModelConfig] = None
+
     wandb: WandbConfig = field(
         default_factory=lambda: WandbConfig(
             project="learned_metric", name=CLASSIFIER_DATETIME_STR
         )
-    )
-    config_filepath: pathlib.Path = (
-        checkpoint_workspace.root_dir / checkpoint_workspace.leaf_dir / "config.yml"
     )
 
     dry_run: bool = False

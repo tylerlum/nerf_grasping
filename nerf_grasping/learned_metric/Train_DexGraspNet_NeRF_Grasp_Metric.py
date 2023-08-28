@@ -26,7 +26,7 @@ from collections import defaultdict
 import functools
 from localscope import localscope
 import nerf_grasping
-from dataclasses import dataclass
+from dataclasses import asdict
 from torchinfo import summary
 from torchviz import make_dot
 from nerf_grasping.grasp_utils import (
@@ -44,6 +44,7 @@ from nerf_grasping.dataset.DexGraspNet_NeRF_Grasps_utils import (
     get_object_scale,
     plot_mesh_and_query_points,
 )
+from nerf_grasping.models.dexgraspnet_models import CNN_3D_Classifier
 from nerf_grasping.dataset.timers import LoopTimer
 from nerf_grasping.learned_metric.Train_DexGraspNet_NeRF_Grasp_Metric_Config import (
     Config,
@@ -76,18 +77,16 @@ from sklearn.utils.class_weight import compute_class_weight
 import plotly.graph_objects as go
 import wandb
 from functools import partial
-from omegaconf import OmegaConf
 from datetime import datetime
-from hydra import compose, initialize
-from hydra.core.config_store import ConfigStore
 import sys
-from hydra.utils import instantiate
 import random
 import shutil
 from wandb.util import generate_id
 
 from enum import Enum, auto
 from nerf_grasping.models.tyler_new_models import get_scheduler
+
+import tyro
 
 
 # %%
@@ -126,24 +125,6 @@ tqdm = partial(std_tqdm, dynamic_ncols=True)
 # # Setup Config for Static Type-Checking
 
 
-# %%
-@functools.lru_cache
-@localscope.mfc
-def datetime_str() -> str:
-    return datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-
-
-OmegaConf.register_new_resolver("eval", eval, replace=True)
-OmegaConf.register_new_resolver("datetime_str", datetime_str, replace=True)
-
-
-# %%
-
-
-# %%
-config_store = ConfigStore.instance()
-config_store.store(name="config", node=Config)
-
 # %% [markdown]
 # # Load Config
 
@@ -154,26 +135,11 @@ else:
     arguments = sys.argv[1:]
     print(f"arguments = {arguments}")
 
+# %%
+cfg = tyro.cli(Config, args=arguments)
 
 # %%
-from hydra.errors import ConfigCompositionException
-
-try:
-    with initialize(
-        version_base="1.1", config_path="Train_DexGraspNet_NeRF_Grasp_Metric_cfg"
-    ):
-        raw_cfg = compose(config_name="config", overrides=arguments)
-
-    # Runtime type-checking
-    cfg: Config = instantiate(raw_cfg)
-except ConfigCompositionException as e:
-    print(f"ConfigCompositionException: {e}")
-    print()
-    print(f"e.__cause__ = {e.__cause__}")
-    raise e.__cause__
-
-# %%
-print(f"Config:\n{OmegaConf.to_yaml(cfg)}")
+print(f"Config:\n{tyro.extras.to_yaml(cfg)}")
 
 # %%
 if cfg.dry_run:
@@ -268,13 +234,14 @@ else:
 
 # %%
 # Add to config
+
 run = wandb.init(
     entity=cfg.wandb.entity,
     project=cfg.wandb.project,
     name=cfg.wandb.name,
     group=cfg.wandb.group if len(cfg.wandb.group) > 0 else None,
     job_type=cfg.wandb.job_type if len(cfg.wandb.job_type) > 0 else None,
-    config=OmegaConf.to_container(cfg, throw_on_missing=True),
+    config=asdict(cfg),
     id=wandb_run_id,
     resume="never" if cfg.checkpoint_workspace.force_no_resume else "allow",
     reinit=True,
@@ -705,17 +672,13 @@ EXAMPLE_BATCH_DATA.grasp_success
 
 # %%
 import torch.nn as nn
-from nerf_grasping.models.dexgraspnet_models import (
-    CNN_3D_Classifier,
-)
 
 # %%
+# TODO(pculbert): double-check the specific instantiate call here is needed.
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-INPUT_SHAPE = (NUM_XYZ + 1, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
-nerf_to_grasp_success_model = CNN_3D_Classifier(
-    input_shape=INPUT_SHAPE,
-    n_fingers=NUM_FINGERS,
-).to(device)
+
+# Pull out just the CNN (without wrapping for LieTorch) for training.
+nerf_to_grasp_success_model = cfg.classifier.get_classifier().model.to(device)
 
 # %%
 start_epoch = 0
@@ -760,13 +723,13 @@ print(f"lr_scheduler = {lr_scheduler}")
 # %%
 summary(
     model=nerf_to_grasp_success_model,
-    input_size=(cfg.dataloader.batch_size, NUM_FINGERS, *INPUT_SHAPE),
+    input_size=(cfg.dataloader.batch_size, NUM_FINGERS, *cfg.classifier.input_shape),
     device=device,
 )
 
 # %%
 example_input = (
-    torch.zeros((cfg.dataloader.batch_size, NUM_FINGERS, *INPUT_SHAPE))
+    torch.zeros((cfg.dataloader.batch_size, NUM_FINGERS, *cfg.classifier.input_shape))
     .to(device)
     .requires_grad_(True)
 )
@@ -1105,6 +1068,13 @@ print(f"Class weight: {class_weight}")
 ce_loss_fn = nn.CrossEntropyLoss(
     weight=class_weight, label_smoothing=cfg.training.label_smoothing
 )
+
+# Save out config to file if we haven't yet.
+cfg_path = pathlib.Path(checkpoint_workspace_dir_path) / "config.yaml"
+if not cfg_path.exists():
+    cfg_yaml = tyro.extras.to_yaml(cfg)
+    with open(cfg_path, "w") as f:
+        f.write(cfg_yaml)
 
 # %%
 

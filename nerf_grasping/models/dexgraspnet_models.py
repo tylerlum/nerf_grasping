@@ -1,19 +1,30 @@
 import torch
 import torch.nn as nn
-from typing import Tuple
+from typing import Tuple, Iterable
 from functools import lru_cache
-from nerf_grasping.models.tyler_new_models import conv_encoder, PoolType, ConvOutputTo1D, mlp
+from nerf_grasping.models.tyler_new_models import (
+    conv_encoder,
+    PoolType,
+    ConvOutputTo1D,
+    mlp,
+)
+
 
 class CNN_3D_Classifier(nn.Module):
-    def __init__(self, input_shape: Tuple[int, int, int, int], n_fingers) -> None:
-        # TODO: Make this not hardcoded
+    def __init__(
+        self,
+        input_shape: Iterable[int],
+        conv_channels: Iterable[int],
+        mlp_hidden_layers: Iterable[int],
+        n_fingers,
+    ) -> None:
         super().__init__()
         self.input_shape = input_shape
         self.n_fingers = n_fingers
 
         self.conv = conv_encoder(
             input_shape=self.input_shape,
-            conv_channels=[32, 64, 128],
+            conv_channels=conv_channels,
             pool_type=PoolType.MAX,
             dropout_prob=0.1,
             conv_output_to_1d=ConvOutputTo1D.AVG_POOL_SPATIAL,
@@ -37,7 +48,7 @@ class CNN_3D_Classifier(nn.Module):
         self.mlp = mlp(
             num_inputs=self.conv_output_dim * self.n_fingers,
             num_outputs=self.n_classes,
-            hidden_layers=[256, 256],
+            hidden_layers=mlp_hidden_layers,
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -73,4 +84,3 @@ class CNN_3D_Classifier(nn.Module):
     @lru_cache()
     def n_classes(self) -> int:
         return 2
-

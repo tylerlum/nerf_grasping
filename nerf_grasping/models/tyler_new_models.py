@@ -134,12 +134,12 @@ CONV_1D_OUTPUT_TO_1D_MAP = {
 def mlp(
     num_inputs: int,
     num_outputs: int,
-    hidden_layers: List[int],
+    hidden_layers: Tuple[int, ...],
     activation=nn.ReLU,
     output_activation=nn.Identity,
 ) -> nn.Sequential:
     layers = []
-    layer_sizes = [num_inputs] + hidden_layers + [num_outputs]
+    layer_sizes = [num_inputs] + list(hidden_layers) + [num_outputs]
     for i in range(len(layer_sizes) - 1):
         act = activation if i < len(layer_sizes) - 2 else output_activation
         layers += [nn.Linear(layer_sizes[i], layer_sizes[i + 1]), act()]
@@ -148,7 +148,7 @@ def mlp(
 
 def conv_encoder(
     input_shape: Tuple[int, ...],
-    conv_channels: List[int],
+    conv_channels: Tuple[int, ...],
     pool_type: PoolType = PoolType.MAX,
     dropout_prob: float = 0.0,
     conv_output_to_1d: ConvOutputTo1D = ConvOutputTo1D.FLATTEN,
@@ -201,7 +201,7 @@ def conv_encoder(
 
     # Conv layers
     layers = []
-    n_channels = [n_input_channels] + conv_channels
+    n_channels = [n_input_channels] + list(conv_channels)
     for i in range(len(n_channels) - 1):
         layers += [
             conv_layer(
@@ -254,7 +254,10 @@ class FiLMGenerator(nn.Module):
     num_beta_gamma = 2  # one scale and one bias
 
     def __init__(
-        self, film_input_dim: int, num_params_to_film: int, hidden_layers: List[int]
+        self,
+        film_input_dim: int,
+        num_params_to_film: int,
+        hidden_layers: Tuple[int, ...],
     ) -> None:
         super().__init__()
         self.film_input_dim = film_input_dim
@@ -289,7 +292,7 @@ class ConvEncoder2DConfig:
     use_resnet: bool = MISSING
     use_pretrained: bool = MISSING
     pooling_method: ConvOutputTo1D = MISSING
-    film_hidden_layers: List[int] = MISSING
+    film_hidden_layers: Tuple[int, ...] = MISSING
 
 
 class ConvEncoder2D(nn.Module):
@@ -300,7 +303,7 @@ class ConvEncoder2D(nn.Module):
         use_resnet: bool = True,
         use_pretrained: bool = True,
         pooling_method: ConvOutputTo1D = ConvOutputTo1D.FLATTEN,
-        film_hidden_layers: List[int] = [64, 64],
+        film_hidden_layers: Tuple[int, ...] = [64, 64],
     ) -> None:
         super().__init__()
 
@@ -318,7 +321,9 @@ class ConvEncoder2D(nn.Module):
         # Create conv architecture
         if self.use_resnet:
             weights = ResNet18_Weights.DEFAULT if self.use_pretrained else None
-            weights_transforms = [weights.transforms(antialias=True)] if weights is not None else []
+            weights_transforms = (
+                [weights.transforms(antialias=True)] if weights is not None else []
+            )
             self.img_preprocess = Compose(
                 [Lambda(lambda x: x.repeat(1, 3, 1, 1))] + weights_transforms
             )
@@ -408,7 +413,7 @@ class ConvEncoder2D(nn.Module):
 class ConvEncoder1DConfig:
     use_resnet: bool = MISSING
     pooling_method: ConvOutputTo1D = MISSING
-    film_hidden_layers: List[int] = MISSING
+    film_hidden_layers: Tuple[int, ...] = MISSING
     base_filters: int = MISSING
     kernel_size: int = MISSING
     stride: int = MISSING
@@ -426,7 +431,7 @@ class ConvEncoder1D(nn.Module):
         conditioning_dim: Optional[int] = None,
         use_resnet: bool = True,
         pooling_method: ConvOutputTo1D = ConvOutputTo1D.FLATTEN,
-        film_hidden_layers: List[int] = [64, 64],
+        film_hidden_layers: Tuple[int, ...] = [64, 64],
         base_filters: int = 64,
         kernel_size: int = 16,
         stride: int = 2,
@@ -841,7 +846,7 @@ class ClassifierConfig:
     )
     use_conditioning_2d: bool = MISSING
     conv_encoder_2d_embed_dim: int = MISSING
-    conv_encoder_2d_mlp_hidden_layers: List[int] = MISSING
+    conv_encoder_2d_mlp_hidden_layers: Tuple[int, ...] = MISSING
 
     conv_encoder_1d_config: ConvEncoder1DConfig = field(
         default_factory=ConvEncoder1DConfig
@@ -851,7 +856,7 @@ class ClassifierConfig:
     )
     encoder_1d_type: Encoder1DType = MISSING
     use_conditioning_1d: bool = MISSING
-    head_mlp_hidden_layers: List[int] = MISSING
+    head_mlp_hidden_layers: Tuple[int, ...] = MISSING
     concat_global_params_after_1d: bool = MISSING
     concat_fingers_before_1d_channelwise: bool = MISSING
 
@@ -865,7 +870,7 @@ class Abstract2DTo1DClassifier(nn.Module):
         conv_encoder_2d_config: Optional[ConvEncoder2DConfig] = None,
         use_conditioning_2d: bool = False,
         conv_encoder_2d_embed_dim: int = 32,
-        conv_encoder_2d_mlp_hidden_layers: List[int] = [64, 64],
+        conv_encoder_2d_mlp_hidden_layers: Tuple[int, ...] = [64, 64],
     ) -> None:
         # input_shape: (seq_len, height, width)
         super().__init__()
@@ -1159,7 +1164,7 @@ class Condition2D1D_ConcatGlobalParamsAfter1D_ConcatFingersAfter1D(
         transformer_encoder_1d_config: Optional[TransformerEncoder1DConfig] = None,
         encoder_1d_type: Encoder1DType = Encoder1DType.CONV,
         use_conditioning_1d: bool = False,
-        head_mlp_hidden_layers: List[int] = [64, 64],
+        head_mlp_hidden_layers: Tuple[int, ...] = [64, 64],
         concat_global_params_after_1d: bool = False,
         **kwargs,
     ) -> None:
@@ -1329,7 +1334,7 @@ class Condition2D1D_ConcatGlobalParamsAfter1D_ConcatFingersBefore1D(
         transformer_encoder_1d_config: Optional[TransformerEncoder1DConfig] = None,
         encoder_1d_type: Encoder1DType = Encoder1DType.CONV,
         use_conditioning_1d: bool = False,
-        head_mlp_hidden_layers: List[int] = [64, 64],
+        head_mlp_hidden_layers: Tuple[int, ...] = [64, 64],
         concat_global_params_after_1d: bool = False,
         concat_fingers_before_1d_channelwise: bool = False,  # Channel-wise vs. time-wise
         **kwargs,
@@ -1704,8 +1709,6 @@ def test_setup(
     print(f"example_conditioning.shape = {example_conditioning.shape}")
     print(f"example_output.shape = {example_output.shape}")
     print()
-
-
 
 
 def main() -> None:

@@ -11,12 +11,13 @@ from nerf_grasping.grasp_utils import (
 import pathlib
 from nerf_grasping.models.dexgraspnet_models import CNN_3D_Classifier as CNN_3D_Model
 from nerf_grasping.learned_metric.DexGraspNet_batch_data import BatchDataInput
+from typing import Iterable
 
 
 class Classifier(nn.Module):
-    def __init__(self, config: pathlib.Path):
+    def __init__(self, input_shape: Iterable[int]) -> None:
         super().__init__()
-        self.config = config
+        self.input_shape = input_shape
 
     def forward(
         self, nerf_densities: torch.Tensor, grasp_transforms: pp.LieTensor
@@ -39,22 +40,25 @@ class Classifier(nn.Module):
         return hardcoded_output
 
 
-class CNN_3D_Classifier(Classifier):
-    def __init__(self, config: pathlib.Path) -> None:
-        super().__init__(config)
-        self.model = self.load_model(config)
+class CNN_3D_XYZ_Classifier(Classifier):
+    def __init__(
+        self,
+        input_shape: Iterable[int],
+        conv_channels: Iterable[int],
+        mlp_hidden_layers: Iterable[int],
+        n_fingers,
+    ) -> None:
+        super().__init__(input_shape=input_shape)
+        self.conv_channels = conv_channels
+        self.mlp_hidden_layers = mlp_hidden_layers
+        self.n_fingers = n_fingers
 
-    def load_model(self, config: pathlib.Path) -> CNN_3D_Model:
-        # TODO: Later will need to find another way of using config to get model architecture
-        # Currently has many hardcoded/default values
-        NUM_XYZ = 3
-        model = CNN_3D_Model(
-            input_shape=(NUM_XYZ + 1, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z),
-            n_fingers=NUM_FINGERS,
+        self.model = CNN_3D_Model(
+            input_shape=input_shape,
+            conv_channels=conv_channels,
+            mlp_hidden_layers=mlp_hidden_layers,
+            n_fingers=n_fingers,
         )
-        state_dict = torch.load(config)["nerf_to_grasp_success_model"]
-        model.load_state_dict(state_dict)
-        return model
 
     def forward(
         self, nerf_densities: torch.Tensor, grasp_transforms: pp.LieTensor

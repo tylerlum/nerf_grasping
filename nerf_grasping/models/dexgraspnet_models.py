@@ -96,7 +96,7 @@ class CNN_2D_1D_Classifier(nn.Module):
         n_fingers = 4
         n_pts_x, n_pts_y, n_pts_z = self.grid_shape
         seq_len = n_pts_z
-        conditioning_dim = 16
+        conditioning_dim = 7
 
         self.conv_2d = ConvEncoder2D(
             input_shape=(1, n_pts_x, n_pts_y),
@@ -134,12 +134,11 @@ class CNN_2D_1D_Classifier(nn.Module):
         n_fingers = 4
         n_pts_x, n_pts_y, n_pts_z = self.grid_shape
         seq_len = n_pts_z
-        conditioning_dim = 16
+        conditioning_dim = 7
         assert_equals(x.shape, (batch_size, n_fingers, n_pts_x, n_pts_y, seq_len))
 
         if conditioning is not None:
-            assert_equals(conditioning.shape, (batch_size, n_fingers, 4, 4))
-            conditioning = conditioning.reshape(batch_size, n_fingers, conditioning_dim)
+            assert_equals(conditioning.shape, (batch_size, n_fingers, conditioning_dim))
 
         x = x.reshape(batch_size * n_fingers, n_pts_x, n_pts_y, seq_len)
         if conditioning is not None:

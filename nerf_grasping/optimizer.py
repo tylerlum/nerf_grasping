@@ -256,7 +256,9 @@ def main(cfg: GraspMetricConfig) -> None:
         task = progress.add_task("Loading grasp data", total=1)
 
         # TODO: Find a way to load a particular split of the grasp_data.
-        grasp_config_dicts = np.load(cfg.init_grasps_path, allow_pickle=True)
+        grasp_config_dicts = np.load(
+            cfg.init_grasp_config_dicts_path, allow_pickle=True
+        )
         init_grasps = AllegroGraspConfig.from_grasp_config_dicts(grasp_config_dicts)
         # Get indices of preferred split.
         train_inds, val_inds, test_inds = get_split_inds(

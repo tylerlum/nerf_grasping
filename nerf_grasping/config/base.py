@@ -2,7 +2,8 @@ from datetime import datetime
 from dataclasses import dataclass, field
 from typing import Optional
 
-WANDB_DATETIME_STR = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+# A general date-time string for naming runs -- shared across all config modules.
+CONFIG_DATETIME_STR = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
 
 @dataclass(frozen=True)
@@ -15,7 +16,7 @@ class WandbConfig:
     entity: Optional[str] = None
     """Account associated with the wandb project."""
 
-    name: str = field(default_factory=lambda: WANDB_DATETIME_STR)
+    name: str = field(default_factory=lambda: CONFIG_DATETIME_STR)
     """Name of the run."""
 
     group: str = ""

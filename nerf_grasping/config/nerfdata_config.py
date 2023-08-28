@@ -8,8 +8,7 @@ from typing import Optional
 from datetime import datetime
 import tyro
 import nerf_grasping
-
-NERFDATA_DATETIME_STR = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+from nerf_grasping.config.base import CONFIG_DATETIME_STR
 
 
 @dataclass(frozen=True)
@@ -31,7 +30,7 @@ class NerfDataConfig:
     )
     output_filepath: pathlib.Path = (
         pathlib.Path(str(evaled_grasp_config_dicts_path) + "_learned_metric_dataset")
-        / f"{NERFDATA_DATETIME_STR}_learned_metric_dataset.h5"
+        / f"{CONFIG_DATETIME_STR}_learned_metric_dataset.h5"
     )
     plot_only_one: bool = False
     save_dataset: bool = True

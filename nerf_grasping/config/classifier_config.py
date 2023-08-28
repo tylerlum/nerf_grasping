@@ -2,14 +2,10 @@ from dataclasses import dataclass, field
 from typing import Optional, Literal, Tuple, List, Union
 from nerf_grasping.config.fingertip_config import UnionFingertipConfig
 from nerf_grasping.classifier import CNN_3D_XYZ_Classifier
-from nerf_grasping.config.base import WandbConfig
+from nerf_grasping.config.base import WandbConfig, CONFIG_DATETIME_STR
 from nerf_grasping.config.nerfdata_config import NerfDataConfig
 import tyro
-from datetime import datetime
 import pathlib
-import yaml
-
-CLASSIFIER_DATETIME_STR = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
 
 @dataclass(frozen=True)
@@ -113,7 +109,7 @@ class CheckpointWorkspaceConfig:
     root_dir: str = "Train_DexGraspNet_NeRF_Grasp_Metric_workspaces"
     """Root directory for checkpoints."""
 
-    leaf_dir: str = field(default_factory=lambda: CLASSIFIER_DATETIME_STR)
+    leaf_dir: str = field(default_factory=lambda: CONFIG_DATETIME_STR)
     """Leaf directory for checkpoints."""
 
     force_no_resume: bool = True
@@ -199,7 +195,7 @@ class ClassifierConfig:
 
     wandb: WandbConfig = field(
         default_factory=lambda: WandbConfig(
-            project="learned_metric", name=CLASSIFIER_DATETIME_STR
+            project="learned_metric", name=CONFIG_DATETIME_STR
         )
     )
 
@@ -214,17 +210,19 @@ class ClassifierConfig:
         Then load the correct model config based on the nerfdata config.
         """
         if self.nerfdata_cfg_path is not None:
+            print(f"Loading nerfdata config from {self.nerfdata_cfg_path}")
             self.nerfdata_config = tyro.extras.from_yaml(
                 NerfDataConfig, self.nerfdata_cfg_path.open()
             )
+        elif self.nerfdata_config.config_filepath.exists():
+            print(
+                f"Loading nerfdata config from {self.nerfdata_config.config_filepath}"
+            )
+            self.nerfdata_config = tyro.extras.from_yaml(
+                NerfDataConfig, self.nerfdata_config.config_filepath.open()
+            )
         else:
-            if self.nerfdata_config.config_filepath.exists():
-                print(
-                    f"Loading nerfdata config from {self.nerfdata_config.config_filepath}"
-                )
-                self.nerfdata_config = tyro.extras.from_yaml(
-                    NerfDataConfig, self.nerfdata_config.config_filepath.open()
-                )
+            print("Loading default nerfdata config")
 
         if self.model_config is None:
             self.model_config = CNN_3D_XYZ_ModelConfig.from_fingertip_config(

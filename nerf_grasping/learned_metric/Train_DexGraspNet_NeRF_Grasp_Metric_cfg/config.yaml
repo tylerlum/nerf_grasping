@@ -1,5 +1,6 @@
 defaults:
   - _self_
+  - classifier: CNN_3D_XYZ_Classifier
 
 wandb:
   entity: "tylerlum"

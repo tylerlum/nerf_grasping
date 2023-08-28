@@ -154,6 +154,8 @@ else:
     arguments = sys.argv[1:]
     print(f"arguments = {arguments}")
 
+# TODO(pculbert): stop hardcoding the number of grid points.
+INPUT_SHAPE = (NUM_XYZ + 1, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
 
 # %%
 from hydra.errors import ConfigCompositionException
@@ -165,7 +167,11 @@ try:
         raw_cfg = compose(config_name="config", overrides=arguments)
 
     # Runtime type-checking
-    cfg: Config = instantiate(raw_cfg)
+    cfg: Config = instantiate(
+        raw_cfg, classifier={"input_shape": INPUT_SHAPE}, _convert_="all"
+    )
+
+    breakpoint()
 except ConfigCompositionException as e:
     print(f"ConfigCompositionException: {e}")
     print()
@@ -705,17 +711,12 @@ EXAMPLE_BATCH_DATA.grasp_success
 
 # %%
 import torch.nn as nn
-from nerf_grasping.models.dexgraspnet_models import (
-    CNN_3D_Classifier,
-)
 
 # %%
+# TODO(pculbert): double-check the specific instantiate call here is needed.
+breakpoint()
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-INPUT_SHAPE = (NUM_XYZ + 1, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
-nerf_to_grasp_success_model = CNN_3D_Classifier(
-    input_shape=INPUT_SHAPE,
-    n_fingers=NUM_FINGERS,
-).to(device)
+nerf_to_grasp_success_model = cfg.classifier.to(device)
 
 # %%
 start_epoch = 0

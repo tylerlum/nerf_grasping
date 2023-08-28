@@ -1,6 +1,9 @@
 from dataclasses import dataclass, field
 from omegaconf import MISSING
 from typing import Any, Dict, List, Optional, Tuple, Type
+from nerf_grasping.classifier import Classifier, CNN_3D_XYZ_Classifier
+
+from hydra.core.config_store import ConfigStore
 
 
 @dataclass
@@ -60,6 +63,14 @@ class CheckpointWorkspaceConfig:
     force_no_resume: bool = MISSING
 
 
+# @dataclass
+# class ClassifierConfig:
+
+
+# @dataclass
+# class CNN_3D_XYZ_ClassifierConfig(ClassifierConfig):
+
+
 @dataclass
 class Config:
     data: DataConfig = field(default_factory=DataConfig)
@@ -69,5 +80,12 @@ class Config:
     checkpoint_workspace: CheckpointWorkspaceConfig = field(
         default_factory=CheckpointWorkspaceConfig
     )
+    classifier: Classifier = MISSING
     random_seed: int = MISSING
     dry_run: bool = MISSING
+
+
+# Register ClassifierConfig subclasses.
+cs = ConfigStore.instance()
+cs.store(name="config", node=Config)
+cs.store(group="classifier", name="CNN_3D_XYZ_Classifier", node=CNN_3D_XYZ_Classifier)

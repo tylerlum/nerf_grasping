@@ -172,6 +172,7 @@ cluster_scripts/
 nerfcheckpoints/
 *.h5
 outputs
+*.npy
 
 # Model weights
 *.pt

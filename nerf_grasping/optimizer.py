@@ -185,6 +185,10 @@ def run_optimizer_loop(
 
 def main(args: GraspOptimizerConfig) -> None:
     # Create rich.Console object.
+
+    torch.random.manual_seed(0)
+    np.random.seed(0)
+
     console = Console(width=120)
 
     # Sample a batch of grasps from the grasp data.

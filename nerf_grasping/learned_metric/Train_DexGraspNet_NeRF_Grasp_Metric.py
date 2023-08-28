@@ -707,15 +707,17 @@ EXAMPLE_BATCH_DATA.grasp_success
 import torch.nn as nn
 from nerf_grasping.models.dexgraspnet_models import (
     CNN_3D_Classifier,
+    CNN_2D_1D_Classifier,
 )
 
 # %%
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 INPUT_SHAPE = (NUM_XYZ + 1, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
-nerf_to_grasp_success_model = CNN_3D_Classifier(
-    input_shape=INPUT_SHAPE,
-    n_fingers=NUM_FINGERS,
-).to(device)
+
+# nerf_to_grasp_success_model = CNN_3D_Classifier(
+#     input_shape=INPUT_SHAPE,
+#     n_fingers=NUM_FINGERS,
+# ).to(device)
 
 # %%
 start_epoch = 0

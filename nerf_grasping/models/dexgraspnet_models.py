@@ -7,6 +7,8 @@ from nerf_grasping.models.tyler_new_models import (
     PoolType,
     ConvOutputTo1D,
     mlp,
+    ConvEncoder2D,
+    ConvEncoder1D,
 )
 
 
@@ -89,6 +91,42 @@ class CNN_2D_1D_Classifier(nn.Module):
     def __init__(self) -> None:
         # TODO: Make this not hardcoded
         super().__init__()
+
+        n_fingers = 4
+        n_pts_x, n_pts_y, n_pts_z = 32, 32, 32
+        seq_len = n_pts_z
+        conditioning_dim = 16
+
+        self.conv_2d = ConvEncoder2D(
+            input_shape=(1, n_pts_x, n_pts_y),
+            conditioning_dim=conditioning_dim,
+            use_resnet=True,
+            use_pretrained=True,
+            pooling_method=ConvOutputTo1D.AVG_POOL_SPATIAL,
+            film_hidden_layers=[256, 256],
+        )
+        self.conv_1d = ConvEncoder1D(
+            input_shape=(self.conv_2d.output_dim, seq_len),
+            conditioning_dim=conditioning_dim,
+            use_resnet=True,
+            pooling_method=ConvOutputTo1D.AVG_POOL_SPATIAL,
+            base_filters=64,
+            kernel_size=16,
+            stride=2,
+            groups=32,
+            n_block=8,
+            downsample_gap=2,
+            increasefilter_gap=4,
+            use_do=False,
+        )
+        self.mlp = mlp(
+            num_inputs=n_fingers * self.conv_1d.output_dim
+            + n_fingers * conditioning_dim,
+            num_outputs=self.n_classes,
+            hidden_layers=[256, 256],
+        )
+
+    ConvEncoder1D,
 
     def forward(
         self, x: torch.Tensor, conditioning: Optional[torch.Tensor] = None

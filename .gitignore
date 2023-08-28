@@ -178,3 +178,7 @@ outputs
 *.pt
 wandb*
 model_graph*
+
+# Configs
+*.yaml
+*.yml

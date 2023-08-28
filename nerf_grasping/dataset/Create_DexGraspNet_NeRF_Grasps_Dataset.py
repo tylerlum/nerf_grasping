@@ -147,10 +147,9 @@ max_num_datapoints = (
 print(f"max num datapoints: {max_num_datapoints}")
 
 # %%
-cfg_path = cfg.output_filepath.parent / "nerfdata_config.yml"
-print(f"Saving config to {cfg_path}")
+print(f"Saving config to {cfg.config_filepath}")
 cfg_yaml = tyro.extras.to_yaml(cfg)
-with open(cfg_path, "w") as f:
+with open(cfg.config_filepath, "w") as f:
     f.write(cfg_yaml)
 
 with h5py.File(cfg.output_filepath, "w") as hdf5_file:

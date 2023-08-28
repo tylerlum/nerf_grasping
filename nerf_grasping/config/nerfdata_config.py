@@ -42,6 +42,7 @@ class NerfDataConfig:
     plot_all_high_density_points: bool = True
     plot_alphas_each_finger_1D: bool = True
     plot_alpha_images_each_finger: bool = True
+    config_filepath = output_filepath.parent / "config.yml"
 
 
 if __name__ == "__main__":

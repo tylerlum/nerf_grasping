@@ -46,9 +46,8 @@ from nerf_grasping.dataset.DexGraspNet_NeRF_Grasps_utils import (
 )
 from nerf_grasping.models.dexgraspnet_models import CNN_3D_Classifier
 from nerf_grasping.dataset.timers import LoopTimer
-from nerf_grasping.learned_metric.Train_DexGraspNet_NeRF_Grasp_Metric_Config import (
-    Config,
-    TrainingConfig,
+from nerf_grasping.config.classifier_config import (
+    ClassifierConfig,
 )
 import os
 import pypose as pp
@@ -136,7 +135,14 @@ else:
     print(f"arguments = {arguments}")
 
 # %%
-cfg = tyro.cli(Config, args=arguments)
+cfg = tyro.cli(ClassifierConfig, args=arguments)
+
+# A relatively dirty hack: create script globals from the config vars.
+NUM_FINGERS = cfg.nerfdata_config.fingertip_config.n_fingers
+NUM_PTS_X = cfg.nerfdata_config.fingertip_config.num_pts_x
+NUM_PTS_Y = cfg.nerfdata_config.fingertip_config.num_pts_y
+NUM_PTS_Z = cfg.nerfdata_config.fingertip_config.num_pts_z
+
 
 # %%
 print(f"Config:\n{tyro.extras.to_yaml(cfg)}")
@@ -278,6 +284,7 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
             assert (
                 len(hdf5_file["/grasp_success"].shape) == 1
             ), f"{hdf5_file['/grasp_success'].shape}"
+            breakpoint()
             assert hdf5_file["/nerf_densities"].shape[1:] == (
                 NUM_FINGERS,
                 NUM_PTS_X,
@@ -678,7 +685,7 @@ import torch.nn as nn
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Pull out just the CNN (without wrapping for LieTorch) for training.
-nerf_to_grasp_success_model = cfg.classifier.get_classifier().model.to(device)
+nerf_to_grasp_success_model = cfg.model_config.get_classifier().model.to(device)
 
 # %%
 start_epoch = 0
@@ -723,13 +730,23 @@ print(f"lr_scheduler = {lr_scheduler}")
 # %%
 summary(
     model=nerf_to_grasp_success_model,
-    input_size=(cfg.dataloader.batch_size, NUM_FINGERS, *cfg.classifier.input_shape),
+    input_size=(
+        cfg.dataloader.batch_size,
+        cfg.model_config.n_fingers,
+        *cfg.model_config.input_shape,
+    ),
     device=device,
 )
 
 # %%
 example_input = (
-    torch.zeros((cfg.dataloader.batch_size, NUM_FINGERS, *cfg.classifier.input_shape))
+    torch.zeros(
+        (
+            cfg.dataloader.batch_size,
+            cfg.model_config.n_fingers,
+            *cfg.model_config.input_shape,
+        )
+    )
     .to(device)
     .requires_grad_(True)
 )

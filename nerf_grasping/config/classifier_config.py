@@ -7,6 +7,7 @@ from nerf_grasping.config.nerfdata_config import NerfDataConfig
 import tyro
 from datetime import datetime
 import pathlib
+import yaml
 
 CLASSIFIER_DATETIME_STR = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
@@ -200,6 +201,8 @@ class ClassifierConfig:
             project="learned_metric", name=CLASSIFIER_DATETIME_STR
         )
     )
+    dry_run: bool = False
+    random_seed: int = 42
 
     def __post_init__(self):
         """
@@ -210,10 +213,17 @@ class ClassifierConfig:
         """
         if self.nerfdata_cfg_path is not None:
             self.nerfdata_config = tyro.extras.from_yaml(
-                NerfDataConfig, self.nerfdata_cfg_path
+                NerfDataConfig, yaml.safe_load(self.nerfdata_cfg_path)
             )
         else:
             self.nerfdata_config = NerfDataConfig()
+            if self.nerfdata_config.config_filepath.exists():
+                print(
+                    f"Loading nerfdata config from {self.nerfdata_config.config_filepath}"
+                )
+                self.nerfdata_config = tyro.extras.from_yaml(
+                    NerfDataConfig, yaml.safe_load(self.nerfdata_config.config_filepath)
+                )
 
         if self.model_config is None:
             self.model_config = CNN_3D_XYZ_ModelConfig.from_fingertip_config(

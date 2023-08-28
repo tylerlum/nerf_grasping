@@ -2,11 +2,8 @@ from dataclasses import dataclass, field
 from typing import Optional, Tuple, List, Literal, Union
 from datetime import datetime
 from nerf_grasping.config.base import WandbConfig
-from nerf_grasping.config.fingertip_config import (
-    UnionFingertipConfig,
-    EvenlySpacedFingertipConfig,
-)
 from nerf_grasping.config.classifier_config import ClassifierConfig
+from nerf_grasping.config.optimizer_config import GraspOptimizerConfig
 import tyro
 import pathlib
 
@@ -19,12 +16,8 @@ class GraspMetricConfig:
 
     classifier_config: ClassifierConfig
     classifier_config_path: Optional[pathlib.Path] = None
-
-    random_seed: int = 42
-    """Seed for RNG."""
-
-    dry_run: bool = False
-    """Flag to dry run dataset loading and classifier setup."""
+    classifier_checkpoint: int = -1  # Load latest checkpoint if -1.
+    optimizer_config: GraspOptimizerConfig = GraspOptimizerConfig()
 
     def __post_init__(self):
         """
@@ -34,6 +27,12 @@ class GraspMetricConfig:
             self.classifier_config = tyro.extras.from_yaml(
                 ClassifierConfig, self.classifier_config_path
             )
+        else:
+            self.classifier_config = ClassifierConfig()
+            if self.classifier_config.config_filepath.exists():
+                self.classifier_config = tyro.extras.from_yaml(
+                    ClassifierConfig, self.classifier_config.config_filepath
+                )
 
 
 if __name__ == "__main__":

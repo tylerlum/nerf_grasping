@@ -19,31 +19,6 @@ from tap import Tap
 PRINT_FREQ = 5
 
 
-class GraspOptimizerConfig(Tap):
-    nerf_config: pathlib.Path = (
-        pathlib.Path(nerf_grasping.get_repo_root())
-        / "data"
-        / "nerfcheckpoints_trial"
-        / "mug_0_10"
-        / "nerfacto"
-        / "2023-08-25_130206"
-        / "config.yml"
-    )
-    classifier_checkpoint_path: pathlib.Path = (
-        pathlib.Path(nerf_grasping.get_repo_root())
-        / "Train_DexGraspNet_NeRF_Grasp_Metric_workspaces"
-        / "2023-08-26_12-10-12"
-        / "checkpoint_0100.pt"
-    )
-    grasp_data_path: pathlib.Path = (
-        pathlib.Path(nerf_grasping.get_repo_root())
-        / "data"
-        / "2023-08-26_evaled_overfit_grasp_config_dicts"
-        / "mug_0_10.npy"
-    )
-    num_grasps: int = 64
-
-
 def is_notebook() -> bool:
     try:
         shell = get_ipython().__class__.__name__
@@ -235,8 +210,6 @@ def main(args: GraspOptimizerConfig) -> None:
         args.nerf_config,
         args.classifier_checkpoint_path,
         console=console,
-        lr=1e-4,
-        momentum=0.9,
     )
 
     table = Table(title="Grasp scores")

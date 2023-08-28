@@ -201,6 +201,10 @@ class ClassifierConfig:
             project="learned_metric", name=CLASSIFIER_DATETIME_STR
         )
     )
+    config_filepath: pathlib.Path = (
+        checkpoint_workspace.root_dir / checkpoint_workspace.leaf_dir / "config.yml"
+    )
+
     dry_run: bool = False
     random_seed: int = 42
 

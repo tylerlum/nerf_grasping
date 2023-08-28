@@ -167,6 +167,7 @@ class CNN_3D_XYZ_ModelConfig(ClassifierModelConfig):
             ],
             conv_channels=conv_channels,
             mlp_hidden_layers=mlp_hidden_layers,
+            n_fingers=fingertip_config.n_fingers,
         )
 
     def get_classifier(self):

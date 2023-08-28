@@ -13,6 +13,7 @@ class BaseFingertipConfig:
     finger_width_mm: float = 10.0
     finger_height_mm: float = 15.0
     grasp_depth_mm: float = 20.0
+    n_fingers: int = 4
 
 
 @dataclass(frozen=True)

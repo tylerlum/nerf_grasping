@@ -7,6 +7,7 @@ import pathlib
 from typing import Optional
 from datetime import datetime
 import tyro
+import nerf_grasping
 
 NERFDATA_DATETIME_STR = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
@@ -18,10 +19,12 @@ class NerfDataConfig:
     fingertip_config: UnionFingertipConfig = (
         EvenlySpacedFingertipConfig.from_dimensions()
     )
-    dexgraspnet_data_root: pathlib.Path = pathlib.Path("./data")
+    dexgraspnet_data_root: pathlib.Path = (
+        pathlib.Path(nerf_grasping.get_repo_root()) / "data"
+    )
     dexgraspnet_meshdata_root: pathlib.Path = dexgraspnet_data_root / "meshdata_trial"
     evaled_grasp_config_dicts_path: pathlib.Path = (
-        dexgraspnet_data_root / "2023-08-26_evaled_overfit_grasp_config_dicts"
+        dexgraspnet_data_root / "2023-08-26_overfit_evaled_grasp_config_dicts"
     )
     nerf_checkpoints_path: pathlib.Path = (
         dexgraspnet_data_root / "nerfcheckpoints_trial"
@@ -34,7 +37,7 @@ class NerfDataConfig:
     save_dataset: bool = True
     print_timing: bool = True
     limit_num_configs: Optional[int] = None  # None for no limit
-    num_data_points_per_file: int = 500
+    max_num_data_points_per_file: int = 500
     buffer_scaling: int = 2  # Not sure if need this, but just in case
     plot_all_high_density_points: bool = True
     plot_alphas_each_finger_1D: bool = True

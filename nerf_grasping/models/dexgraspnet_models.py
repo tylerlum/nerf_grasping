@@ -88,12 +88,13 @@ class CNN_3D_Classifier(nn.Module):
 
 
 class CNN_2D_1D_Classifier(nn.Module):
-    def __init__(self) -> None:
+    def __init__(self, grid_shape: Tuple[int, int, int]) -> None:
         # TODO: Make this not hardcoded
         super().__init__()
+        self.grid_shape = grid_shape
 
         n_fingers = 4
-        n_pts_x, n_pts_y, n_pts_z = 32, 32, 32
+        n_pts_x, n_pts_y, n_pts_z = self.grid_shape
         seq_len = n_pts_z
         conditioning_dim = 16
 
@@ -126,14 +127,12 @@ class CNN_2D_1D_Classifier(nn.Module):
             hidden_layers=[256, 256],
         )
 
-    ConvEncoder1D,
-
     def forward(
         self, x: torch.Tensor, conditioning: Optional[torch.Tensor] = None
     ) -> torch.Tensor:
         batch_size = x.shape[0]
         n_fingers = 4
-        n_pts_x, n_pts_y, n_pts_z = 32, 32, 32
+        n_pts_x, n_pts_y, n_pts_z = self.grid_shape
         seq_len = n_pts_z
         conditioning_dim = 16
         assert_equals(x.shape, (batch_size, n_fingers, n_pts_x, n_pts_y, seq_len))
@@ -193,3 +192,11 @@ class CNN_2D_1D_Classifier(nn.Module):
         x = self.mlp(x)
         assert_equals(x.shape, (batch_size, self.n_classes))
         return x
+
+    def get_success_logits(self, x: torch.Tensor, conditioning: Optional[torch.Tensor] = None) -> torch.Tensor:
+        return self.forward(x, conditioning=conditioning)
+
+    @property
+    @lru_cache()
+    def n_classes(self) -> int:
+        return 2

@@ -712,8 +712,10 @@ from nerf_grasping.models.dexgraspnet_models import (
 
 # %%
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-INPUT_SHAPE = (NUM_XYZ + 1, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
-
+nerf_to_grasp_success_model = CNN_2D_1D_Classifier(
+    grid_shape=(NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z),
+).to(device)
+# INPUT_SHAPE = (NUM_XYZ + 1, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
 # nerf_to_grasp_success_model = CNN_3D_Classifier(
 #     input_shape=INPUT_SHAPE,
 #     n_fingers=NUM_FINGERS,
@@ -760,40 +762,40 @@ print(f"optimizer = {optimizer}")
 print(f"lr_scheduler = {lr_scheduler}")
 
 # %%
-summary(
-    model=nerf_to_grasp_success_model,
-    input_size=(cfg.dataloader.batch_size, NUM_FINGERS, *INPUT_SHAPE),
-    device=device,
-)
+# summary(
+#     model=nerf_to_grasp_success_model,
+#     input_size=(cfg.dataloader.batch_size, NUM_FINGERS, *INPUT_SHAPE),
+#     device=device,
+# )
 
 # %%
-example_input = (
-    torch.zeros((cfg.dataloader.batch_size, NUM_FINGERS, *INPUT_SHAPE))
-    .to(device)
-    .requires_grad_(True)
-)
-example_output = nerf_to_grasp_success_model(example_input)
-try:
-    dot = make_dot(
-        example_output,
-        params={
-            **dict(nerf_to_grasp_success_model.named_parameters()),
-            **{"NERF_INPUT": example_input},
-            **{"GRASP_SUCCESS": example_output},
-        },
-    )
-    model_graph_filename = "model_graph.png"
-    model_graph_filename_no_ext, model_graph_file_ext = model_graph_filename.split(".")
-    print(f"Saving to {model_graph_filename}...")
-    dot.render(model_graph_filename_no_ext, format=model_graph_file_ext)
-    print(f"Done saving to {model_graph_filename}")
-except Exception as e:
-    print(f"Exception: {e}")
-    print("Skipping make_dot")
-
-SHOW_DOT = False
-if SHOW_DOT:
-    dot
+# example_input = (
+#     torch.zeros((cfg.dataloader.batch_size, NUM_FINGERS, *INPUT_SHAPE))
+#     .to(device)
+#     .requires_grad_(True)
+# )
+# example_output = nerf_to_grasp_success_model(example_input)
+# try:
+#     dot = make_dot(
+#         example_output,
+#         params={
+#             **dict(nerf_to_grasp_success_model.named_parameters()),
+#             **{"NERF_INPUT": example_input},
+#             **{"GRASP_SUCCESS": example_output},
+#         },
+#     )
+#     model_graph_filename = "model_graph.png"
+#     model_graph_filename_no_ext, model_graph_file_ext = model_graph_filename.split(".")
+#     print(f"Saving to {model_graph_filename}...")
+#     dot.render(model_graph_filename_no_ext, format=model_graph_file_ext)
+#     print(f"Done saving to {model_graph_filename}")
+# except Exception as e:
+#     print(f"Exception: {e}")
+#     print("Skipping make_dot")
+# 
+# SHOW_DOT = False
+# if SHOW_DOT:
+#     dot
 
 # %% [markdown]
 # # Training Setup
@@ -804,7 +806,7 @@ if SHOW_DOT:
 def save_checkpoint(
     checkpoint_workspace_dir_path: str,
     epoch: int,
-    nerf_to_grasp_success_model: CNN_3D_Classifier,
+    nerf_to_grasp_success_model: CNN_2D_1D_Classifier,
     optimizer: torch.optim.Optimizer,
     lr_scheduler: Optional[torch.optim.lr_scheduler.LRScheduler] = None,
 ) -> None:
@@ -831,7 +833,7 @@ def save_checkpoint(
 def iterate_through_dataloader(
     phase: Phase,
     dataloader: DataLoader,
-    nerf_to_grasp_success_model: CNN_3D_Classifier,
+    nerf_to_grasp_success_model: CNN_2D_1D_Classifier,
     device: torch.device,
     ce_loss_fn: nn.CrossEntropyLoss,
     wandb_log_dict: dict,
@@ -874,7 +876,8 @@ def iterate_through_dataloader(
             with loop_timer.add_section_timer("Fwd"):
                 grasp_success_logits = nerf_to_grasp_success_model.get_success_logits(
                     # TODO: Use config to set this, defines what input type we give
-                    batch_data.input.nerf_alphas_with_augmented_coords
+                    x=batch_data.input.nerf_alphas,
+                    conditioning=batch_data.input.augmented_grasp_transforms,
                     # batch_data.input.nerf_alphas_with_coords
                 )
                 ce_loss = ce_loss_fn(
@@ -975,7 +978,7 @@ def run_training_loop(
     training_cfg: TrainingConfig,
     train_loader: DataLoader,
     val_loader: DataLoader,
-    nerf_to_grasp_success_model: CNN_3D_Classifier,
+    nerf_to_grasp_success_model: CNN_2D_1D_Classifier,
     device: torch.device,
     ce_loss_fn: nn.CrossEntropyLoss,
     optimizer: torch.optim.Optimizer,

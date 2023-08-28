@@ -1,5 +1,10 @@
 from __future__ import annotations
-from nerf_grasping.optimizer_utils import AllegroGraspConfig, GraspMetric
+from nerf_grasping.optimizer_utils import (
+    AllegroGraspConfig,
+    GraspMetric,
+    get_split_inds,
+)
+from dataclasses import asdict
 from nerf_grasping.config.metric_config import GraspMetricConfig
 import pathlib
 import grasp_utils
@@ -12,6 +17,7 @@ import nerf_grasping
 from functools import partial
 import numpy as np
 import tyro
+import wandb
 
 from rich.console import Console
 from rich.table import Table
@@ -192,6 +198,8 @@ def run_optimizer_loop(
             total=num_steps,
         )
         for iter in range(num_steps):
+            wandb_log_dict = {}
+            wandb_log_dict["optimization_step"] = iter
             optimizer.step()
 
             # Update progress bar.
@@ -205,14 +213,22 @@ def run_optimizer_loop(
                     f"Iter: {iter} | Min score: {optimizer.grasp_scores.min():.3f} | Max score: {optimizer.grasp_scores.max():.3f} | Mean score: {optimizer.grasp_scores.mean():.3f} | Std dev: {optimizer.grasp_scores.std():.3f}"
                 )
 
-            # TODO(pculbert): Add logging for grasps and scores.
-            # Likely want to log min/mean of scores, and store the grasp configs
+            # Log to wandb.
+            wandb_log_dict["scores"] = optimizer.grasp_scores.detach().cpu().numpy()
+            wandb_log_dict["min_score"] = optimizer.grasp_scores.min().item()
+            wandb_log_dict["max_score"] = optimizer.grasp_scores.max().item()
+            wandb_log_dict["mean_score"] = optimizer.grasp_scores.mean().item()
+            wandb_log_dict["std_score"] = optimizer.grasp_scores.std().item()
 
-            # TODO(pculbert): Track best grasps across steps.
+            if wandb.run is not None:
+                wandb.log(wandb_log_dict)
 
     # Sort grasp scores and configs by score.
     _, sort_indices = torch.sort(optimizer.grasp_scores, descending=False)
-    return (optimizer.grasp_scores[sort_indices], optimizer.grasp_config[sort_indices])
+    return (
+        optimizer.grasp_scores[sort_indices],
+        optimizer.grasp_config[sort_indices],
+    )
 
 
 def main(cfg: GraspMetricConfig) -> None:
@@ -222,6 +238,14 @@ def main(cfg: GraspMetricConfig) -> None:
     np.random.seed(0)
 
     console = Console(width=120)
+
+    if cfg.wandb:
+        wandb.init(
+            entity=cfg.wandb.entity,
+            project=cfg.wandb.project,
+            name=cfg.wandb.name,
+            config=asdict(cfg),
+        )
 
     # Sample a batch of grasps from the grasp data.
     with Progress(
@@ -234,9 +258,27 @@ def main(cfg: GraspMetricConfig) -> None:
         # TODO: Find a way to load a particular split of the grasp_data.
         grasp_config_dicts = np.load(cfg.init_grasps_path, allow_pickle=True)
         init_grasps = AllegroGraspConfig.from_grasp_config_dicts(grasp_config_dicts)
-        data_inds = np.random.choice(
-            np.arange(init_grasps.batch_size), size=cfg.optimizer.num_grasps
+        # Get indices of preferred split.
+        train_inds, val_inds, test_inds = get_split_inds(
+            init_grasps.batch_size,
+            [
+                cfg.classifier_config.data.frac_train,
+                cfg.classifier_config.data.frac_val,
+                cfg.classifier_config.data.frac_test,
+            ],
+            cfg.classifier_config.random_seed,
         )
+
+        if cfg.grasp_split == "train":
+            data_inds = train_inds
+        elif cfg.grasp_split == "val":
+            data_inds = val_inds
+        elif cfg.grasp_split == "test":
+            data_inds = test_inds
+        else:
+            raise ValueError(f"Invalid grasp_split: {cfg.grasp_split}")
+
+        data_inds = np.random.choice(data_inds, size=cfg.optimizer.num_grasps)
         init_grasps = init_grasps[data_inds]
         progress.update(task, advance=1)
 
@@ -265,7 +307,9 @@ def main(cfg: GraspMetricConfig) -> None:
         f"{optimizer.grasp_scores.std():.5f}",
     )
 
-    scores, grasp_configs = run_optimizer_loop(optimizer, num_steps=35, console=console)
+    scores, grasp_configs = run_optimizer_loop(
+        optimizer, num_steps=cfg.optimizer.num_steps, console=console
+    )
 
     assert (
         scores.shape[0] == grasp_configs.batch_size
@@ -282,6 +326,15 @@ def main(cfg: GraspMetricConfig) -> None:
         f"{scores.std():.5f}",
     )
     console.print(table)
+
+    grasp_config_dicts = grasp_configs.as_dicts()
+    for ii, dd in enumerate(grasp_config_dicts):
+        dd["score"] = scores[ii].item()
+
+    print(f"Saving sorted grasp configs to {cfg.output_path}")
+    np.save(str(cfg.output_path), grasp_config_dicts)
+
+    wandb.finish()
 
 
 if __name__ == "__main__":

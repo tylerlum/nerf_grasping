@@ -31,6 +31,8 @@ class GraspMetricConfig:
         / "2023-08-26_overfit_evaled_grasp_config_dicts"
         / "mug_0_10.npy"
     )
+    output_path: Optional[pathlib.Path] = None
+    grasp_split: Literal["train", "val", "test"] = "val"
     nerf_checkpoint_path: pathlib.Path = (
         pathlib.Path(nerf_grasping.get_repo_root())
         / "data"
@@ -39,6 +41,11 @@ class GraspMetricConfig:
         / "nerfacto"
         / "2023-08-25_130206"
         / "config.yml"
+    )
+    wandb: Optional[WandbConfig] = field(
+        default_factory=lambda: WandbConfig(
+            project="learned_metric", name=METRIC_DATETIME_STR
+        )
     )
 
     def __post_init__(self):
@@ -51,6 +58,11 @@ class GraspMetricConfig:
             )
         else:
             self.classifier_config = ClassifierConfig()
+
+        if self.output_path is None:
+            self.output_path = pathlib.Path(
+                str(self.init_grasps_path).replace(".npy", "_optimized.npy")
+            )
 
 
 if __name__ == "__main__":

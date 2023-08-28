@@ -1,42 +1,15 @@
 from dataclasses import dataclass, field
-from typing import Optional, Tuple, List, Literal
+from typing import Optional, Literal, Tuple, List, Union
+from nerf_grasping.config.fingertip_config import UnionFingertipConfig
 from nerf_grasping.classifier import CNN_3D_XYZ_Classifier
-from datetime import datetime
-
-# TODO(pculbert): refactor grasp_utils to make these configurable.
-from nerf_grasping.grasp_utils import (
-    NUM_PTS_X,
-    NUM_PTS_Y,
-    NUM_PTS_Z,
-)
-
-DATETIME_STR = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-NUM_XYZ = 3
-DEFAULT_INPUT_SHAPE = [NUM_XYZ + 1, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z]
+from nerf_grasping.config.base import WandbConfig, CONFIG_DATETIME_STR
+from nerf_grasping.config.nerfdata_config import NerfDataConfig
+import tyro
+import pathlib
 
 
 @dataclass(frozen=True)
-class WandbConfig:
-    """Parameters for logging to wandb."""
-
-    entity: str = "tylerlum"
-    """Account associated with the wandb project."""
-
-    project: str = "NeRF_Grasp_Metric_V2"
-    """Name of the wandb project."""
-
-    name: str = field(default_factory=lambda: DATETIME_STR)
-    """Name of the run."""
-
-    group: str = ""
-    """Name of the run group."""
-
-    job_type: str = ""
-    """Name of the job type."""
-
-
-@dataclass(frozen=True)
-class DataConfig:
+class ClassifierDataConfig:
     """Parameters for dataset loading."""
 
     frac_val: float = 0.1
@@ -59,7 +32,7 @@ class DataConfig:
 
 
 @dataclass(frozen=True)
-class DataLoaderConfig:
+class ClassifierDataLoaderConfig:
     """Parameters for dataloader."""
 
     batch_size: int = 64
@@ -84,7 +57,7 @@ class DataLoaderConfig:
 
 
 @dataclass(frozen=True)
-class TrainingConfig:
+class ClassifierTrainingConfig:
     """Hyperparameters for training."""
 
     grad_clip_val: float = 1.0
@@ -136,7 +109,7 @@ class CheckpointWorkspaceConfig:
     root_dir: str = "Train_DexGraspNet_NeRF_Grasp_Metric_workspaces"
     """Root directory for checkpoints."""
 
-    leaf_dir: str = field(default_factory=lambda: DATETIME_STR)
+    leaf_dir: str = field(default_factory=lambda: CONFIG_DATETIME_STR)
     """Leaf directory for checkpoints."""
 
     force_no_resume: bool = True
@@ -144,15 +117,24 @@ class CheckpointWorkspaceConfig:
 
 
 @dataclass(frozen=True)
-class ClassifierConfig:
+class ClassifierModelConfig:
     """Default (abstract) parameters for the classifier."""
 
     input_shape: List[int]
     """Shape of the input to the classifier."""
 
+    @classmethod
+    def from_fingertip_config(fingertip_config: UnionFingertipConfig, **kwargs):
+        """Helper method to create a classifier config from a fingertip config."""
+        raise NotImplementedError("Implement in subclass.")
+
+    def get_classifier(self):
+        """Helper method to return the correct classifier from config."""
+        raise NotImplementedError("Implement in subclass.")
+
 
 @dataclass(frozen=True)
-class CNN_3D_XYZ_ClassifierConfig(ClassifierConfig):
+class CNN_3D_XYZ_ModelConfig(ClassifierModelConfig):
     """Parameters for the CNN_3D_XYZ_Classifier."""
 
     conv_channels: List[int]
@@ -163,6 +145,27 @@ class CNN_3D_XYZ_ClassifierConfig(ClassifierConfig):
 
     n_fingers: int = 4
     """Number of fingers."""
+
+    @classmethod
+    def from_fingertip_config(
+        cls,
+        fingertip_config: UnionFingertipConfig,
+        conv_channels=[32, 64, 128],
+        mlp_hidden_layers=[256, 256],
+    ):
+        """Helper method to create a classifier config from a fingertip config."""
+
+        return cls(
+            input_shape=[
+                4,
+                fingertip_config.num_pts_x,
+                fingertip_config.num_pts_y,
+                fingertip_config.num_pts_z,
+            ],
+            conv_channels=conv_channels,
+            mlp_hidden_layers=mlp_hidden_layers,
+            n_fingers=fingertip_config.n_fingers,
+        )
 
     def get_classifier(self):
         """Helper method to return the correct classifier from config."""
@@ -175,24 +178,58 @@ class CNN_3D_XYZ_ClassifierConfig(ClassifierConfig):
         )
 
 
-@dataclass(frozen=True)
-class Config:
-    """Top-level config for grasp metric training."""
+UnionClassifierModelConfig = Union[
+    CNN_3D_XYZ_ModelConfig, None
+]  # Passing none here so union is valid.
 
-    data: DataConfig
-    dataloader: DataLoaderConfig
-    wandb: WandbConfig
-    training: TrainingConfig
-    checkpoint_workspace: CheckpointWorkspaceConfig
-    classifier: ClassifierConfig = (
-        CNN_3D_XYZ_ClassifierConfig(  # pass defaults here since they are mutable.
-            input_shape=DEFAULT_INPUT_SHAPE,
-            conv_channels=[32, 64, 128],
-            mlp_hidden_layers=[256, 256],
+
+@dataclass
+class ClassifierConfig:
+    data: ClassifierDataConfig = ClassifierDataConfig()
+    nerfdata_config: NerfDataConfig = NerfDataConfig()
+    dataloader: ClassifierDataLoaderConfig = ClassifierDataLoaderConfig()
+    training: ClassifierTrainingConfig = ClassifierTrainingConfig()
+    checkpoint_workspace: CheckpointWorkspaceConfig = CheckpointWorkspaceConfig()
+    nerfdata_cfg_path: Optional[pathlib.Path] = None
+    model_config: Optional[UnionClassifierModelConfig] = None
+
+    wandb: WandbConfig = field(
+        default_factory=lambda: WandbConfig(
+            project="learned_metric", name=CONFIG_DATETIME_STR
         )
     )
-    random_seed: int = 42
-    """Seed for RNG."""
 
     dry_run: bool = False
-    """Flag to dry run dataset loading and classifier setup."""
+    random_seed: int = 42
+
+    def __post_init__(self):
+        """
+        If a nerfdata config path was passed, load that config object.
+        Otherwise use defaults.
+
+        Then load the correct model config based on the nerfdata config.
+        """
+        if self.nerfdata_cfg_path is not None:
+            print(f"Loading nerfdata config from {self.nerfdata_cfg_path}")
+            self.nerfdata_config = tyro.extras.from_yaml(
+                NerfDataConfig, self.nerfdata_cfg_path.open()
+            )
+        elif self.nerfdata_config.config_filepath.exists():
+            print(
+                f"Loading nerfdata config from {self.nerfdata_config.config_filepath}"
+            )
+            self.nerfdata_config = tyro.extras.from_yaml(
+                NerfDataConfig, self.nerfdata_config.config_filepath.open()
+            )
+        else:
+            print("Loading default nerfdata config")
+
+        if self.model_config is None:
+            self.model_config = CNN_3D_XYZ_ModelConfig.from_fingertip_config(
+                fingertip_config=self.nerfdata_config.fingertip_config
+            )
+
+
+if __name__ == "__main__":
+    cfg = tyro.cli(ClassifierConfig)
+    print(cfg)

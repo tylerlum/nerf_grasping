@@ -172,8 +172,13 @@ cluster_scripts/
 nerfcheckpoints/
 *.h5
 outputs
+*.npy
 
 # Model weights
 *.pt
 wandb*
 model_graph*
+
+# Configs
+*.yaml
+*.yml

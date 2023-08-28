@@ -42,20 +42,14 @@ from nerf_grasping.dataset.DexGraspNet_NeRF_Grasps_utils import (
 from nerf_grasping.dataset.timers import LoopTimer
 from nerf_grasping.optimizer_utils import AllegroHandConfig
 from nerf_grasping.grasp_utils import (
-    NUM_PTS_X,
-    NUM_PTS_Y,
-    NUM_PTS_Z,
-    GRASP_DEPTH_MM,
-    NUM_FINGERS,
-    DIST_BTWN_PTS_MM,
     get_ray_samples,
     get_ray_origins_finger_frame,
     get_nerf_configs,
     load_nerf,
 )
 from functools import partial
-from tap import Tap
-from typing import Optional
+from nerf_grasping.config.nerfdata_config import NerfDataConfig
+import tyro
 
 datetime_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
@@ -108,72 +102,34 @@ def parse_nerf_config(nerf_config: pathlib.Path) -> str:
     return object_code_and_scale_str
 
 
-# %%
-# PARAMS
-class CreateDexGraspNetNerfGraspsArgumentParser(Tap):
-    """
-    Container for all config params needed for classifier datagen.
-
-    Paths are currently default for (i) the "overfit" experiment,
-    (ii) assume the GCP bucket is synced under "data" in the repo root, and
-    (iii) assume the current working directory is the repo root.
-
-    (iii) is hardcoded in a step above, FYI.
-    """
-
-    dexgraspnet_data_root: pathlib.Path = pathlib.Path("./data")
-    dexgraspnet_meshdata_root: pathlib.Path = dexgraspnet_data_root / "meshdata_trial"
-    evaled_grasp_config_dicts_path: pathlib.Path = (
-        dexgraspnet_data_root / "2023-08-26_evaled_overfit_grasp_config_dicts"
-    )
-    nerf_checkpoints_path: pathlib.Path = (
-        dexgraspnet_data_root / "nerfcheckpoints_trial"
-    )
-    output_filepath: pathlib.Path = (
-        pathlib.Path(str(evaled_grasp_config_dicts_path) + "_learned_metric_dataset")
-        / f"{datetime_str}_learned_metric_dataset.h5"
-    )
-    plot_only_one: bool = False
-    save_dataset: bool = True
-    print_timing: bool = True
-    limit_num_configs: Optional[int] = None  # None for no limit
-    num_data_points_per_file: int = 500
-    buffer_scaling: int = 2  # Not sure if need this, but just in case
-    plot_all_high_density_points: bool = True
-    plot_alphas_each_finger_1D: bool = True
-    plot_alpha_images_each_finger: bool = True
-
-
 # WEIRD HACK SO YOU CAN STILL RUN VSC JUPYTER CELLS.
 # %%
 if __name__ == "__main__" and "get_ipython" not in dir():
-    args = CreateDexGraspNetNerfGraspsArgumentParser().parse_args()
+    cfg = tyro.cli(NerfDataConfig)
 else:
-    args = CreateDexGraspNetNerfGraspsArgumentParser().parse_args(args=[])
+    cfg = tyro.cli(NerfDataConfig, args=[])
 
 # %%
-if not args.output_filepath.parent.exists():
-    print(f"Creating output folder {args.output_filepath.parent}")
-    args.output_filepath.parent.mkdir(parents=True)
+if not cfg.output_filepath.parent.exists():
+    print(f"Creating output folder {cfg.output_filepath.parent}")
+    cfg.output_filepath.parent.mkdir(parents=True)
 else:
-    print(f"Output folder {args.output_filepath.parent} already exists")
+    print(f"Output folder {cfg.output_filepath.parent} already exists")
 
 # %%
-if args.output_filepath.exists():
-    print(f"Output file {args.output_filepath} already exists")
+if cfg.output_filepath.exists():
+    print(f"Output file {cfg.output_filepath} already exists")
     assert False, "Output file already exists"
 
 
 # %%
-assert (
-    args.nerf_checkpoints_path.exists()
-), f"{args.nerf_checkpoints_path} does not exist"
+assert cfg.nerf_checkpoints_path.exists(), f"{cfg.nerf_checkpoints_path} does not exist"
 nerf_configs = get_nerf_configs(
-    nerf_checkpoints_path=str(args.nerf_checkpoints_path),
+    nerf_checkpoints_path=str(cfg.nerf_checkpoints_path),
 )
 assert (
     len(nerf_configs) > 0
-), f"Did not find any nerf configs in {args.nerf_checkpoints_path}"
+), f"Did not find any nerf configs in {cfg.nerf_checkpoints_path}"
 print(f"Found {len(nerf_configs)} nerf configs")
 
 
@@ -181,23 +137,41 @@ print(f"Found {len(nerf_configs)} nerf configs")
 ray_origins_finger_frame = get_ray_origins_finger_frame()
 
 # %%
-if args.limit_num_configs is not None:
-    print(f"Limiting number of configs to {args.limit_num_configs}")
-nerf_configs = nerf_configs[: args.limit_num_configs]
+if cfg.limit_num_configs is not None:
+    print(f"Limiting number of configs to {cfg.limit_num_configs}")
+nerf_configs = nerf_configs[: cfg.limit_num_configs]
 
 max_num_datapoints = (
-    len(nerf_configs) * args.num_data_points_per_file * args.buffer_scaling
+    len(nerf_configs) * cfg.max_num_data_points_per_file * cfg.buffer_scaling
 )
 print(f"max num datapoints: {max_num_datapoints}")
 
-with h5py.File(args.output_filepath, "w") as hdf5_file:
+# %%
+print(f"Saving config to {cfg.config_filepath}")
+cfg_yaml = tyro.extras.to_yaml(cfg)
+with open(cfg.config_filepath, "w") as f:
+    f.write(cfg_yaml)
+
+with h5py.File(cfg.output_filepath, "w") as hdf5_file:
     current_idx = 0
 
     nerf_densities_dataset = hdf5_file.create_dataset(
         "/nerf_densities",
-        shape=(max_num_datapoints, NUM_FINGERS, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z),
+        shape=(
+            max_num_datapoints,
+            cfg.fingertip_config.n_fingers,
+            cfg.fingertip_config.num_pts_x,
+            cfg.fingertip_config.num_pts_y,
+            cfg.fingertip_config.num_pts_z,
+        ),
         dtype="f",
-        chunks=(1, NUM_FINGERS, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z),
+        chunks=(
+            1,
+            cfg.fingertip_config.n_fingers,
+            cfg.fingertip_config.num_pts_x,
+            cfg.fingertip_config.num_pts_y,
+            cfg.fingertip_config.num_pts_z,
+        ),
     )
     grasp_success_dataset = hdf5_file.create_dataset(
         "/grasp_success", shape=(max_num_datapoints,), dtype="i"
@@ -215,7 +189,9 @@ with h5py.File(args.output_filepath, "w") as hdf5_file:
         "/grasp_idx", shape=(max_num_datapoints,), dtype="i"
     )
     grasp_transforms_dataset = hdf5_file.create_dataset(
-        "/grasp_transforms", shape=(max_num_datapoints, NUM_FINGERS, 4, 4), dtype="f"
+        "/grasp_transforms",
+        shape=(max_num_datapoints, cfg.fingertip_config.n_fingers, 4, 4),
+        dtype="f",
     )
 
     # Iterate through all
@@ -229,13 +205,10 @@ with h5py.File(args.output_filepath, "w") as hdf5_file:
 
             # Prepare to read in data
             mesh_path = (
-                args.dexgraspnet_meshdata_root
-                / object_code
-                / "coacd"
-                / "decomposed.obj"
+                cfg.dexgraspnet_meshdata_root / object_code / "coacd" / "decomposed.obj"
             )
             evaled_grasp_config_dicts_filepath = (
-                args.evaled_grasp_config_dicts_path / f"{object_code_and_scale_str}.npy"
+                cfg.evaled_grasp_config_dicts_path / f"{object_code_and_scale_str}.npy"
             )
 
             # Check that mesh and grasp dataset exist
@@ -257,6 +230,13 @@ with h5py.File(args.output_filepath, "w") as hdf5_file:
                 evaled_grasp_config_dicts_filepath, allow_pickle=True
             )
 
+        if len(evaled_grasp_config_dicts) > max_num_datapoints:
+            print(
+                "WARNING: Too many grasp configs, dropping some datapoints from NeRF dataset."
+            )
+
+        evaled_grasp_config_dicts = evaled_grasp_config_dicts[:max_num_datapoints]
+
         for grasp_idx, evaled_grasp_config_dict in (
             pbar := tqdm(
                 enumerate(evaled_grasp_config_dicts),
@@ -277,14 +257,21 @@ with h5py.File(args.output_filepath, "w") as hdf5_file:
                         .translation()
                         .squeeze(dim=0)
                     )
-                    assert fingertip_positions.shape == (NUM_FINGERS, 3)
+                    assert fingertip_positions.shape == (
+                        cfg.fingertip_config.n_fingers,
+                        3,
+                    )
 
                     grasp_orientations = torch.tensor(
                         evaled_grasp_config_dicts[grasp_idx]["grasp_orientations"],
                         dtype=fingertip_positions.dtype,
                         device=fingertip_positions.device,
                     )
-                    assert grasp_orientations.shape == (NUM_FINGERS, 3, 3)
+                    assert grasp_orientations.shape == (
+                        cfg.fingertip_config.n_fingers,
+                        3,
+                        3,
+                    )
                     grasp_orientations = pp.from_matrix(grasp_orientations, pp.SO3_type)
 
                     transforms = pp.SE3(
@@ -296,9 +283,10 @@ with h5py.File(args.output_filepath, "w") as hdf5_file:
                             dim=-1,
                         )
                     )
-                    assert transforms.lshape == (NUM_FINGERS,)
+                    assert transforms.lshape == (cfg.fingertip_config.n_fingers,)
                     transforms = [
-                        transforms[i].detach().clone() for i in range(NUM_FINGERS)
+                        transforms[i].detach().clone()
+                        for i in range(cfg.fingertip_config.n_fingers)
                     ]
                 except ValueError as e:
                     print("+" * 80)
@@ -324,9 +312,9 @@ with h5py.File(args.output_filepath, "w") as hdf5_file:
                 ]
 
                 assert query_points_list[0].shape == (
-                    NUM_PTS_X,
-                    NUM_PTS_Y,
-                    NUM_PTS_Z,
+                    cfg.fingertip_config.num_pts_x,
+                    cfg.fingertip_config.num_pts_y,
+                    cfg.fingertip_config.num_pts_z,
                     3,
                 ), f"query_points_list[0].shape: {query_points_list[0].shape}"
 
@@ -341,34 +329,38 @@ with h5py.File(args.output_filepath, "w") as hdf5_file:
                 ]
 
                 assert nerf_densities[0].shape == (
-                    NUM_PTS_X,
-                    NUM_PTS_Y,
-                    NUM_PTS_Z,
+                    cfg.fingertip_config.num_pts_x,
+                    cfg.fingertip_config.num_pts_y,
+                    cfg.fingertip_config.num_pts_z,
                     1,
                 ), f"nerf_densities[0].shape: {nerf_densities[0].shape}"
 
             # Plot
-            if args.plot_only_one:
-                delta = DIST_BTWN_PTS_MM / 1000
-                other_delta = GRASP_DEPTH_MM / 1000 / (NUM_PTS_Z - 1)
-                assert np.isclose(delta, other_delta)
+            if cfg.plot_only_one:
+                # delta = DIST_BTWN_PTS_MM / 1000
+                other_delta = (
+                    cfg.fingertip_config.grasp_depth_mm
+                    / 1000
+                    / (cfg.fingertip_config.num_pts_z - 1)
+                )
+                # assert np.isclose(delta, other_delta)
 
                 nerf_alphas = [1 - np.exp(-delta * dd) for dd in nerf_densities]
                 fig = plot_mesh_and_query_points(
                     mesh=mesh,
                     query_points_list=[qq.reshape(-1, 3) for qq in query_points_list],
                     query_points_colors_list=nerf_alphas,
-                    num_fingers=NUM_FINGERS,
+                    num_fingers=cfg.fingertip_config.n_fingers,
                 )
                 fig.show()
                 fig2 = plot_mesh_and_transforms(
                     mesh=mesh,
                     transforms=[tt.matrix().numpy() for tt in transforms],
-                    num_fingers=NUM_FINGERS,
+                    num_fingers=cfg.fingertip_config.n_fingers,
                 )
                 fig2.show()
 
-                if args.plot_all_high_density_points:
+                if cfg.plot_all_high_density_points:
                     ray_samples_in_mesh_region = get_ray_samples_in_mesh_region(
                         mesh=mesh,
                         num_pts_x=10,
@@ -400,18 +392,20 @@ with h5py.File(args.output_filepath, "w") as hdf5_file:
                     )
                     fig3.show()
 
-                if args.plot_alphas_each_finger_1D:
+                if cfg.plot_alphas_each_finger_1D:
                     import matplotlib.pyplot as plt
 
-                    nrows, ncols = NUM_FINGERS, 1
+                    nrows, ncols = cfg.fingertip_config.n_fingers, 1
                     fig4, axes = plt.subplots(
                         nrows=nrows, ncols=ncols, figsize=(10, 10)
                     )
                     axes = axes.flatten()
-                    for i in range(NUM_FINGERS):
+                    for i in range(cfg.fingertip_config.n_fingers):
                         ax = axes[i]
                         finger_alphas = nerf_alphas[i].reshape(
-                            NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z
+                            cfg.fingertip_config.num_pts_x,
+                            cfg.fingertip_config.num_pts_y,
+                            cfg.fingertip_config.num_pts_z,
                         )
                         finger_alphas_maxes = np.max(finger_alphas, axis=(0, 1))
                         finger_alphas_means = np.mean(finger_alphas, axis=(0, 1))
@@ -425,21 +419,32 @@ with h5py.File(args.output_filepath, "w") as hdf5_file:
                     fig4.tight_layout()
                     fig4.show()
 
-                if args.plot_alpha_images_each_finger:
+                if cfg.plot_alpha_images_each_finger:
                     num_images = 5
-                    nrows, ncols = NUM_FINGERS, num_images
+                    nrows, ncols = cfg.fingertip_config.n_fingers, num_images
                     fig5, axes = plt.subplots(
                         nrows=nrows, ncols=ncols, figsize=(10, 10)
                     )
                     alpha_images = [
-                        x.reshape(NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z) for x in nerf_alphas
+                        x.reshape(
+                            cfg.fingertip_config.num_pts_x,
+                            cfg.fingertip_config.num_pts_y,
+                            cfg.fingertip_config.num_pts_z,
+                        )
+                        for x in nerf_alphas
                     ]
 
-                    for finger_i in range(NUM_FINGERS):
+                    for finger_i in range(cfg.fingertip_config.n_fingers):
                         for image_i in range(num_images):
                             ax = axes[finger_i, image_i]
                             image = alpha_images[finger_i][
-                                :, :, int(image_i * NUM_PTS_Z / num_images)
+                                :,
+                                :,
+                                int(
+                                    image_i
+                                    * cfg.fingertip_config.num_pts_z
+                                    / num_images
+                                ),
                             ]
                             ax.imshow(
                                 image,
@@ -450,13 +455,16 @@ with h5py.File(args.output_filepath, "w") as hdf5_file:
                     fig5.tight_layout()
                     fig5.show()
 
-                    assert False, "args.plot_only_one is True"
+                    assert False, "cfg.plot_only_one is True"
 
             # Save values
-            if args.save_dataset:
+            if cfg.save_dataset:
                 with loop_timer.add_section_timer("save values"):
                     nerf_densities = np.stack(nerf_densities, axis=0).reshape(
-                        NUM_FINGERS, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z
+                        cfg.fingertip_config.n_fingers,
+                        cfg.fingertip_config.num_pts_x,
+                        cfg.fingertip_config.num_pts_y,
+                        cfg.fingertip_config.num_pts_z,
                     )
                     transforms = np.stack(
                         [tt.matrix().cpu().numpy() for tt in transforms], axis=0
@@ -488,7 +496,7 @@ with h5py.File(args.output_filepath, "w") as hdf5_file:
 
                     # May not be max_num_data_points if nan grasps
                     hdf5_file.attrs["num_data_points"] = current_idx
-        if args.print_timing:
+        if cfg.print_timing:
             loop_timer.pretty_print_section_times()
         print()
 

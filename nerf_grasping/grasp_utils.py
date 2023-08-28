@@ -134,7 +134,7 @@ def get_ray_samples(
 
     # Rotate ray directions (hence SO3 cast).
     ray_dirs_world_frame = (
-        pp.from_matrix(transform.matrix(), pp.SO3_type) @ ray_dirs_finger_frame
+        transform.rotation() @ ray_dirs_finger_frame
     )  # [*batch_dims, num_pts_x,  num_pts_y, 3]
 
     # Create dummy pixel areas object.
@@ -197,6 +197,33 @@ def get_hand_config_from_hand_config_dict(
     assert joint_angles.shape == (16,)
 
     return wrist_pose, joint_angles
+
+
+def get_hand_config_dict_from_hand_config(
+    wrist_pose: pp.LieTensor,
+    joint_angles: torch.Tensor,
+) -> dict:
+    assert joint_angles.shape == (16,)
+    qpos = {}
+    for ii, jn in enumerate(ALLEGRO_JOINT_NAMES):
+        qpos[jn] = joint_angles[ii].item()
+
+    assert wrist_pose.shape == (7,)
+    wrist_translation = wrist_pose.translation().detach().cpu().numpy()
+    wrist_quat = wrist_pose.rotation().detach().cpu().numpy()
+    assert wrist_translation.shape == (3,)
+    assert wrist_quat.shape == (4,)
+
+    wrist_quat = wrist_quat[[3, 0, 1, 2]]  # Convert (x, y, z, w) -> (w, x, y, z)
+    euler_angles = transforms3d.euler.quat2euler(wrist_quat, axes="sxyz")
+    assert len(euler_angles) == 3
+    for ii, rn in enumerate(DEXGRASPNET_ROT_NAMES):
+        qpos[rn] = euler_angles[ii]
+
+    for ii, tn in enumerate(DEXGRASPNET_TRANS_NAMES):
+        qpos[tn] = wrist_translation[ii]
+
+    return {"qpos": qpos}
 
 
 def normalize(x: np.ndarray) -> np.ndarray:

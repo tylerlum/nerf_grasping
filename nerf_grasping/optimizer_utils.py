@@ -8,7 +8,7 @@ import torch
 import nerf_grasping
 from nerf_grasping import grasp_utils
 
-from typing import List, Tuple, Dict, Any
+from typing import List, Tuple, Dict, Any, Iterable, Union
 
 ALLEGRO_URDF_PATH = list(
     pathlib.Path(nerf_grasping.get_package_root()).rglob(
@@ -118,6 +118,15 @@ class AllegroHandConfig(torch.nn.Module):
         return torch.stack(
             [self.wrist_pose @ fp for fp in fingertip_pyposes], dim=1
         )  # shape [B, batch_size, 7]
+
+    def as_dicts(self):
+        """
+        Returns a list of dicts, one for each sample in the batch.
+        """
+        return [
+            grasp_utils.get_hand_config_dict_from_hand_config(ww, jj)
+            for ww, jj in zip(self.wrist_pose, self.joint_angles)
+        ]
 
 
 class AllegroGraspConfig(torch.nn.Module):
@@ -262,6 +271,19 @@ class AllegroGraspConfig(torch.nn.Module):
 
         return grasp_config
 
+    def as_dicts(self):
+        dict_list = self.hand_config.as_dicts()
+        assert (
+            len(dict_list) == self.batch_size
+        ), f"Batch size {self.batch_size} does not match length of hand dict list {len(dict_list)}"
+
+        for i in range(self.batch_size):
+            dict_list[i]["grasp_orientations"] = (
+                self.grasp_orientations[i].matrix().detach().cpu().numpy()
+            )
+
+        return dict_list
+
     def set_grasp_orientations(self, grasp_orientations: pp.LieTensor):
         assert (
             grasp_orientations.shape == self.grasp_orientations.shape
@@ -295,21 +317,13 @@ class AllegroGraspConfig(torch.nn.Module):
     def grasp_frame_transforms(self) -> pp.LieTensor:
         """Returns SE(3) transforms for ``grasp frame'', i.e.,
         z-axis pointing along grasp direction."""
-        return self.fingertip_transforms @ pp.from_matrix(
-            self.grasp_orientations.matrix(), pp.SE3_type
-        )
+        return self.fingertip_transforms @ SO3_to_SE3(self.grasp_orientations)
 
     @property
     def grasp_dirs(self) -> torch.Tensor:  # shape [B, 4, 3].
-        return pp.from_matrix(
-            self.grasp_frame_transforms.matrix(), pp.SO3_type
-        ) @ Z_AXIS.to(
+        return self.grasp_frame_transforms.rotation() @ Z_AXIS.to(
             device=self.grasp_orientations.device, dtype=self.grasp_orientations.dtype
-        ).unsqueeze(
-            0
-        ).unsqueeze(
-            0
-        )
+        ).unsqueeze(0).unsqueeze(0)
 
 
 class GraspMetric(torch.nn.Module):
@@ -350,21 +364,32 @@ class GraspMetric(torch.nn.Module):
         return self.classifier_model(densities, grasp_config.grasp_frame_transforms)
 
 
-def dry_run():
-    # Some semi-hardcoded unit tests to make sure the code runs.
+class IndexingDataset(torch.utils.data.Dataset):
+    def __init__(self, num_datapoints: int):
+        self.num_datapoints = num_datapoints
 
-    nerf_configs = grasp_utils.get_nerf_configs(
-        nerf_grasping.get_repo_root() + "/nerfcheckpoints"
+    def __getitem__(self, idx):
+        return idx
+
+    def __len__(self):
+        return self.num_datapoints
+
+
+def get_split_inds(
+    num_datapoints: int, split: Iterable[Union[int, float]], random_seed: int
+):
+    indexing_dataset = IndexingDataset(num_datapoints)
+    splits = torch.utils.data.random_split(
+        indexing_dataset, split, generator=torch.Generator().manual_seed(random_seed)
     )
-    nerf_model = grasp_utils.load_nerf(nerf_configs[0])
 
-    batch_size = 32
-    grasp_config = AllegroGraspConfig(batch_size=batch_size)
-    classifier = lambda x, y: torch.zeros(batch_size)
+    return [split.indices for split in splits]
 
-    grasp_metric = GraspMetric(nerf_model, classifier)
 
-    grasp_metric(grasp_config)
+def SO3_to_SE3(R: pp.LieTensor):
+    assert R.ltype == pp.SO3_type, f"R must be an SO3, not {R.ltype}"
+
+    return pp.SE3(torch.cat((torch.zeros_like(R[..., :3]), R.tensor()), dim=-1))
 
 
 # %%

@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Optional, Tuple, Iterable, Union
+from typing import Optional, Tuple, Iterable, List, Union
 from nerf_grasping.classifier import Classifier, CNN_3D_XYZ_Classifier
 from datetime import datetime
 
@@ -14,6 +14,11 @@ from nerf_grasping.grasp_utils import (
 DATETIME_STR = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 NUM_XYZ = 3
 DEFAULT_INPUT_SHAPE = [NUM_XYZ + 1, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z]
+
+
+def to_factory(default_mutable_arg):
+    """Helper fn. to create factory fields from mutable defaults."""
+    return field(default_factory=lambda: default_mutable_arg)
 
 
 @dataclass(frozen=True)
@@ -75,16 +80,16 @@ class CheckpointWorkspaceConfig:
     force_no_resume: bool = True
 
 
-@dataclass(frozen=True)
+@dataclass
 class ClassifierConfig:
-    input_shape: Iterable[int] = field(default_factory=lambda: DEFAULT_INPUT_SHAPE)
+    input_shape: List[int]
 
 
-@dataclass(frozen=True)
+@dataclass
 class CNN_3D_XYZ_ClassifierConfig(ClassifierConfig):
+    conv_channels: List[int]
+    mlp_hidden_layers: List[int]
     n_fingers: int = 4
-    conv_channels: Iterable[int] = (32, 64, 128)
-    mlp_hidden_layers: Iterable[int] = (256, 256)
 
     def get_classifier(self):
         return CNN_3D_XYZ_Classifier(
@@ -102,6 +107,10 @@ class Config:
     wandb: WandbConfig
     training: TrainingConfig
     checkpoint_workspace: CheckpointWorkspaceConfig
-    classifier: ClassifierConfig = CNN_3D_XYZ_ClassifierConfig()
+    classifier: ClassifierConfig = CNN_3D_XYZ_ClassifierConfig(
+        input_shape=DEFAULT_INPUT_SHAPE,
+        conv_channels=[32, 64, 128],
+        mlp_hidden_layers=[256, 256],
+    )
     random_seed: int = 42
     dry_run: bool = False

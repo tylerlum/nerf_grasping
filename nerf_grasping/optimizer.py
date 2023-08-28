@@ -1,14 +1,17 @@
 from __future__ import annotations
 from nerf_grasping.optimizer_utils import AllegroGraspConfig, GraspMetric
+from nerf_grasping.config.metric_config import GraspMetricConfig
 import pathlib
 import grasp_utils
-from nerf_grasping.grasp_utils import NUM_FINGERS
 import torch
-from nerf_grasping.classifier import Classifier, CNN_3D_Classifier
+from nerf_grasping.classifier import Classifier
+from nerf_grasping.config.classifier_config import ClassifierConfig
+from nerf_grasping.config.optimizer_config import GraspOptimizerConfig
 from typing import Tuple
 import nerf_grasping
 from functools import partial
 import numpy as np
+import tyro
 
 from rich.console import Console
 from rich.table import Table
@@ -71,7 +74,10 @@ class Optimizer:
 
 class SGDOptimizer(Optimizer):
     def __init__(
-        self, init_grasps: AllegroGraspConfig, grasp_metric: GraspMetric, **kwargs
+        self,
+        init_grasps: AllegroGraspConfig,
+        grasp_metric: GraspMetric,
+        optimizer_config: GraspOptimizerConfig,
     ):
         """
         Constructor for SGDOptimizer.
@@ -82,16 +88,22 @@ class SGDOptimizer(Optimizer):
             **kwargs: Keyword arguments to pass to torch.optim.SGD.
         """
         super().__init__(init_grasps, grasp_metric)
-        self.optimizer = torch.optim.SGD(self.grasp_config.parameters(), **kwargs)
+        self.optimizer = torch.optim.SGD(
+            self.grasp_config.parameters(),
+            lr=optimizer_config.lr,
+            momentum=optimizer_config.momentum,
+        )
 
+    # TODO: refactor to dispatch optimizer on config type.
     @classmethod
     def from_configs(
         cls,
         init_grasps: AllegroGraspConfig,
         nerf_config: pathlib.Path,
-        classifier_config: pathlib.Path,
+        classifier_config: ClassifierConfig,
+        optimizer_config: GraspOptimizerConfig,
+        classifier_checkpoint: int = -1,
         console=Console(width=120),
-        **kwargs,
     ) -> SGDOptimizer:
         with Progress(
             SpinnerColumn(),
@@ -111,7 +123,27 @@ class SGDOptimizer(Optimizer):
             console=console,
         ) as progress:
             task = progress.add_task("Loading CNN", total=1)
-            cnn = CNN_3D_Classifier(classifier_config).to(device=device)
+            cnn = classifier_config.model_config.get_classifier().to(device=device)
+
+            # Load checkpoint if specified.
+            checkpoint_path = (
+                pathlib.Path(classifier_config.checkpoint_workspace.root_dir)
+                / classifier_config.checkpoint_workspace.leaf_dir
+            )
+
+            if classifier_checkpoint == -1:
+                # take latest checkpoint.
+                all_checkpoints = checkpoint_path.glob("*.pt")
+                checkpoint_path = max(all_checkpoints, key=pathlib.Path.stat)
+            else:
+                checkpoint_path = (
+                    checkpoint_path / f"checkpoint_{classifier_checkpoint:04}.pt"
+                )
+
+            cnn.model.load_state_dict(
+                torch.load(checkpoint_path)["nerf_to_grasp_success_model"]
+            )
+
             progress.update(task, advance=1)
 
         cnn.eval()
@@ -122,7 +154,7 @@ class SGDOptimizer(Optimizer):
         # Wrap Nerf and Classifier in GraspMetric.
         grasp_metric = GraspMetric(nerf, cnn)
 
-        return cls(init_grasps, grasp_metric, **kwargs)
+        return cls(init_grasps, grasp_metric, optimizer_config)
 
     def step(self):
         self.optimizer.zero_grad()
@@ -183,7 +215,7 @@ def run_optimizer_loop(
     return (optimizer.grasp_scores[sort_indices], optimizer.grasp_config[sort_indices])
 
 
-def main(args: GraspOptimizerConfig) -> None:
+def main(cfg: GraspMetricConfig) -> None:
     # Create rich.Console object.
 
     torch.random.manual_seed(0)
@@ -200,10 +232,10 @@ def main(args: GraspOptimizerConfig) -> None:
         task = progress.add_task("Loading grasp data", total=1)
 
         # TODO: Find a way to load a particular split of the grasp_data.
-        grasp_config_dicts = np.load(args.grasp_data_path, allow_pickle=True)
+        grasp_config_dicts = np.load(cfg.init_grasps_path, allow_pickle=True)
         init_grasps = AllegroGraspConfig.from_grasp_config_dicts(grasp_config_dicts)
         data_inds = np.random.choice(
-            np.arange(init_grasps.batch_size), size=args.num_grasps
+            np.arange(init_grasps.batch_size), size=cfg.optimizer.num_grasps
         )
         init_grasps = init_grasps[data_inds]
         progress.update(task, advance=1)
@@ -211,8 +243,10 @@ def main(args: GraspOptimizerConfig) -> None:
     # Create SGDOptimizer.
     optimizer = SGDOptimizer.from_configs(
         init_grasps,
-        args.nerf_config,
-        args.classifier_checkpoint_path,
+        cfg.nerf_checkpoint_path,
+        cfg.classifier_config,
+        cfg.optimizer,
+        cfg.classifier_checkpoint,
         console=console,
     )
 
@@ -251,5 +285,5 @@ def main(args: GraspOptimizerConfig) -> None:
 
 
 if __name__ == "__main__":
-    args = GraspOptimizerConfig().parse_args()
-    main(args)
+    cfg = tyro.cli(GraspMetricConfig)
+    main(cfg)

@@ -284,7 +284,6 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
             assert (
                 len(hdf5_file["/grasp_success"].shape) == 1
             ), f"{hdf5_file['/grasp_success'].shape}"
-            breakpoint()
             assert hdf5_file["/nerf_densities"].shape[1:] == (
                 NUM_FINGERS,
                 NUM_PTS_X,

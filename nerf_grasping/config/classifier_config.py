@@ -189,11 +189,11 @@ UnionClassifierModelConfig = Union[
 
 @dataclass
 class ClassifierConfig:
-    data: ClassifierDataConfig
-    nerfdata_config: NerfDataConfig
-    dataloader: ClassifierDataLoaderConfig
-    training: ClassifierTrainingConfig
-    checkpoint_workspace: CheckpointWorkspaceConfig
+    data: ClassifierDataConfig = ClassifierDataConfig()
+    nerfdata_config: NerfDataConfig = NerfDataConfig()
+    dataloader: ClassifierDataLoaderConfig = ClassifierDataLoaderConfig()
+    training: ClassifierTrainingConfig = ClassifierTrainingConfig()
+    checkpoint_workspace: CheckpointWorkspaceConfig = CheckpointWorkspaceConfig()
     nerfdata_cfg_path: Optional[pathlib.Path] = None
     model_config: Optional[UnionClassifierModelConfig] = None
 
@@ -215,16 +215,15 @@ class ClassifierConfig:
         """
         if self.nerfdata_cfg_path is not None:
             self.nerfdata_config = tyro.extras.from_yaml(
-                NerfDataConfig, yaml.safe_load(self.nerfdata_cfg_path)
+                NerfDataConfig, self.nerfdata_cfg_path.open()
             )
         else:
-            self.nerfdata_config = NerfDataConfig()
             if self.nerfdata_config.config_filepath.exists():
                 print(
                     f"Loading nerfdata config from {self.nerfdata_config.config_filepath}"
                 )
                 self.nerfdata_config = tyro.extras.from_yaml(
-                    NerfDataConfig, yaml.safe_load(self.nerfdata_config.config_filepath)
+                    NerfDataConfig, self.nerfdata_config.config_filepath.open()
                 )
 
         if self.model_config is None:

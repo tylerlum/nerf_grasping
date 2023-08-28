@@ -295,21 +295,13 @@ class AllegroGraspConfig(torch.nn.Module):
     def grasp_frame_transforms(self) -> pp.LieTensor:
         """Returns SE(3) transforms for ``grasp frame'', i.e.,
         z-axis pointing along grasp direction."""
-        return self.fingertip_transforms @ pp.from_matrix(
-            self.grasp_orientations.matrix(), pp.SE3_type
-        )
+        return self.fingertip_transforms @ SO3_to_SE3(self.grasp_orientations)
 
     @property
     def grasp_dirs(self) -> torch.Tensor:  # shape [B, 4, 3].
-        return pp.from_matrix(
-            self.grasp_frame_transforms.matrix(), pp.SO3_type
-        ) @ Z_AXIS.to(
+        return self.grasp_frame_transforms.rotation() @ Z_AXIS.to(
             device=self.grasp_orientations.device, dtype=self.grasp_orientations.dtype
-        ).unsqueeze(
-            0
-        ).unsqueeze(
-            0
-        )
+        ).unsqueeze(0).unsqueeze(0)
 
 
 class GraspMetric(torch.nn.Module):
@@ -365,6 +357,12 @@ def dry_run():
     grasp_metric = GraspMetric(nerf_model, classifier)
 
     grasp_metric(grasp_config)
+
+
+def SO3_to_SE3(R: pp.LieTensor):
+    assert R.ltype == pp.SO3_type, f"R must be an SO3, not {R.ltype}"
+
+    return pp.SE3(torch.cat((torch.zeros_like(R[..., :3]), R.tensor()), dim=-1))
 
 
 # %%

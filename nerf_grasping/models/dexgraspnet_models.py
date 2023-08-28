@@ -18,7 +18,6 @@ class CNN_3D_Classifier(nn.Module):
         mlp_hidden_layers: Iterable[int],
         n_fingers,
     ) -> None:
-        # TODO: Make this not hardcoded
         super().__init__()
         self.input_shape = input_shape
         self.n_fingers = n_fingers

@@ -684,7 +684,8 @@ import torch.nn as nn
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Pull out just the CNN (without wrapping for LieTorch) for training.
-nerf_to_grasp_success_model = cfg.model_config.get_classifier().to(device)
+assert cfg.model_config is not None
+nerf_to_grasp_success_model: Classifier = cfg.model_config.get_classifier().to(device)
 
 # %%
 start_epoch = 0

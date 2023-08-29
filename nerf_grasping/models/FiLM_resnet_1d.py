@@ -231,7 +231,7 @@ class ResNet1D(nn.Module):
         base_filters: number of filters in the first several Conv layer, it will double at every increasefilter_gap layers
         kernel_size: width of kernel
         stride: stride of kernel moving
-        groups: set larget to 1 as ResNeXt
+        groups: see Conv1d documentation
         n_block: number of blocks
         n_classes: number of classes
         downsample_gap: number of blocks before downsample (stride != 1)

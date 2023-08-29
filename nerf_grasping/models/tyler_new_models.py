@@ -454,7 +454,8 @@ class ConvEncoder1DConfig:
     n_block: int = MISSING
     downsample_gap: int = MISSING
     increasefilter_gap: int = MISSING
-    use_do: bool = MISSING
+    use_batchnorm: bool = MISSING
+    use_dropout: bool = MISSING
 
 
 class ConvEncoder1D(nn.Module):
@@ -464,14 +465,15 @@ class ConvEncoder1D(nn.Module):
         conditioning_dim: Optional[int] = None,
         pooling_method: ConvOutputTo1D = ConvOutputTo1D.FLATTEN,
         film_hidden_layers: Tuple[int, ...] = (64, 64),
-        base_filters: int = 64,
-        kernel_size: int = 16,
+        base_filters: int = 32,
+        kernel_size: int = 4,
         stride: int = 2,
-        groups: int = 32,
+        groups: int = 1,
         n_block: int = 8,
-        downsample_gap: int = 6,
-        increasefilter_gap: int = 12,
-        use_do: bool = False,
+        downsample_gap: int = 4,
+        increasefilter_gap: int = 2,
+        use_batchnorm: bool = True,
+        use_dropout: bool = False,
     ) -> None:
         super().__init__()
 
@@ -495,7 +497,8 @@ class ConvEncoder1D(nn.Module):
             n_classes=2,  # Not used
             downsample_gap=downsample_gap,
             increasefilter_gap=increasefilter_gap,
-            use_do=use_do,
+            use_batchnorm=use_batchnorm,
+            use_dropout=use_dropout,
             verbose=False,
         )
         # Set equivalent pooling setting
@@ -504,7 +507,6 @@ class ConvEncoder1D(nn.Module):
 
         # Create FiLM generator
         if self.conditioning_dim is not None and self.num_film_params is not None:
-            # TODO: Properly config
             self.film_generator = FiLMGenerator(
                 film_input_dim=self.conditioning_dim,
                 num_params_to_film=self.num_film_params,
@@ -544,7 +546,7 @@ class ConvEncoder1D(nn.Module):
 
     @property
     def num_film_params(self) -> Optional[int]:
-        return self.conv_1d.num_film_params if self.use_resnet else None
+        return self.conv_1d.num_film_params
 
     @cached_property
     def output_dim(self) -> int:

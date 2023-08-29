@@ -11,6 +11,7 @@ from collections import Counter
 from tqdm import tqdm
 from matplotlib import pyplot as plt
 from sklearn.metrics import classification_report
+from typing import Optional
 
 import torch
 import torch.nn as nn
@@ -39,7 +40,14 @@ class MyConv1dPadSame(nn.Module):
     extend nn.Conv1d to support SAME padding
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride, groups=1):
+    def __init__(
+        self,
+        in_channels: int,
+        out_channels: int,
+        kernel_size: int,
+        stride: int,
+        groups: int = 1,
+    ) -> None:
         super(MyConv1dPadSame, self).__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
@@ -54,7 +62,7 @@ class MyConv1dPadSame(nn.Module):
             groups=self.groups,
         )
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         net = x
 
         # compute pad shape
@@ -75,13 +83,13 @@ class MyMaxPool1dPadSame(nn.Module):
     extend nn.MaxPool1d to support SAME padding
     """
 
-    def __init__(self, kernel_size):
+    def __init__(self, kernel_size: int) -> None:
         super(MyMaxPool1dPadSame, self).__init__()
         self.kernel_size = kernel_size
         self.stride = 1
         self.max_pool = torch.nn.MaxPool1d(kernel_size=self.kernel_size)
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         net = x
 
         # compute pad shape
@@ -104,16 +112,16 @@ class BasicBlock(nn.Module):
 
     def __init__(
         self,
-        in_channels,
-        out_channels,
-        kernel_size,
-        stride,
-        groups,
-        downsample,
-        use_bn,
-        use_do,
-        is_first_block=False,
-    ):
+        in_channels: int,
+        out_channels: int,
+        kernel_size: int,
+        stride: int,
+        groups: int,
+        downsample: int,
+        use_bn: bool,
+        use_do: bool,
+        is_first_block: bool = False,
+    ) -> None:
         super(BasicBlock, self).__init__()
 
         self.in_channels = in_channels
@@ -156,7 +164,12 @@ class BasicBlock(nn.Module):
 
         self.max_pool = MyMaxPool1dPadSame(kernel_size=self.stride)
 
-    def forward(self, x, beta=None, gamma=None):
+    def forward(
+        self,
+        x: torch.Tensor,
+        beta: Optional[torch.Tensor] = None,
+        gamma: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
         identity = x
 
         # the first conv
@@ -225,20 +238,20 @@ class ResNet1D(nn.Module):
 
     def __init__(
         self,
-        in_channels,
-        seq_len,
-        base_filters,
-        kernel_size,
-        stride,
-        groups,
-        n_block,
-        n_classes,
-        downsample_gap=2,
-        increasefilter_gap=4,
-        use_bn=True,
-        use_do=True,
-        verbose=False,
-    ):
+        in_channels: int,
+        seq_len: int,
+        base_filters: int,
+        kernel_size: int,
+        stride: int,
+        groups: int,
+        n_block: int,
+        n_classes: int,
+        downsample_gap: int = 2,
+        increasefilter_gap: int = 4,
+        use_bn: bool = True,
+        use_do: bool = True,
+        verbose: bool = False,
+    ) -> None:
         super(ResNet1D, self).__init__()
 
         self.in_channels = in_channels
@@ -341,7 +354,12 @@ class ResNet1D(nn.Module):
 
         self.avgpool = nn.AdaptiveAvgPool1d(output_size=1)
 
-    def forward(self, x, beta=None, gamma=None):
+    def forward(
+        self,
+        x: torch.Tensor,
+        beta: Optional[torch.Tensor] = None,
+        gamma: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
         out = x
 
         # first conv

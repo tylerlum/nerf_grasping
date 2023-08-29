@@ -105,9 +105,9 @@ def parse_nerf_config(nerf_config: pathlib.Path) -> str:
 # WEIRD HACK SO YOU CAN STILL RUN VSC JUPYTER CELLS.
 # %%
 if __name__ == "__main__" and "get_ipython" not in dir():
-    cfg = tyro.cli(NerfDataConfig)
+    cfg: NerfDataConfig = tyro.cli(NerfDataConfig)
 else:
-    cfg = tyro.cli(NerfDataConfig, args=[])
+    cfg: NerfDataConfig = tyro.cli(NerfDataConfig, args=[])
 
 # %%
 if not cfg.output_filepath.parent.exists():
@@ -142,7 +142,7 @@ if cfg.limit_num_configs is not None:
 nerf_configs = nerf_configs[: cfg.limit_num_configs]
 
 max_num_datapoints = (
-    len(nerf_configs) * cfg.max_num_data_points_per_file * cfg.buffer_scaling
+    len(nerf_configs) * cfg.max_num_data_points_per_file
 )
 print(f"max num datapoints: {max_num_datapoints}")
 

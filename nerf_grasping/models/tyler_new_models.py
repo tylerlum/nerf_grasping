@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from typing import List, Tuple, Optional, Dict, Any, Union
+from typing import List, Tuple, Optional, Dict, Any, Union, Iterable
 from dataclasses import dataclass, field
 from omegaconf import MISSING
 from nerf_grasping.models.FiLM_resnet import resnet18, ResNet18_Weights
@@ -134,7 +134,7 @@ CONV_1D_OUTPUT_TO_1D_MAP = {
 def mlp(
     num_inputs: int,
     num_outputs: int,
-    hidden_layers: Tuple[int, ...],
+    hidden_layers: Iterable[int],
     activation=nn.ReLU,
     output_activation=nn.Identity,
 ) -> nn.Sequential:
@@ -147,8 +147,8 @@ def mlp(
 
 
 def conv_encoder(
-    input_shape: Tuple[int, ...],
-    conv_channels: Tuple[int, ...],
+    input_shape: Iterable[int],
+    conv_channels: Iterable[int],
     pool_type: PoolType = PoolType.MAX,
     dropout_prob: float = 0.0,
     conv_output_to_1d: ConvOutputTo1D = ConvOutputTo1D.FLATTEN,
@@ -257,7 +257,7 @@ class FiLMGenerator(nn.Module):
         self,
         film_input_dim: int,
         num_params_to_film: int,
-        hidden_layers: Tuple[int, ...],
+        hidden_layers: Iterable[int],
     ) -> None:
         super().__init__()
         self.film_input_dim = film_input_dim
@@ -292,7 +292,7 @@ class ConvEncoder2DConfig:
     use_resnet: bool = MISSING
     use_pretrained: bool = MISSING
     pooling_method: ConvOutputTo1D = MISSING
-    film_hidden_layers: Tuple[int, ...] = MISSING
+    film_hidden_layers: Iterable[int] = MISSING
 
 
 class ConvEncoder2D(nn.Module):
@@ -303,7 +303,7 @@ class ConvEncoder2D(nn.Module):
         use_resnet: bool = True,
         use_pretrained: bool = True,
         pooling_method: ConvOutputTo1D = ConvOutputTo1D.FLATTEN,
-        film_hidden_layers: Tuple[int, ...] = [64, 64],
+        film_hidden_layers: Iterable[int] = [64, 64],
     ) -> None:
         super().__init__()
 
@@ -413,7 +413,7 @@ class ConvEncoder2D(nn.Module):
 class ConvEncoder1DConfig:
     use_resnet: bool = MISSING
     pooling_method: ConvOutputTo1D = MISSING
-    film_hidden_layers: Tuple[int, ...] = MISSING
+    film_hidden_layers: Iterable[int] = MISSING
     base_filters: int = MISSING
     kernel_size: int = MISSING
     stride: int = MISSING
@@ -431,7 +431,7 @@ class ConvEncoder1D(nn.Module):
         conditioning_dim: Optional[int] = None,
         use_resnet: bool = True,
         pooling_method: ConvOutputTo1D = ConvOutputTo1D.FLATTEN,
-        film_hidden_layers: Tuple[int, ...] = [64, 64],
+        film_hidden_layers: Iterable[int] = [64, 64],
         base_filters: int = 64,
         kernel_size: int = 16,
         stride: int = 2,
@@ -846,7 +846,7 @@ class ClassifierConfig:
     )
     use_conditioning_2d: bool = MISSING
     conv_encoder_2d_embed_dim: int = MISSING
-    conv_encoder_2d_mlp_hidden_layers: Tuple[int, ...] = MISSING
+    conv_encoder_2d_mlp_hidden_layers: Iterable[int] = MISSING
 
     conv_encoder_1d_config: ConvEncoder1DConfig = field(
         default_factory=ConvEncoder1DConfig
@@ -856,7 +856,7 @@ class ClassifierConfig:
     )
     encoder_1d_type: Encoder1DType = MISSING
     use_conditioning_1d: bool = MISSING
-    head_mlp_hidden_layers: Tuple[int, ...] = MISSING
+    head_mlp_hidden_layers: Iterable[int] = MISSING
     concat_global_params_after_1d: bool = MISSING
     concat_fingers_before_1d_channelwise: bool = MISSING
 
@@ -870,7 +870,7 @@ class Abstract2DTo1DClassifier(nn.Module):
         conv_encoder_2d_config: Optional[ConvEncoder2DConfig] = None,
         use_conditioning_2d: bool = False,
         conv_encoder_2d_embed_dim: int = 32,
-        conv_encoder_2d_mlp_hidden_layers: Tuple[int, ...] = [64, 64],
+        conv_encoder_2d_mlp_hidden_layers: Iterable[int] = [64, 64],
     ) -> None:
         # input_shape: (seq_len, height, width)
         super().__init__()
@@ -1164,7 +1164,7 @@ class Condition2D1D_ConcatGlobalParamsAfter1D_ConcatFingersAfter1D(
         transformer_encoder_1d_config: Optional[TransformerEncoder1DConfig] = None,
         encoder_1d_type: Encoder1DType = Encoder1DType.CONV,
         use_conditioning_1d: bool = False,
-        head_mlp_hidden_layers: Tuple[int, ...] = [64, 64],
+        head_mlp_hidden_layers: Iterable[int] = [64, 64],
         concat_global_params_after_1d: bool = False,
         **kwargs,
     ) -> None:
@@ -1334,7 +1334,7 @@ class Condition2D1D_ConcatGlobalParamsAfter1D_ConcatFingersBefore1D(
         transformer_encoder_1d_config: Optional[TransformerEncoder1DConfig] = None,
         encoder_1d_type: Encoder1DType = Encoder1DType.CONV,
         use_conditioning_1d: bool = False,
-        head_mlp_hidden_layers: Tuple[int, ...] = [64, 64],
+        head_mlp_hidden_layers: Iterable[int] = [64, 64],
         concat_global_params_after_1d: bool = False,
         concat_fingers_before_1d_channelwise: bool = False,  # Channel-wise vs. time-wise
         **kwargs,

@@ -436,7 +436,8 @@ class ResNet1D(nn.Module):
         if self.verbose:
             print("softmax", out.shape)
 
-        assert out.shape == (batch_size, self.n_classes)
+        # We replace the fc so won't be this shape
+        # assert out.shape == (batch_size, self.n_classes)
         return out
 
 

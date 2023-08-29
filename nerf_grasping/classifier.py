@@ -40,7 +40,23 @@ class Classifier(nn.Module):
             batch_size, dtype=nerf_densities.dtype, device=nerf_densities.device
         )
         assert hardcoded_output.shape == (batch_size,)
+        raise NotImplementedError
         return hardcoded_output
+
+    def get_success_logits(self, batch_data_input: BatchDataInput) -> torch.Tensor:
+        return self.forward(batch_data_input)
+
+    def get_failure_probability(self, batch_data_input: BatchDataInput) -> torch.Tensor:
+        logits = self.get_success_logits(batch_data_input)
+        N_CLASSES = 2
+        assert logits.shape == (batch_data_input.batch_size, N_CLASSES)
+
+        # REMOVE, using to ensure gradients are non-zero
+        # for overfit classifier.
+        PROB_SCALING = 1e0
+
+        # Return failure probabilities (as loss).
+        return nn.functional.softmax(PROB_SCALING * logits, dim=-1)[:, 0]
 
 
 class CNN_3D_XYZ_Classifier(Classifier):
@@ -66,17 +82,8 @@ class CNN_3D_XYZ_Classifier(Classifier):
 
     def forward(self, batch_data_input: BatchDataInput) -> torch.Tensor:
         # Run model
-        logits = self.model(batch_data_input.nerf_alphas_with_augmented_coords)
-
-        N_CLASSES = 2
-        assert logits.shape == (batch_data_input.batch_size, N_CLASSES)
-
-        # REMOVE, using to ensure gradients are non-zero
-        # for overfit classifier.
-        PROB_SCALING = 1e0
-
-        # Return failure probabilities (as loss).
-        return nn.functional.softmax(PROB_SCALING * logits, dim=-1)[:, 0]
+        logits = self.model.get_success_logits(batch_data_input.nerf_alphas_with_augmented_coords)
+        return logits
 
 
 class CNN_2D_1D_Classifier(Classifier):
@@ -88,6 +95,7 @@ class CNN_2D_1D_Classifier(Classifier):
         conv_2d_film_hidden_layers: Tuple[int, ...],
         mlp_hidden_layers: Tuple[int, ...],
     ) -> None:
+        super().__init__()
         self.model = CNN_2D_1D_Model(
             grid_shape=grid_shape,
             n_fingers=n_fingers,
@@ -98,17 +106,8 @@ class CNN_2D_1D_Classifier(Classifier):
 
     def forward(self, batch_data_input: BatchDataInput) -> torch.Tensor:
         # Run model
-        logits = self.model(batch_data_input.nerf_alphas, batch_data_input.grasp_transforms)
-
-        N_CLASSES = 2
-        assert logits.shape == (batch_data_input.batch_size, N_CLASSES)
-
-        # REMOVE, using to ensure gradients are non-zero
-        # for overfit classifier.
-        PROB_SCALING = 1e0
-
-        # Return failure probabilities (as loss).
-        return nn.functional.softmax(PROB_SCALING * logits, dim=-1)[:, 0]
+        logits = self.model.get_success_logits(batch_data_input.nerf_alphas, batch_data_input.grasp_transforms)
+        return logits
 
 
 def main() -> None:
@@ -134,11 +133,21 @@ def main() -> None:
         mlp_hidden_layers=[256, 256],
         n_fingers=NUM_FINGERS,
     ).to(DEVICE)
+    cnn_2d_1d_classifier = CNN_2D_1D_Classifier(
+        grid_shape=(NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z),
+        n_fingers=NUM_FINGERS,
+        conditioning_dim=7,
+        conv_2d_film_hidden_layers=(256, 256),
+        mlp_hidden_layers=(256, 256),
+    ).to(DEVICE)
 
     # Run model
-    scores = cnn_3d_classifier(nerf_densities, grasp_transforms)
-    print(f"scores: {scores}")
-    print(f"scores.shape: {scores.shape}")
+    cnn_3d_scores = cnn_3d_classifier.get_failure_probability(batch_data_input)
+    print(f"cnn_3d_scores: {cnn_3d_scores}")
+    print(f"cnn_3d_scores.shape: {cnn_3d_scores.shape}")
+    cnn_2d_1d_scores = cnn_2d_1d_classifier.get_failure_probability(batch_data_input)
+    print(f"cnn_2d_1d_scores: {cnn_2d_1d_scores}")
+    print(f"cnn_2d_1d_scores.shape: {cnn_2d_1d_scores.shape}")
 
 
 if __name__ == "__main__":

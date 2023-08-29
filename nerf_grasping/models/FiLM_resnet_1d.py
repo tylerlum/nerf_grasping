@@ -118,8 +118,8 @@ class BasicBlock(nn.Module):
         stride: int,
         groups: int,
         downsample: int,
-        use_bn: bool,
-        use_do: bool,
+        use_batchnorm: bool,
+        use_dropout: bool,
         is_first_block: bool = False,
     ) -> None:
         super(BasicBlock, self).__init__()
@@ -135,8 +135,8 @@ class BasicBlock(nn.Module):
         else:
             self.stride = 1
         self.is_first_block = is_first_block
-        self.use_bn = use_bn
-        self.use_do = use_do
+        self.use_batchnorm = use_batchnorm
+        self.use_dropout = use_dropout
 
         # the first conv
         self.bn1 = nn.BatchNorm1d(in_channels)
@@ -175,18 +175,18 @@ class BasicBlock(nn.Module):
         # the first conv
         out = x
         if not self.is_first_block:
-            if self.use_bn:
+            if self.use_batchnorm:
                 out = self.bn1(out)
             out = self.relu1(out)
-            if self.use_do:
+            if self.use_dropout:
                 out = self.do1(out)
         out = self.conv1(out)
 
         # the second conv
-        if self.use_bn:
+        if self.use_batchnorm:
             out = self.bn2(out)
         out = self.relu2(out)
-        if self.use_do:
+        if self.use_dropout:
             out = self.do2(out)
         out = self.conv2(out)
 
@@ -227,13 +227,18 @@ class ResNet1D(nn.Module):
 
     Pararmetes:
         in_channels: dim of input, the same as n_channel
-        base_filters: number of filters in the first several Conv layer, it will double at every 4 layers
+        seq_len: length of input, the same as n_length
+        base_filters: number of filters in the first several Conv layer, it will double at every increasefilter_gap layers
         kernel_size: width of kernel
         stride: stride of kernel moving
         groups: set larget to 1 as ResNeXt
         n_block: number of blocks
         n_classes: number of classes
-
+        downsample_gap: number of blocks before downsample (stride != 1)
+        increasefilter_gap: number of blocks before increasing filters
+        use_batchnorm: whether to use batch normalization or not
+        use_dropout: whether to use dropout or not
+        verbose: whether to output shape infomation
     """
 
     def __init__(
@@ -248,24 +253,25 @@ class ResNet1D(nn.Module):
         n_classes: int,
         downsample_gap: int = 2,
         increasefilter_gap: int = 4,
-        use_bn: bool = True,
-        use_do: bool = True,
+        use_batchnorm: bool = True,
+        use_dropout: bool = True,
         verbose: bool = False,
     ) -> None:
         super(ResNet1D, self).__init__()
 
         self.in_channels = in_channels
         self.seq_len = seq_len
-        self.verbose = verbose
-        self.n_block = n_block
+        self.base_filters = base_filters
         self.kernel_size = kernel_size
         self.stride = stride
         self.groups = groups
-        self.use_bn = use_bn
-        self.use_do = use_do
-
-        self.downsample_gap = downsample_gap  # 2 for base model
-        self.increasefilter_gap = increasefilter_gap  # 4 for base model
+        self.n_block = n_block
+        self.n_classes = n_classes
+        self.downsample_gap = downsample_gap
+        self.increasefilter_gap = increasefilter_gap
+        self.use_batchnorm = use_batchnorm
+        self.use_dropout = use_dropout
+        self.verbose = verbose
 
         # first block
         self.first_block_conv = MyConv1dPadSame(
@@ -312,8 +318,8 @@ class ResNet1D(nn.Module):
                 stride=self.stride,
                 groups=self.groups,
                 downsample=downsample,
-                use_bn=self.use_bn,
-                use_do=self.use_do,
+                use_batchnorm=self.use_batchnorm,
+                use_dropout=self.use_dropout,
                 is_first_block=is_first_block,
             )
             self.basicblock_list.append(tmp_block)
@@ -360,6 +366,8 @@ class ResNet1D(nn.Module):
         beta: Optional[torch.Tensor] = None,
         gamma: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
+        batch_size = x.shape[0]
+        assert x.shape == (batch_size, self.in_channels, self.seq_len)
         out = x
 
         # first conv
@@ -368,7 +376,7 @@ class ResNet1D(nn.Module):
         out = self.first_block_conv(out)
         if self.verbose:
             print("after first conv", out.shape)
-        if self.use_bn:
+        if self.use_batchnorm:
             out = self.first_block_bn(out)
         out = self.first_block_relu(out)
 
@@ -410,7 +418,7 @@ class ResNet1D(nn.Module):
                 start_idx = end_idx
 
         # final prediction
-        if self.use_bn:
+        if self.use_batchnorm:
             out = self.final_bn(out)
         out = self.final_relu(out)
 
@@ -428,6 +436,7 @@ class ResNet1D(nn.Module):
         if self.verbose:
             print("softmax", out.shape)
 
+        assert out.shape == (batch_size, self.n_classes)
         return out
 
 
@@ -438,7 +447,7 @@ if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     batch_size, in_channels, seq_len = 1, 3, 100
     verbose = False
-    img_encoder = ResNet1D(
+    conv1d_encoder = ResNet1D(
         in_channels=in_channels,
         seq_len=seq_len,
         base_filters=64,
@@ -449,31 +458,31 @@ if __name__ == "__main__":
         n_classes=10,
         downsample_gap=2,
         increasefilter_gap=2,
-        use_do=False,
+        use_dropout=False,
         verbose=verbose,
     ).to(device)
     input_shape = (batch_size, in_channels, seq_len)
     print(f"Input shape: {input_shape}")
-    print(f"Number of FiLM params: {img_encoder.num_film_params}")
+    print(f"Number of FiLM params: {conv1d_encoder.num_film_params}")
     print()
 
     # Summary comparison
     print("~" * 100)
     print("Summary of FiLM resnet 1d:")
     print("~" * 100)
-    summary(img_encoder, input_size=input_shape, depth=float("inf"), device=device)
+    summary(conv1d_encoder, input_size=input_shape, depth=float("inf"), device=device)
     print()
 
     # Compare output with reference encoder
     example_input = torch.rand(*input_shape, device=device)
-    example_output = img_encoder(example_input)
+    example_output = conv1d_encoder(example_input)
     print(f"Output shape: {example_output.shape}")
 
     # Compare output with defined beta and gamma
-    example_output_with_film = img_encoder(
+    example_output_with_film = conv1d_encoder(
         example_input,
-        beta=torch.zeros(batch_size, img_encoder.num_film_params, device=device),
-        gamma=torch.ones(batch_size, img_encoder.num_film_params, device=device),
+        beta=torch.zeros(batch_size, conv1d_encoder.num_film_params, device=device),
+        gamma=torch.ones(batch_size, conv1d_encoder.num_film_params, device=device),
     )
     print(
         f"Output difference with defined beta=0 and gamma=1: {torch.norm(example_output - example_output_with_film)}"

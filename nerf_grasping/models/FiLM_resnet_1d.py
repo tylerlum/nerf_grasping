@@ -339,9 +339,7 @@ class ResNet1D(nn.Module):
         )
         # COMPUTE OUTPUT SIZES FILM END
 
-        self.avgpool = nn.AdaptiveAvgPool1d(
-            output_size=1
-        )
+        self.avgpool = nn.AdaptiveAvgPool1d(output_size=1)
 
     def forward(self, x, beta=None, gamma=None):
         out = x

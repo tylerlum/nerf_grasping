@@ -445,7 +445,6 @@ class ConvEncoder2D(nn.Module):
 
 @dataclass
 class ConvEncoder1DConfig:
-    use_resnet: bool = MISSING
     pooling_method: ConvOutputTo1D = MISSING
     film_hidden_layers: Tuple[int, ...] = MISSING
     base_filters: int = MISSING
@@ -463,7 +462,6 @@ class ConvEncoder1D(nn.Module):
         self,
         input_shape: Tuple[int, int],
         conditioning_dim: Optional[int] = None,
-        use_resnet: bool = True,
         pooling_method: ConvOutputTo1D = ConvOutputTo1D.FLATTEN,
         film_hidden_layers: Tuple[int, ...] = (64, 64),
         base_filters: int = 64,
@@ -480,43 +478,29 @@ class ConvEncoder1D(nn.Module):
         # input_shape: (n_channels, seq_len)
         self.input_shape = input_shape
         self.conditioning_dim = conditioning_dim
-        self.use_resnet = use_resnet
         self.pooling_method = pooling_method
 
         assert len(input_shape) == 2
         n_channels, seq_len = input_shape
 
         # Create conv architecture
-        if self.use_resnet:
-            # TODO: Properly config
-            self.conv_1d = ResNet1D(
-                in_channels=n_channels,
-                seq_len=seq_len,
-                base_filters=base_filters,
-                kernel_size=kernel_size,
-                stride=stride,
-                groups=groups,
-                n_block=n_block,
-                n_classes=2,  # Not used
-                downsample_gap=downsample_gap,
-                increasefilter_gap=increasefilter_gap,
-                use_do=use_do,
-                verbose=False,
-            )
-            # Set equivalent pooling setting
-            self.conv_1d.avgpool = CONV_1D_OUTPUT_TO_1D_MAP[self.pooling_method]()
-            self.conv_1d.fc = nn.Identity()
-        else:
-            raise NotImplementedError("TODO: Implement non-resnet conv encoder")
-            # TODO: Properly config
-            self.conv_1d = conv_encoder(
-                input_shape=input_shape,
-                conv_channels=[32, 64, 128, 256],
-                pool_type=PoolType.MAX,
-                dropout_prob=0.0,
-                conv_output_to_1d=ConvOutputTo1D.FLATTEN,
-                activation=nn.ReLU,
-            )
+        self.conv_1d = ResNet1D(
+            in_channels=n_channels,
+            seq_len=seq_len,
+            base_filters=base_filters,
+            kernel_size=kernel_size,
+            stride=stride,
+            groups=groups,
+            n_block=n_block,
+            n_classes=2,  # Not used
+            downsample_gap=downsample_gap,
+            increasefilter_gap=increasefilter_gap,
+            use_do=use_do,
+            verbose=False,
+        )
+        # Set equivalent pooling setting
+        self.conv_1d.avgpool = CONV_1D_OUTPUT_TO_1D_MAP[self.pooling_method]()
+        self.conv_1d.fc = nn.Identity()
 
         # Create FiLM generator
         if self.conditioning_dim is not None and self.num_film_params is not None:

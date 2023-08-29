@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from typing import Tuple, Iterable, Optional
+from typing import Tuple, Optional
 from functools import lru_cache
 from nerf_grasping.models.tyler_new_models import (
     conv_encoder,
@@ -19,9 +19,9 @@ def assert_equals(a, b):
 class CNN_3D_Classifier(nn.Module):
     def __init__(
         self,
-        input_shape: Iterable[int],
-        conv_channels: Iterable[int],
-        mlp_hidden_layers: Iterable[int],
+        input_shape: Tuple[int, int, int, int],
+        conv_channels: Tuple[int, ...],
+        mlp_hidden_layers: Tuple[int, ...],
         n_fingers,
     ) -> None:
         super().__init__()
@@ -98,8 +98,8 @@ class CNN_2D_1D_Classifier(nn.Module):
         grid_shape: Tuple[int, int, int],
         n_fingers: int,
         conditioning_dim: int,
-        conv_2d_film_hidden_layers: Iterable[int],
-        mlp_hidden_layers: Iterable[int],
+        conv_2d_film_hidden_layers: Tuple[int, ...],
+        mlp_hidden_layers: Tuple[int, ...],
     ) -> None:
         super().__init__()
         self.grid_shape = grid_shape
@@ -128,7 +128,8 @@ class CNN_2D_1D_Classifier(nn.Module):
             n_block=8,
             downsample_gap=2,
             increasefilter_gap=4,
-            use_do=False,
+            use_batchnorm=True,
+            use_dropout=False,
         )
         self.mlp = mlp(
             num_inputs=n_fingers * self.conv_1d.output_dim

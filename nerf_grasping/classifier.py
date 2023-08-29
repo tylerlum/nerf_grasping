@@ -145,6 +145,7 @@ def main() -> None:
     cnn_3d_scores = cnn_3d_classifier.get_failure_probability(batch_data_input)
     print(f"cnn_3d_scores: {cnn_3d_scores}")
     print(f"cnn_3d_scores.shape: {cnn_3d_scores.shape}")
+
     cnn_2d_1d_scores = cnn_2d_1d_classifier.get_failure_probability(batch_data_input)
     print(f"cnn_2d_1d_scores: {cnn_2d_1d_scores}")
     print(f"cnn_2d_1d_scores.shape: {cnn_2d_1d_scores.shape}")

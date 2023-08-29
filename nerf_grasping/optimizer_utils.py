@@ -368,7 +368,7 @@ class GraspMetric(torch.nn.Module):
         )
 
         # Pass grasp transforms, densities into classifier.
-        return self.classifier_model(batch_data_input)
+        return self.classifier_model.get_failure_probability(batch_data_input)
 
 
 class IndexingDataset(torch.utils.data.Dataset):

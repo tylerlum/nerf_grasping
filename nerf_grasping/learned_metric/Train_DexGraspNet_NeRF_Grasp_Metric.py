@@ -684,7 +684,7 @@ import torch.nn as nn
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Pull out just the CNN (without wrapping for LieTorch) for training.
-nerf_to_grasp_success_model = cfg.model_config.get_classifier().model.to(device)
+nerf_to_grasp_success_model = cfg.model_config.get_classifier().to(device)
 
 # %%
 start_epoch = 0
@@ -850,9 +850,7 @@ def iterate_through_dataloader(
             # Forward pass
             with loop_timer.add_section_timer("Fwd"):
                 grasp_success_logits = nerf_to_grasp_success_model.get_success_logits(
-                    # TODO: Use config to set this, defines what input type we give
-                    batch_data.input.nerf_alphas_with_augmented_coords
-                    # batch_data.input.nerf_alphas_with_coords
+                    batch_data.input
                 )
                 ce_loss = ce_loss_fn(
                     input=grasp_success_logits, target=batch_data.grasp_success

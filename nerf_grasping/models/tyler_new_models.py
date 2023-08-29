@@ -1,9 +1,17 @@
 import torch
 import torch.nn as nn
-from typing import List, Tuple, Optional, Dict, Any, Union, Iterable
+from typing import List, Tuple, Optional, Dict, Any, Union
 from dataclasses import dataclass, field
 from omegaconf import MISSING
-from nerf_grasping.models.FiLM_resnet import resnet18, ResNet18_Weights
+from nerf_grasping.models.FiLM_resnet import (
+    resnet18,
+    ResNet18_Weights,
+    resnet34,
+    ResNet34_Weights,
+    _resnet,
+    BasicBlock,
+    Bottleneck,
+)
 from nerf_grasping.models.FiLM_resnet_1d import ResNet1D
 from torchvision.transforms import Lambda, Compose
 from enum import Enum, auto
@@ -134,7 +142,7 @@ CONV_1D_OUTPUT_TO_1D_MAP = {
 def mlp(
     num_inputs: int,
     num_outputs: int,
-    hidden_layers: Iterable[int],
+    hidden_layers: Tuple[int, ...],
     activation=nn.ReLU,
     output_activation=nn.Identity,
 ) -> nn.Sequential:
@@ -147,8 +155,8 @@ def mlp(
 
 
 def conv_encoder(
-    input_shape: Iterable[int],
-    conv_channels: Iterable[int],
+    input_shape: Tuple[int, ...],
+    conv_channels: Tuple[int, ...],
     pool_type: PoolType = PoolType.MAX,
     dropout_prob: float = 0.0,
     conv_output_to_1d: ConvOutputTo1D = ConvOutputTo1D.FLATTEN,
@@ -257,7 +265,7 @@ class FiLMGenerator(nn.Module):
         self,
         film_input_dim: int,
         num_params_to_film: int,
-        hidden_layers: Iterable[int],
+        hidden_layers: Tuple[int, ...],
     ) -> None:
         super().__init__()
         self.film_input_dim = film_input_dim
@@ -291,7 +299,29 @@ class FiLMGenerator(nn.Module):
 class ConvEncoder2DConfig:
     use_pretrained: bool = MISSING
     pooling_method: ConvOutputTo1D = MISSING
-    film_hidden_layers: Iterable[int] = MISSING
+    film_hidden_layers: Tuple[int, ...] = MISSING
+
+
+def resnet_small(*, weights=None, progress: bool = True, **kwargs: Any):
+    return _resnet(
+        block=BasicBlock,
+        layers=[1, 1, 1, 1],
+        weights=weights,
+        progress=progress,
+        **kwargs,
+    )
+
+
+def resnet_smaller(*, weights=None, progress: bool = True, **kwargs: Any):
+    planes_per_layer = [16, 32, 64, 128]
+    return _resnet(
+        block=BasicBlock,
+        layers=[1, 1, 1, 1],
+        weights=weights,
+        progress=progress,
+        planes_per_layer=planes_per_layer,
+        **kwargs,
+    )
 
 
 class ConvEncoder2D(nn.Module):
@@ -301,7 +331,7 @@ class ConvEncoder2D(nn.Module):
         conditioning_dim: Optional[int] = None,
         use_pretrained: bool = True,
         pooling_method: ConvOutputTo1D = ConvOutputTo1D.FLATTEN,
-        film_hidden_layers: Iterable[int] = [64, 64],
+        film_hidden_layers: Tuple[int, ...] = (64, 64),
     ) -> None:
         super().__init__()
 
@@ -316,14 +346,34 @@ class ConvEncoder2D(nn.Module):
         assert n_channels == 1
 
         # Create conv architecture
-        weights = ResNet18_Weights.DEFAULT if self.use_pretrained else None
-        weights_transforms = (
-            [weights.transforms(antialias=True)] if weights is not None else []
-        )
-        self.img_preprocess = Compose(
-            [Lambda(lambda x: x.repeat(1, 3, 1, 1))] + weights_transforms
-        )
-        self.conv_2d = resnet18(weights=weights)
+        RESNET_TYPE = "resnet18"
+        if RESNET_TYPE == "resnet18":
+            weights = ResNet18_Weights.DEFAULT if self.use_pretrained else None
+            weights_transforms = (
+                [weights.transforms(antialias=True)] if weights is not None else []
+            )
+            self.img_preprocess = Compose(
+                [Lambda(lambda x: x.repeat(1, 3, 1, 1))] + weights_transforms
+            )
+            self.conv_2d = resnet18(weights=weights)
+        elif RESNET_TYPE == "resnet34":
+            weights = ResNet34_Weights.DEFAULT if self.use_pretrained else None
+            weights_transforms = (
+                [weights.transforms(antialias=True)] if weights is not None else []
+            )
+            self.img_preprocess = Compose(
+                [Lambda(lambda x: x.repeat(1, 3, 1, 1))] + weights_transforms
+            )
+            self.conv_2d = resnet34(weights=weights)
+        elif RESNET_TYPE == "resnet_small":
+            assert not self.use_pretrained
+            self.conv_2d = resnet_small(weights=None)
+        elif RESNET_TYPE == "resnet_smaller":
+            assert not self.use_pretrained
+            self.conv_2d = resnet_smaller(weights=None)
+        else:
+            raise ValueError(f"Invalid RESNET_TYPE = {RESNET_TYPE}")
+
         self.conv_2d.avgpool = CONV_2D_OUTPUT_TO_1D_MAP[self.pooling_method]()
         self.conv_2d.fc = nn.Identity()
 
@@ -397,7 +447,7 @@ class ConvEncoder2D(nn.Module):
 class ConvEncoder1DConfig:
     use_resnet: bool = MISSING
     pooling_method: ConvOutputTo1D = MISSING
-    film_hidden_layers: Iterable[int] = MISSING
+    film_hidden_layers: Tuple[int, ...] = MISSING
     base_filters: int = MISSING
     kernel_size: int = MISSING
     stride: int = MISSING
@@ -415,7 +465,7 @@ class ConvEncoder1D(nn.Module):
         conditioning_dim: Optional[int] = None,
         use_resnet: bool = True,
         pooling_method: ConvOutputTo1D = ConvOutputTo1D.FLATTEN,
-        film_hidden_layers: Iterable[int] = [64, 64],
+        film_hidden_layers: Tuple[int, ...] = (64, 64),
         base_filters: int = 64,
         kernel_size: int = 16,
         stride: int = 2,
@@ -813,7 +863,6 @@ class TransformerEncoderDecoder(nn.Module):
         example_output = self(example_input, conditioning=example_conditioning)
         assert len(example_output.shape) == 2
         return example_output.shape[1]
-
 
 
 def main() -> None:

@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Optional, Literal, Tuple, List, Union
 from nerf_grasping.config.fingertip_config import UnionFingertipConfig
-from nerf_grasping.classifier import CNN_3D_XYZ_Classifier
+from nerf_grasping.classifier import CNN_3D_XYZ_Classifier, Classifier
 from nerf_grasping.config.base import WandbConfig, CONFIG_DATETIME_STR
 from nerf_grasping.config.nerfdata_config import NerfDataConfig
 import tyro
@@ -15,14 +15,6 @@ class ClassifierDataConfig:
     frac_val: float = 0.1
     frac_test: float = 0.1
     frac_train: float = 1 - frac_val - frac_test
-
-    input_dataset_root_dir: str = (
-        "data/2023-08-26_evaled_overfit_grasp_config_dicts_learned_metric_dataset"
-    )
-    """Root directory of the input dataset."""
-
-    input_dataset_path: str = "2023-08-26_11-24-44_learned_metric_dataset.h5"
-    """Name of the input dataset file, within the root directory."""
 
     max_num_data_points: Optional[int] = None
     """Maximum number of data points to use from the dataset. If None, use all."""
@@ -146,41 +138,33 @@ class CNN_3D_XYZ_ModelConfig(ClassifierModelConfig):
     n_fingers: int = 4
     """Number of fingers."""
 
-    @classmethod
-    def from_fingertip_config(
-        cls,
-        fingertip_config: UnionFingertipConfig,
-        conv_channels=[32, 64, 128],
-        mlp_hidden_layers=[256, 256],
-    ):
-        """Helper method to create a classifier config from a fingertip config."""
+    # General idea: refactor input shape out of classifiers.
+    def input_shape_from_fingertip_config(self, fingertip_config: UnionFingertipConfig):
+        return [
+            4,
+            fingertip_config.num_pts_x,
+            fingertip_config.num_pts_y,
+            fingertip_config.num_pts_z,
+        ]
 
-        return cls(
-            input_shape=[
-                4,
-                fingertip_config.num_pts_x,
-                fingertip_config.num_pts_y,
-                fingertip_config.num_pts_z,
-            ],
-            conv_channels=conv_channels,
-            mlp_hidden_layers=mlp_hidden_layers,
-            n_fingers=fingertip_config.n_fingers,
-        )
-
-    def get_classifier(self):
+    def get_classifier_from_fingertip_config(
+        self, fingertip_config: UnionFingertipConfig
+    ) -> Classifier:
         """Helper method to return the correct classifier from config."""
 
+        input_shape = self.input_shape_from_fingertip_config(fingertip_config)
         return CNN_3D_XYZ_Classifier(
-            input_shape=self.input_shape,
-            n_fingers=self.n_fingers,
+            input_shape=input_shape,
+            n_fingers=fingertip_config.n_fingers,
             conv_channels=self.conv_channels,
             mlp_hidden_layers=self.mlp_hidden_layers,
         )
 
 
-UnionClassifierModelConfig = Union[
-    CNN_3D_XYZ_ModelConfig, None
-]  # Passing none here so union is valid.
+# TODO(pculbert): fix.
+# UnionClassifierModelConfig = Union[
+#     CNN_3D_XYZ_ModelConfig, ClassifierModelConfig
+# ]  # Passing none here so union is valid.
 
 
 @dataclass
@@ -191,7 +175,7 @@ class ClassifierConfig:
     training: ClassifierTrainingConfig = ClassifierTrainingConfig()
     checkpoint_workspace: CheckpointWorkspaceConfig = CheckpointWorkspaceConfig()
     nerfdata_cfg_path: Optional[pathlib.Path] = None
-    model_config: Optional[UnionClassifierModelConfig] = None
+    model_config: CNN_3D_XYZ_ModelConfig = CNN_3D_XYZ_ModelConfig()
 
     wandb: WandbConfig = field(
         default_factory=lambda: WandbConfig(
@@ -223,11 +207,6 @@ class ClassifierConfig:
             )
         else:
             print("Loading default nerfdata config")
-
-        if self.model_config is None:
-            self.model_config = CNN_3D_XYZ_ModelConfig.from_fingertip_config(
-                fingertip_config=self.nerfdata_config.fingertip_config
-            )
 
 
 if __name__ == "__main__":

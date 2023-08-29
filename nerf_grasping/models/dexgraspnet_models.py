@@ -115,6 +115,7 @@ class CNN_2D_1D_Model(nn.Module):
             use_pretrained=True,
             pooling_method=ConvOutputTo1D.AVG_POOL_SPATIAL,
             film_hidden_layers=conv_2d_film_hidden_layers,
+            resnet_type="resnet18", # TODO: Config this
         )
 
         self.conv_1d = ConvEncoder1D(

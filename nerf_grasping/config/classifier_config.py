@@ -17,11 +17,11 @@ class ClassifierDataConfig:
     frac_train: float = 1 - frac_val - frac_test
 
     input_dataset_root_dir: str = (
-        "data/2023-08-26_evaled_overfit_grasp_config_dicts_learned_metric_dataset"
+        "2023-08-29_evaled_grasp_config_dicts_trial_learned_metric_dataset"
     )
     """Root directory of the input dataset."""
 
-    input_dataset_path: str = "2023-08-26_11-24-44_learned_metric_dataset.h5"
+    input_dataset_path: str = "2023-08-29_14-34-06_learned_metric_dataset.h5"
     """Name of the input dataset file, within the root directory."""
 
     max_num_data_points: Optional[int] = None
@@ -120,9 +120,6 @@ class CheckpointWorkspaceConfig:
 class ClassifierModelConfig:
     """Default (abstract) parameters for the classifier."""
 
-    input_shape: List[int]
-    """Shape of the input to the classifier."""
-
     @classmethod
     def from_fingertip_config(fingertip_config: UnionFingertipConfig, **kwargs):
         """Helper method to create a classifier config from a fingertip config."""
@@ -136,6 +133,9 @@ class ClassifierModelConfig:
 @dataclass(frozen=True)
 class CNN_3D_XYZ_ModelConfig(ClassifierModelConfig):
     """Parameters for the CNN_3D_XYZ_Classifier."""
+
+    input_shape: List[int]
+    """Shape of the input to the classifier."""
 
     conv_channels: List[int]
     """List of channels for each convolutional layer. Length specifies number of layers."""
@@ -192,12 +192,13 @@ class CNN_2D_1D_ModelConfig(ClassifierModelConfig):
     def from_fingertip_config(
         cls,
         fingertip_config: UnionFingertipConfig,
-        conditioning_dim: int,
-        conv_2d_film_hidden_layers: Tuple[int, ...],
-        mlp_hidden_layers: Tuple[int, ...],
+        conditioning_dim: int = 7,
+        conv_2d_film_hidden_layers: Tuple[int, ...] = (256, 256),
+        mlp_hidden_layers: Tuple[int, ...]= (256, 256),
     ):
         """Helper method to create a classifier config from a fingertip config."""
 
+        print(cls) # TODO REMOVE
         return cls(
             grid_shape=(
                 fingertip_config.num_pts_x,
@@ -269,7 +270,10 @@ class ClassifierConfig:
             print("Loading default nerfdata config")
 
         if self.model_config is None:
-            self.model_config = CNN_3D_XYZ_ModelConfig.from_fingertip_config(
+            # self.model_config = CNN_3D_XYZ_ModelConfig.from_fingertip_config(
+            #     fingertip_config=self.nerfdata_config.fingertip_config
+            # )
+            self.model_config = CNN_2D_1D_ModelConfig.from_fingertip_config(
                 fingertip_config=self.nerfdata_config.fingertip_config
             )
 

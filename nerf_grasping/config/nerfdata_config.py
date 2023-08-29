@@ -19,14 +19,15 @@ class NerfDataConfig:
         EvenlySpacedFingertipConfig.from_dimensions()
     )
     dexgraspnet_data_root: pathlib.Path = (
-        pathlib.Path(nerf_grasping.get_repo_root()) / "data"
+        # pathlib.Path(nerf_grasping.get_repo_root()) / "data"
+        pathlib.Path(nerf_grasping.get_repo_root())
     )
-    dexgraspnet_meshdata_root: pathlib.Path = dexgraspnet_data_root / "meshdata_trial"
+    dexgraspnet_meshdata_root: pathlib.Path = dexgraspnet_data_root / "2023-08-29_meshdata_trial"
     evaled_grasp_config_dicts_path: pathlib.Path = (
-        dexgraspnet_data_root / "2023-08-26_evaled_overfit_grasp_config_dicts"
+        dexgraspnet_data_root / "2023-08-29_evaled_grasp_config_dicts_trial"
     )
     nerf_checkpoints_path: pathlib.Path = (
-        dexgraspnet_data_root / "nerfcheckpoints_trial"
+        dexgraspnet_data_root / "2023-08-29_nerfcheckpoints_trial"
     )
     output_filepath: pathlib.Path = (
         pathlib.Path(str(evaled_grasp_config_dicts_path) + "_learned_metric_dataset")

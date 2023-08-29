@@ -29,12 +29,6 @@ import nerf_grasping
 from dataclasses import asdict
 from torchinfo import summary
 from torchviz import make_dot
-from nerf_grasping.grasp_utils import (
-    # NUM_PTS_X,
-    # NUM_PTS_Y,
-    # NUM_PTS_Z,
-    # NUM_FINGERS,
-)
 from nerf_grasping.learned_metric.DexGraspNet_batch_data import (
     BatchData,
     BatchDataInput,
@@ -728,30 +722,34 @@ print(f"optimizer = {optimizer}")
 print(f"lr_scheduler = {lr_scheduler}")
 
 # %%
-summary(
-    model=nerf_to_grasp_success_model,
-    input_size=(
-        cfg.dataloader.batch_size,
-        cfg.model_config.n_fingers,
-        *cfg.model_config.input_shape,
-    ),
-    device=device,
-)
-
-# %%
-example_input = (
-    torch.zeros(
-        (
+try:
+    summary(
+        model=nerf_to_grasp_success_model,
+        input_size=(
             cfg.dataloader.batch_size,
             cfg.model_config.n_fingers,
             *cfg.model_config.input_shape,
-        )
+        ),
+        device=device,
     )
-    .to(device)
-    .requires_grad_(True)
-)
-example_output = nerf_to_grasp_success_model(example_input)
+except Exception as e:
+    print(f"Exception: {e}")
+    print("Skipping summary")
+
+# %%
 try:
+    example_input = (
+        torch.zeros(
+            (
+                cfg.dataloader.batch_size,
+                cfg.model_config.n_fingers,
+                *cfg.model_config.input_shape,
+            )
+        )
+        .to(device)
+        .requires_grad_(True)
+    )
+    example_output = nerf_to_grasp_success_model(example_input)
     dot = make_dot(
         example_output,
         params={

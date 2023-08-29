@@ -30,10 +30,10 @@ from dataclasses import asdict
 from torchinfo import summary
 from torchviz import make_dot
 from nerf_grasping.grasp_utils import (
-    NUM_PTS_X,
-    NUM_PTS_Y,
-    NUM_PTS_Z,
-    NUM_FINGERS,
+    # NUM_PTS_X,
+    # NUM_PTS_Y,
+    # NUM_PTS_Z,
+    # NUM_FINGERS,
 )
 from nerf_grasping.learned_metric.DexGraspNet_batch_data import (
     BatchData,
@@ -44,7 +44,7 @@ from nerf_grasping.dataset.DexGraspNet_NeRF_Grasps_utils import (
     get_object_scale,
     plot_mesh_and_query_points,
 )
-from nerf_grasping.models.dexgraspnet_models import CNN_3D_Classifier
+from nerf_grasping.models.dexgraspnet_models import CNN_3D_Model, CNN_2D_1D_Model
 from nerf_grasping.dataset.timers import LoopTimer
 from nerf_grasping.config.classifier_config import (
     ClassifierConfig,
@@ -135,7 +135,7 @@ else:
     print(f"arguments = {arguments}")
 
 # %%
-cfg = tyro.cli(ClassifierConfig, args=arguments)
+cfg: ClassifierConfig = tyro.cli(ClassifierConfig, args=arguments)
 
 # A relatively dirty hack: create script globals from the config vars.
 NUM_FINGERS = cfg.nerfdata_config.fingertip_config.n_fingers
@@ -781,7 +781,7 @@ if SHOW_DOT:
 def save_checkpoint(
     checkpoint_workspace_dir_path: str,
     epoch: int,
-    nerf_to_grasp_success_model: CNN_3D_Classifier,
+    nerf_to_grasp_success_model: CNN_2D_1D_Model,
     optimizer: torch.optim.Optimizer,
     lr_scheduler: Optional[torch.optim.lr_scheduler.LRScheduler] = None,
 ) -> None:
@@ -808,7 +808,7 @@ def save_checkpoint(
 def iterate_through_dataloader(
     phase: Phase,
     dataloader: DataLoader,
-    nerf_to_grasp_success_model: CNN_3D_Classifier,
+    nerf_to_grasp_success_model: CNN_2D_1D_Model,
     device: torch.device,
     ce_loss_fn: nn.CrossEntropyLoss,
     wandb_log_dict: dict,
@@ -952,7 +952,7 @@ def run_training_loop(
     training_cfg: TrainingConfig,
     train_loader: DataLoader,
     val_loader: DataLoader,
-    nerf_to_grasp_success_model: CNN_3D_Classifier,
+    nerf_to_grasp_success_model: CNN_2D_1D_Model,
     device: torch.device,
     ce_loss_fn: nn.CrossEntropyLoss,
     optimizer: torch.optim.Optimizer,

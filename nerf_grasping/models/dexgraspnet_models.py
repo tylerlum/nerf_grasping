@@ -16,7 +16,7 @@ def assert_equals(a, b):
     assert a == b, f"{a} != {b}"
 
 
-class CNN_3D_Classifier(nn.Module):
+class CNN_3D_Model(nn.Module):
     def __init__(
         self,
         input_shape: Tuple[int, int, int, int],
@@ -92,13 +92,22 @@ class CNN_3D_Classifier(nn.Module):
         return 2
 
 
-class CNN_2D_1D_Classifier(nn.Module):
+class CNN_2D_1D_Model(nn.Module):
     def __init__(
         self,
         grid_shape: Tuple[int, int, int],
         n_fingers: int,
         conditioning_dim: int,
         conv_2d_film_hidden_layers: Tuple[int, ...],
+        conv1d_base_filters: int,
+        conv1d_kernel_size: int,
+        conv1d_stride: int,
+        conv1d_groups: int,
+        conv1d_n_block: int,
+        conv1d_downsample_gap: int,
+        conv1d_increasefilter_gap: int,
+        conv1d_use_batchnorm: bool,
+        conv1d_use_dropout: bool,
         mlp_hidden_layers: Tuple[int, ...],
     ) -> None:
         super().__init__()
@@ -121,15 +130,15 @@ class CNN_2D_1D_Classifier(nn.Module):
             input_shape=(self.conv_2d.output_dim, seq_len),
             conditioning_dim=conditioning_dim,
             pooling_method=ConvOutputTo1D.AVG_POOL_SPATIAL,
-            base_filters=64,
-            kernel_size=4,
-            stride=2,
-            groups=32,
-            n_block=8,
-            downsample_gap=2,
-            increasefilter_gap=4,
-            use_batchnorm=True,
-            use_dropout=False,
+            base_filters=conv1d_base_filters,
+            kernel_size=conv1d_kernel_size,
+            stride=conv1d_stride,
+            groups=conv1d_groups,
+            n_block=conv1d_n_block,
+            downsample_gap=conv1d_downsample_gap,
+            increasefilter_gap=conv1d_increasefilter_gap,
+            use_batchnorm=conv1d_use_batchnorm,
+            use_dropout=conv1d_use_dropout,
         )
         self.mlp = mlp(
             num_inputs=n_fingers * self.conv_1d.output_dim

@@ -9,19 +9,20 @@ from nerf_grasping.grasp_utils import (
     NUM_FINGERS,
 )
 import pathlib
-from nerf_grasping.models.dexgraspnet_models import CNN_3D_Classifier as CNN_3D_Model
+from nerf_grasping.models.dexgraspnet_models import (
+    CNN_3D_Model as CNN_3D_Model,
+    CNN_2D_1D_Model,
+)
 from nerf_grasping.learned_metric.DexGraspNet_batch_data import BatchDataInput
-from typing import Iterable
+from typing import Iterable, Tuple
 
 
 class Classifier(nn.Module):
-    def __init__(self, input_shape: Iterable[int]) -> None:
+    def __init__(self) -> None:
         super().__init__()
-        self.input_shape = input_shape
 
-    def forward(
-        self, nerf_densities: torch.Tensor, grasp_transforms: pp.LieTensor
-    ) -> torch.Tensor:
+    def forward(self, batch_data_input: BatchDataInput) -> torch.Tensor:
+        nerf_densities = batch_data_input.nerf_densities
         batch_size = nerf_densities.shape[0]
         assert nerf_densities.shape == (
             batch_size,
@@ -30,6 +31,8 @@ class Classifier(nn.Module):
             NUM_PTS_Y,
             NUM_PTS_Z,
         )
+
+        grasp_transforms = batch_data_input.grasp_transforms
         assert grasp_transforms.ltype == pp.SE3_type
         assert grasp_transforms.lshape == (batch_size, NUM_FINGERS)
 
@@ -46,9 +49,10 @@ class CNN_3D_XYZ_Classifier(Classifier):
         input_shape: Iterable[int],
         conv_channels: Iterable[int],
         mlp_hidden_layers: Iterable[int],
-        n_fingers,
+        n_fingers: int,
     ) -> None:
-        super().__init__(input_shape=input_shape)
+        super().__init__()
+        self.input_shape = input_shape
         self.conv_channels = conv_channels
         self.mlp_hidden_layers = mlp_hidden_layers
         self.n_fingers = n_fingers
@@ -60,22 +64,62 @@ class CNN_3D_XYZ_Classifier(Classifier):
             n_fingers=n_fingers,
         )
 
-    def forward(
-        self, nerf_densities: torch.Tensor, grasp_transforms: pp.LieTensor
-    ) -> torch.Tensor:
-        batch_size = nerf_densities.shape[0]
-
-        # Prepare data
-        batch_data_input = BatchDataInput(
-            nerf_densities=nerf_densities,
-            grasp_transforms=grasp_transforms,
-        ).to(nerf_densities.device)
-
+    def forward(self, batch_data_input: BatchDataInput) -> torch.Tensor:
         # Run model
         logits = self.model(batch_data_input.nerf_alphas_with_augmented_coords)
 
         N_CLASSES = 2
-        assert logits.shape == (batch_size, N_CLASSES)
+        assert logits.shape == (batch_data_input.batch_size, N_CLASSES)
+
+        # REMOVE, using to ensure gradients are non-zero
+        # for overfit classifier.
+        PROB_SCALING = 1e0
+
+        # Return failure probabilities (as loss).
+        return nn.functional.softmax(PROB_SCALING * logits, dim=-1)[:, 0]
+
+
+class CNN_2D_1D_Classifier(Classifier):
+    def __init__(
+        self,
+        grid_shape: Tuple[int, int, int],
+        n_fingers: int,
+        conditioning_dim: int,
+        conv_2d_film_hidden_layers: Tuple[int, ...],
+        conv1d_base_filters: int,
+        conv1d_kernel_size: int,
+        conv1d_stride: int,
+        conv1d_groups: int,
+        conv1d_n_block: int,
+        conv1d_downsample_gap: int,
+        conv1d_increasefilter_gap: int,
+        conv1d_use_batchnorm: bool,
+        conv1d_use_dropout: bool,
+        mlp_hidden_layers: Tuple[int, ...],
+    ) -> None:
+        self.model = CNN_2D_1D_Model(
+            grid_shape=grid_shape,
+            n_fingers=n_fingers,
+            conditioning_dim=conditioning_dim,
+            conv_2d_film_hidden_layers=conv_2d_film_hidden_layers,
+            conv1d_base_filters=conv1d_base_filters,
+            conv1d_kernel_size=conv1d_kernel_size,
+            conv1d_stride=conv1d_stride,
+            conv1d_groups=conv1d_groups,
+            conv1d_n_block=conv1d_n_block,
+            conv1d_downsample_gap=conv1d_downsample_gap,
+            conv1d_increasefilter_gap=conv1d_increasefilter_gap,
+            conv1d_use_batchnorm=conv1d_use_batchnorm,
+            conv1d_use_dropout=conv1d_use_dropout,
+            mlp_hidden_layers=mlp_hidden_layers,
+        )
+
+    def forward(self, batch_data_input: BatchDataInput) -> torch.Tensor:
+        # Run model
+        logits = self.model(batch_data_input.nerf_alphas_with_augmented_coords)
+
+        N_CLASSES = 2
+        assert logits.shape == (batch_data_input.batch_size, N_CLASSES)
 
         # REMOVE, using to ensure gradients are non-zero
         # for overfit classifier.
@@ -87,18 +131,7 @@ class CNN_3D_XYZ_Classifier(Classifier):
 
 def main() -> None:
     # Prepare inputs
-    CONFIG = (
-        pathlib.Path(nerf_grasping.get_package_root())
-        / "learned_metric"
-        / "Train_DexGraspNet_NeRF_Grasp_Metric_workspaces"
-        / "2023-08-20_17-18-07"
-        / "checkpoint_1000.pt"
-    )
-    assert CONFIG.exists(), f"CONFIG: {CONFIG} does not exist"
     DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-    # Create model
-    cnn_3d_classifier = CNN_3D_Classifier(config=CONFIG).to(DEVICE)
 
     # Example input
     batch_size = 2
@@ -106,6 +139,19 @@ def main() -> None:
         batch_size, NUM_FINGERS, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z
     ).to(DEVICE)
     grasp_transforms = pp.identity_SE3(batch_size, NUM_FINGERS).to(DEVICE)
+
+    batch_data_input = BatchDataInput(
+        nerf_densities=nerf_densities,
+        grasp_transforms=grasp_transforms,
+    ).to(DEVICE)
+
+    # Create model
+    cnn_3d_classifier = CNN_3D_XYZ_Classifier(
+        input_shape=batch_data_input.nerf_alphas_with_augmented_coords.shape[-4:],
+        conv_channels=[32, 64, 128],
+        mlp_hidden_layers=[256, 256],
+        n_fingers=NUM_FINGERS,
+    ).to(DEVICE)
 
     # Run model
     scores = cnn_3d_classifier(nerf_densities, grasp_transforms)

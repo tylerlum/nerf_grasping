@@ -23,7 +23,7 @@ class NerfDataConfig:
     )
     dexgraspnet_meshdata_root: pathlib.Path = dexgraspnet_data_root / "meshdata_trial"
     evaled_grasp_config_dicts_path: pathlib.Path = (
-        dexgraspnet_data_root / "2023-08-26_overfit_evaled_grasp_config_dicts"
+        dexgraspnet_data_root / "2023-08-26_evaled_overfit_grasp_config_dicts"
     )
     nerf_checkpoints_path: pathlib.Path = (
         dexgraspnet_data_root / "nerfcheckpoints_trial"

@@ -186,15 +186,6 @@ class CNN_2D_1D_ModelConfig(ClassifierModelConfig):
     n_fingers: int = 4
     conditioning_dim: int = 7
     conv_2d_film_hidden_layers: Tuple[int, ...] = (256, 256)
-    conv1d_base_filters: int = 32
-    conv1d_kernel_size: int = 4
-    conv1d_stride: int = 2
-    conv1d_groups: int = 1
-    conv1d_n_block: int = 8
-    conv1d_downsample_gap: int = 2
-    conv1d_increasefilter_gap: int = 2
-    conv1d_use_batchnorm: bool = False
-    conv1d_use_dropout: bool = False
     mlp_hidden_layers: Tuple[int, ...] = (256, 256)
 
     @classmethod
@@ -203,15 +194,6 @@ class CNN_2D_1D_ModelConfig(ClassifierModelConfig):
         fingertip_config: UnionFingertipConfig,
         conditioning_dim: int,
         conv_2d_film_hidden_layers: Tuple[int, ...],
-        conv1d_base_filters: int,
-        conv1d_kernel_size: int,
-        conv1d_stride: int,
-        conv1d_groups: int,
-        conv1d_n_block: int,
-        conv1d_downsample_gap: int,
-        conv1d_increasefilter_gap: int,
-        conv1d_use_batchnorm: bool,
-        conv1d_use_dropout: bool,
         mlp_hidden_layers: Tuple[int, ...],
     ):
         """Helper method to create a classifier config from a fingertip config."""
@@ -225,15 +207,6 @@ class CNN_2D_1D_ModelConfig(ClassifierModelConfig):
             n_fingers=fingertip_config.n_fingers,
             conditioning_dim=conditioning_dim,
             conv_2d_film_hidden_layers=conv_2d_film_hidden_layers,
-            conv1d_base_filters=conv1d_base_filters,
-            conv1d_kernel_size=conv1d_kernel_size,
-            conv1d_stride=conv1d_stride,
-            conv1d_groups=conv1d_groups,
-            conv1d_n_block=conv1d_n_block,
-            conv1d_downsample_gap=conv1d_downsample_gap,
-            conv1d_increasefilter_gap=conv1d_increasefilter_gap,
-            conv1d_use_batchnorm=conv1d_use_batchnorm,
-            conv1d_use_dropout=conv1d_use_dropout,
             mlp_hidden_layers=mlp_hidden_layers,
         )
 
@@ -245,15 +218,6 @@ class CNN_2D_1D_ModelConfig(ClassifierModelConfig):
             n_fingers=self.n_fingers,
             conditioning_dim=self.conditioning_dim,
             conv_2d_film_hidden_layers=self.conv_2d_film_hidden_layers,
-            conv1d_base_filters=self.conv1d_base_filters,
-            conv1d_kernel_size=self.conv1d_kernel_size,
-            conv1d_stride=self.conv1d_stride,
-            conv1d_groups=self.conv1d_groups,
-            conv1d_n_block=self.conv1d_n_block,
-            conv1d_downsample_gap=self.conv1d_downsample_gap,
-            conv1d_increasefilter_gap=self.conv1d_increasefilter_gap,
-            conv1d_use_batchnorm=self.conv1d_use_batchnorm,
-            conv1d_use_dropout=self.conv1d_use_dropout,
             mlp_hidden_layers=self.mlp_hidden_layers,
         )
 

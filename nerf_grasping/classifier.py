@@ -10,7 +10,7 @@ from nerf_grasping.grasp_utils import (
 )
 import pathlib
 from nerf_grasping.models.dexgraspnet_models import (
-    CNN_3D_Model as CNN_3D_Model,
+    CNN_3D_Model,
     CNN_2D_1D_Model,
 )
 from nerf_grasping.learned_metric.DexGraspNet_batch_data import BatchDataInput
@@ -86,15 +86,6 @@ class CNN_2D_1D_Classifier(Classifier):
         n_fingers: int,
         conditioning_dim: int,
         conv_2d_film_hidden_layers: Tuple[int, ...],
-        conv1d_base_filters: int,
-        conv1d_kernel_size: int,
-        conv1d_stride: int,
-        conv1d_groups: int,
-        conv1d_n_block: int,
-        conv1d_downsample_gap: int,
-        conv1d_increasefilter_gap: int,
-        conv1d_use_batchnorm: bool,
-        conv1d_use_dropout: bool,
         mlp_hidden_layers: Tuple[int, ...],
     ) -> None:
         self.model = CNN_2D_1D_Model(
@@ -102,15 +93,6 @@ class CNN_2D_1D_Classifier(Classifier):
             n_fingers=n_fingers,
             conditioning_dim=conditioning_dim,
             conv_2d_film_hidden_layers=conv_2d_film_hidden_layers,
-            conv1d_base_filters=conv1d_base_filters,
-            conv1d_kernel_size=conv1d_kernel_size,
-            conv1d_stride=conv1d_stride,
-            conv1d_groups=conv1d_groups,
-            conv1d_n_block=conv1d_n_block,
-            conv1d_downsample_gap=conv1d_downsample_gap,
-            conv1d_increasefilter_gap=conv1d_increasefilter_gap,
-            conv1d_use_batchnorm=conv1d_use_batchnorm,
-            conv1d_use_dropout=conv1d_use_dropout,
             mlp_hidden_layers=mlp_hidden_layers,
         )
 

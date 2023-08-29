@@ -191,9 +191,16 @@ class ResNet(nn.Module):
         width_per_group: int = 64,
         replace_stride_with_dilation: Optional[List[bool]] = None,
         norm_layer: Optional[Callable[..., nn.Module]] = None,
+        planes_per_layer: Optional[List[int]] = None,
     ) -> None:
         super().__init__()
         _log_api_usage_once(self)
+
+        assert len(layers) == 4
+        if planes_per_layer is None:
+            planes_per_layer = [64, 128, 256, 512]
+        assert len(planes_per_layer) == len(layers)
+
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
         self._norm_layer = norm_layer
@@ -215,10 +222,10 @@ class ResNet(nn.Module):
         self.bn1 = norm_layer(self.inplanes)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.layer1 = self._make_layer(block, 64, layers[0])
-        self.layer2 = self._make_layer(block, 128, layers[1], stride=2, dilate=replace_stride_with_dilation[0])
-        self.layer3 = self._make_layer(block, 256, layers[2], stride=2, dilate=replace_stride_with_dilation[1])
-        self.layer4 = self._make_layer(block, 512, layers[3], stride=2, dilate=replace_stride_with_dilation[2])
+        self.layer1 = self._make_layer(block=block, planes=planes_per_layer[0], blocks=layers[0])
+        self.layer2 = self._make_layer(block=block, planes=planes_per_layer[1], blocks=layers[1], stride=2, dilate=replace_stride_with_dilation[0])
+        self.layer3 = self._make_layer(block=block, planes=planes_per_layer[2], blocks=layers[2], stride=2, dilate=replace_stride_with_dilation[1])
+        self.layer4 = self._make_layer(block=block, planes=planes_per_layer[3], blocks=layers[3], stride=2, dilate=replace_stride_with_dilation[2])
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.fc = nn.Linear(512 * block.expansion, num_classes)
 
@@ -249,7 +256,7 @@ class ResNet(nn.Module):
         example_x = self.maxpool(example_x)
 
         # Each layer has a number of blocks (resnet50 has 4 layers with [3, 4, 6, 3] blocks at each layer)
-        # Each block outputs a number of planes (related to the [64, 128, 256, 512] above, but depends on if BasicBlock or Bottleneck)
+        # Each block outputs a number of planes (related to planes_per_layer, but depends on if BasicBlock or Bottleneck)
         self.num_planes_per_block_per_layer = []
         self.layers = [self.layer1, self.layer2, self.layer3, self.layer4]
         for i, layer in enumerate(self.layers):
@@ -774,7 +781,7 @@ def resnet18(*, weights: Optional[ResNet18_Weights] = None, progress: bool = Tru
     """
     weights = ResNet18_Weights.verify(weights)
 
-    return _resnet(BasicBlock, [2, 2, 2, 2], weights, progress, **kwargs)
+    return _resnet(block=BasicBlock, layers=[2, 2, 2, 2], weights=weights, progress=progress, **kwargs)
 
 
 # @register_model()
@@ -800,7 +807,7 @@ def resnet34(*, weights: Optional[ResNet34_Weights] = None, progress: bool = Tru
     """
     weights = ResNet34_Weights.verify(weights)
 
-    return _resnet(BasicBlock, [3, 4, 6, 3], weights, progress, **kwargs)
+    return _resnet(block=BasicBlock, layers=[3, 4, 6, 3], weights=weights, progress=progress, **kwargs)
 
 
 # @register_model()
@@ -832,7 +839,7 @@ def resnet50(*, weights: Optional[ResNet50_Weights] = None, progress: bool = Tru
     """
     weights = ResNet50_Weights.verify(weights)
 
-    return _resnet(Bottleneck, [3, 4, 6, 3], weights, progress, **kwargs)
+    return _resnet(block=Bottleneck, layers=[3, 4, 6, 3], weights=weights, progress=progress, **kwargs)
 
 
 # @register_model()
@@ -864,7 +871,7 @@ def resnet101(*, weights: Optional[ResNet101_Weights] = None, progress: bool = T
     """
     weights = ResNet101_Weights.verify(weights)
 
-    return _resnet(Bottleneck, [3, 4, 23, 3], weights, progress, **kwargs)
+    return _resnet(block=Bottleneck, layers=[3, 4, 23, 3], weights=weights, progress=progress, **kwargs)
 
 
 # @register_model()
@@ -896,7 +903,7 @@ def resnet152(*, weights: Optional[ResNet152_Weights] = None, progress: bool = T
     """
     weights = ResNet152_Weights.verify(weights)
 
-    return _resnet(Bottleneck, [3, 8, 36, 3], weights, progress, **kwargs)
+    return _resnet(block=Bottleneck, layers=[3, 8, 36, 3], weights=weights, progress=progress, **kwargs)
 
 
 # @register_model()
@@ -926,7 +933,7 @@ def resnext50_32x4d(
 
     _ovewrite_named_param(kwargs, "groups", 32)
     _ovewrite_named_param(kwargs, "width_per_group", 4)
-    return _resnet(Bottleneck, [3, 4, 6, 3], weights, progress, **kwargs)
+    return _resnet(block=Bottleneck, layers=[3, 4, 6, 3], weights=weights, progress=progress, **kwargs)
 
 
 # @register_model()
@@ -956,7 +963,7 @@ def resnext101_32x8d(
 
     _ovewrite_named_param(kwargs, "groups", 32)
     _ovewrite_named_param(kwargs, "width_per_group", 8)
-    return _resnet(Bottleneck, [3, 4, 23, 3], weights, progress, **kwargs)
+    return _resnet(block=Bottleneck, layers=[3, 4, 23, 3], weights=weights, progress=progress, **kwargs)
 
 
 # @register_model()
@@ -986,7 +993,7 @@ def resnext101_64x4d(
 
     _ovewrite_named_param(kwargs, "groups", 64)
     _ovewrite_named_param(kwargs, "width_per_group", 4)
-    return _resnet(Bottleneck, [3, 4, 23, 3], weights, progress, **kwargs)
+    return _resnet(block=Bottleneck, layers=[3, 4, 23, 3], weights=weights, progress=progress, **kwargs)
 
 
 # @register_model()
@@ -1020,7 +1027,7 @@ def wide_resnet50_2(
     weights = Wide_ResNet50_2_Weights.verify(weights)
 
     _ovewrite_named_param(kwargs, "width_per_group", 64 * 2)
-    return _resnet(Bottleneck, [3, 4, 6, 3], weights, progress, **kwargs)
+    return _resnet(block=Bottleneck, layers=[3, 4, 6, 3], weights=weights, progress=progress, **kwargs)
 
 
 # @register_model()
@@ -1054,7 +1061,7 @@ def wide_resnet101_2(
     weights = Wide_ResNet101_2_Weights.verify(weights)
 
     _ovewrite_named_param(kwargs, "width_per_group", 64 * 2)
-    return _resnet(Bottleneck, [3, 4, 23, 3], weights, progress, **kwargs)
+    return _resnet(block=Bottleneck, layers=[3, 4, 23, 3], weights=weights, progress=progress, **kwargs)
 
 
 if __name__ == "__main__":

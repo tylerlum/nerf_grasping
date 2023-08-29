@@ -105,9 +105,9 @@ def parse_nerf_config(nerf_config: pathlib.Path) -> str:
 # WEIRD HACK SO YOU CAN STILL RUN VSC JUPYTER CELLS.
 # %%
 if __name__ == "__main__" and "get_ipython" not in dir():
-    cfg = tyro.cli(NerfDataConfig)
+    cfg: NerfDataConfig = tyro.cli(NerfDataConfig)
 else:
-    cfg = tyro.cli(NerfDataConfig, args=[])
+    cfg: NerfDataConfig = tyro.cli(NerfDataConfig, args=[])
 
 # %%
 if not cfg.output_filepath.parent.exists():
@@ -141,9 +141,7 @@ if cfg.limit_num_configs is not None:
     print(f"Limiting number of configs to {cfg.limit_num_configs}")
 nerf_configs = nerf_configs[: cfg.limit_num_configs]
 
-max_num_datapoints = (
-    len(nerf_configs) * cfg.max_num_data_points_per_file * cfg.buffer_scaling
-)
+max_num_datapoints = len(nerf_configs) * cfg.max_num_data_points_per_file
 print(f"max num datapoints: {max_num_datapoints}")
 
 # %%
@@ -230,9 +228,12 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                 evaled_grasp_config_dicts_filepath, allow_pickle=True
             )
 
-        if len(evaled_grasp_config_dicts) > max_num_datapoints:
+        if len(evaled_grasp_config_dicts) > cfg.max_num_data_points_per_file:
             print(
                 "WARNING: Too many grasp configs, dropping some datapoints from NeRF dataset."
+            )
+            print(
+                f"len(evaled_grasp_config_dicts) = {len(evaled_grasp_config_dicts)}, cfg.max_num_data_points_per_file = {cfg.max_num_data_points_per_file}"
             )
 
         evaled_grasp_config_dicts = evaled_grasp_config_dicts[:max_num_datapoints]

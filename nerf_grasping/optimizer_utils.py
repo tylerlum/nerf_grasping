@@ -9,6 +9,9 @@ import nerf_grasping
 from nerf_grasping import grasp_utils
 
 from typing import List, Tuple, Dict, Any, Iterable, Union
+import nerfstudio
+from nerf_grasping.classifier import Classifier
+from nerf_grasping.learned_metric.DexGraspNet_batch_data import BatchDataInput
 
 ALLEGRO_URDF_PATH = list(
     pathlib.Path(nerf_grasping.get_package_root()).rglob(
@@ -332,7 +335,7 @@ class GraspMetric(torch.nn.Module):
     a particular AllegroGraspConfig.
     """
 
-    def __init__(self, nerf_model, classifier_model):
+    def __init__(self, nerf_model: nerfstudio.models.base_model.Model, classifier_model: Classifier):
         super().__init__()
         self.nerf_model = nerf_model
         self.classifier_model = classifier_model
@@ -359,9 +362,13 @@ class GraspMetric(torch.nn.Module):
 
         # TODO(pculbert): I think this doubles up some work since we've already computed
         # the sample positions -- check this isn't a big performance hit.
+        batch_data_input = BatchDataInput(
+            nerf_densities=densities,
+            grasp_transforms=grasp_config.grasp_frame_transforms,
+        )
 
         # Pass grasp transforms, densities into classifier.
-        return self.classifier_model(densities, grasp_config.grasp_frame_transforms)
+        return self.classifier_model.get_failure_probability(batch_data_input)
 
 
 class IndexingDataset(torch.utils.data.Dataset):

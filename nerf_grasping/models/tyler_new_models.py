@@ -289,7 +289,6 @@ class FiLMGenerator(nn.Module):
 
 @dataclass
 class ConvEncoder2DConfig:
-    use_resnet: bool = MISSING
     use_pretrained: bool = MISSING
     pooling_method: ConvOutputTo1D = MISSING
     film_hidden_layers: Iterable[int] = MISSING
@@ -300,7 +299,6 @@ class ConvEncoder2D(nn.Module):
         self,
         input_shape: Tuple[int, int, int],
         conditioning_dim: Optional[int] = None,
-        use_resnet: bool = True,
         use_pretrained: bool = True,
         pooling_method: ConvOutputTo1D = ConvOutputTo1D.FLATTEN,
         film_hidden_layers: Iterable[int] = [64, 64],
@@ -310,7 +308,6 @@ class ConvEncoder2D(nn.Module):
         # input_shape: (n_channels, height, width)
         self.input_shape = input_shape
         self.conditioning_dim = conditioning_dim
-        self.use_resnet = use_resnet
         self.use_pretrained = use_pretrained
         self.pooling_method = pooling_method
 
@@ -319,29 +316,16 @@ class ConvEncoder2D(nn.Module):
         assert n_channels == 1
 
         # Create conv architecture
-        if self.use_resnet:
-            weights = ResNet18_Weights.DEFAULT if self.use_pretrained else None
-            weights_transforms = (
-                [weights.transforms(antialias=True)] if weights is not None else []
-            )
-            self.img_preprocess = Compose(
-                [Lambda(lambda x: x.repeat(1, 3, 1, 1))] + weights_transforms
-            )
-            self.conv_2d = resnet18(weights=weights)
-            self.conv_2d.avgpool = CONV_2D_OUTPUT_TO_1D_MAP[self.pooling_method]()
-            self.conv_2d.fc = nn.Identity()
-        else:
-            raise NotImplementedError("TODO: Implement non-resnet conv encoder")
-            # TODO: Properly config
-            self.img_preprocess = nn.Identity()
-            self.conv_2d = conv_encoder(
-                input_shape=input_shape,
-                conv_channels=[32, 64, 128, 256],
-                pool_type=PoolType.MAX,
-                dropout_prob=0.0,
-                conv_output_to_1d=self.pooling_method,
-                activation=nn.ReLU,
-            )
+        weights = ResNet18_Weights.DEFAULT if self.use_pretrained else None
+        weights_transforms = (
+            [weights.transforms(antialias=True)] if weights is not None else []
+        )
+        self.img_preprocess = Compose(
+            [Lambda(lambda x: x.repeat(1, 3, 1, 1))] + weights_transforms
+        )
+        self.conv_2d = resnet18(weights=weights)
+        self.conv_2d.avgpool = CONV_2D_OUTPUT_TO_1D_MAP[self.pooling_method]()
+        self.conv_2d.fc = nn.Identity()
 
         # Create FiLM generator
         if self.conditioning_dim is not None and self.num_film_params is not None:
@@ -829,6 +813,7 @@ class TransformerEncoderDecoder(nn.Module):
         example_output = self(example_input, conditioning=example_conditioning)
         assert len(example_output.shape) == 2
         return example_output.shape[1]
+
 
 
 def main() -> None:

@@ -112,7 +112,6 @@ class CNN_2D_1D_Classifier(nn.Module):
         self.conv_2d = ConvEncoder2D(
             input_shape=(1, n_pts_x, n_pts_y),
             conditioning_dim=conditioning_dim,
-            use_resnet=True,
             use_pretrained=True,
             pooling_method=ConvOutputTo1D.AVG_POOL_SPATIAL,
             film_hidden_layers=conv_2d_film_hidden_layers,
@@ -121,7 +120,6 @@ class CNN_2D_1D_Classifier(nn.Module):
         self.conv_1d = ConvEncoder1D(
             input_shape=(self.conv_2d.output_dim, seq_len),
             conditioning_dim=conditioning_dim,
-            use_resnet=True,
             pooling_method=ConvOutputTo1D.AVG_POOL_SPATIAL,
             base_filters=64,
             kernel_size=4,

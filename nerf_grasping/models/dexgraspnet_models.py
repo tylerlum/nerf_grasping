@@ -152,17 +152,51 @@ class CNN_2D_1D_Model(nn.Module):
         assert_equals(x.shape, (batch_size * n_fingers, seq_len, n_pts_x, n_pts_y))
 
         # Conv 2D
-        output_list = []
-        for i in range(seq_len):
-            input = x[:, i : i + 1, :, :]
-            assert_equals(input.shape, (batch_size * n_fingers, 1, n_pts_x, n_pts_y))
-            output = self.conv_2d(input, conditioning=conditioning)
+        BATCHED_COMPUTATION = True  # TODO: See if OOM is an issue
+        if BATCHED_COMPUTATION:
+            x = x.reshape(batch_size * n_fingers * seq_len, 1, n_pts_x, n_pts_y)
+            conditioning = conditioning.repeat_interleave(seq_len, dim=0)
             assert_equals(
-                output.shape, (batch_size * n_fingers, self.conv_2d.output_dim)
+                x.shape,
+                (
+                    batch_size * n_fingers * seq_len,
+                    1,
+                    n_pts_x,
+                    n_pts_y,
+                ),
             )
-            output_list.append(output)
-
-        x = torch.stack(output_list, dim=1)
+            assert_equals(
+                conditioning.shape,
+                (
+                    batch_size * n_fingers * seq_len,
+                    conditioning_dim,
+                ),
+            )
+            x = self.conv_2d(x, conditioning=conditioning)
+            assert_equals(
+                x.shape,
+                (
+                    batch_size * n_fingers * seq_len,
+                    self.conv_2d.output_dim,
+                ),
+            )
+            x = x.reshape(batch_size * n_fingers, seq_len, self.conv_2d.output_dim)
+        else:
+            output_list = []
+            for i in range(seq_len):
+                input = x[:, i : i + 1, :, :]
+                assert_equals(
+                    input.shape, (batch_size * n_fingers, 1, n_pts_x, n_pts_y)
+                )
+                assert_equals(
+                    conditioning.shape, (batch_size * n_fingers, conditioning_dim)
+                )
+                output = self.conv_2d(input, conditioning=conditioning)
+                assert_equals(
+                    output.shape, (batch_size * n_fingers, self.conv_2d.output_dim)
+                )
+                output_list.append(output)
+            x = torch.stack(output_list, dim=1)
         assert_equals(
             x.shape, (batch_size * n_fingers, seq_len, self.conv_2d.output_dim)
         )

@@ -346,7 +346,7 @@ class ConvEncoder2D(nn.Module):
         assert n_channels == 1
 
         # Create conv architecture
-        RESNET_TYPE = "resnet18"
+        RESNET_TYPE = "resnet18"  # TODO: Make this a parameter and enum
         if RESNET_TYPE == "resnet18":
             weights = ResNet18_Weights.DEFAULT if self.use_pretrained else None
             weights_transforms = (

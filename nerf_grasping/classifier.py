@@ -98,7 +98,7 @@ class CNN_2D_1D_Classifier(Classifier):
 
     def forward(self, batch_data_input: BatchDataInput) -> torch.Tensor:
         # Run model
-        logits = self.model(batch_data_input.nerf_alphas_with_augmented_coords)
+        logits = self.model(batch_data_input.nerf_alphas, batch_data_input.grasp_transforms)
 
         N_CLASSES = 2
         assert logits.shape == (batch_data_input.batch_size, N_CLASSES)

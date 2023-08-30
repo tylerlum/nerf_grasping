@@ -10,9 +10,9 @@ class BaseFingertipConfig:
     num_pts_x: int
     num_pts_y: int
     num_pts_z: int
-    finger_width_mm: float = 10.0
-    finger_height_mm: float = 15.0
-    grasp_depth_mm: float = 20.0
+    finger_width_mm: float = 20.0
+    finger_height_mm: float = 20.0
+    grasp_depth_mm: float = 40.0
     n_fingers: int = 4
 
 
@@ -54,8 +54,8 @@ UnionFingertipConfig = Union[VanillaFingertipConfig, EvenlySpacedFingertipConfig
 
 @dataclass
 class TopLevelConfig:
-    fingertip_config: UnionFingertipConfig = (
-        EvenlySpacedFingertipConfig.from_dimensions()
+    fingertip_config: UnionFingertipConfig = VanillaFingertipConfig(
+        num_pts_x=20, num_pts_y=20, num_pts_z=100
     )
 
 

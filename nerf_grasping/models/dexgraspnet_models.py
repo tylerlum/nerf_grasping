@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from typing import Tuple, Optional
+from typing import Tuple, Optional, List
 from functools import lru_cache
 from nerf_grasping.models.tyler_new_models import (
     conv_encoder,
@@ -252,7 +252,11 @@ class Simple_CNN_2D_1D_Model(nn.Module):
         n_fingers: int,
         conditioning_dim: int = 7,
         n_classes: int = 2,
-        mlp_hidden_layers: Tuple[int, ...] = (32, 32),
+        mlp_hidden_layers: List[int] = [32, 32],
+        conv_2d_channels: List[int] = [32, 16, 8, 4],
+        conv_1d_channels: List[int] = [4, 8],
+        film_2d_hidden_layers: List[int] = [8, 8],
+        film_1d_hidden_layers: List[int] = [8, 8],
     ):
         super().__init__()
         self.grid_shape = grid_shape
@@ -264,9 +268,10 @@ class Simple_CNN_2D_1D_Model(nn.Module):
 
         self.cnn2d_film = CNN2DFiLM(
             input_shape=(n_x, n_y),
-            conv_channels=[32, 32],
+            conv_channels=conv_2d_channels,
             conditioning_dim=conditioning_dim,
             num_in_channels=1,
+            film_hidden_layers=film_2d_hidden_layers,
         )
 
         self.flattened_2d_output_shape = (
@@ -275,9 +280,10 @@ class Simple_CNN_2D_1D_Model(nn.Module):
 
         self.cnn1d_film = CNN1DFiLM(
             seq_len=n_z,
-            conv_channels=[32, 32],
+            conv_channels=conv_1d_channels,
             conditioning_dim=conditioning_dim,
             num_in_channels=self.flattened_2d_output_shape,
+            film_hidden_layers=film_1d_hidden_layers,
         )
 
         self.flattened_1d_output_shape = (

@@ -15,7 +15,7 @@ from nerf_grasping.models.dexgraspnet_models import (
     Simple_CNN_2D_1D_Model,
 )
 from nerf_grasping.learned_metric.DexGraspNet_batch_data import BatchDataInput
-from typing import Iterable, Tuple
+from typing import Iterable, Tuple, List
 
 
 class Classifier(nn.Module):
@@ -121,16 +121,22 @@ class Simple_CNN_2D_1D_Classifier(Classifier):
         grid_shape: Tuple[int, int, int],
         n_fingers: int,
         conditioning_dim: int,
-        # conv_2d_film_hidden_layers: Tuple[int, ...], # TODO: make configurable.
-        mlp_hidden_layers: Tuple[int, ...],
+        mlp_hidden_layers: List[int] = [32, 32],
+        conv_2d_channels: List[int] = [32, 16, 8, 4],
+        conv_1d_channels: List[int] = [4, 8],
+        film_2d_hidden_layers: List[int] = [8, 8],
+        film_1d_hidden_layers: List[int] = [8, 8],
     ) -> None:
         super().__init__()
         self.model = Simple_CNN_2D_1D_Model(
             grid_shape=grid_shape,
             n_fingers=n_fingers,
             conditioning_dim=conditioning_dim,
-            # conv_2d_film_hidden_layers=conv_2d_film_hidden_layers,
             mlp_hidden_layers=mlp_hidden_layers,
+            conv_2d_channels=conv_2d_channels,
+            conv_1d_channels=conv_1d_channels,
+            film_2d_hidden_layers=film_2d_hidden_layers,
+            film_1d_hidden_layers=film_1d_hidden_layers,
         )
 
     def forward(self, batch_data_input: BatchDataInput) -> torch.Tensor:

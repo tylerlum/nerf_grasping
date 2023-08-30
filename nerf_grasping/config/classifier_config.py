@@ -4,6 +4,7 @@ from nerf_grasping.config.fingertip_config import UnionFingertipConfig
 from nerf_grasping.classifier import (
     CNN_3D_XYZ_Classifier,
     CNN_2D_1D_Classifier,
+    Simple_CNN_2D_1D_Classifier,
     Classifier,
 )
 from nerf_grasping.config.base import WandbConfig, CONFIG_DATETIME_STR
@@ -31,7 +32,7 @@ class ClassifierDataConfig:
 class ClassifierDataLoaderConfig:
     """Parameters for dataloader."""
 
-    batch_size: int = 1
+    batch_size: int = 128
 
     num_workers: int = 8
     """Number of workers for the dataloader."""
@@ -200,6 +201,11 @@ class CNN_2D_1D_ModelConfig(ClassifierModelConfig):
 @dataclass(frozen=True)
 class Simple_CNN_2D_1D_ModelConfig(ClassifierModelConfig):
     mlp_hidden_layers: List[int]
+    conv_2d_channels: List[int]
+    conv_1d_channels: List[int]
+    film_2d_hidden_layers: List[int]
+    film_1d_hidden_layers: List[int]
+    mlp_hidden_layers: List[int]
     conditioning_dim: int = 7
     n_fingers: int = 4
 
@@ -218,11 +224,15 @@ class Simple_CNN_2D_1D_ModelConfig(ClassifierModelConfig):
     ) -> Classifier:
         """Helper method to return the correct classifier from config."""
 
-        return CNN_2D_1D_Classifier(
+        return Simple_CNN_2D_1D_Classifier(
             grid_shape=self.grid_shape_from_fingertip_config(fingertip_config),
             n_fingers=self.n_fingers,
             conditioning_dim=self.conditioning_dim,
             mlp_hidden_layers=self.mlp_hidden_layers,
+            conv_2d_channels=self.conv_2d_channels,
+            conv_1d_channels=self.conv_1d_channels,
+            film_2d_hidden_layers=self.film_2d_hidden_layers,
+            film_1d_hidden_layers=self.film_1d_hidden_layers,
         )
 
 
@@ -235,8 +245,12 @@ UnionClassifierModelConfig = tyro.extras.subcommand_type_from_defaults(
             conv_2d_film_hidden_layers=[256, 256], mlp_hidden_layers=[256, 256]
         ),
         "simple_cnn_2d_1d": Simple_CNN_2D_1D_ModelConfig(
-            mlp_hidden_layers=[64, 64]
-        ),  # TODO: improve config
+            mlp_hidden_layers=[32, 32],
+            conv_2d_channels=[32, 64, 128],
+            conv_1d_channels=[32, 32],
+            film_2d_hidden_layers=[32, 32],
+            film_1d_hidden_layers=[32, 32],
+        ),
     }
 )
 

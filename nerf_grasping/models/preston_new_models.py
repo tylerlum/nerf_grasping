@@ -16,7 +16,7 @@ class MLP(nn.Module):
         # Build model
         self.layers = nn.ModuleList()
         for i, (in_dim, out_dim) in enumerate(
-            zip((input_dim,) + hidden_dims[:-1], hidden_dims)
+            zip([input_dim] + list(hidden_dims[:-1]), hidden_dims)
         ):
             self.layers.append(nn.Linear(in_dim, out_dim))
             self.layers.append(nn.ReLU())
@@ -91,6 +91,7 @@ class CNN2DFiLM(nn.Module):
         conditioning_dim: int,
         num_in_channels: int,
         pooling=nn.AvgPool2d(kernel_size=2),
+        film_hidden_layers: Tuple[int, ...] = (32,),
     ):
         super().__init__()
         self.input_shape = input_shape
@@ -98,6 +99,7 @@ class CNN2DFiLM(nn.Module):
         self.conditioning_dim = conditioning_dim  # Note conditioning can only be 1D.
         self.num_in_channels = num_in_channels
         self.pooling = pooling
+        self.film_hidden_layers = film_hidden_layers
 
         # Build model
         self.conv_layers = nn.ModuleList()
@@ -109,7 +111,14 @@ class CNN2DFiLM(nn.Module):
             )
             self.conv_layers.append(nn.ReLU())
             self.conv_layers.append(nn.BatchNorm2d(out_channels))
-            self.conv_layers.append(FiLMLayer(2, out_channels, conditioning_dim))
+            self.conv_layers.append(
+                FiLMLayer(
+                    2,
+                    out_channels,
+                    conditioning_dim,
+                    hidden_dims=film_hidden_layers,
+                )
+            )
             self.conv_layers.append(self.pooling)
 
         # Compute output shape
@@ -168,7 +177,8 @@ class CNN1DFiLM(nn.Module):
         conditioning_dim: int,
         num_in_channels: int,
         kernel_size: int = 3,
-        pooling=nn.MaxPool1d(kernel_size=2),
+        pooling=nn.MaxPool1d(kernel_size=3),
+        film_hidden_layers: Tuple[int, ...] = (32,),
     ):
         super().__init__()
         self.seq_len = seq_len
@@ -190,7 +200,14 @@ class CNN1DFiLM(nn.Module):
             )
             self.conv_layers.append(nn.ReLU())
             self.conv_layers.append(nn.BatchNorm1d(out_channels))
-            self.conv_layers.append(FiLMLayer(1, out_channels, conditioning_dim))
+            self.conv_layers.append(
+                FiLMLayer(
+                    1,
+                    out_channels,
+                    conditioning_dim,
+                    film_hidden_layers,
+                )
+            )
             self.conv_layers.append(self.pooling)
 
         # Compute output shape

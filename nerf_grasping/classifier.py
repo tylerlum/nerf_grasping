@@ -12,6 +12,7 @@ import pathlib
 from nerf_grasping.models.dexgraspnet_models import (
     CNN_3D_Model,
     CNN_2D_1D_Model,
+    Simple_CNN_2D_1D_Model,
 )
 from nerf_grasping.learned_metric.DexGraspNet_batch_data import BatchDataInput
 from typing import Iterable, Tuple
@@ -82,7 +83,9 @@ class CNN_3D_XYZ_Classifier(Classifier):
 
     def forward(self, batch_data_input: BatchDataInput) -> torch.Tensor:
         # Run model
-        logits = self.model.get_success_logits(batch_data_input.nerf_alphas_with_augmented_coords)
+        logits = self.model.get_success_logits(
+            batch_data_input.nerf_alphas_with_augmented_coords
+        )
         return logits
 
 
@@ -106,7 +109,35 @@ class CNN_2D_1D_Classifier(Classifier):
 
     def forward(self, batch_data_input: BatchDataInput) -> torch.Tensor:
         # Run model
-        logits = self.model.get_success_logits(batch_data_input.nerf_alphas, batch_data_input.grasp_transforms)
+        logits = self.model.get_success_logits(
+            batch_data_input.nerf_alphas, batch_data_input.grasp_transforms
+        )
+        return logits
+
+
+class Simple_CNN_2D_1D_Classifier(Classifier):
+    def __init__(
+        self,
+        grid_shape: Tuple[int, int, int],
+        n_fingers: int,
+        conditioning_dim: int,
+        # conv_2d_film_hidden_layers: Tuple[int, ...], # TODO: make configurable.
+        mlp_hidden_layers: Tuple[int, ...],
+    ) -> None:
+        super().__init__()
+        self.model = Simple_CNN_2D_1D_Model(
+            grid_shape=grid_shape,
+            n_fingers=n_fingers,
+            conditioning_dim=conditioning_dim,
+            # conv_2d_film_hidden_layers=conv_2d_film_hidden_layers,
+            mlp_hidden_layers=mlp_hidden_layers,
+        )
+
+    def forward(self, batch_data_input: BatchDataInput) -> torch.Tensor:
+        # Run model
+        logits = self.model(
+            batch_data_input.nerf_alphas, batch_data_input.grasp_transforms.tensor()
+        )
         return logits
 
 
@@ -141,6 +172,14 @@ def main() -> None:
         mlp_hidden_layers=(256, 256),
     ).to(DEVICE)
 
+    simple_cnn_2d_1d_classifier = Simple_CNN_2D_1D_Classifier(
+        grid_shape=(NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z),
+        n_fingers=NUM_FINGERS,
+        conditioning_dim=7,
+        # conv_2d_film_hidden_layers=(32, 32),
+        mlp_hidden_layers=(64, 64),
+    ).to(DEVICE)
+
     # Run model
     cnn_3d_scores = cnn_3d_classifier.get_failure_probability(batch_data_input)
     print(f"cnn_3d_scores: {cnn_3d_scores}")
@@ -149,6 +188,12 @@ def main() -> None:
     cnn_2d_1d_scores = cnn_2d_1d_classifier.get_failure_probability(batch_data_input)
     print(f"cnn_2d_1d_scores: {cnn_2d_1d_scores}")
     print(f"cnn_2d_1d_scores.shape: {cnn_2d_1d_scores.shape}")
+
+    simple_cnn_2d_1d_scores = simple_cnn_2d_1d_classifier.get_failure_probability(
+        batch_data_input
+    )
+    print(f"simple_cnn_2d_1d_scores: {simple_cnn_2d_1d_scores}")
+    print(f"simple_cnn_2d_1d_scores.shape: {simple_cnn_2d_1d_scores.shape}")
 
 
 if __name__ == "__main__":

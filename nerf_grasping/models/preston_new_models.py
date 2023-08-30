@@ -1,120 +1,13 @@
 import torch
 import torch.nn as nn
-from enum import Enum, auto
 from functools import partial
 from typing import List, Tuple
 
-
-class ConvOutputTo1D(Enum):
-    FLATTEN = auto()  # (N, C, H, W) -> (N, C*H*W)
-    AVG_POOL_SPATIAL = auto()  # (N, C, H, W) -> (N, C, 1, 1) -> (N, C)
-    AVG_POOL_CHANNEL = auto()  # (N, C, H, W) -> (N, 1, H, W) -> (N, H*W)
-    MAX_POOL_SPATIAL = auto()  # (N, C, H, W) -> (N, C, 1, 1) -> (N, C)
-    MAX_POOL_CHANNEL = auto()  # (N, C, H, W) -> (N, 1, H, W) -> (N, H*W)
-    SPATIAL_SOFTMAX = auto()  # (N, C, H, W) -> (N, C, H, W) -> (N, 2*C)
-
-
-class PoolType(Enum):
-    MAX = auto()
-    AVG = auto()
-
-
-### Small Modules ###
-class Mean(nn.Module):
-    def __init__(self, dim: int) -> None:
-        super().__init__()
-        self.dim = dim
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return torch.mean(x, dim=self.dim)
-
-
-class Max(nn.Module):
-    def __init__(self, dim: int) -> None:
-        super().__init__()
-        self.dim = dim
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return torch.max(x, dim=self.dim)
-
-
-class SpatialSoftmax(nn.Module):
-    def __init__(self, temperature: float = 1.0, output_variance: bool = False) -> None:
-        super().__init__()
-        self.temperature = temperature
-        self.output_variance = output_variance
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # Either (batch_size, n_channels, width) or (batch_size, n_channels, height, width)
-        assert len(x.shape) in [3, 4]
-        batch_size, n_channels = x.shape[:2]
-        spatial_indices = [i for i in range(2, len(x.shape))]
-        spatial_dims = x.shape[2:]
-
-        # Softmax over spatial dimensions
-        x = x.reshape(x.shape[0], x.shape[1], -1)
-        x = nn.Softmax(dim=-1)(x / self.temperature)
-        x = x.reshape(batch_size, n_channels, *spatial_dims)
-
-        # Create spatial grid
-        mesh_grids = torch.meshgrid(
-            *[torch.linspace(-1, 1, dim, device=x.device) for dim in spatial_dims]
-        )
-
-        # Sanity check
-        for mesh_grid in mesh_grids:
-            assert mesh_grid.shape == spatial_dims
-
-        # Get coords
-        outputs = []
-        for mesh_grid in mesh_grids:
-            mesh_grid = mesh_grid.reshape(1, 1, *mesh_grid.shape)
-            coord = torch.sum(x * mesh_grid, dim=spatial_indices)
-            outputs.append(coord)
-
-        # Get variance
-        if self.output_variance:
-            for mesh_grid in mesh_grids:
-                mesh_grid = mesh_grid.reshape(1, 1, *mesh_grid.shape)
-                coord = torch.sum(x * (mesh_grid**2), dim=spatial_indices)
-                outputs.append(coord)
-
-        # Stack
-        outputs = torch.stack(outputs, dim=-1)
-        expected_output_shape = (
-            (batch_size, n_channels, len(spatial_dims))
-            if not self.output_variance
-            else (batch_size, n_channels, len(spatial_dims) * 2)
-        )
-        assert outputs.shape == expected_output_shape
-
-        return outputs
-
-
-CONV_2D_OUTPUT_TO_1D_MAP = {
-    ConvOutputTo1D.FLATTEN: nn.Identity,
-    ConvOutputTo1D.AVG_POOL_SPATIAL: partial(nn.AdaptiveAvgPool2d, output_size=(1, 1)),
-    ConvOutputTo1D.AVG_POOL_CHANNEL: partial(Mean, dim=-3),
-    ConvOutputTo1D.MAX_POOL_SPATIAL: partial(nn.AdaptiveMaxPool2d, output_size=(1, 1)),
-    ConvOutputTo1D.MAX_POOL_CHANNEL: partial(Max, dim=-3),
-    ConvOutputTo1D.SPATIAL_SOFTMAX: partial(
-        SpatialSoftmax, temperature=1.0, output_variance=False
-    ),
-}
-CONV_1D_OUTPUT_TO_1D_MAP = {
-    ConvOutputTo1D.FLATTEN: nn.Identity,
-    ConvOutputTo1D.AVG_POOL_SPATIAL: partial(nn.AdaptiveAvgPool1d, output_size=1),
-    ConvOutputTo1D.AVG_POOL_CHANNEL: partial(Mean, dim=-2),
-    ConvOutputTo1D.MAX_POOL_SPATIAL: partial(nn.AdaptiveMaxPool1d, output_size=1),
-    ConvOutputTo1D.MAX_POOL_CHANNEL: partial(Max, dim=-2),
-    ConvOutputTo1D.SPATIAL_SOFTMAX: partial(
-        SpatialSoftmax, temperature=1.0, output_variance=False
-    ),
-}
+from enum import Enum, auto
 
 
 class MLP(nn.Module):
-    def __init__(self, input_dim: int, hidden_dims: List[int], output_dim: int):
+    def __init__(self, input_dim: int, hidden_dims: Tuple[int, ...], output_dim: int):
         super().__init__()
         self.input_dim = input_dim
         self.hidden_dims = hidden_dims
@@ -123,14 +16,14 @@ class MLP(nn.Module):
         # Build model
         self.layers = nn.ModuleList()
         for i, (in_dim, out_dim) in enumerate(
-            zip([input_dim] + hidden_dims[:-1], hidden_dims)
+            zip((input_dim,) + hidden_dims[:-1], hidden_dims)
         ):
             self.layers.append(nn.Linear(in_dim, out_dim))
             self.layers.append(nn.ReLU())
         self.layers.append(nn.Linear(hidden_dims[-1], output_dim))
 
     def forward(self, x):
-        assert x.shape[-1] == self.input_dim
+        assert x.shape[-1] == self.input_dim, f"{x.shape} != {self.input_dim}"
         for layer in self.layers:
             x = layer(x)
         return x
@@ -146,7 +39,7 @@ class FiLMLayer(nn.Module):
         num_output_dims: int,
         in_channels: int,
         conditioning_dim: int,
-        hidden_dims: List[int] = [32],
+        hidden_dims: Tuple[int, ...] = (32,),
     ):
         super().__init__()
         self.num_output_dims = num_output_dims
@@ -197,12 +90,14 @@ class CNN2DFiLM(nn.Module):
         conv_channels: List[int],
         conditioning_dim: int,
         num_in_channels: int,
+        pooling=nn.AvgPool2d(kernel_size=2),
     ):
         super().__init__()
         self.input_shape = input_shape
         self.conv_channels = conv_channels
         self.conditioning_dim = conditioning_dim  # Note conditioning can only be 1D.
         self.num_in_channels = num_in_channels
+        self.pooling = pooling
 
         # Build model
         self.conv_layers = nn.ModuleList()
@@ -215,6 +110,7 @@ class CNN2DFiLM(nn.Module):
             self.conv_layers.append(nn.ReLU())
             self.conv_layers.append(nn.BatchNorm2d(out_channels))
             self.conv_layers.append(FiLMLayer(2, out_channels, conditioning_dim))
+            self.conv_layers.append(self.pooling)
 
         # Compute output shape
         with torch.no_grad():
@@ -223,14 +119,18 @@ class CNN2DFiLM(nn.Module):
     def get_output_shape(self):
         # Compute output shape
         x = torch.zeros((1, self.num_in_channels, *self.input_shape))
-        for layer in self.conv_layers:
-            if isinstance(layer, FiLMLayer):
-                x = layer(x, torch.zeros((1, self.conditioning_dim)))
-            else:
-                x = layer(x)
+        x = self.forward(x, torch.zeros((1, self.conditioning_dim)))
+
         return x.shape[1:]
 
     def forward(self, x: torch.Tensor, conditioning: torch.Tensor):
+        """
+        Forward pass for FiLM CNN.
+
+        Args:
+            x: input tensor of shape (batch_size, num_in_channels, *input_shape)
+            conditioning: conditioning tensor of shape (batch_size, conditioning_dim)
+        """
         assert x.shape[-2:] == self.input_shape
         assert x.shape[-3] == self.num_in_channels
         assert conditioning.shape[-1] == self.conditioning_dim
@@ -242,6 +142,8 @@ class CNN2DFiLM(nn.Module):
 
             x = x.reshape(-1, *x.shape[-3:])
             conditioning = conditioning.reshape(-1, *conditioning.shape[-1:])
+        else:
+            batch_dims = None
 
         for layer in self.conv_layers:
             if isinstance(layer, FiLMLayer):
@@ -249,9 +151,11 @@ class CNN2DFiLM(nn.Module):
             else:
                 x = layer(x)
 
+        x = x.flatten(-2, -1)
+
         # Reshape batch dims
-        if len(x.shape) > 3:
-            x = x.reshape(*batch_dims, *x.shape[-3:])
+        if batch_dims is not None:
+            x = x.reshape(*batch_dims, *x.shape[-2:])  # Batch dims, n_c, n_f
 
         return x
 
@@ -264,6 +168,7 @@ class CNN1DFiLM(nn.Module):
         conditioning_dim: int,
         num_in_channels: int,
         kernel_size: int = 3,
+        pooling=nn.MaxPool1d(kernel_size=2),
     ):
         super().__init__()
         self.seq_len = seq_len
@@ -271,6 +176,7 @@ class CNN1DFiLM(nn.Module):
         self.conditioning_dim = conditioning_dim
         self.kernel_size = kernel_size
         self.num_in_channels = num_in_channels
+        self.pooling = pooling
 
         # Build model
         self.conv_layers = nn.ModuleList()
@@ -285,7 +191,7 @@ class CNN1DFiLM(nn.Module):
             self.conv_layers.append(nn.ReLU())
             self.conv_layers.append(nn.BatchNorm1d(out_channels))
             self.conv_layers.append(FiLMLayer(1, out_channels, conditioning_dim))
-            breakpoint()
+            self.conv_layers.append(self.pooling)
 
         # Compute output shape
         with torch.no_grad():
@@ -293,13 +199,8 @@ class CNN1DFiLM(nn.Module):
 
     def get_output_shape(self):
         # Compute output shape
-        breakpoint()
         x = torch.zeros((1, self.num_in_channels, self.seq_len))
-        for layer in self.conv_layers:
-            if isinstance(layer, FiLMLayer):
-                x = layer(x, torch.zeros((1, self.conditioning_dim)))
-            else:
-                x = layer(x)
+        x = self.forward(x, torch.zeros((1, self.conditioning_dim)))
         return x.shape[1:]
 
     def forward(self, x: torch.Tensor, conditioning: torch.Tensor):
@@ -313,6 +214,8 @@ class CNN1DFiLM(nn.Module):
             assert batch_dims == conditioning.shape[:-1]
             x = x.reshape(-1, *x.shape[-2:])
             conditioning = conditioning.reshape(-1, *conditioning.shape[-1:])
+        else:
+            batch_dims = None
 
         for layer in self.conv_layers:
             if isinstance(layer, FiLMLayer):
@@ -321,33 +224,56 @@ class CNN1DFiLM(nn.Module):
                 x = layer(x)
 
         # Reshape batch dims
-        if len(x.shape) > 2:
+        if batch_dims is not None:
             x = x.reshape(*batch_dims, *x.shape[-2:])
 
         return x
 
 
 if __name__ == "__main__":
+    # Full stack: [B, n_f, n_z, n_x, n_y] input
+    B, n_f, n_z, n_x, n_y = 5, 10, 15, 16, 17
     conditioning_dim = 7
-    input_shape = (32, 32)
+
+    x = torch.randn(B, n_f, n_z, n_x, n_y)
+    conditioning = torch.randn(B, n_f, conditioning_dim)
+
+    input_shape = (n_x, n_y)
     conv2d_channels = [32, 64, 128]
     in_channels_2d = 1
+
     cnn2d_film = CNN2DFiLM(
         input_shape, conv2d_channels, conditioning_dim, in_channels_2d
     )
     print(cnn2d_film)
 
     cnn2d_output_shape = cnn2d_film.get_output_shape()
-    assert cnn2d_output_shape == (conv2d_channels[-1], *input_shape)
+    assert cnn2d_output_shape[0] == (conv2d_channels[-1])
 
     print(f"cnn2d_output_shape: {cnn2d_output_shape}")
 
-    batch_size = (5, 10)
-
-    conditioning = torch.rand(*batch_size, conditioning_dim)
-    x = torch.rand(*batch_size, 1, *input_shape)
     print(f"x.shape: {x.shape}")
     print(f"conditioning.shape: {conditioning.shape}")
 
-    out_2d = cnn2d_film(x, conditioning)
+    x_2d = x.unsqueeze(-3)  # Add channel dimension
+    conditioning_2d = conditioning.unsqueeze(2).expand(
+        -1, -1, n_z, -1
+    )  # Add z dimension to cond.
+
+    out_2d = cnn2d_film(x_2d, conditioning_2d)
     print(f"out.shape: {out_2d.shape}")
+    assert out_2d.shape == (B, n_f, n_z, *cnn2d_output_shape)
+
+    # Permute and reshape out_2d -> in_1d.
+    out_2d = out_2d.flatten(-2, -1)  # Flatten CNN channels, xy dim.
+    out_2d = out_2d.permute(0, 1, 3, 2)  # Permute to (B, n_f, n_c, n_z)
+
+    conv1d_channels = [13, 6]
+    cnn1d_film = CNN1DFiLM(n_z, conv1d_channels, conditioning_dim, out_2d.shape[-2])
+    print(cnn1d_film)
+    output_shape1d = cnn1d_film.get_output_shape()
+    print(f"output_shape1d: {output_shape1d}")
+
+    out_1d = cnn1d_film(out_2d, conditioning)
+    # assert out_1d.shape == (B, n_f, conv1d_channels[-1], n_z)
+    print(f"out_1d.shape: {out_1d.shape}")

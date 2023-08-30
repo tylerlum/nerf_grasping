@@ -11,6 +11,8 @@ from nerf_grasping.models.tyler_new_models import (
     ConvEncoder1D,
 )
 
+from nerf_grasping.models.preston_new_models import CNN2DFiLM, CNN1DFiLM, MLP
+
 
 def assert_equals(a, b):
     assert a == b, f"{a} != {b}"
@@ -115,7 +117,7 @@ class CNN_2D_1D_Model(nn.Module):
             use_pretrained=True,
             pooling_method=ConvOutputTo1D.AVG_POOL_SPATIAL,
             film_hidden_layers=conv_2d_film_hidden_layers,
-            resnet_type="resnet18", # TODO: Config this
+            resnet_type="resnet18",  # TODO: Config this
         )
 
         self.conv_1d = ConvEncoder1D(
@@ -241,3 +243,100 @@ class CNN_2D_1D_Model(nn.Module):
     @lru_cache()
     def n_classes(self) -> int:
         return 2
+
+
+class Simple_CNN_2D_1D_Model(nn.Module):
+    def __init__(
+        self,
+        grid_shape: Tuple[int, int, int],  # n_x, n_y, n_z
+        n_fingers: int,
+        conditioning_dim: int = 7,
+        n_classes: int = 2,
+        mlp_hidden_layers: Tuple[int, ...] = (32, 32),
+    ):
+        super().__init__()
+        self.grid_shape = grid_shape
+        self.n_fingers = n_fingers
+        self.conditioning_dim = conditioning_dim
+        self.n_classes = n_classes
+
+        n_x, n_y, n_z = self.grid_shape
+
+        self.cnn2d_film = CNN2DFiLM(
+            input_shape=(n_x, n_y),
+            conv_channels=[32, 32],
+            conditioning_dim=conditioning_dim,
+            num_in_channels=1,
+        )
+
+        self.flattened_2d_output_shape = (
+            self.cnn2d_film.output_shape[0] * self.cnn2d_film.output_shape[1]
+        )
+
+        self.cnn1d_film = CNN1DFiLM(
+            seq_len=n_z,
+            conv_channels=[32, 32],
+            conditioning_dim=conditioning_dim,
+            num_in_channels=self.flattened_2d_output_shape,
+        )
+
+        self.flattened_1d_output_shape = (
+            self.cnn1d_film.output_shape[0] * self.cnn1d_film.output_shape[1]
+        )
+
+        self.mlp = MLP(
+            (self.flattened_1d_output_shape + self.conditioning_dim) * self.n_fingers,
+            mlp_hidden_layers,
+            n_classes,
+        )
+
+    def forward(self, x: torch.Tensor, conditioning: torch.Tensor) -> torch.Tensor:
+        batch_size = x.shape[
+            0
+        ]  # Hardcoding no leading batch dims on input -- probably good to check here.
+        n_fingers = self.n_fingers
+        n_x, n_y, n_z = self.grid_shape
+        conditioning_dim = self.conditioning_dim
+
+        # Check shapes
+        assert_equals(x.shape, (batch_size, n_fingers, n_x, n_y, n_z))
+        assert_equals(conditioning.shape, (batch_size, n_fingers, conditioning_dim))
+
+        # Permute and expand stuff for correct 2D CNN batch shapes.
+        x = x.permute(0, 1, 4, 2, 3)  # Put n_z as a batch dim.
+        x = x.unsqueeze(-3)  # Add channel dim.
+        conditioning_2d = conditioning.unsqueeze(2).expand(-1, -1, n_z, -1)
+
+        # Forward 2D CNN pass.
+        x = self.cnn2d_film(x, conditioning=conditioning_2d)
+        assert_equals(
+            x.shape,
+            (batch_size, n_fingers, n_z, *self.cnn2d_film.output_shape),
+        )
+
+        # Flatten + permute stuff for correct 1D CNN batch shapes.
+        x = x.flatten(-2, -1)  # Flatten 2DCNN channels + x/y dims.
+        x = x.permute(0, 1, 3, 2)  # Put n_z as the sequence dim.
+        assert_equals(
+            x.shape,
+            (batch_size, n_fingers, self.flattened_2d_output_shape, n_z),
+        )
+
+        # Forward 1D CNN pass.
+        x = self.cnn1d_film(x, conditioning=conditioning)
+        x = x.flatten(-2, -1)  # Flatten 1DCNN channels + z dim.
+        assert_equals(
+            x.shape,
+            (batch_size, n_fingers, self.flattened_1d_output_shape),
+        )
+
+        # Add context one last time + flatten across fingers.
+        x = torch.cat([x, conditioning], dim=-1)
+        assert_equals(
+            x.shape,
+            (batch_size, n_fingers, self.flattened_1d_output_shape + conditioning_dim),
+        )
+        x = x.flatten(-2, -1)
+
+        # Forward MLP pass.
+        return self.mlp(x)

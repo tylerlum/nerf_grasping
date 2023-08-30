@@ -197,6 +197,35 @@ class CNN_2D_1D_ModelConfig(ClassifierModelConfig):
         )
 
 
+@dataclass(frozen=True)
+class Simple_CNN_2D_1D_ModelConfig(ClassifierModelConfig):
+    mlp_hidden_layers: List[int]
+    conditioning_dim: int = 7
+    n_fingers: int = 4
+
+    @classmethod
+    def grid_shape_from_fingertip_config(
+        self, fingertip_config: UnionFingertipConfig
+    ) -> List[int]:
+        return [
+            fingertip_config.num_pts_x,
+            fingertip_config.num_pts_y,
+            fingertip_config.num_pts_z,
+        ]
+
+    def get_classifier_from_fingertip_config(
+        self, fingertip_config: UnionFingertipConfig
+    ) -> Classifier:
+        """Helper method to return the correct classifier from config."""
+
+        return CNN_2D_1D_Classifier(
+            grid_shape=self.grid_shape_from_fingertip_config(fingertip_config),
+            n_fingers=self.n_fingers,
+            conditioning_dim=self.conditioning_dim,
+            mlp_hidden_layers=self.mlp_hidden_layers,
+        )
+
+
 UnionClassifierModelConfig = tyro.extras.subcommand_type_from_defaults(
     {
         "cnn_3d_xyz": CNN_3D_XYZ_ModelConfig(
@@ -205,6 +234,9 @@ UnionClassifierModelConfig = tyro.extras.subcommand_type_from_defaults(
         "cnn_2d_1d": CNN_2D_1D_ModelConfig(
             conv_2d_film_hidden_layers=[256, 256], mlp_hidden_layers=[256, 256]
         ),
+        "simple_cnn_2d_1d": Simple_CNN_2D_1D_ModelConfig(
+            mlp_hidden_layers=[64, 64]
+        ),  # TODO: improve config
     }
 )
 

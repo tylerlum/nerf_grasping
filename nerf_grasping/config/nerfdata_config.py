@@ -19,14 +19,15 @@ class NerfDataConfig:
         EvenlySpacedFingertipConfig.from_dimensions()
     )
     dexgraspnet_data_root: pathlib.Path = (
-        pathlib.Path(nerf_grasping.get_repo_root()) / "data"
+        # pathlib.Path(nerf_grasping.get_repo_root()) / "data"
+        pathlib.Path(nerf_grasping.get_repo_root())
     )
-    dexgraspnet_meshdata_root: pathlib.Path = dexgraspnet_data_root / "meshdata_trial"
+    dexgraspnet_meshdata_root: pathlib.Path = dexgraspnet_data_root / "2023-08-29_meshdata_trial"
     evaled_grasp_config_dicts_path: pathlib.Path = (
-        dexgraspnet_data_root / "2023-08-26_overfit_evaled_grasp_config_dicts"
+        dexgraspnet_data_root / "2023-08-29_evaled_grasp_config_dicts_trial"
     )
     nerf_checkpoints_path: pathlib.Path = (
-        dexgraspnet_data_root / "nerfcheckpoints_trial"
+        dexgraspnet_data_root / "2023-08-29_nerfcheckpoints_trial"
     )
     output_filepath: pathlib.Path = (
         pathlib.Path(str(evaled_grasp_config_dicts_path) + "_learned_metric_dataset")
@@ -37,7 +38,6 @@ class NerfDataConfig:
     print_timing: bool = True
     limit_num_configs: Optional[int] = None  # None for no limit
     max_num_data_points_per_file: int = 500
-    buffer_scaling: int = 2  # Not sure if need this, but just in case
     plot_all_high_density_points: bool = True
     plot_alphas_each_finger_1D: bool = True
     plot_alpha_images_each_finger: bool = True

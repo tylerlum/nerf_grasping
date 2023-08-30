@@ -29,12 +29,6 @@ import nerf_grasping
 from dataclasses import asdict
 from torchinfo import summary
 from torchviz import make_dot
-from nerf_grasping.grasp_utils import (
-    NUM_PTS_X,
-    NUM_PTS_Y,
-    NUM_PTS_Z,
-    NUM_FINGERS,
-)
 from nerf_grasping.learned_metric.DexGraspNet_batch_data import (
     BatchData,
     BatchDataInput,
@@ -44,7 +38,7 @@ from nerf_grasping.dataset.DexGraspNet_NeRF_Grasps_utils import (
     get_object_scale,
     plot_mesh_and_query_points,
 )
-from nerf_grasping.models.dexgraspnet_models import CNN_3D_Classifier
+from nerf_grasping.classifier import Classifier
 from nerf_grasping.dataset.timers import LoopTimer
 from nerf_grasping.config.classifier_config import (
     ClassifierConfig,
@@ -135,7 +129,7 @@ else:
     print(f"arguments = {arguments}")
 
 # %%
-cfg = tyro.cli(ClassifierConfig, args=arguments)
+cfg: ClassifierConfig = tyro.cli(ClassifierConfig, args=arguments)
 
 # A relatively dirty hack: create script globals from the config vars.
 NUM_FINGERS = cfg.nerfdata_config.fingertip_config.n_fingers
@@ -684,7 +678,8 @@ import torch.nn as nn
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Pull out just the CNN (without wrapping for LieTorch) for training.
-nerf_to_grasp_success_model = cfg.model_config.get_classifier().model.to(device)
+assert cfg.model_config is not None
+nerf_to_grasp_success_model: Classifier = cfg.model_config.get_classifier().to(device)
 
 # %%
 start_epoch = 0
@@ -727,30 +722,34 @@ print(f"optimizer = {optimizer}")
 print(f"lr_scheduler = {lr_scheduler}")
 
 # %%
-summary(
-    model=nerf_to_grasp_success_model,
-    input_size=(
-        cfg.dataloader.batch_size,
-        cfg.model_config.n_fingers,
-        *cfg.model_config.input_shape,
-    ),
-    device=device,
-)
-
-# %%
-example_input = (
-    torch.zeros(
-        (
+try:
+    summary(
+        model=nerf_to_grasp_success_model,
+        input_size=(
             cfg.dataloader.batch_size,
             cfg.model_config.n_fingers,
             *cfg.model_config.input_shape,
-        )
+        ),
+        device=device,
     )
-    .to(device)
-    .requires_grad_(True)
-)
-example_output = nerf_to_grasp_success_model(example_input)
+except Exception as e:
+    print(f"Exception: {e}")
+    print("Skipping summary")
+
+# %%
 try:
+    example_input = (
+        torch.zeros(
+            (
+                cfg.dataloader.batch_size,
+                cfg.model_config.n_fingers,
+                *cfg.model_config.input_shape,
+            )
+        )
+        .to(device)
+        .requires_grad_(True)
+    )
+    example_output = nerf_to_grasp_success_model(example_input)
     dot = make_dot(
         example_output,
         params={
@@ -781,7 +780,7 @@ if SHOW_DOT:
 def save_checkpoint(
     checkpoint_workspace_dir_path: str,
     epoch: int,
-    nerf_to_grasp_success_model: CNN_3D_Classifier,
+    nerf_to_grasp_success_model: Classifier,
     optimizer: torch.optim.Optimizer,
     lr_scheduler: Optional[torch.optim.lr_scheduler.LRScheduler] = None,
 ) -> None:
@@ -808,7 +807,7 @@ def save_checkpoint(
 def iterate_through_dataloader(
     phase: Phase,
     dataloader: DataLoader,
-    nerf_to_grasp_success_model: CNN_3D_Classifier,
+    nerf_to_grasp_success_model: Classifier,
     device: torch.device,
     ce_loss_fn: nn.CrossEntropyLoss,
     wandb_log_dict: dict,
@@ -850,9 +849,7 @@ def iterate_through_dataloader(
             # Forward pass
             with loop_timer.add_section_timer("Fwd"):
                 grasp_success_logits = nerf_to_grasp_success_model.get_success_logits(
-                    # TODO: Use config to set this, defines what input type we give
-                    batch_data.input.nerf_alphas_with_augmented_coords
-                    # batch_data.input.nerf_alphas_with_coords
+                    batch_data.input
                 )
                 ce_loss = ce_loss_fn(
                     input=grasp_success_logits, target=batch_data.grasp_success
@@ -952,7 +949,7 @@ def run_training_loop(
     training_cfg: TrainingConfig,
     train_loader: DataLoader,
     val_loader: DataLoader,
-    nerf_to_grasp_success_model: CNN_3D_Classifier,
+    nerf_to_grasp_success_model: Classifier,
     device: torch.device,
     ce_loss_fn: nn.CrossEntropyLoss,
     optimizer: torch.optim.Optimizer,

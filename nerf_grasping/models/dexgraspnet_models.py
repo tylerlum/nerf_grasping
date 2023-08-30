@@ -120,13 +120,13 @@ class CNN_2D_1D_Model(nn.Module):
         )
 
         self.conv_1d = ConvEncoder1D(
-            input_shape=(self.conv_2d.output_dim, seq_len),
+            input_shape=(self.conv_2d.output_dim(), seq_len),
             conditioning_dim=conditioning_dim,
             pooling_method=ConvOutputTo1D.AVG_POOL_SPATIAL,
             # TODO: Config this
         )
         self.mlp = mlp(
-            num_inputs=n_fingers * self.conv_1d.output_dim
+            num_inputs=n_fingers * self.conv_1d.output_dim()
             + n_fingers * conditioning_dim,
             num_outputs=self.n_classes,
             hidden_layers=mlp_hidden_layers,
@@ -179,10 +179,10 @@ class CNN_2D_1D_Model(nn.Module):
                 x.shape,
                 (
                     batch_size * n_fingers * seq_len,
-                    self.conv_2d.output_dim,
+                    self.conv_2d.output_dim(),
                 ),
             )
-            x = x.reshape(batch_size * n_fingers, seq_len, self.conv_2d.output_dim)
+            x = x.reshape(batch_size * n_fingers, seq_len, self.conv_2d.output_dim())
         else:
             output_list = []
             for i in range(seq_len):
@@ -195,26 +195,26 @@ class CNN_2D_1D_Model(nn.Module):
                 )
                 output = self.conv_2d(input, conditioning=conditioning)
                 assert_equals(
-                    output.shape, (batch_size * n_fingers, self.conv_2d.output_dim)
+                    output.shape, (batch_size * n_fingers, self.conv_2d.output_dim())
                 )
                 output_list.append(output)
             x = torch.stack(output_list, dim=1)
         assert_equals(
-            x.shape, (batch_size * n_fingers, seq_len, self.conv_2d.output_dim)
+            x.shape, (batch_size * n_fingers, seq_len, self.conv_2d.output_dim())
         )
 
         # Reorder so Conv 1D filters can process along sequence dim
         x = x.permute(0, 2, 1)
         assert_equals(
-            x.shape, (batch_size * n_fingers, self.conv_2d.output_dim, seq_len)
+            x.shape, (batch_size * n_fingers, self.conv_2d.output_dim(), seq_len)
         )
 
         # Conv 1D
         x = self.conv_1d(x, conditioning=conditioning)
-        assert_equals(x.shape, (batch_size * n_fingers, self.conv_1d.output_dim))
+        assert_equals(x.shape, (batch_size * n_fingers, self.conv_1d.output_dim()))
 
         # Aggregate into one feature dimension
-        x = x.reshape(batch_size, n_fingers * self.conv_1d.output_dim)
+        x = x.reshape(batch_size, n_fingers * self.conv_1d.output_dim())
 
         # Concatenate with conditioning
         conditioning = conditioning.reshape(batch_size, n_fingers * conditioning_dim)
@@ -223,7 +223,7 @@ class CNN_2D_1D_Model(nn.Module):
             x.shape,
             (
                 batch_size,
-                n_fingers * self.conv_1d.output_dim + n_fingers * conditioning_dim,
+                n_fingers * self.conv_1d.output_dim() + n_fingers * conditioning_dim,
             ),
         )
 

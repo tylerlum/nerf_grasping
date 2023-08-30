@@ -154,10 +154,10 @@ class CNN_2D_1D_Model(nn.Module):
         assert_equals(x.shape, (batch_size * n_fingers, seq_len, n_pts_x, n_pts_y))
 
         # Conv 2D
-        BATCHED_COMPUTATION = False  # TODO: See if OOM is an issue
+        BATCHED_COMPUTATION = True  # TODO: See if OOM is an issue
         if BATCHED_COMPUTATION:
             x = x.reshape(batch_size * n_fingers * seq_len, 1, n_pts_x, n_pts_y)
-            conditioning = conditioning.repeat_interleave(seq_len, dim=0)
+            conditioning_repeated = conditioning.repeat_interleave(seq_len, dim=0)
             assert_equals(
                 x.shape,
                 (
@@ -168,13 +168,13 @@ class CNN_2D_1D_Model(nn.Module):
                 ),
             )
             assert_equals(
-                conditioning.shape,
+                conditioning_repeated.shape,
                 (
                     batch_size * n_fingers * seq_len,
                     conditioning_dim,
                 ),
             )
-            x = self.conv_2d(x, conditioning=conditioning)
+            x = self.conv_2d(x, conditioning=conditioning_repeated)
             assert_equals(
                 x.shape,
                 (
@@ -207,6 +207,9 @@ class CNN_2D_1D_Model(nn.Module):
         x = x.permute(0, 2, 1)
         assert_equals(
             x.shape, (batch_size * n_fingers, self.conv_2d.output_dim(), seq_len)
+        )
+        assert_equals(
+            conditioning.shape, (batch_size * n_fingers, conditioning_dim)
         )
 
         # Conv 1D

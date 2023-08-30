@@ -10,9 +10,9 @@ class BaseFingertipConfig:
     num_pts_x: int
     num_pts_y: int
     num_pts_z: int
-    finger_width_mm: float = 10.0
-    finger_height_mm: float = 15.0
-    grasp_depth_mm: float = 20.0
+    finger_width_mm: float = 20.0
+    finger_height_mm: float = 20.0
+    grasp_depth_mm: float = 30.0
     n_fingers: int = 4
 
 
@@ -24,15 +24,15 @@ class VanillaFingertipConfig(BaseFingertipConfig):
 # Not frozen, since we need to modify the num_pts_x, num_pts_y, num_pts_z in the custom constructor.
 @dataclass(frozen=True)
 class EvenlySpacedFingertipConfig(BaseFingertipConfig):
-    distance_between_pts_mm: float = 0.5
+    distance_between_pts_mm: float = 2.0
 
     @classmethod
     def from_dimensions(
         cls,
-        distance_between_pts_mm: float = 0.5,
-        finger_width_mm: float = 10.0,
-        finger_height_mm: float = 15.0,
-        grasp_depth_mm: float = 20.0,
+        distance_between_pts_mm: float = 2.0,
+        finger_width_mm: float = 20.0,
+        finger_height_mm: float = 20.0,
+        grasp_depth_mm: float = 30.0,
     ):
         num_pts_x = int(finger_width_mm / distance_between_pts_mm) + 1
         num_pts_y = int(finger_height_mm / distance_between_pts_mm) + 1

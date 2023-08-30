@@ -106,7 +106,7 @@ class CNN_2D_1D_Classifier(Classifier):
 
     def forward(self, batch_data_input: BatchDataInput) -> torch.Tensor:
         # Run model
-        logits = self.model.get_success_logits(batch_data_input.nerf_alphas, batch_data_input.grasp_transforms)
+        logits = self.model.get_success_logits(batch_data_input.nerf_alphas, batch_data_input.augmented_grasp_transforms)
         return logits
 
 

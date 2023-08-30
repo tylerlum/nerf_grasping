@@ -112,10 +112,11 @@ class CNN_2D_1D_Model(nn.Module):
         self.conv_2d = ConvEncoder2D(
             input_shape=(1, n_pts_x, n_pts_y),
             conditioning_dim=conditioning_dim,
-            use_pretrained=True,
+            use_pretrained=False,
             pooling_method=ConvOutputTo1D.AVG_POOL_SPATIAL,
             film_hidden_layers=conv_2d_film_hidden_layers,
-            resnet_type="resnet18", # TODO: Config this
+            # resnet_type="resnet18", # TODO: Config this
+            resnet_type="resnet_smaller", # TODO: Config this
         )
 
         self.conv_1d = ConvEncoder1D(
@@ -236,6 +237,9 @@ class CNN_2D_1D_Model(nn.Module):
         self, x: torch.Tensor, conditioning: torch.Tensor
     ) -> torch.Tensor:
         return self.forward(x, conditioning=conditioning)
+
+    def get_success_probability(self, x: torch.Tensor) -> torch.Tensor:
+        return nn.functional.softmax(self.get_success_logits(x), dim=-1)
 
     @property
     @lru_cache()

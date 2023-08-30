@@ -35,7 +35,7 @@ class ClassifierDataConfig:
 class ClassifierDataLoaderConfig:
     """Parameters for dataloader."""
 
-    batch_size: int = 64
+    batch_size: int = 2
 
     num_workers: int = 8
     """Number of workers for the dataloader."""
@@ -270,12 +270,12 @@ class ClassifierConfig:
             print("Loading default nerfdata config")
 
         if self.model_config is None:
-            self.model_config = CNN_3D_XYZ_ModelConfig.from_fingertip_config(
-                fingertip_config=self.nerfdata_config.fingertip_config
-            )
-            # self.model_config = CNN_2D_1D_ModelConfig.from_fingertip_config(
+            # self.model_config = CNN_3D_XYZ_ModelConfig.from_fingertip_config(
             #     fingertip_config=self.nerfdata_config.fingertip_config
             # )
+            self.model_config = CNN_2D_1D_ModelConfig.from_fingertip_config(
+                fingertip_config=self.nerfdata_config.fingertip_config
+            )
 
 
 if __name__ == "__main__":

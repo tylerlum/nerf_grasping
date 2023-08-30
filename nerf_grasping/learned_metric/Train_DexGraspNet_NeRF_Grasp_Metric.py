@@ -41,7 +41,7 @@ from nerf_grasping.dataset.DexGraspNet_NeRF_Grasps_utils import (
 from nerf_grasping.classifier import Classifier
 from nerf_grasping.dataset.timers import LoopTimer
 from nerf_grasping.config.classifier_config import (
-    ClassifierConfig,
+    UnionClassifierConfig,
 )
 import os
 import pypose as pp
@@ -129,7 +129,7 @@ else:
     print(f"arguments = {arguments}")
 
 # %%
-cfg: ClassifierConfig = tyro.cli(ClassifierConfig, args=arguments)
+cfg: UnionClassifierConfig = tyro.cli(UnionClassifierConfig, args=arguments)
 
 # A relatively dirty hack: create script globals from the config vars.
 NUM_FINGERS = cfg.nerfdata_config.fingertip_config.n_fingers

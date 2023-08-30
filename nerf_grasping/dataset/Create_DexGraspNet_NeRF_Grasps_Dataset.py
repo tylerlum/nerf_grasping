@@ -48,7 +48,10 @@ from nerf_grasping.grasp_utils import (
     load_nerf,
 )
 from functools import partial
-from nerf_grasping.config.nerfdata_config import NerfDataConfig
+from nerf_grasping.config.nerfdata_config import (
+    UnionNerfDataConfig,
+    DepthImageNerfDataConfig,
+)
 import tyro
 
 datetime_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -105,9 +108,12 @@ def parse_nerf_config(nerf_config: pathlib.Path) -> str:
 # WEIRD HACK SO YOU CAN STILL RUN VSC JUPYTER CELLS.
 # %%
 if __name__ == "__main__" and "get_ipython" not in dir():
-    cfg: NerfDataConfig = tyro.cli(NerfDataConfig)
+    cfg: UnionNerfDataConfig = tyro.cli(UnionNerfDataConfig)
 else:
-    cfg: NerfDataConfig = tyro.cli(NerfDataConfig, args=[])
+    cfg: UnionNerfDataConfig = tyro.cli(UnionNerfDataConfig, args=[])
+
+if isinstance(cfg, DepthImageNerfDataConfig):
+    raise NotImplementedError
 
 # %%
 if not cfg.output_filepath.parent.exists():

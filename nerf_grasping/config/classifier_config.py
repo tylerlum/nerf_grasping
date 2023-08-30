@@ -17,11 +17,11 @@ class ClassifierDataConfig:
     frac_train: float = 1 - frac_val - frac_test
 
     input_dataset_root_dir: str = (
-        "2023-08-29_evaled_grasp_config_dicts_trial_learned_metric_dataset"
+        "data/2023-08-29_evaled_grasp_config_dicts_trial_big_learned_metric_dataset"
     )
     """Root directory of the input dataset."""
 
-    input_dataset_path: str = "2023-08-29_14-34-06_learned_metric_dataset.h5"
+    input_dataset_path: str = "2023-08-30_01-56-21_learned_metric_dataset.h5"
     """Name of the input dataset file, within the root directory."""
 
     max_num_data_points: Optional[int] = None
@@ -270,12 +270,12 @@ class ClassifierConfig:
             print("Loading default nerfdata config")
 
         if self.model_config is None:
-            # self.model_config = CNN_3D_XYZ_ModelConfig.from_fingertip_config(
-            #     fingertip_config=self.nerfdata_config.fingertip_config
-            # )
-            self.model_config = CNN_2D_1D_ModelConfig.from_fingertip_config(
+            self.model_config = CNN_3D_XYZ_ModelConfig.from_fingertip_config(
                 fingertip_config=self.nerfdata_config.fingertip_config
             )
+            # self.model_config = CNN_2D_1D_ModelConfig.from_fingertip_config(
+            #     fingertip_config=self.nerfdata_config.fingertip_config
+            # )
 
 
 if __name__ == "__main__":

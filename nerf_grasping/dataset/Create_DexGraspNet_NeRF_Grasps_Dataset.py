@@ -338,13 +338,11 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
 
             # Plot
             if cfg.plot_only_one:
-                # delta = DIST_BTWN_PTS_MM / 1000
-                other_delta = (
+                delta = (
                     cfg.fingertip_config.grasp_depth_mm
                     / 1000
                     / (cfg.fingertip_config.num_pts_z - 1)
                 )
-                # assert np.isclose(delta, other_delta)
 
                 nerf_alphas = [1 - np.exp(-delta * dd) for dd in nerf_densities]
                 fig = plot_mesh_and_query_points(
@@ -364,9 +362,9 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                 if cfg.plot_all_high_density_points:
                     ray_samples_in_mesh_region = get_ray_samples_in_mesh_region(
                         mesh=mesh,
-                        num_pts_x=10,
-                        num_pts_y=10,
-                        num_pts_z=10,
+                        num_pts_x=30,
+                        num_pts_y=30,
+                        num_pts_z=30,
                     )
                     query_points_in_mesh_region_isaac_frame = np.copy(
                         ray_samples_in_mesh_region.frustums.get_positions()

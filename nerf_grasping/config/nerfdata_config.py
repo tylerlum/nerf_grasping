@@ -32,7 +32,7 @@ class NerfDataConfig:
         pathlib.Path(str(evaled_grasp_config_dicts_path) + "_learned_metric_dataset")
         / f"{CONFIG_DATETIME_STR}_learned_metric_dataset.h5"
     )
-    plot_only_one: bool = False
+    plot_only_one: bool = True
     save_dataset: bool = True
     print_timing: bool = True
     limit_num_configs: Optional[int] = None  # None for no limit

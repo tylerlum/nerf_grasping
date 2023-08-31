@@ -29,6 +29,8 @@ class BaseNerfDataConfig:
     )
     output_filepath: Optional[pathlib.Path] = None
     plot_only_one: bool = False
+    nerf_visualize_index: Optional[int] = 0
+    grasp_visualize_index: Optional[int] = 0
     save_dataset: bool = True
     print_timing: bool = True
     limit_num_configs: Optional[int] = None  # None for no limit
@@ -36,9 +38,7 @@ class BaseNerfDataConfig:
     plot_all_high_density_points: bool = True
     config_filepath: Optional[pathlib.Path] = None
 
-    fingertip_config: UnionFingertipConfig = (
-        EvenlySpacedFingertipConfig.from_dimensions()
-    )
+    fingertip_config: UnionFingertipConfig = EvenlySpacedFingertipConfig()
 
     def __post_init__(self):
         if self.output_filepath is None:
@@ -72,7 +72,7 @@ UnionNerfDataConfig = tyro.extras.subcommand_type_from_defaults(
     {
         "grid": GridNerfDataConfig(),
         "depth-image": DepthImageNerfDataConfig(
-            fingertip_config=EvenlySpacedFingertipConfig.from_dimensions(
+            fingertip_config=EvenlySpacedFingertipConfig(
                 finger_width_mm=20.0, finger_height_mm=20.0
             ),
             fingertip_camera_config=CameraConfig(H=40, W=40),

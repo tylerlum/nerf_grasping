@@ -9,7 +9,13 @@ import plotly.graph_objects as go
 import nerf_grasping
 import nerfstudio
 from matplotlib import pyplot as plt
-from nerf_grasping.grasp_utils import NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z, get_ray_samples, get_ray_origins_finger_frame_helper
+from nerf_grasping.grasp_utils import (
+    NUM_PTS_X,
+    NUM_PTS_Y,
+    NUM_PTS_Z,
+    get_ray_samples,
+    get_ray_origins_finger_frame_helper,
+)
 from nerfstudio.cameras.rays import RayBundle, RaySamples
 
 
@@ -78,7 +84,10 @@ def plot_mesh(mesh: trimesh.Trimesh, color="lightpink") -> go.Figure:
 
 
 def plot_mesh_and_transforms(
-    mesh: trimesh.Trimesh, transforms: List[np.ndarray], num_fingers: int
+    mesh: trimesh.Trimesh,
+    transforms: List[np.ndarray],
+    num_fingers: int,
+    title: str = "Mesh and Transforms",
 ) -> go.Figure:
     assert len(transforms) == num_fingers, f"{len(transforms)} != {num_fingers}"
 
@@ -137,7 +146,7 @@ def plot_mesh_and_transforms(
         fig.add_trace(y_plot)
         fig.add_trace(z_plot)
 
-    fig.update_layout(legend_orientation="h")
+    fig.update_layout(legend_orientation="h", title_text=title)
     return fig
 
 
@@ -146,6 +155,7 @@ def plot_mesh_and_query_points(
     query_points_list: List[np.ndarray],
     query_points_colors_list: List[np.ndarray],
     num_fingers: int,
+    title: str = "Query Points",
 ) -> go.Figure:
     assert (
         len(query_points_list) == len(query_points_colors_list) == num_fingers
@@ -162,7 +172,7 @@ def plot_mesh_and_query_points(
             mode="markers",
             marker=dict(
                 size=4,
-                color=query_points_colors,
+                color=query_points_colors.squeeze(-1),
                 colorscale="viridis",
                 colorbar=dict(title="Density Scale") if finger_idx == 0 else {},
             ),
@@ -177,6 +187,7 @@ def plot_mesh_and_query_points(
             yaxis=dict(nticks=4, range=[-0.2, 0.2]),
             zaxis=dict(nticks=4, range=[-0.2, 0.2]),
         ),
+        title_text=title,
     )  # Avoid overlapping legend
     fig.update_layout(scene_aspectmode="cube")
     return fig
@@ -244,7 +255,9 @@ def get_ray_samples_in_mesh_region(
         finger_height_mm=finger_height_mm,
     )
     assert ray_origins_object_frame.shape == (num_pts_x, num_pts_y, 3)
-    identity_transform = pp.identity_SE3(num_pts_x, num_pts_y).to(ray_origins_object_frame.device)
+    identity_transform = pp.identity_SE3(num_pts_x, num_pts_y).to(
+        ray_origins_object_frame.device
+    )
     ray_samples = get_ray_samples(
         ray_origins_object_frame,
         identity_transform,

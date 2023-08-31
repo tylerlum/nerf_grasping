@@ -95,14 +95,10 @@ def get_ray_origins_finger_frame() -> torch.tensor:
     return ray_origins_finger_frame
 
 
-def get_ray_samples(
+def get_ray_bundles(
     ray_origins_finger_frame: torch.tensor,
     transform: pp.LieTensor,
-    num_pts_z=NUM_PTS_Z,
-    grasp_depth_mm: float = float(GRASP_DEPTH_MM),
 ) -> RaySamples:
-    grasp_depth_m = grasp_depth_mm / 1000.0
-
     num_pts_x, num_pts_y = ray_origins_finger_frame.shape[:2]
 
     assert ray_origins_finger_frame.shape == (num_pts_x, num_pts_y, 3)
@@ -144,6 +140,18 @@ def get_ray_samples(
 
     ray_bundle = RayBundle(ray_origins_world_frame, ray_dirs_world_frame, pixel_area)
 
+    return ray_bundle
+
+
+def get_ray_samples(
+    ray_origins_finger_frame: torch.tensor,
+    transform: pp.LieTensor,
+    num_pts_z=NUM_PTS_Z,
+    grasp_depth_mm: float = float(GRASP_DEPTH_MM),
+):
+    ray_bundles = get_ray_bundles(ray_origins_finger_frame, transform)
+    grasp_depth_m = grasp_depth_mm / 1000.0
+
     # Work out sample lengths.
     sample_dists = torch.linspace(
         0.0,
@@ -157,13 +165,13 @@ def get_ray_samples(
         sample_dists = sample_dists.unsqueeze(0)
 
     sample_dists = sample_dists.expand(
-        *ray_dirs_world_frame.shape[:-1], num_pts_z
+        *ray_origins_finger_frame.shape[:-1], num_pts_z
     ).unsqueeze(
         -1
     )  # [*batch_dims, num_pts_x, num_pts_y, num_pts_z, 1]
 
     # Pull ray samples -- note these are degenerate, i.e., the deltas field is meaningless.
-    return ray_bundle.get_ray_samples(sample_dists, sample_dists)
+    return ray_bundles.get_ray_samples(sample_dists, sample_dists)
 
 
 def get_nerf_configs(nerf_checkpoints_path: str) -> List[str]:

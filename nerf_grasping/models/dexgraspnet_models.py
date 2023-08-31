@@ -114,20 +114,21 @@ class CNN_2D_1D_Model(nn.Module):
         self.conv_2d = ConvEncoder2D(
             input_shape=(1, n_pts_x, n_pts_y),
             conditioning_dim=conditioning_dim,
-            use_pretrained=True,
+            use_pretrained=False,
             pooling_method=ConvOutputTo1D.AVG_POOL_SPATIAL,
             film_hidden_layers=conv_2d_film_hidden_layers,
-            resnet_type="resnet18",  # TODO: Config this
+            # resnet_type="resnet18", # TODO: Config this
+            resnet_type="resnet_smaller", # TODO: Config this
         )
 
         self.conv_1d = ConvEncoder1D(
-            input_shape=(self.conv_2d.output_dim, seq_len),
+            input_shape=(self.conv_2d.output_dim(), seq_len),
             conditioning_dim=conditioning_dim,
             pooling_method=ConvOutputTo1D.AVG_POOL_SPATIAL,
             # TODO: Config this
         )
         self.mlp = mlp(
-            num_inputs=n_fingers * self.conv_1d.output_dim
+            num_inputs=n_fingers * self.conv_1d.output_dim()
             + n_fingers * conditioning_dim,
             num_outputs=self.n_classes,
             hidden_layers=mlp_hidden_layers,
@@ -155,10 +156,10 @@ class CNN_2D_1D_Model(nn.Module):
         assert_equals(x.shape, (batch_size * n_fingers, seq_len, n_pts_x, n_pts_y))
 
         # Conv 2D
-        BATCHED_COMPUTATION = False  # TODO: See if OOM is an issue
+        BATCHED_COMPUTATION = True  # TODO: See if OOM is an issue
         if BATCHED_COMPUTATION:
             x = x.reshape(batch_size * n_fingers * seq_len, 1, n_pts_x, n_pts_y)
-            conditioning = conditioning.repeat_interleave(seq_len, dim=0)
+            conditioning_repeated = conditioning.repeat_interleave(seq_len, dim=0)
             assert_equals(
                 x.shape,
                 (
@@ -169,21 +170,21 @@ class CNN_2D_1D_Model(nn.Module):
                 ),
             )
             assert_equals(
-                conditioning.shape,
+                conditioning_repeated.shape,
                 (
                     batch_size * n_fingers * seq_len,
                     conditioning_dim,
                 ),
             )
-            x = self.conv_2d(x, conditioning=conditioning)
+            x = self.conv_2d(x, conditioning=conditioning_repeated)
             assert_equals(
                 x.shape,
                 (
                     batch_size * n_fingers * seq_len,
-                    self.conv_2d.output_dim,
+                    self.conv_2d.output_dim(),
                 ),
             )
-            x = x.reshape(batch_size * n_fingers, seq_len, self.conv_2d.output_dim)
+            x = x.reshape(batch_size * n_fingers, seq_len, self.conv_2d.output_dim())
         else:
             output_list = []
             for i in range(seq_len):
@@ -196,26 +197,29 @@ class CNN_2D_1D_Model(nn.Module):
                 )
                 output = self.conv_2d(input, conditioning=conditioning)
                 assert_equals(
-                    output.shape, (batch_size * n_fingers, self.conv_2d.output_dim)
+                    output.shape, (batch_size * n_fingers, self.conv_2d.output_dim())
                 )
                 output_list.append(output)
             x = torch.stack(output_list, dim=1)
         assert_equals(
-            x.shape, (batch_size * n_fingers, seq_len, self.conv_2d.output_dim)
+            x.shape, (batch_size * n_fingers, seq_len, self.conv_2d.output_dim())
         )
 
         # Reorder so Conv 1D filters can process along sequence dim
         x = x.permute(0, 2, 1)
         assert_equals(
-            x.shape, (batch_size * n_fingers, self.conv_2d.output_dim, seq_len)
+            x.shape, (batch_size * n_fingers, self.conv_2d.output_dim(), seq_len)
+        )
+        assert_equals(
+            conditioning.shape, (batch_size * n_fingers, conditioning_dim)
         )
 
         # Conv 1D
         x = self.conv_1d(x, conditioning=conditioning)
-        assert_equals(x.shape, (batch_size * n_fingers, self.conv_1d.output_dim))
+        assert_equals(x.shape, (batch_size * n_fingers, self.conv_1d.output_dim()))
 
         # Aggregate into one feature dimension
-        x = x.reshape(batch_size, n_fingers * self.conv_1d.output_dim)
+        x = x.reshape(batch_size, n_fingers * self.conv_1d.output_dim())
 
         # Concatenate with conditioning
         conditioning = conditioning.reshape(batch_size, n_fingers * conditioning_dim)
@@ -224,7 +228,7 @@ class CNN_2D_1D_Model(nn.Module):
             x.shape,
             (
                 batch_size,
-                n_fingers * self.conv_1d.output_dim + n_fingers * conditioning_dim,
+                n_fingers * self.conv_1d.output_dim() + n_fingers * conditioning_dim,
             ),
         )
 
@@ -238,6 +242,9 @@ class CNN_2D_1D_Model(nn.Module):
         self, x: torch.Tensor, conditioning: torch.Tensor
     ) -> torch.Tensor:
         return self.forward(x, conditioning=conditioning)
+
+    def get_success_probability(self, x: torch.Tensor) -> torch.Tensor:
+        return nn.functional.softmax(self.get_success_logits(x), dim=-1)
 
     @property
     @lru_cache()

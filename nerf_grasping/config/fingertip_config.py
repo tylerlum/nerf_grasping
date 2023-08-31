@@ -24,7 +24,7 @@ class VanillaFingertipConfig(BaseFingertipConfig):
 # Not frozen, since we need to modify the num_pts_x, num_pts_y, num_pts_z in the custom constructor.
 @dataclass(unsafe_hash=True)
 class EvenlySpacedFingertipConfig(BaseFingertipConfig):
-    distance_between_pts_mm: float = 0.5
+    distance_between_pts_mm: float = 2.0
 
     def __init__(
         self,

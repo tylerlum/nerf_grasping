@@ -17,12 +17,17 @@ from enum import Enum, auto
 class BaseNerfDataConfig:
     """Top-level config for NeRF data generation."""
 
-    dexgraspnet_data_root: pathlib.Path = pathlib.Path(nerf_grasping.get_repo_root())
+    dexgraspnet_meshdata_root: pathlib.Path = (
+        dexgraspnet_data_root / "2023-08-29_meshdata_trial"
+    )
+    dexgraspnet_data_root: pathlib.Path = (
+        pathlib.Path(nerf_grasping.get_repo_root()) / "data"
+    )
     dexgraspnet_meshdata_root: pathlib.Path = (
         dexgraspnet_data_root / "2023-08-29_meshdata_trial"
     )
     evaled_grasp_config_dicts_path: pathlib.Path = (
-        dexgraspnet_data_root / "2023-08-29_evaled_grasp_config_dicts_trial"
+        dexgraspnet_data_root / "2023-08-29_evaled_grasp_config_dicts_trial_big"
     )
     nerf_checkpoints_path: pathlib.Path = (
         dexgraspnet_data_root / "2023-08-29_nerfcheckpoints_trial"
@@ -36,7 +41,8 @@ class BaseNerfDataConfig:
     limit_num_configs: Optional[int] = None  # None for no limit
     max_num_data_points_per_file: int = 2500
     plot_all_high_density_points: bool = True
-    config_filepath: Optional[pathlib.Path] = None
+    plot_alphas_each_finger_1D: bool = True
+    plot_alpha_images_each_finger: bool = True
 
     fingertip_config: UnionFingertipConfig = EvenlySpacedFingertipConfig()
 
@@ -48,8 +54,10 @@ class BaseNerfDataConfig:
                 )
                 / f"{CONFIG_DATETIME_STR}_learned_metric_dataset.h5"
             )
-        if self.config_filepath is None:
-            self.config_filepath = self.output_filepath.parent / "config.yml"
+
+    @property
+    def config_filepath(self) -> pathlib.Path:
+        return self.output_filepath.parent / "config.yml"
 
 
 @dataclass

@@ -131,6 +131,41 @@ class AllegroHandConfig(torch.nn.Module):
             for ww, jj in zip(self.wrist_pose, self.joint_angles)
         ]
 
+    def as_tensor(self):
+        """
+        Returns a tensor of shape [batch_size, 23]
+        with all config parameters.
+        """
+        return torch.cat((self.wrist_pose.tensor(), self.joint_angles), dim=-1)
+
+    def mean(self):
+        """
+        Returns the mean of the batch of hand configs.
+        A bit hacky -- just works in the Lie algebra, which
+        is hopefully ok.
+        """
+        mean_joint_angles = self.joint_angles.mean(dim=0)
+        mean_wrist_pose = (self.wrist_pose.Log().mean(dim=0)).Exp()
+
+        return AllegroHandConfig.from_values(
+            wrist_pose=mean_wrist_pose,
+            joint_angles=mean_joint_angles,
+            chain=self.chain,
+        )
+
+    def cov(self):
+        """
+        Returns the covariance of the batch of hand configs.
+        A bit hacky -- just works in the Lie algebra, which
+        is hopefully ok.
+
+        Returns a tuple of covariance tensors for the wrist pose and joint angles.
+        """
+        cov_wrist_pose = self.wrist_pose.Log().cov(dim=0)  # Leave in tangent space.
+        cov_joint_angles = self.joint_angles.cov(dim=0)
+
+        return (cov_wrist_pose, cov_joint_angles)
+
 
 class AllegroGraspConfig(torch.nn.Module):
     """Container defining a batch of grasps -- both pre-grasps
@@ -287,6 +322,45 @@ class AllegroGraspConfig(torch.nn.Module):
 
         return dict_list
 
+    def as_tensor(self):
+        """
+        Returns a tensor of shape [batch_size, 23 + 4 * 7]
+        with all config parameters.
+        """
+        return torch.cat(
+            (
+                self.hand_config.as_tensor(),
+                self.grasp_orientations.tensor().reshape(self.batch_size, -1),
+            ),
+            dim=-1,
+        )
+
+    def mean(self):
+        """
+        Returns the mean of the batch of grasp configs.
+        """
+        mean_hand_config = self.hand_config.mean()
+        mean_grasp_orientations = (self.grasp_orientations.Log().mean(dim=0)).Exp()
+
+        return AllegroGraspConfig.from_values(
+            wrist_pose=mean_hand_config.wrist_pose,
+            joint_angles=mean_hand_config.joint_angles,
+            grasp_orientations=mean_grasp_orientations,
+        )
+
+    def cov(self):
+        """
+        Returns the covariance of the batch of grasp configs.
+        """
+        cov_wrist_pose, cov_joint_angles = self.hand_config.cov()
+        cov_grasp_orientations = self.grasp_orientations.Log().cov(dim=0)
+
+        return (
+            cov_wrist_pose,
+            cov_joint_angles,
+            cov_grasp_orientations,
+        )
+
     def set_grasp_orientations(self, grasp_orientations: pp.LieTensor):
         assert (
             grasp_orientations.shape == self.grasp_orientations.shape
@@ -335,7 +409,11 @@ class GraspMetric(torch.nn.Module):
     a particular AllegroGraspConfig.
     """
 
-    def __init__(self, nerf_model: nerfstudio.models.base_model.Model, classifier_model: Classifier):
+    def __init__(
+        self,
+        nerf_model: nerfstudio.models.base_model.Model,
+        classifier_model: Classifier,
+    ):
         super().__init__()
         self.nerf_model = nerf_model
         self.classifier_model = classifier_model

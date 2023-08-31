@@ -109,6 +109,7 @@ def count_total_num_grasps(nerf_configs: List[pathlib.Path]) -> int:
         # Count num_grasps
         num_grasps = len(evaled_grasp_config_dicts)
         if not ACTUALLY_COUNT_ALL:
+            print(f"assuming all {len(nerf_configs)} evaled grasp config dicts have {num_grasps} grasps")
             return num_grasps * len(nerf_configs)
 
         total_num_grasps += num_grasps

@@ -32,7 +32,8 @@ class ClassifierDataConfig:
 class ClassifierDataLoaderConfig:
     """Parameters for dataloader."""
 
-    batch_size: int = 128
+    batch_size: int = 32
+
 
     num_workers: int = 8
     """Number of workers for the dataloader."""

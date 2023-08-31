@@ -32,6 +32,9 @@ class ClassifierDataConfig:
     use_random_rotations: bool = True
     """Flag to add random rotations to augment the dataset."""
 
+    debug_shuffle_labels: bool = False
+    """Flag to randomize all the labels to see what memorization looks like."""
+
 
 @dataclass(frozen=True)
 class ClassifierDataLoaderConfig:
@@ -162,12 +165,6 @@ class CNN_3D_XYZ_ModelConfig(ClassifierModelConfig):
             conv_channels=self.conv_channels,
             mlp_hidden_layers=self.mlp_hidden_layers,
         )
-
-
-# TODO(pculbert): fix.
-# UnionClassifierModelConfig = Union[
-#     CNN_3D_XYZ_ModelConfig, ClassifierModelConfig
-# ]  # Passing none here so union is valid.
 
 
 @dataclass(frozen=True)
@@ -309,6 +306,16 @@ UnionClassifierConfig = tyro.extras.subcommand_type_from_defaults(
                 conv_1d_channels=[32, 32],
                 film_2d_hidden_layers=[32, 32],
                 film_1d_hidden_layers=[32, 32],
+            ),
+            nerfdata_config=GridNerfDataConfig(),
+        ),
+        "small-simple-cnn-2d-1d": ClassifierConfig(
+            model_config=Simple_CNN_2D_1D_ModelConfig(
+                mlp_hidden_layers=[32, 32],
+                conv_2d_channels=[8, 8, 16],
+                conv_1d_channels=[8, 8],
+                film_2d_hidden_layers=[8, 8],
+                film_1d_hidden_layers=[8, 8],
             ),
             nerfdata_config=GridNerfDataConfig(),
         ),

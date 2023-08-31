@@ -5,7 +5,7 @@ import tyro
 from typing import Union
 
 
-@dataclass
+@dataclass(unsafe_hash=True)
 class BaseFingertipConfig:
     num_pts_x: Optional[int] = None
     num_pts_y: Optional[int] = None
@@ -16,13 +16,13 @@ class BaseFingertipConfig:
     n_fingers: int = 4
 
 
-@dataclass
+@dataclass(unsafe_hash=True)
 class VanillaFingertipConfig(BaseFingertipConfig):
     pass
 
 
 # Not frozen, since we need to modify the num_pts_x, num_pts_y, num_pts_z in the custom constructor.
-@dataclass
+@dataclass(unsafe_hash=True)
 class EvenlySpacedFingertipConfig(BaseFingertipConfig):
     distance_between_pts_mm: float = 0.5
 
@@ -57,6 +57,12 @@ UnionFingertipConfig = tyro.extras.subcommand_type_from_defaults(
     {
         "vanilla": VanillaFingertipConfig(20, 30, 40),
         "even": EvenlySpacedFingertipConfig(),
+        "big_even": EvenlySpacedFingertipConfig(
+            finger_width_mm=35,
+            finger_height_mm=35,
+            grasp_depth_mm=50,
+            distance_between_pts_mm=2.5,
+        ),
     }
 )
 

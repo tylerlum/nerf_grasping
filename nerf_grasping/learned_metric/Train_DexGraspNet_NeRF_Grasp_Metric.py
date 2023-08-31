@@ -43,6 +43,7 @@ from nerf_grasping.dataset.timers import LoopTimer
 from nerf_grasping.config.classifier_config import (
     UnionClassifierConfig,
 )
+from nerf_grasping.config.fingertip_config import BaseFingertipConfig
 import os
 import pypose as pp
 import h5py
@@ -448,10 +449,16 @@ def sample_random_rotate_transforms(N: int) -> pp.LieTensor:
 @localscope.mfc
 def custom_collate_fn(
     batch: List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor, str]],
+    fingertip_config: BaseFingertipConfig,
     use_random_rotations: bool = True,
+    debug_shuffle_labels: bool = False,
 ) -> BatchData:
     batch = torch.utils.data.dataloader.default_collate(batch)
     nerf_densities, grasp_successes, grasp_transforms, nerf_configs = batch
+
+    if debug_shuffle_labels:
+        shuffle_inds = torch.randperm(grasp_successes.shape[0])
+        grasp_successes = grasp_successes[shuffle_inds]
 
     grasp_transforms = pp.from_matrix(grasp_transforms, pp.SE3_type)
 
@@ -466,6 +473,7 @@ def custom_collate_fn(
             nerf_densities=nerf_densities,
             grasp_transforms=grasp_transforms,
             random_rotate_transform=random_rotate_transform,
+            fingertip_config=fingertip_config,
         ),
         grasp_success=grasp_successes,
         nerf_config=nerf_configs,
@@ -480,7 +488,9 @@ train_loader = DataLoader(
     pin_memory=cfg.dataloader.pin_memory,
     num_workers=cfg.dataloader.num_workers,
     collate_fn=partial(
-        custom_collate_fn, use_random_rotations=cfg.data.use_random_rotations
+        custom_collate_fn,
+        fingertip_config=cfg.nerfdata_config.fingertip_config,
+        use_random_rotations=cfg.data.use_random_rotations,
     ),
 )
 val_loader = DataLoader(
@@ -490,7 +500,10 @@ val_loader = DataLoader(
     pin_memory=cfg.dataloader.pin_memory,
     num_workers=cfg.dataloader.num_workers,
     collate_fn=partial(
-        custom_collate_fn, use_random_rotations=False
+        custom_collate_fn,
+        fingertip_config=cfg.nerfdata_config.fingertip_config,
+        use_random_rotations=False,
+        debug_shuffle_labels=cfg.data.debug_shuffle_labels,
     ),  # Run val over actual grasp transforms (no random rotations)
 )
 test_loader = DataLoader(
@@ -500,7 +513,9 @@ test_loader = DataLoader(
     pin_memory=cfg.dataloader.pin_memory,
     num_workers=cfg.dataloader.num_workers,
     collate_fn=partial(
-        custom_collate_fn, use_random_rotations=False
+        custom_collate_fn,
+        use_random_rotations=False,
+        fingertip_config=cfg.nerfdata_config.fingertip_config,
     ),  # Run test over actual test transforms.
 )
 
@@ -1082,12 +1097,20 @@ ce_loss_fn = nn.CrossEntropyLoss(
     weight=class_weight, label_smoothing=cfg.training.label_smoothing
 )
 
+
 # Save out config to file if we haven't yet.
 cfg_path = pathlib.Path(checkpoint_workspace_dir_path) / "config.yaml"
 if not cfg_path.exists():
     cfg_yaml = tyro.extras.to_yaml(cfg)
     with open(cfg_path, "w") as f:
         f.write(cfg_yaml)
+
+print(cfg)
+if cfg.data.debug_shuffle_labels:
+    print(
+        "WARNING: Shuffle labels is turned on! Random labels are being passed. Press 'c' to continue"
+    )
+    breakpoint()
 
 # %%
 

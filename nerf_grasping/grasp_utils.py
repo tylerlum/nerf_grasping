@@ -13,23 +13,9 @@ import transforms3d
 from typing import List, Tuple
 from nerfstudio.cameras.rays import RayBundle, RaySamples
 from nerfstudio.utils import eval_utils
+from nerf_grasping.config.fingertip_config import BaseFingertipConfig
 
 from rich.progress import Progress, BarColumn, SpinnerColumn, TextColumn
-
-# Grid of points in grasp frame (x, y, z)
-GRASP_DEPTH_MM = 20
-FINGER_WIDTH_MM = 10
-FINGER_HEIGHT_MM = 15
-
-# Want points equally spread out in space
-DIST_BTWN_PTS_MM = 0.5
-
-# +1 to include both end points
-NUM_PTS_X = int(FINGER_WIDTH_MM / DIST_BTWN_PTS_MM) + 1
-NUM_PTS_Y = int(FINGER_HEIGHT_MM / DIST_BTWN_PTS_MM) + 1
-NUM_PTS_Z = int(GRASP_DEPTH_MM / DIST_BTWN_PTS_MM) + 1
-
-NUM_FINGERS = 4
 
 DEXGRASPNET_TRANS_NAMES = ["WRJTx", "WRJTy", "WRJTz"]
 DEXGRASPNET_ROT_NAMES = ["WRJRx", "WRJRy", "WRJRz"]
@@ -85,12 +71,12 @@ def get_ray_origins_finger_frame_helper(
     return ray_origins
 
 
-def get_ray_origins_finger_frame() -> torch.tensor:
+def get_ray_origins_finger_frame(fingertip_config: BaseFingertipConfig) -> torch.tensor:
     ray_origins_finger_frame = get_ray_origins_finger_frame_helper(
-        num_pts_x=NUM_PTS_X,
-        num_pts_y=NUM_PTS_Y,
-        finger_width_mm=FINGER_WIDTH_MM,
-        finger_height_mm=FINGER_HEIGHT_MM,
+        num_pts_x=fingertip_config.num_pts_x,
+        num_pts_y=fingertip_config.num_pts_y,
+        finger_width_mm=fingertip_config.finger_width_mm,
+        finger_height_mm=fingertip_config.finger_height_mm,
     )
     return ray_origins_finger_frame
 
@@ -146,17 +132,16 @@ def get_ray_bundles(
 def get_ray_samples(
     ray_origins_finger_frame: torch.tensor,
     transform: pp.LieTensor,
-    num_pts_z=NUM_PTS_Z,
-    grasp_depth_mm: float = float(GRASP_DEPTH_MM),
+    fingertip_config: BaseFingertipConfig,
 ):
     ray_bundles = get_ray_bundles(ray_origins_finger_frame, transform)
-    grasp_depth_m = grasp_depth_mm / 1000.0
+    grasp_depth_m = fingertip_config.grasp_depth_mm / 1000.0
 
     # Work out sample lengths.
     sample_dists = torch.linspace(
         0.0,
         grasp_depth_m,
-        steps=num_pts_z,
+        steps=fingertip_config.num_pts_z,
         dtype=transform.dtype,
         device=transform.device,
     )  # [num_pts_z]
@@ -165,7 +150,7 @@ def get_ray_samples(
         sample_dists = sample_dists.unsqueeze(0)
 
     sample_dists = sample_dists.expand(
-        *ray_origins_finger_frame.shape[:-1], num_pts_z
+        *ray_origins_finger_frame.shape[:-1], fingertip_config.num_pts_z
     ).unsqueeze(
         -1
     )  # [*batch_dims, num_pts_x, num_pts_y, num_pts_z, 1]

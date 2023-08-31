@@ -141,7 +141,7 @@ print(f"Found {len(nerf_configs)} nerf configs")
 
 
 # %%
-ray_origins_finger_frame = get_ray_origins_finger_frame()
+ray_origins_finger_frame = get_ray_origins_finger_frame(cfg.fingertip_config)
 
 # %%
 if cfg.limit_num_configs is not None:
@@ -418,7 +418,9 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                 # Transform query points
                 with loop_timer.add_section_timer("get_transformed_points"):
                     ray_samples_list = [
-                        get_ray_samples(ray_origins_finger_frame, transform)
+                        get_ray_samples(
+                            ray_origins_finger_frame, transform, cfg.fingertip_config
+                        )
                         for transform in transforms
                     ]
 

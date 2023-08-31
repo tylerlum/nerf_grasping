@@ -1,64 +1,72 @@
 from dataclasses import dataclass
-from typing import Tuple
+from typing import Tuple, Optional
 from collections import OrderedDict
 import tyro
 from typing import Union
 
 
-@dataclass(frozen=True)
+@dataclass(unsafe_hash=True)
 class BaseFingertipConfig:
-    num_pts_x: int
-    num_pts_y: int
-    num_pts_z: int
+    num_pts_x: Optional[int] = None
+    num_pts_y: Optional[int] = None
+    num_pts_z: Optional[int] = None
     finger_width_mm: float = 20.0
     finger_height_mm: float = 20.0
     grasp_depth_mm: float = 40.0
     n_fingers: int = 4
 
 
-@dataclass(frozen=True)
+@dataclass(unsafe_hash=True)
 class VanillaFingertipConfig(BaseFingertipConfig):
     pass
 
 
 # Not frozen, since we need to modify the num_pts_x, num_pts_y, num_pts_z in the custom constructor.
-@dataclass(frozen=True)
+@dataclass(unsafe_hash=True)
 class EvenlySpacedFingertipConfig(BaseFingertipConfig):
     distance_between_pts_mm: float = 2.0
 
-    @classmethod
-    def from_dimensions(
-        cls,
-        distance_between_pts_mm: float = 2.0,
-        finger_width_mm: float = 20.0,
-        finger_height_mm: float = 20.0,
-        grasp_depth_mm: float = 30.0,
+    def __init__(
+        self,
+        distance_between_pts_mm: float = 0.5,
+        finger_width_mm: float = 10.0,
+        finger_height_mm: float = 15.0,
+        grasp_depth_mm: float = 20.0,
+        num_pts_x: Optional[int] = None,
+        num_pts_y: Optional[int] = None,
+        num_pts_z: Optional[int] = None,
+        n_fingers=4,
     ):
+        self.distance_between_pts_mm = distance_between_pts_mm
         num_pts_x = int(finger_width_mm / distance_between_pts_mm) + 1
         num_pts_y = int(finger_height_mm / distance_between_pts_mm) + 1
         num_pts_z = int(grasp_depth_mm / distance_between_pts_mm) + 1
 
-        return cls(
-            num_pts_x=num_pts_x,
-            num_pts_y=num_pts_y,
-            num_pts_z=num_pts_z,
+        super().__init__(
+            num_pts_x,
+            num_pts_y,
+            num_pts_z,
             finger_width_mm=finger_width_mm,
             finger_height_mm=finger_height_mm,
             grasp_depth_mm=grasp_depth_mm,
-            distance_between_pts_mm=distance_between_pts_mm,
+            n_fingers=n_fingers,
         )
 
 
-UnionFingertipConfig = Union[VanillaFingertipConfig, EvenlySpacedFingertipConfig]
-
-
-@dataclass
-class TopLevelConfig:
-    fingertip_config: UnionFingertipConfig = VanillaFingertipConfig(
-        num_pts_x=20, num_pts_y=20, num_pts_z=100
-    )
+UnionFingertipConfig = tyro.extras.subcommand_type_from_defaults(
+    {
+        "vanilla": VanillaFingertipConfig(20, 30, 40),
+        "even": EvenlySpacedFingertipConfig(),
+        "big_even": EvenlySpacedFingertipConfig(
+            finger_width_mm=35,
+            finger_height_mm=35,
+            grasp_depth_mm=50,
+            distance_between_pts_mm=2.5,
+        ),
+    }
+)
 
 
 if __name__ == "__main__":
-    cfg = tyro.cli(TopLevelConfig)
+    cfg = tyro.cli(UnionFingertipConfig)
     print(cfg)

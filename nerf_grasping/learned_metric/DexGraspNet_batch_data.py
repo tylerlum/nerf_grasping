@@ -9,21 +9,19 @@ from nerf_grasping.dataset.DexGraspNet_NeRF_Grasps_utils import (
     get_ray_samples,
 )
 from nerf_grasping.grasp_utils import (
-    DIST_BTWN_PTS_MM,
-    GRASP_DEPTH_MM,
-    NUM_PTS_X,
-    NUM_PTS_Y,
-    NUM_PTS_Z,
-    NUM_FINGERS,
     get_ray_origins_finger_frame,
+)
+from nerf_grasping.config.fingertip_config import (
+    BaseFingertipConfig,
+    EvenlySpacedFingertipConfig,
 )
 
 NUM_XYZ = 3
 
 
 @functools.lru_cache()
-def get_ray_origins_finger_frame_cached():
-    ray_origins_finger_frame = get_ray_origins_finger_frame()
+def get_ray_origins_finger_frame_cached(cfg: BaseFingertipConfig) -> torch.Tensor:
+    ray_origins_finger_frame = get_ray_origins_finger_frame(cfg)
     return ray_origins_finger_frame
 
 
@@ -31,6 +29,7 @@ def get_ray_origins_finger_frame_cached():
 class BatchDataInput:
     nerf_densities: torch.Tensor
     grasp_transforms: pp.LieTensor
+    fingertip_config: BaseFingertipConfig  # have to take this because all these shape checks used to use hardcoded constants.
     random_rotate_transform: Optional[pp.LieTensor] = None
 
     def to(self, device) -> BatchDataInput:
@@ -47,10 +46,14 @@ class BatchDataInput:
     def nerf_alphas(self) -> torch.Tensor:
         # alpha = 1 - exp(-delta * sigma)
         #       = probability of collision within this segment starting from beginning of segment
-        DELTA = DIST_BTWN_PTS_MM / 1000
-        OTHER_DELTA = GRASP_DEPTH_MM / (NUM_PTS_Z - 1) / 1000
-        assert np.isclose(DELTA, OTHER_DELTA), f"{DELTA} != {OTHER_DELTA}"
-        return 1.0 - torch.exp(-DELTA * self.nerf_densities)
+        delta = (
+            self.fingertip_config.grasp_depth_mm
+            / (self.fingertip_config.num_pts_z - 1)
+            / 1000
+        )
+        if isinstance(self.fingertip_config, EvenlySpacedFingertipConfig):
+            assert delta == self.fingertip_config.distance_between_pts_mm / 1000
+        return 1.0 - torch.exp(-delta * self.nerf_densities)
 
     @property
     def coords(self) -> torch.Tensor:
@@ -80,7 +83,7 @@ class BatchDataInput:
         assert (
             return_value.lshape
             == self.grasp_transforms.lshape
-            == (self.batch_size, NUM_FINGERS)
+            == (self.batch_size, self.fingertip_config.n_fingers)
         )
         return return_value
 
@@ -93,46 +96,57 @@ class BatchDataInput:
         return self.nerf_densities.device
 
     def _coords_helper(self, grasp_transforms: pp.LieTensor) -> torch.Tensor:
-        assert grasp_transforms.lshape == (self.batch_size, NUM_FINGERS)
-        ray_origins_finger_frame = get_ray_origins_finger_frame_cached()
+        assert grasp_transforms.lshape == (
+            self.batch_size,
+            self.fingertip_config.n_fingers,
+        )
+        ray_origins_finger_frame = get_ray_origins_finger_frame_cached(
+            self.fingertip_config
+        )
 
         all_query_points = get_ray_samples(
             ray_origins_finger_frame.to(
                 device=grasp_transforms.device, dtype=grasp_transforms.dtype
             ),
             grasp_transforms,
+            self.fingertip_config,
         ).frustums.get_positions()
 
         assert all_query_points.shape == (
             self.batch_size,
-            NUM_FINGERS,
-            NUM_PTS_X,
-            NUM_PTS_Y,
-            NUM_PTS_Z,
+            self.fingertip_config.n_fingers,
+            self.fingertip_config.num_pts_x,
+            self.fingertip_config.num_pts_y,
+            self.fingertip_config.num_pts_z,
             NUM_XYZ,
         )
         all_query_points = all_query_points.permute(0, 1, 5, 2, 3, 4)
         assert all_query_points.shape == (
             self.batch_size,
-            NUM_FINGERS,
+            self.fingertip_config.n_fingers,
             NUM_XYZ,
-            NUM_PTS_X,
-            NUM_PTS_Y,
-            NUM_PTS_Z,
+            self.fingertip_config.num_pts_x,
+            self.fingertip_config.num_pts_y,
+            self.fingertip_config.num_pts_z,
         )
         return all_query_points
 
     def _nerf_alphas_with_coords_helper(self, coords: torch.Tensor) -> torch.Tensor:
         assert coords.shape == (
             self.batch_size,
-            NUM_FINGERS,
+            self.fingertip_config.n_fingers,
             NUM_XYZ,
-            NUM_PTS_X,
-            NUM_PTS_Y,
-            NUM_PTS_Z,
+            self.fingertip_config.num_pts_x,
+            self.fingertip_config.num_pts_y,
+            self.fingertip_config.num_pts_z,
         )
         reshaped_nerf_alphas = self.nerf_alphas.reshape(
-            self.batch_size, NUM_FINGERS, 1, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z
+            self.batch_size,
+            self.fingertip_config.n_fingers,
+            1,
+            self.fingertip_config.num_pts_x,
+            self.fingertip_config.num_pts_y,
+            self.fingertip_config.num_pts_z,
         )
         return_value = torch.cat(
             [
@@ -143,11 +157,11 @@ class BatchDataInput:
         )
         assert return_value.shape == (
             self.batch_size,
-            NUM_FINGERS,
+            self.fingertip_config.n_fingers,
             NUM_XYZ + 1,
-            NUM_PTS_X,
-            NUM_PTS_Y,
-            NUM_PTS_Z,
+            self.fingertip_config.num_pts_x,
+            self.fingertip_config.num_pts_y,
+            self.fingertip_config.num_pts_z,
         )
         return return_value
 

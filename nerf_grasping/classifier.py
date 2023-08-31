@@ -2,12 +2,6 @@ import pypose as pp
 import torch
 import torch.nn as nn
 import nerf_grasping
-from nerf_grasping.grasp_utils import (
-    NUM_PTS_X,
-    NUM_PTS_Y,
-    NUM_PTS_Z,
-    NUM_FINGERS,
-)
 import pathlib
 from nerf_grasping.models.dexgraspnet_models import (
     CNN_3D_Model,
@@ -25,17 +19,22 @@ class Classifier(nn.Module):
     def forward(self, batch_data_input: BatchDataInput) -> torch.Tensor:
         nerf_densities = batch_data_input.nerf_densities
         batch_size = nerf_densities.shape[0]
-        assert nerf_densities.shape == (
-            batch_size,
-            NUM_FINGERS,
-            NUM_PTS_X,
-            NUM_PTS_Y,
-            NUM_PTS_Z,
-        )
+
+        # TODO: I think we can actually assert this
+        # since the fingertip configs are in the batch data input.
+        # assert nerf_densities.shape == (
+        #     batch_size,
+        #     NUM_FINGERS,
+        #     NUM_PTS_X,
+        #     NUM_PTS_Y,
+        #     NUM_PTS_Z,
+        # )
 
         grasp_transforms = batch_data_input.grasp_transforms
         assert grasp_transforms.ltype == pp.SE3_type
-        assert grasp_transforms.lshape == (batch_size, NUM_FINGERS)
+
+        # TODO: see above, I think we can do the assert.
+        # assert grasp_transforms.lshape == (batch_size, NUM_FINGERS)
 
         hardcoded_output = torch.zeros(
             batch_size, dtype=nerf_densities.dtype, device=nerf_densities.device
@@ -110,7 +109,8 @@ class CNN_2D_1D_Classifier(Classifier):
     def forward(self, batch_data_input: BatchDataInput) -> torch.Tensor:
         # Run model
         logits = self.model.get_success_logits(
-            batch_data_input.nerf_alphas, batch_data_input.augmented_grasp_transforms)
+            batch_data_input.nerf_alphas, batch_data_input.augmented_grasp_transforms
+        )
 
         return logits
 

@@ -1094,10 +1094,10 @@ class_weight = (
 )
 print(f"Class weight: {class_weight}")
 
-PUNISH_FALSE_POSTIIVE_FACTOR = 1.0
-if PUNISH_FALSE_POSTIIVE_FACTOR != 1.0:
-    print(f"HACK: PUNISH_FALSE_POSTIIVE_FACTOR = {PUNISH_FALSE_POSTIIVE_FACTOR}")
-    class_weight[1] *= PUNISH_FALSE_POSTIIVE_FACTOR
+PUNISH_FALSE_POSITIVE_FACTOR = 1.0
+if PUNISH_FALSE_POSITIVE_FACTOR != 1.0:
+    print(f"HACK: PUNISH_FALSE_POSITIVE_FACTOR = {PUNISH_FALSE_POSITIVE_FACTOR}")
+    class_weight[1] *= PUNISH_FALSE_POSITIVE_FACTOR
     print(f"After hack, class weight: {class_weight}")
 
 ce_loss_fn = nn.CrossEntropyLoss(

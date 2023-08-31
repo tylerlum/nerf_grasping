@@ -255,6 +255,7 @@ def get_ray_samples_in_mesh_region(
     assert ray_origins_object_frame.shape == (num_pts_x, num_pts_y, 3)
     identity_transform = pp.identity_SE3(num_pts_x, num_pts_y).to(
         ray_origins_object_frame.device
+    )
     ray_samples = get_ray_samples(
         ray_origins_object_frame,
         identity_transform,

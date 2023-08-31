@@ -17,9 +17,6 @@ from enum import Enum, auto
 class BaseNerfDataConfig:
     """Top-level config for NeRF data generation."""
 
-    dexgraspnet_meshdata_root: pathlib.Path = (
-        dexgraspnet_data_root / "2023-08-29_meshdata_trial"
-    )
     dexgraspnet_data_root: pathlib.Path = (
         pathlib.Path(nerf_grasping.get_repo_root()) / "data"
     )

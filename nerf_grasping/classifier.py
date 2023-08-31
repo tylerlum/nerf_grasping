@@ -31,7 +31,7 @@ class Classifier(nn.Module):
         return hardcoded_output
 
     def get_success_logits(self, batch_data_input: BatchDataInput) -> torch.Tensor:
-        return self.forward(batch_data_input)
+        return self(batch_data_input)
 
     def get_failure_probability(self, batch_data_input: BatchDataInput) -> torch.Tensor:
         logits = self.get_success_logits(batch_data_input)

@@ -400,6 +400,10 @@ class GraspMetric(torch.nn.Module):
         # Pass grasp transforms, densities into classifier.
         return self.classifier_model.get_failure_probability(batch_data_input)
 
+    def get_failure_probability(self, grasp_config: AllegroGraspConfig):
+        return self(grasp_config)
+
+
 
 class IndexingDataset(torch.utils.data.Dataset):
     def __init__(self, num_datapoints: int):

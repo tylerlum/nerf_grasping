@@ -173,7 +173,7 @@ class SGDOptimizer(Optimizer):
 
     @property
     def grasp_scores(self) -> torch.tensor:
-        return self.grasp_metric(self.grasp_config)
+        return self.grasp_metric.get_failure_probability(self.grasp_config)
 
 
 def run_optimizer_loop(

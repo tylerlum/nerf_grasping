@@ -20,8 +20,21 @@ class Classifier(nn.Module):
         nerf_densities = batch_data_input.nerf_densities
         batch_size = nerf_densities.shape[0]
 
+        # TODO: I think we can actually assert this
+        # since the fingertip configs are in the batch data input.
+        # assert nerf_densities.shape == (
+        #     batch_size,
+        #     NUM_FINGERS,
+        #     NUM_PTS_X,
+        #     NUM_PTS_Y,
+        #     NUM_PTS_Z,
+        # )
+
         grasp_transforms = batch_data_input.grasp_transforms
         assert grasp_transforms.ltype == pp.SE3_type
+
+        # TODO: see above, I think we can do the assert.
+        # assert grasp_transforms.lshape == (batch_size, NUM_FINGERS)
 
         hardcoded_output = torch.zeros(
             batch_size, dtype=nerf_densities.dtype, device=nerf_densities.device

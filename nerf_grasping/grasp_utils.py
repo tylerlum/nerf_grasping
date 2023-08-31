@@ -164,7 +164,7 @@ def get_ray_samples(
     return ray_bundles.get_ray_samples(sample_dists, sample_dists)
 
 
-def get_nerf_configs(nerf_checkpoints_path: str) -> List[str]:
+def get_nerf_configs(nerf_checkpoints_path: str) -> List[pathlib.Path]:
     return list(pathlib.Path(nerf_checkpoints_path).rglob("config.yml"))
 
 

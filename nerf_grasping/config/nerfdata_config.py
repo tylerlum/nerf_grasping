@@ -36,7 +36,7 @@ class BaseNerfDataConfig:
     save_dataset: bool = True
     print_timing: bool = True
     limit_num_configs: Optional[int] = None  # None for no limit
-    max_num_data_points_per_file: int = 2500
+    max_num_data_points_per_file: Optional[int] = None # None for count actual num data points
     plot_all_high_density_points: bool = True
     plot_alphas_each_finger_1D: bool = True
     plot_alpha_images_each_finger: bool = True

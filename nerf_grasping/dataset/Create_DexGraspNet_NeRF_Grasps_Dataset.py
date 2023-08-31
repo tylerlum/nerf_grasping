@@ -105,6 +105,32 @@ def parse_nerf_config(nerf_config: pathlib.Path) -> str:
     object_code_and_scale_str = parts[-4]
     return object_code_and_scale_str
 
+def count_total_num_grasps(nerf_configs: List[pathlib.Path]) -> int:
+    ACTUALLY_COUNT_ALL = False
+    total_num_grasps = 0
+
+    for config in tqdm(nerf_configs, desc="counting num grasps", dynamic_ncols=True):
+        # Read in grasp data
+        object_code_and_scale_str = parse_nerf_config(config)
+        object_code, object_scale = parse_object_code_and_scale(
+            object_code_and_scale_str
+        )
+        evaled_grasp_config_dicts_filepath = (
+            cfg.evaled_grasp_config_dicts_path / f"{object_code_and_scale_str}.npy"
+        )
+        assert evaled_grasp_config_dicts_filepath.exists(), f"evaled_grasp_config_dicts_filepath {evaled_grasp_config_dicts_filepath} does not exist"
+        evaled_grasp_config_dicts: List[Dict[str, Any]] = np.load(
+            evaled_grasp_config_dicts_filepath, allow_pickle=True
+        )
+
+        # Count num_grasps
+        num_grasps = len(evaled_grasp_config_dicts)
+        if not ACTUALLY_COUNT_ALL:
+            return num_grasps * len(nerf_configs)
+
+        total_num_grasps += num_grasps
+    return total_num_grasps
+
 
 # WEIRD HACK SO YOU CAN STILL RUN VSC JUPYTER CELLS.
 # %%
@@ -148,7 +174,11 @@ if cfg.limit_num_configs is not None:
     print(f"Limiting number of configs to {cfg.limit_num_configs}")
 nerf_configs = nerf_configs[: cfg.limit_num_configs]
 
-max_num_datapoints = len(nerf_configs) * cfg.max_num_data_points_per_file
+if cfg.max_num_data_points_per_file is not None:
+    max_num_datapoints = len(nerf_configs) * cfg.max_num_data_points_per_file
+else:
+    max_num_datapoints = count_total_num_grasps(nerf_configs)
+
 print(f"max num datapoints: {max_num_datapoints}")
 
 # %%
@@ -316,7 +346,7 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
             )
 
             # Check that mesh and grasp dataset exist
-            assert os.path.exists(mesh_path), f"mesh_path {mesh_path} does not exist"
+            assert mesh_path.exists(), f"mesh_path {mesh_path} does not exist"
             assert os.path.exists(
                 evaled_grasp_config_dicts_filepath
             ), f"evaled_grasp_config_dicts_filepath {evaled_grasp_config_dicts_filepath} does not exist"
@@ -344,7 +374,7 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                 cfg.grasp_visualize_index : cfg.grasp_visualize_index + 1
             ]
 
-        if len(evaled_grasp_config_dicts) > cfg.max_num_data_points_per_file:
+        if cfg.max_num_data_points_per_file is not None and len(evaled_grasp_config_dicts) > cfg.max_num_data_points_per_file:
             print(
                 "WARNING: Too many grasp configs, dropping some datapoints from NeRF dataset."
             )

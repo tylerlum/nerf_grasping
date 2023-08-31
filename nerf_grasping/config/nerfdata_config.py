@@ -22,7 +22,9 @@ class NerfDataConfig:
         # pathlib.Path(nerf_grasping.get_repo_root()) / "data"
         pathlib.Path(nerf_grasping.get_repo_root())
     )
-    dexgraspnet_meshdata_root: pathlib.Path = dexgraspnet_data_root / "2023-08-29_meshdata_trial"
+    dexgraspnet_meshdata_root: pathlib.Path = (
+        dexgraspnet_data_root / "2023-08-29_meshdata_trial"
+    )
     evaled_grasp_config_dicts_path: pathlib.Path = (
         dexgraspnet_data_root / "2023-08-29_evaled_grasp_config_dicts_trial"
     )
@@ -38,7 +40,6 @@ class NerfDataConfig:
     plot_all_high_density_points: bool = True
     plot_alphas_each_finger_1D: bool = True
     plot_alpha_images_each_finger: bool = True
-    config_filepath: Optional[pathlib.Path] = None
 
     def __post_init__(self):
         if self.output_filepath is None:
@@ -48,8 +49,10 @@ class NerfDataConfig:
                 )
                 / f"{CONFIG_DATETIME_STR}_learned_metric_dataset.h5"
             )
-        if self.config_filepath is None:
-            self.config_filepath = self.output_filepath.parent / "config.yml"
+
+    @property
+    def config_filepath(self) -> pathlib.Path:
+        return self.output_filepath.parent / "config.yml"
 
 
 if __name__ == "__main__":

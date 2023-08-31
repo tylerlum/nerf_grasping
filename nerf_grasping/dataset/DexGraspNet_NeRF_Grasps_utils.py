@@ -9,7 +9,13 @@ import plotly.graph_objects as go
 import nerf_grasping
 import nerfstudio
 from matplotlib import pyplot as plt
-from nerf_grasping.grasp_utils import NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z, get_ray_samples, get_ray_origins_finger_frame_helper
+from nerf_grasping.grasp_utils import (
+    NUM_PTS_X,
+    NUM_PTS_Y,
+    NUM_PTS_Z,
+    get_ray_samples,
+    get_ray_origins_finger_frame_helper,
+)
 from nerfstudio.cameras.rays import RayBundle, RaySamples
 
 
@@ -242,9 +248,10 @@ def get_ray_samples_in_mesh_region(
         num_pts_y=num_pts_y,
         finger_width_mm=finger_width_mm,
         finger_height_mm=finger_height_mm,
+        z_offset_mm=z_min * 1000,
     )
     assert ray_origins_object_frame.shape == (num_pts_x, num_pts_y, 3)
-    identity_transform = pp.identity_SE3(num_pts_x, num_pts_y).to(ray_origins_object_frame.device)
+    identity_transform = pp.identity_SE3(1).to(ray_origins_object_frame.device)
     ray_samples = get_ray_samples(
         ray_origins_object_frame,
         identity_transform,

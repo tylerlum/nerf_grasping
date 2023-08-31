@@ -15,7 +15,7 @@ from nerf_grasping.models.FiLM_resnet import (
 from nerf_grasping.models.FiLM_resnet_1d import ResNet1D
 from torchvision.transforms import Lambda, Compose
 from enum import Enum, auto
-from functools import partial, cached_property
+from functools import partial, cached_property, lru_cache
 from positional_encodings.torch_encodings import PositionalEncoding1D, Summer
 from torchinfo import summary
 
@@ -367,8 +367,14 @@ class ConvEncoder2D(nn.Module):
             self.conv_2d = resnet34(weights=weights)
         elif resnet_type == "resnet_small":
             assert not self.use_pretrained
+            self.img_preprocess = Compose(
+                [Lambda(lambda x: x.repeat(1, 3, 1, 1))]
+            )
             self.conv_2d = resnet_small(weights=None)
         elif resnet_type == "resnet_smaller":
+            self.img_preprocess = Compose(
+                [Lambda(lambda x: x.repeat(1, 3, 1, 1))]
+            )
             assert not self.use_pretrained
             self.conv_2d = resnet_smaller(weights=None)
         else:
@@ -425,7 +431,7 @@ class ConvEncoder2D(nn.Module):
             else None
         )
 
-    @cached_property
+    @lru_cache
     def output_dim(self) -> int:
         # Compute output shape
         example_batch_size = 2
@@ -548,7 +554,7 @@ class ConvEncoder1D(nn.Module):
     def num_film_params(self) -> Optional[int]:
         return self.conv_1d.num_film_params
 
-    @cached_property
+    @lru_cache
     def output_dim(self) -> int:
         # Compute output shape
         example_batch_size = 2

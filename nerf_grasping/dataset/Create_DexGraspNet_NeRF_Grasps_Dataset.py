@@ -38,9 +38,10 @@ from nerf_grasping.dataset.DexGraspNet_NeRF_Grasps_utils import (
     plot_mesh_and_transforms,
     plot_mesh_and_high_density_points,
     get_ray_samples_in_mesh_region,
+    parse_object_code_and_scale,
 )
 from nerf_grasping.dataset.timers import LoopTimer
-from nerf_grasping.optimizer_utils import AllegroHandConfig
+from nerf_grasping.optimizer_utils import AllegroHandConfig, AllegroGraspConfig
 from nerf_grasping.grasp_utils import (
     get_ray_samples,
     get_ray_origins_finger_frame,
@@ -381,42 +382,12 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
             # TODO: Break up section timer into load/FK calls to see what's slowing us down.
             with loop_timer.add_section_timer("get_transforms"):
                 try:
-                    # TODO: Potentially clean this up using AllegroGraspConfig.from_grasp_config_dicts
-                    hand_config = AllegroHandConfig.from_hand_config_dicts(
+                    grasp_config = AllegroGraspConfig.from_grasp_config_dicts(
                         evaled_grasp_config_dicts[grasp_idx : grasp_idx + 1],
                     )
-                    fingertip_positions = (
-                        hand_config.get_fingertip_transforms()
-                        .translation()
-                        .squeeze(dim=0)
-                    )
-                    assert fingertip_positions.shape == (
-                        cfg.fingertip_config.n_fingers,
-                        3,
-                    )
-
-                    grasp_orientations = torch.tensor(
-                        evaled_grasp_config_dicts[grasp_idx]["grasp_orientations"],
-                        dtype=fingertip_positions.dtype,
-                        device=fingertip_positions.device,
-                    )
-                    assert grasp_orientations.shape == (
-                        cfg.fingertip_config.n_fingers,
-                        3,
-                        3,
-                    )
-                    grasp_orientations = pp.from_matrix(grasp_orientations, pp.SO3_type)
-
-                    transforms = pp.SE3(
-                        torch.cat(
-                            [
-                                fingertip_positions,
-                                grasp_orientations,
-                            ],
-                            dim=-1,
-                        )
-                    )
+                    transforms = grasp_config.grasp_frame_transforms.squeeze(dim=0)
                     assert transforms.lshape == (cfg.fingertip_config.n_fingers,)
+
                     transforms = [
                         transforms[i].detach().clone()
                         for i in range(cfg.fingertip_config.n_fingers)

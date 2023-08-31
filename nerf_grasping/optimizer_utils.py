@@ -151,6 +151,8 @@ class AllegroGraspConfig(torch.nn.Module):
 
         # NOTE: grasp orientations has a batch dim for fingers,
         # since we choose one grasp dir / finger.
+        # grasp_orientations refers to the orientation of each finger in world frame
+        # (i.e. the third column of grasp_orientations rotation matrix is the finger approach direction in world frame)
         self.grasp_orientations = pp.Parameter(
             pp.identity_SO3(batch_size, grasp_utils.NUM_FINGERS),
             requires_grad=requires_grad,
@@ -256,8 +258,6 @@ class AllegroGraspConfig(torch.nn.Module):
             grasp_config_dicts
         )
 
-        # TODO: Figure out if this needs to be modified
-        # Is grasp orientations relative to finger frame or world frame
         grasp_orientations_list = []
         for i in range(batch_size):
             grasp_config_dict = grasp_config_dicts[i]
@@ -320,7 +320,33 @@ class AllegroGraspConfig(torch.nn.Module):
     def grasp_frame_transforms(self) -> pp.LieTensor:
         """Returns SE(3) transforms for ``grasp frame'', i.e.,
         z-axis pointing along grasp direction."""
-        return self.fingertip_transforms @ SO3_to_SE3(self.grasp_orientations)
+        fingertip_positions = self.fingertip_transforms.translation()
+        assert fingertip_positions.shape == (
+            self.batch_size,
+            grasp_utils.NUM_FINGERS,
+            3,
+        )
+
+        grasp_orientations = self.grasp_orientations
+        assert grasp_orientations.lshape == (
+            self.batch_size,
+            grasp_utils.NUM_FINGERS,
+        )
+
+        transforms = pp.SE3(
+            torch.cat(
+                [
+                    fingertip_positions,
+                    grasp_orientations,
+                ],
+                dim=-1,
+            )
+        )
+        assert transforms.lshape == (
+            self.batch_size,
+            grasp_utils.NUM_FINGERS,
+        )
+        return transforms
 
     @property
     def grasp_dirs(self) -> torch.Tensor:  # shape [B, 4, 3].
@@ -335,7 +361,11 @@ class GraspMetric(torch.nn.Module):
     a particular AllegroGraspConfig.
     """
 
-    def __init__(self, nerf_model: nerfstudio.models.base_model.Model, classifier_model: Classifier):
+    def __init__(
+        self,
+        nerf_model: nerfstudio.models.base_model.Model,
+        classifier_model: Classifier,
+    ):
         super().__init__()
         self.nerf_model = nerf_model
         self.classifier_model = classifier_model

@@ -398,11 +398,7 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
 
 # %%
 
-input_dataset_full_path = os.path.join(
-    nerf_grasping.get_repo_root(),
-    cfg.data.input_dataset_root_dir,
-    cfg.data.input_dataset_path,
-)
+input_dataset_full_path = str(cfg.nerfdata_config.output_filepath)
 full_dataset = NeRFGrid_To_GraspSuccess_HDF5_Dataset(
     input_hdf5_filepath=input_dataset_full_path,
     max_num_data_points=cfg.data.max_num_data_points,
@@ -679,7 +675,11 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Pull out just the CNN (without wrapping for LieTorch) for training.
 assert cfg.model_config is not None
-nerf_to_grasp_success_model: Classifier = cfg.model_config.get_classifier().to(device)
+nerf_to_grasp_success_model: Classifier = (
+    cfg.model_config.get_classifier_from_fingertip_config(
+        cfg.nerfdata_config.fingertip_config
+    ).to(device)
+)
 
 # %%
 start_epoch = 0

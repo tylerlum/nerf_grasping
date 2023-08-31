@@ -1,7 +1,12 @@
 from dataclasses import dataclass, field
 from typing import Optional, Literal, Tuple, List, Union
 from nerf_grasping.config.fingertip_config import UnionFingertipConfig
-from nerf_grasping.classifier import CNN_3D_XYZ_Classifier, CNN_2D_1D_Classifier
+from nerf_grasping.classifier import (
+    CNN_3D_XYZ_Classifier,
+    CNN_2D_1D_Classifier,
+    Simple_CNN_2D_1D_Classifier,
+    Classifier,
+)
 from nerf_grasping.config.base import WandbConfig, CONFIG_DATETIME_STR
 from nerf_grasping.config.nerfdata_config import NerfDataConfig
 import tyro
@@ -16,14 +21,6 @@ class ClassifierDataConfig:
     frac_test: float = 0.1
     frac_train: float = 1 - frac_val - frac_test
 
-    input_dataset_root_dir: str = (
-        "data/2023-08-29_evaled_grasp_config_dicts_trial_big_learned_metric_dataset"
-    )
-    """Root directory of the input dataset."""
-
-    input_dataset_path: str = "2023-08-30_01-56-21_learned_metric_dataset.h5"
-    """Name of the input dataset file, within the root directory."""
-
     max_num_data_points: Optional[int] = None
     """Maximum number of data points to use from the dataset. If None, use all."""
 
@@ -36,6 +33,7 @@ class ClassifierDataLoaderConfig:
     """Parameters for dataloader."""
 
     batch_size: int = 32
+
 
     num_workers: int = 8
     """Number of workers for the dataloader."""
@@ -120,12 +118,9 @@ class CheckpointWorkspaceConfig:
 class ClassifierModelConfig:
     """Default (abstract) parameters for the classifier."""
 
-    @classmethod
-    def from_fingertip_config(fingertip_config: UnionFingertipConfig, **kwargs):
-        """Helper method to create a classifier config from a fingertip config."""
-        raise NotImplementedError("Implement in subclass.")
-
-    def get_classifier(self):
+    def get_classifier_from_fingertip_config(
+        self, fingertip_config: UnionFingertipConfig
+    ) -> Classifier:
         """Helper method to return the correct classifier from config."""
         raise NotImplementedError("Implement in subclass.")
 
@@ -133,9 +128,6 @@ class ClassifierModelConfig:
 @dataclass(frozen=True)
 class CNN_3D_XYZ_ModelConfig(ClassifierModelConfig):
     """Parameters for the CNN_3D_XYZ_Classifier."""
-
-    input_shape: List[int]
-    """Shape of the input to the classifier."""
 
     conv_channels: List[int]
     """List of channels for each convolutional layer. Length specifies number of layers."""
@@ -146,76 +138,60 @@ class CNN_3D_XYZ_ModelConfig(ClassifierModelConfig):
     n_fingers: int = 4
     """Number of fingers."""
 
-    @classmethod
-    def from_fingertip_config(
-        cls,
-        fingertip_config: UnionFingertipConfig,
-        conv_channels=[32, 64, 128],
-        mlp_hidden_layers=[256, 256],
-    ):
-        """Helper method to create a classifier config from a fingertip config."""
+    def input_shape_from_fingertip_config(self, fingertip_config: UnionFingertipConfig):
+        return [
+            4,
+            fingertip_config.num_pts_x,
+            fingertip_config.num_pts_y,
+            fingertip_config.num_pts_z,
+        ]
 
-        return cls(
-            input_shape=[
-                4,
-                fingertip_config.num_pts_x,
-                fingertip_config.num_pts_y,
-                fingertip_config.num_pts_z,
-            ],
-            conv_channels=conv_channels,
-            mlp_hidden_layers=mlp_hidden_layers,
-            n_fingers=fingertip_config.n_fingers,
-        )
-
-    def get_classifier(self):
+    def get_classifier_from_fingertip_config(
+        self, fingertip_config: UnionFingertipConfig
+    ) -> Classifier:
         """Helper method to return the correct classifier from config."""
 
+        input_shape = self.input_shape_from_fingertip_config(fingertip_config)
         return CNN_3D_XYZ_Classifier(
-            input_shape=self.input_shape,
-            n_fingers=self.n_fingers,
+            input_shape=input_shape,
+            n_fingers=fingertip_config.n_fingers,
             conv_channels=self.conv_channels,
             mlp_hidden_layers=self.mlp_hidden_layers,
         )
+
+
+# TODO(pculbert): fix.
+# UnionClassifierModelConfig = Union[
+#     CNN_3D_XYZ_ModelConfig, ClassifierModelConfig
+# ]  # Passing none here so union is valid.
 
 
 @dataclass(frozen=True)
 class CNN_2D_1D_ModelConfig(ClassifierModelConfig):
     """Parameters for the CNN_2D_1D_Classifier."""
 
-    grid_shape: Tuple[int, int, int] = (32, 32, 32)
-    n_fingers: int = 4
+    conv_2d_film_hidden_layers: List[int]
+    mlp_hidden_layers: List[int]
     conditioning_dim: int = 7
-    conv_2d_film_hidden_layers: Tuple[int, ...] = (256, 256)
-    mlp_hidden_layers: Tuple[int, ...] = (256, 256)
+    n_fingers: int = 4
 
     @classmethod
-    def from_fingertip_config(
-        cls,
-        fingertip_config: UnionFingertipConfig,
-        conditioning_dim: int = 7,
-        conv_2d_film_hidden_layers: Tuple[int, ...] = (256, 256),
-        mlp_hidden_layers: Tuple[int, ...]= (256, 256),
-    ):
-        """Helper method to create a classifier config from a fingertip config."""
+    def grid_shape_from_fingertip_config(
+        self, fingertip_config: UnionFingertipConfig
+    ) -> List[int]:
+        return [
+            fingertip_config.num_pts_x,
+            fingertip_config.num_pts_y,
+            fingertip_config.num_pts_z,
+        ]
 
-        print(cls) # TODO REMOVE
-        return cls(
-            grid_shape=(
-                fingertip_config.num_pts_x,
-                fingertip_config.num_pts_y,
-                fingertip_config.num_pts_z,
-            ),
-            n_fingers=fingertip_config.n_fingers,
-            conditioning_dim=conditioning_dim,
-            conv_2d_film_hidden_layers=conv_2d_film_hidden_layers,
-            mlp_hidden_layers=mlp_hidden_layers,
-        )
-
-    def get_classifier(self):
+    def get_classifier_from_fingertip_config(
+        self, fingertip_config: UnionFingertipConfig
+    ) -> Classifier:
         """Helper method to return the correct classifier from config."""
 
         return CNN_2D_1D_Classifier(
-            grid_shape=self.grid_shape,
+            grid_shape=self.grid_shape_from_fingertip_config(fingertip_config),
             n_fingers=self.n_fingers,
             conditioning_dim=self.conditioning_dim,
             conv_2d_film_hidden_layers=self.conv_2d_film_hidden_layers,
@@ -223,20 +199,72 @@ class CNN_2D_1D_ModelConfig(ClassifierModelConfig):
         )
 
 
-UnionClassifierModelConfig = Union[
-    CNN_3D_XYZ_ModelConfig, CNN_2D_1D_ModelConfig
-]  # Passing none here so union is valid.
+@dataclass(frozen=True)
+class Simple_CNN_2D_1D_ModelConfig(ClassifierModelConfig):
+    mlp_hidden_layers: List[int]
+    conv_2d_channels: List[int]
+    conv_1d_channels: List[int]
+    film_2d_hidden_layers: List[int]
+    film_1d_hidden_layers: List[int]
+    mlp_hidden_layers: List[int]
+    conditioning_dim: int = 7
+    n_fingers: int = 4
+
+    @classmethod
+    def grid_shape_from_fingertip_config(
+        self, fingertip_config: UnionFingertipConfig
+    ) -> List[int]:
+        return [
+            fingertip_config.num_pts_x,
+            fingertip_config.num_pts_y,
+            fingertip_config.num_pts_z,
+        ]
+
+    def get_classifier_from_fingertip_config(
+        self, fingertip_config: UnionFingertipConfig
+    ) -> Classifier:
+        """Helper method to return the correct classifier from config."""
+
+        return Simple_CNN_2D_1D_Classifier(
+            grid_shape=self.grid_shape_from_fingertip_config(fingertip_config),
+            n_fingers=self.n_fingers,
+            conditioning_dim=self.conditioning_dim,
+            mlp_hidden_layers=self.mlp_hidden_layers,
+            conv_2d_channels=self.conv_2d_channels,
+            conv_1d_channels=self.conv_1d_channels,
+            film_2d_hidden_layers=self.film_2d_hidden_layers,
+            film_1d_hidden_layers=self.film_1d_hidden_layers,
+        )
+
+
+UnionClassifierModelConfig = tyro.extras.subcommand_type_from_defaults(
+    {
+        "cnn_3d_xyz": CNN_3D_XYZ_ModelConfig(
+            conv_channels=[32, 64, 128], mlp_hidden_layers=[256, 256]
+        ),
+        "cnn_2d_1d": CNN_2D_1D_ModelConfig(
+            conv_2d_film_hidden_layers=[256, 256], mlp_hidden_layers=[256, 256]
+        ),
+        "simple_cnn_2d_1d": Simple_CNN_2D_1D_ModelConfig(
+            mlp_hidden_layers=[32, 32],
+            conv_2d_channels=[32, 64, 128],
+            conv_1d_channels=[32, 32],
+            film_2d_hidden_layers=[32, 32],
+            film_1d_hidden_layers=[32, 32],
+        ),
+    }
+)
 
 
 @dataclass
 class ClassifierConfig:
-    data: ClassifierDataConfig = ClassifierDataConfig()
-    nerfdata_config: NerfDataConfig = NerfDataConfig()
-    dataloader: ClassifierDataLoaderConfig = ClassifierDataLoaderConfig()
-    training: ClassifierTrainingConfig = ClassifierTrainingConfig()
-    checkpoint_workspace: CheckpointWorkspaceConfig = CheckpointWorkspaceConfig()
-    nerfdata_cfg_path: Optional[pathlib.Path] = None
-    model_config: Optional[UnionClassifierModelConfig] = None
+    model_config: UnionClassifierModelConfig
+    data: ClassifierDataConfig
+    nerfdata_config: NerfDataConfig
+    dataloader: ClassifierDataLoaderConfig
+    training: ClassifierTrainingConfig
+    checkpoint_workspace: CheckpointWorkspaceConfig
+    nerfdata_cfg_path: Optional[pathlib.Path]
 
     wandb: WandbConfig = field(
         default_factory=lambda: WandbConfig(
@@ -268,14 +296,6 @@ class ClassifierConfig:
             )
         else:
             print("Loading default nerfdata config")
-
-        if self.model_config is None:
-            # self.model_config = CNN_3D_XYZ_ModelConfig.from_fingertip_config(
-            #     fingertip_config=self.nerfdata_config.fingertip_config
-            # )
-            self.model_config = CNN_2D_1D_ModelConfig.from_fingertip_config(
-                fingertip_config=self.nerfdata_config.fingertip_config
-            )
 
 
 if __name__ == "__main__":

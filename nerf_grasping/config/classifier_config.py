@@ -1,7 +1,8 @@
+from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional, Literal, Tuple, List, Union
 from nerf_grasping.config.fingertip_config import UnionFingertipConfig
-from nerf_grasping.classifier import CNN_3D_XYZ_Classifier, CNN_2D_1D_Classifier
+from nerf_grasping.classifier import CNN_3D_XYZ_Classifier, CNN_2D_1D_Classifier, Classifier
 from nerf_grasping.config.base import WandbConfig, CONFIG_DATETIME_STR
 from nerf_grasping.config.nerfdata_config import NerfDataConfig
 import tyro
@@ -121,11 +122,11 @@ class ClassifierModelConfig:
     """Default (abstract) parameters for the classifier."""
 
     @classmethod
-    def from_fingertip_config(fingertip_config: UnionFingertipConfig, **kwargs):
+    def from_fingertip_config(fingertip_config: UnionFingertipConfig, **kwargs) -> ClassifierModelConfig:
         """Helper method to create a classifier config from a fingertip config."""
         raise NotImplementedError("Implement in subclass.")
 
-    def get_classifier(self):
+    def get_classifier(self) -> Classifier:
         """Helper method to return the correct classifier from config."""
         raise NotImplementedError("Implement in subclass.")
 
@@ -152,7 +153,7 @@ class CNN_3D_XYZ_ModelConfig(ClassifierModelConfig):
         fingertip_config: UnionFingertipConfig,
         conv_channels=[32, 64, 128],
         mlp_hidden_layers=[256, 256],
-    ):
+    ) -> CNN_3D_XYZ_ModelConfig:
         """Helper method to create a classifier config from a fingertip config."""
 
         return cls(
@@ -167,7 +168,7 @@ class CNN_3D_XYZ_ModelConfig(ClassifierModelConfig):
             n_fingers=fingertip_config.n_fingers,
         )
 
-    def get_classifier(self):
+    def get_classifier(self) -> Classifier:
         """Helper method to return the correct classifier from config."""
 
         return CNN_3D_XYZ_Classifier(
@@ -195,7 +196,7 @@ class CNN_2D_1D_ModelConfig(ClassifierModelConfig):
         conditioning_dim: int = 7,
         conv_2d_film_hidden_layers: Tuple[int, ...] = (256, 256),
         mlp_hidden_layers: Tuple[int, ...]= (256, 256),
-    ):
+    ) -> CNN_2D_1D_ModelConfig:
         """Helper method to create a classifier config from a fingertip config."""
 
         print(cls) # TODO REMOVE
@@ -211,7 +212,7 @@ class CNN_2D_1D_ModelConfig(ClassifierModelConfig):
             mlp_hidden_layers=mlp_hidden_layers,
         )
 
-    def get_classifier(self):
+    def get_classifier(self) -> Classifier:
         """Helper method to return the correct classifier from config."""
 
         return CNN_2D_1D_Classifier(

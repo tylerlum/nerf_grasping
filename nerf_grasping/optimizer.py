@@ -23,7 +23,6 @@ from rich.console import Console
 from rich.table import Table
 
 from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
-from tap import Tap
 
 PRINT_FREQ = 5
 
@@ -146,7 +145,7 @@ class SGDOptimizer(Optimizer):
                     checkpoint_path / f"checkpoint_{classifier_checkpoint:04}.pt"
                 )
 
-            cnn.model.load_state_dict(
+            cnn.load_state_dict(
                 torch.load(checkpoint_path)["nerf_to_grasp_success_model"]
             )
 

@@ -25,6 +25,7 @@ from rich.table import Table
 from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 
 PRINT_FREQ = 5
+SAVE_GRASPS_FREQ = 5
 
 
 def is_notebook() -> bool:
@@ -222,6 +223,31 @@ def run_optimizer_loop(
             if wandb.run is not None:
                 wandb.log(wandb_log_dict)
 
+            if iter % SAVE_GRASPS_FREQ == 0:
+                # Save mid optimization grasps to file
+                grasp_config_dicts = optimizer.grasp_config.as_dicts()
+                for ii, dd in enumerate(grasp_config_dicts):
+                    dd["score"] = optimizer.grasp_scores[ii].item()
+
+                # To interface with mid optimization visualizer, need to create new folder (mid_optimization_folder_path)
+                # that only has folders with iteration number (no other files)
+                # TODO: Decide if this should just store in cfg.output_path.parent (does this cause issues?) or store in new folder
+                # <mid_optimization_folder_path>
+                #    - 0
+                #        - <object_code_and_scale_str>.py
+                #    - x
+                #        - <object_code_and_scale_str>.py
+                #    - 2x
+                #        - <object_code_and_scale_str>.py
+                #    - 3x
+                #        - <object_code_and_scale_str>.py
+                main_output_folder_path, filename = cfg.output_path.parent, cfg.output_path.name
+                mid_optimization_folder_path = main_output_folder_path.parent / f"{main_output_folder_path.name}_mid"
+                this_iter_folder_path = mid_optimization_folder_path / f"{iter}"
+                this_iter_folder_path.mkdir(parents=True)
+                print(f"Saving mid opt grasp configs to {this_iter_folder_path}")
+                np.save(this_iter_folder_path / filename, grasp_config_dicts)
+
     # Sort grasp scores and configs by score.
     _, sort_indices = torch.sort(optimizer.grasp_scores, descending=False)
     return (
@@ -258,29 +284,36 @@ def main(cfg: GraspMetricConfig) -> None:
         grasp_config_dicts = np.load(
             cfg.init_grasp_config_dicts_path, allow_pickle=True
         )
-        init_grasps = AllegroGraspConfig.from_grasp_config_dicts(grasp_config_dicts)
-        # Get indices of preferred split.
-        train_inds, val_inds, test_inds = get_split_inds(
-            init_grasps.batch_size,
-            [
-                cfg.classifier_config.data.frac_train,
-                cfg.classifier_config.data.frac_val,
-                cfg.classifier_config.data.frac_test,
-            ],
-            cfg.classifier_config.random_seed,
-        )
 
-        if cfg.grasp_split == "train":
-            data_inds = train_inds
-        elif cfg.grasp_split == "val":
-            data_inds = val_inds
-        elif cfg.grasp_split == "test":
-            data_inds = test_inds
+        ONLY_OPTIMIZE_ONE = False
+        if ONLY_OPTIMIZE_ONE:
+            # For faster reading in file and easier to visualize results
+            init_grasps = AllegroGraspConfig.from_grasp_config_dicts(grasp_config_dicts[:1])
         else:
-            raise ValueError(f"Invalid grasp_split: {cfg.grasp_split}")
+            init_grasps = AllegroGraspConfig.from_grasp_config_dicts(grasp_config_dicts)
 
-        data_inds = np.random.choice(data_inds, size=cfg.optimizer.num_grasps)
-        init_grasps = init_grasps[data_inds]
+            # Get indices of preferred split.
+            train_inds, val_inds, test_inds = get_split_inds(
+                init_grasps.batch_size,
+                [
+                    cfg.classifier_config.data.frac_train,
+                    cfg.classifier_config.data.frac_val,
+                    cfg.classifier_config.data.frac_test,
+                ],
+                cfg.classifier_config.random_seed,
+            )
+
+            if cfg.grasp_split == "train":
+                data_inds = train_inds
+            elif cfg.grasp_split == "val":
+                data_inds = val_inds
+            elif cfg.grasp_split == "test":
+                data_inds = test_inds
+            else:
+                raise ValueError(f"Invalid grasp_split: {cfg.grasp_split}")
+
+            data_inds = np.random.choice(data_inds, size=cfg.optimizer.num_grasps)
+            init_grasps = init_grasps[data_inds]
         progress.update(task, advance=1)
 
     # Create SGDOptimizer.

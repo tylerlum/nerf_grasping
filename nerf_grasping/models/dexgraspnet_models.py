@@ -83,7 +83,7 @@ class CNN_3D_Model(nn.Module):
         return x
 
     def get_success_logits(self, x: torch.Tensor) -> torch.Tensor:
-        return self.forward(x)
+        return self(x)
 
     def get_success_probability(self, x: torch.Tensor) -> torch.Tensor:
         return nn.functional.softmax(self.get_success_logits(x), dim=-1)
@@ -241,7 +241,7 @@ class CNN_2D_1D_Model(nn.Module):
     def get_success_logits(
         self, x: torch.Tensor, conditioning: torch.Tensor
     ) -> torch.Tensor:
-        return self.forward(x, conditioning=conditioning)
+        return self(x, conditioning=conditioning)
 
     def get_success_probability(self, x: torch.Tensor) -> torch.Tensor:
         return nn.functional.softmax(self.get_success_logits(x), dim=-1)

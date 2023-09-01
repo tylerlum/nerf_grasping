@@ -39,6 +39,20 @@ def get_object_code(cfg_path: pathlib.Path) -> str:
     object_code = obj_str[:idx]
     return object_code
 
+def parse_object_code_and_scale(object_code_and_scale_str: str) -> Tuple[str, float]:
+    # Input: sem-Gun-4745991e7c0c7966a93f1ea6ebdeec6f_0_10
+    # Output: sem-Gun-4745991e7c0c7966a93f1ea6ebdeec6f, 0.10
+    keyword = "_0_"
+    idx = object_code_and_scale_str.rfind(keyword)
+    object_code = object_code_and_scale_str[:idx]
+
+    idx_offset_for_scale = keyword.index("0")
+    object_scale = float(
+        object_code_and_scale_str[idx + idx_offset_for_scale :].replace("_", ".")
+    )
+    return object_code, object_scale
+
+
 
 def get_scene_dict() -> Dict[str, Any]:
     return dict(

@@ -38,9 +38,10 @@ from nerf_grasping.dataset.DexGraspNet_NeRF_Grasps_utils import (
     plot_mesh_and_transforms,
     plot_mesh_and_high_density_points,
     get_ray_samples_in_mesh_region,
+    parse_object_code_and_scale,
 )
 from nerf_grasping.dataset.timers import LoopTimer
-from nerf_grasping.optimizer_utils import AllegroHandConfig
+from nerf_grasping.optimizer_utils import AllegroHandConfig, AllegroGraspConfig
 from nerf_grasping.grasp_utils import (
     get_ray_samples,
     get_ray_origins_finger_frame,
@@ -84,26 +85,44 @@ tqdm = partial(std_tqdm, dynamic_ncols=True)
 
 
 # %%
-def parse_object_code_and_scale(object_code_and_scale_str: str) -> Tuple[str, float]:
-    # Input: sem-Gun-4745991e7c0c7966a93f1ea6ebdeec6f_0_10
-    # Output: sem-Gun-4745991e7c0c7966a93f1ea6ebdeec6f, 0.10
-    keyword = "_0_"
-    idx = object_code_and_scale_str.rfind(keyword)
-    object_code = object_code_and_scale_str[:idx]
-
-    idx_offset_for_scale = keyword.index("0")
-    object_scale = float(
-        object_code_and_scale_str[idx + idx_offset_for_scale :].replace("_", ".")
-    )
-    return object_code, object_scale
-
-
 def parse_nerf_config(nerf_config: pathlib.Path) -> str:
     # Input: PosixPath('2023-08-25_nerfcheckpoints/sem-Gun-4745991e7c0c7966a93f1ea6ebdeec6f_0_10/nerfacto/2023-08-25_132225/config.yml')
     # Return sem-Gun-4745991e7c0c7966a93f1ea6ebdeec6f_0_10
     parts = nerf_config.parts
     object_code_and_scale_str = parts[-4]
     return object_code_and_scale_str
+
+
+def count_total_num_grasps(nerf_configs: List[pathlib.Path]) -> int:
+    ACTUALLY_COUNT_ALL = False
+    total_num_grasps = 0
+
+    for config in tqdm(nerf_configs, desc="counting num grasps", dynamic_ncols=True):
+        # Read in grasp data
+        object_code_and_scale_str = parse_nerf_config(config)
+        object_code, object_scale = parse_object_code_and_scale(
+            object_code_and_scale_str
+        )
+        evaled_grasp_config_dicts_filepath = (
+            cfg.evaled_grasp_config_dicts_path / f"{object_code_and_scale_str}.npy"
+        )
+        assert (
+            evaled_grasp_config_dicts_filepath.exists()
+        ), f"evaled_grasp_config_dicts_filepath {evaled_grasp_config_dicts_filepath} does not exist"
+        evaled_grasp_config_dicts: List[Dict[str, Any]] = np.load(
+            evaled_grasp_config_dicts_filepath, allow_pickle=True
+        )
+
+        # Count num_grasps
+        num_grasps = len(evaled_grasp_config_dicts)
+        if not ACTUALLY_COUNT_ALL:
+            print(
+                f"assuming all {len(nerf_configs)} evaled grasp config dicts have {num_grasps} grasps"
+            )
+            return num_grasps * len(nerf_configs)
+
+        total_num_grasps += num_grasps
+    return total_num_grasps
 
 
 # WEIRD HACK SO YOU CAN STILL RUN VSC JUPYTER CELLS.
@@ -148,7 +167,11 @@ if cfg.limit_num_configs is not None:
     print(f"Limiting number of configs to {cfg.limit_num_configs}")
 nerf_configs = nerf_configs[: cfg.limit_num_configs]
 
-max_num_datapoints = len(nerf_configs) * cfg.max_num_data_points_per_file
+if cfg.max_num_data_points_per_file is not None:
+    max_num_datapoints = len(nerf_configs) * cfg.max_num_data_points_per_file
+else:
+    max_num_datapoints = count_total_num_grasps(nerf_configs)
+
 print(f"max num datapoints: {max_num_datapoints}")
 
 # %%
@@ -316,7 +339,7 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
             )
 
             # Check that mesh and grasp dataset exist
-            assert os.path.exists(mesh_path), f"mesh_path {mesh_path} does not exist"
+            assert mesh_path.exists(), f"mesh_path {mesh_path} does not exist"
             assert os.path.exists(
                 evaled_grasp_config_dicts_filepath
             ), f"evaled_grasp_config_dicts_filepath {evaled_grasp_config_dicts_filepath} does not exist"
@@ -344,7 +367,10 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                 cfg.grasp_visualize_index : cfg.grasp_visualize_index + 1
             ]
 
-        if len(evaled_grasp_config_dicts) > cfg.max_num_data_points_per_file:
+        if (
+            cfg.max_num_data_points_per_file is not None
+            and len(evaled_grasp_config_dicts) > cfg.max_num_data_points_per_file
+        ):
             print(
                 "WARNING: Too many grasp configs, dropping some datapoints from NeRF dataset."
             )
@@ -365,42 +391,12 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
             # TODO: Break up section timer into load/FK calls to see what's slowing us down.
             with loop_timer.add_section_timer("get_transforms"):
                 try:
-                    # TODO: Potentially clean this up using AllegroGraspConfig.from_grasp_config_dicts
-                    hand_config = AllegroHandConfig.from_hand_config_dicts(
+                    grasp_config = AllegroGraspConfig.from_grasp_config_dicts(
                         evaled_grasp_config_dicts[grasp_idx : grasp_idx + 1],
                     )
-                    fingertip_positions = (
-                        hand_config.get_fingertip_transforms()
-                        .translation()
-                        .squeeze(dim=0)
-                    )
-                    assert fingertip_positions.shape == (
-                        cfg.fingertip_config.n_fingers,
-                        3,
-                    )
-
-                    grasp_orientations = torch.tensor(
-                        evaled_grasp_config_dicts[grasp_idx]["grasp_orientations"],
-                        dtype=fingertip_positions.dtype,
-                        device=fingertip_positions.device,
-                    )
-                    assert grasp_orientations.shape == (
-                        cfg.fingertip_config.n_fingers,
-                        3,
-                        3,
-                    )
-                    grasp_orientations = pp.from_matrix(grasp_orientations, pp.SO3_type)
-
-                    transforms = pp.SE3(
-                        torch.cat(
-                            [
-                                fingertip_positions,
-                                grasp_orientations,
-                            ],
-                            dim=-1,
-                        )
-                    )
+                    transforms = grasp_config.grasp_frame_transforms.squeeze(dim=0)
                     assert transforms.lshape == (cfg.fingertip_config.n_fingers,)
+
                     transforms = [
                         transforms[i].detach().clone()
                         for i in range(cfg.fingertip_config.n_fingers)

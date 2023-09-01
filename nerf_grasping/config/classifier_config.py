@@ -1,3 +1,4 @@
+from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional, Literal, Tuple, List, Union
 from nerf_grasping.config.fingertip_config import UnionFingertipConfig
@@ -41,7 +42,6 @@ class ClassifierDataLoaderConfig:
     """Parameters for dataloader."""
 
     batch_size: int = 32
-
 
     num_workers: int = 8
     """Number of workers for the dataloader."""
@@ -239,20 +239,15 @@ class Simple_CNN_2D_1D_ModelConfig(ClassifierModelConfig):
         )
 
 
-UnionClassifierModelConfig = Union[
-    CNN_2D_1D_ModelConfig, Simple_CNN_2D_1D_ModelConfig, CNN_3D_XYZ_ModelConfig
-]
-
-
 @dataclass
 class ClassifierConfig:
-    model_config: UnionClassifierModelConfig
+    model_config: ClassifierModelConfig
     nerfdata_config: UnionNerfDataConfig
+    nerfdata_cfg_path: Optional[pathlib.Path] = None
     data: ClassifierDataConfig = ClassifierDataConfig()
     dataloader: ClassifierDataLoaderConfig = ClassifierDataLoaderConfig()
     training: ClassifierTrainingConfig = ClassifierTrainingConfig()
     checkpoint_workspace: CheckpointWorkspaceConfig = CheckpointWorkspaceConfig()
-    nerfdata_cfg_path: Optional[pathlib.Path] = None
 
     wandb: WandbConfig = field(
         default_factory=lambda: WandbConfig(
@@ -275,15 +270,6 @@ class ClassifierConfig:
             self.nerfdata_config = tyro.extras.from_yaml(
                 type(self.nerfdata_config), self.nerfdata_cfg_path.open()
             )
-        elif self.nerfdata_config.config_filepath.exists():
-            print(
-                f"Loading nerfdata config from {self.nerfdata_config.config_filepath}"
-            )
-            self.nerfdata_config = tyro.extras.from_yaml(
-                type(self.nerfdata_config), self.nerfdata_config.config_filepath.open()
-            )
-        else:
-            print("Loading default nerfdata config")
 
 
 UnionClassifierConfig = tyro.extras.subcommand_type_from_defaults(

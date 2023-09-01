@@ -332,15 +332,12 @@ class AllegroGraspConfig(torch.nn.Module):
         fingertip_positions = self.fingertip_transforms.translation()
         assert fingertip_positions.shape == (
             self.batch_size,
-            grasp_utils.NUM_FINGERS,
+            self.num_fingers,
             3,
         )
 
         grasp_orientations = self.grasp_orientations
-        assert grasp_orientations.lshape == (
-            self.batch_size,
-            grasp_utils.NUM_FINGERS,
-        )
+        assert grasp_orientations.lshape == (self.batch_size, self.num_fingers)
 
         transforms = pp.SE3(
             torch.cat(
@@ -351,10 +348,7 @@ class AllegroGraspConfig(torch.nn.Module):
                 dim=-1,
             )
         )
-        assert transforms.lshape == (
-            self.batch_size,
-            grasp_utils.NUM_FINGERS,
-        )
+        assert transforms.lshape == (self.batch_size, self.num_fingers)
         return transforms
 
     @property

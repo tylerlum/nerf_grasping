@@ -41,7 +41,7 @@ class GraspMetricConfig:
         / "2023-08-29_nerfcheckpoints_trial"
         / "mug_0_1000"
         / "nerfacto"
-        / "2023-08-30_014749"
+        / "2023-08-25_130206"
         / "config.yml"
     )
     wandb: Optional[WandbConfig] = field(

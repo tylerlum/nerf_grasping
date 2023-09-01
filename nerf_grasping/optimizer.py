@@ -130,7 +130,9 @@ class SGDOptimizer(Optimizer):
             console=console,
         ) as progress:
             task = progress.add_task("Loading CNN", total=1)
-            cnn = classifier_config.model_config.get_classifier().to(device=device)
+            cnn = classifier_config.model_config.get_classifier_from_fingertip_config(
+                classifier_config.nerfdata_config.fingertip_config
+            ).to(device=device)
 
             # Load checkpoint if specified.
             checkpoint_path = (
@@ -226,7 +228,9 @@ class CEMOptimizer(Optimizer):
             console=console,
         ) as progress:
             task = progress.add_task("Loading CNN", total=1)
-            cnn = classifier_config.model_config.get_classifier().to(device=device)
+            cnn = classifier_config.model_config.get_classifier_from_fingertip_config(
+                classifier_config.nerfdata_config.fingertip_config
+            ).to(device=device)
 
             # Load checkpoint if specified.
             checkpoint_path = (
@@ -243,7 +247,7 @@ class CEMOptimizer(Optimizer):
                     checkpoint_path / f"checkpoint_{classifier_checkpoint:04}.pt"
                 )
 
-            cnn.model.load_state_dict(
+            cnn.load_state_dict(
                 torch.load(checkpoint_path)["nerf_to_grasp_success_model"]
             )
 

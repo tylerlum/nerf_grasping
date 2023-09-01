@@ -185,8 +185,7 @@ class CEMOptimizer(Optimizer):
         self,
         grasp_metric: GraspMetric,
         optimizer_config: CEMOptimizerConfig,
-        grasp_mean: AllegroGraspConfig,
-        grasp_cov: Tuple[torch.Tensor, torch.Tensor, torch.Tensor],
+        grasp_config: AllegroGraspConfig,
     ):
         """
         Constructor for SGDOptimizer.
@@ -196,9 +195,9 @@ class CEMOptimizer(Optimizer):
             grasp_metric: GraspMetric object defining the metric to optimize.
             **kwargs: Keyword arguments to pass to torch.optim.SGD.
         """
+        self.grasp_config = grasp_config
         self.grasp_metric = grasp_metric
-        self.grasp_mean = grasp_mean
-        self.grasp_cov = grasp_cov
+        self.optimizer_config = optimizer_config
 
     # TODO: refactor to dispatch optimizer on config type.
     @classmethod
@@ -255,49 +254,98 @@ class CEMOptimizer(Optimizer):
 
         cnn.eval()
 
-        # Convert grasp config into mean and covariance.
-        grasp_mean = init_grasp_config.mean()
-        grasp_cov = init_grasp_config.cov()
-
         # Wrap Nerf and Classifier in GraspMetric.
-        grasp_metric = GraspMetric(nerf, cnn)
+        grasp_metric = GraspMetric(
+            nerf, cnn, classifier_config.nerfdata_config.fingertip_config
+        )
 
-        return cls(grasp_metric, optimizer_config, grasp_mean, grasp_cov)
+        return cls(grasp_metric, optimizer_config, init_grasp_config.to(device=device))
 
     def step(self):
-        # Sample grasp configs from the current mean and covariance.
-        sample_wrist_poses = self.grasp_mean.wrist_pose + self.grasp_cov[0].unsqueeze(
-            0
-        ) @ torch.randn_like(
-            self.grasp_mean.wrist_pose.Log().unsqueeze(0).expand(self.num_samples, -1)
-        )
+        # Find the elite fraction of samples.
+        elite_inds = torch.argsort(self.grasp_scores)[: self.optimizer_config.num_elite]
+        elite_grasps = self.grasp_config[elite_inds]
 
-        sample_joint_angles = self.grasp_mean.joint_angles + self.grasp_cov[
-            1
-        ].unsqueeze(0) @ torch.randn_like(
-            self.grasp_mean.joint_angles.unsqueeze(0).expand(self.num_samples, -1)
-        )
+        # Compute the mean and covariance of the grasp config.
+        elite_mean = elite_grasps.mean()
+        (
+            elite_cov_wrist_pose,
+            elite_cov_joint_angles,
+            elite_cov_grasp_orientations,
+        ) = elite_grasps.cov()
 
-        sample_grasp_orientations = self.grasp_mean.grasp_orientations + self.grasp_cov[
-            2
-        ].unsqueeze(0) @ torch.randn_like(
-            self.grasp_mean.grasp_orientations.unsqueeze(0).expand(
-                self.num_samples, -1, -1
+        elite_chol_wrist_pose = (
+            torch.linalg.cholesky(
+                elite_cov_wrist_pose
+                + self.optimizer_config.min_cov_std**2
+                * torch.eye(6, device=elite_cov_wrist_pose.device)
             )
+        ).unsqueeze(0)
+
+        wrist_pose_perturbations = torch.randn_like(
+            elite_mean.wrist_pose.Log()
+            .expand(self.optimizer_config.num_samples, -1)
+            .unsqueeze(-1)
         )
 
-        with torch.no_grad():
-            loss = self.grasp_metric(self.grasp_config)
-        assert loss.shape == (self.grasp_config.batch_size,)
+        wrist_pose_innovations = (
+            elite_chol_wrist_pose @ wrist_pose_perturbations
+        ).squeeze(-1)
 
-        # TODO(pculbert): Think about clipping joint angles
-        # to feasible range.
-        loss.mean().backward()
-        self.optimizer.step()
+        elite_chol_joint_angles = (
+            torch.linalg.cholesky(
+                elite_cov_joint_angles
+                + self.optimizer_config.min_cov_std**2
+                * torch.eye(16, device=elite_cov_joint_angles.device)
+            )
+        ).unsqueeze(0)
+
+        joint_angle_perturbations = torch.randn_like(
+            elite_mean.joint_angles.expand(self.optimizer_config.num_samples, -1)
+        ).unsqueeze(-1)
+
+        joint_angle_innovations = (
+            elite_chol_joint_angles @ joint_angle_perturbations
+        ).squeeze(-1)
+
+        elite_chol_grasp_orientations = (
+            torch.linalg.cholesky(
+                elite_cov_grasp_orientations
+                + self.optimizer_config.min_cov_std**2
+                * torch.eye(3, device=elite_cov_grasp_orientations.device).unsqueeze(0)
+            )
+        ).unsqueeze(0)
+
+        grasp_orientation_perturbations = (
+            torch.randn_like(elite_mean.grasp_orientations.Log())
+            .expand(self.optimizer_config.num_samples, -1, -1)
+            .unsqueeze(-1)
+        )
+
+        grasp_orientation_innovations = (
+            elite_chol_grasp_orientations @ grasp_orientation_perturbations
+        ).squeeze(-1)
+
+        # Sample grasp configs from the current mean and covariance.
+        self.grasp_config = AllegroGraspConfig.from_values(
+            wrist_pose=elite_mean.wrist_pose.expand(
+                self.optimizer_config.num_samples, -1
+            )
+            + wrist_pose_innovations,
+            joint_angles=elite_mean.joint_angles.expand(
+                self.optimizer_config.num_samples, -1
+            )
+            + joint_angle_innovations,
+            grasp_orientations=elite_mean.grasp_orientations.expand(
+                self.optimizer_config.num_samples, -1, -1
+            )
+            + grasp_orientation_innovations,
+        )
 
     @property
     def grasp_scores(self) -> torch.tensor:
-        return self.grasp_metric(self.grasp_config)
+        with torch.no_grad():
+            return self.grasp_metric(self.grasp_config)
 
 
 def run_optimizer_loop(
@@ -373,7 +421,7 @@ def run_optimizer_loop(
                     / f"{main_output_folder_path.name}_mid"
                 )
                 this_iter_folder_path = mid_optimization_folder_path / f"{iter}"
-                this_iter_folder_path.mkdir(parents=True)
+                this_iter_folder_path.mkdir(parents=True, exist_ok=True)
                 print(f"Saving mid opt grasp configs to {this_iter_folder_path}")
                 np.save(this_iter_folder_path / filename, grasp_config_dicts)
 
@@ -519,6 +567,7 @@ def main(cfg: GraspMetricConfig) -> None:
         dd["score"] = scores[ii].item()
 
     print(f"Saving sorted grasp configs to {cfg.output_path}")
+    cfg.output_path.parent.mkdir(parents=True, exist_ok=True)
     np.save(str(cfg.output_path), grasp_config_dicts)
 
     wandb.finish()

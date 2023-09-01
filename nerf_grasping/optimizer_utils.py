@@ -145,8 +145,8 @@ class AllegroHandConfig(torch.nn.Module):
         A bit hacky -- just works in the Lie algebra, which
         is hopefully ok.
         """
-        mean_joint_angles = self.joint_angles.mean(dim=0)
-        mean_wrist_pose = (self.wrist_pose.Log().mean(dim=0)).Exp()
+        mean_joint_angles = self.joint_angles.mean(dim=0, keepdim=True)
+        mean_wrist_pose = pp.se3(self.wrist_pose.Log().mean(dim=0, keepdim=True)).Exp()
 
         return AllegroHandConfig.from_values(
             wrist_pose=mean_wrist_pose,
@@ -162,8 +162,10 @@ class AllegroHandConfig(torch.nn.Module):
 
         Returns a tuple of covariance tensors for the wrist pose and joint angles.
         """
-        cov_wrist_pose = self.wrist_pose.Log().cov(dim=0)  # Leave in tangent space.
-        cov_joint_angles = self.joint_angles.cov(dim=0)
+        cov_wrist_pose = batch_cov(
+            self.wrist_pose.Log(), dim=0
+        )  # Leave in tangent space.
+        cov_joint_angles = batch_cov(self.joint_angles, dim=0)
 
         return (cov_wrist_pose, cov_joint_angles)
 
@@ -349,7 +351,9 @@ class AllegroGraspConfig(torch.nn.Module):
         Returns the mean of the batch of grasp configs.
         """
         mean_hand_config = self.hand_config.mean()
-        mean_grasp_orientations = (self.grasp_orientations.Log().mean(dim=0)).Exp()
+        mean_grasp_orientations = pp.so3(
+            self.grasp_orientations.Log().mean(dim=0, keepdim=True)
+        ).Exp()
 
         return AllegroGraspConfig.from_values(
             wrist_pose=mean_hand_config.wrist_pose,
@@ -362,7 +366,7 @@ class AllegroGraspConfig(torch.nn.Module):
         Returns the covariance of the batch of grasp configs.
         """
         cov_wrist_pose, cov_joint_angles = self.hand_config.cov()
-        cov_grasp_orientations = self.grasp_orientations.Log().cov(dim=0)
+        cov_grasp_orientations = batch_cov(self.grasp_orientations.Log(), dim=0)
 
         return (
             cov_wrist_pose,
@@ -455,7 +459,9 @@ class GraspMetric(torch.nn.Module):
     def forward(self, grasp_config: AllegroGraspConfig):
         # Generate RaySamples.
         ray_samples = grasp_utils.get_ray_samples(
-            self.ray_origins_finger_frame, grasp_config.grasp_frame_transforms
+            self.ray_origins_finger_frame,
+            grasp_config.grasp_frame_transforms,
+            self.fingertip_config,
         )
 
         # Query NeRF at RaySamples.
@@ -476,6 +482,7 @@ class GraspMetric(torch.nn.Module):
         batch_data_input = BatchDataInput(
             nerf_densities=densities,
             grasp_transforms=grasp_config.grasp_frame_transforms,
+            fingertip_config=self.fingertip_config,
         )
 
         # Pass grasp transforms, densities into classifier.
@@ -511,6 +518,16 @@ def SO3_to_SE3(R: pp.LieTensor):
     assert R.ltype == pp.SO3_type, f"R must be an SO3, not {R.ltype}"
 
     return pp.SE3(torch.cat((torch.zeros_like(R[..., :3]), R.tensor()), dim=-1))
+
+
+def batch_cov(x: torch.Tensor, dim: int = 0, keepdim=False):
+    n_dim = x.shape[dim]
+    x_mean = x.mean(dim, keepdim=True)
+    x_centered = x - x_mean
+
+    return (x_centered.unsqueeze(-2) * x_centered.unsqueeze(-1)).sum(
+        dim=dim, keepdim=keepdim
+    ) / (n_dim - 1)
 
 
 # %%

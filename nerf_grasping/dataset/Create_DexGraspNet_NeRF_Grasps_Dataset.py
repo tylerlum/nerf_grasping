@@ -304,7 +304,11 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
         ) = create_grid_dataset(cfg, hdf5_file)
         full_grasp_config_dataset = hdf5_file.create_dataset(
             "/full_grasp_config",
-            shape=(max_num_datapoints, 7 + 16 + 4 * 4),
+            shape=(
+                max_num_datapoints,
+                cfg.fingertip_config.n_fingers,
+                7 + 16 + 4,
+            ),  # 7 for pose, 16 for rotation matrix, 4 for grasp orientation, for each finger
             dtype="f",
         )
     elif isinstance(cfg, GridNerfDataConfig):
@@ -457,9 +461,12 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                 if isinstance(cfg, GraspConditionedGridDataConfig):
                     with loop_timer.add_section_timer("get_grasp_config"):
                         grasp_config_arr = (
-                            grasp_config.as_tensor().detach().cpu().numpy().reshape(-1)
+                            grasp_config.as_tensor().detach().cpu().numpy().squeeze(0)
                         )
-                        assert grasp_config_arr.shape == (7 + 16 + 4 * 4,)
+                        assert grasp_config_arr.shape == (
+                            cfg.fingertip_config.n_fingers,
+                            7 + 16 + 4,
+                        )
 
                 # Get densities
                 with loop_timer.add_section_timer("get_nerf_densities"):

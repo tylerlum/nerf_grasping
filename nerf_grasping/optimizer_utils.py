@@ -335,13 +335,15 @@ class AllegroGraspConfig(torch.nn.Module):
 
     def as_tensor(self):
         """
-        Returns a tensor of shape [batch_size, 23 + 4 * 7]
+        Returns a tensor of shape [batch_size, num_fingers, 7 + 16 + 4]
         with all config parameters.
         """
         return torch.cat(
             (
-                self.hand_config.as_tensor(),
-                self.grasp_orientations.tensor().reshape(self.batch_size, -1),
+                self.hand_config.as_tensor()
+                .unsqueeze(-2)
+                .expand(-1, self.num_fingers, -1),
+                self.grasp_orientations.tensor(),
             ),
             dim=-1,
         )

@@ -24,9 +24,6 @@ from rich.table import Table
 
 from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 
-PRINT_FREQ = 5
-SAVE_GRASPS_FREQ = 5
-
 
 def is_notebook() -> bool:
     try:
@@ -178,7 +175,7 @@ class SGDOptimizer(Optimizer):
 
 
 def run_optimizer_loop(
-    optimizer: Optimizer, num_steps: int, console=Console()
+    optimizer: Optimizer, optimizer_config: GraspOptimizerConfig, console=Console()
 ) -> Tuple[torch.tensor, AllegroGraspConfig]:
     """
     Convenience function for running the optimizer loop.
@@ -195,9 +192,9 @@ def run_optimizer_loop(
     with progress:
         task_id = progress.add_task(
             "Optimizing grasps...",
-            total=num_steps,
+            total=optimizer_config.num_steps,
         )
-        for iter in range(num_steps):
+        for iter in range(optimizer_config.num_steps):
             wandb_log_dict = {}
             wandb_log_dict["optimization_step"] = iter
             optimizer.step()
@@ -208,7 +205,7 @@ def run_optimizer_loop(
                 advance=1,
             )
 
-            if iter % PRINT_FREQ == 0:
+            if iter % optimizer_config.print_freq == 0:
                 console.print(
                     f"Iter: {iter} | Min score: {optimizer.grasp_scores.min():.3f} | Max score: {optimizer.grasp_scores.max():.3f} | Mean score: {optimizer.grasp_scores.mean():.3f} | Std dev: {optimizer.grasp_scores.std():.3f}"
                 )
@@ -223,7 +220,7 @@ def run_optimizer_loop(
             if wandb.run is not None:
                 wandb.log(wandb_log_dict)
 
-            if iter % SAVE_GRASPS_FREQ == 0:
+            if iter % optimizer_config.save_grasps_freq == 0:
                 # Save mid optimization grasps to file
                 grasp_config_dicts = optimizer.grasp_config.as_dicts()
                 for ii, dd in enumerate(grasp_config_dicts):
@@ -241,8 +238,14 @@ def run_optimizer_loop(
                 #        - <object_code_and_scale_str>.py
                 #    - 3x
                 #        - <object_code_and_scale_str>.py
-                main_output_folder_path, filename = cfg.output_path.parent, cfg.output_path.name
-                mid_optimization_folder_path = main_output_folder_path.parent / f"{main_output_folder_path.name}_mid"
+                main_output_folder_path, filename = (
+                    cfg.output_path.parent,
+                    cfg.output_path.name,
+                )
+                mid_optimization_folder_path = (
+                    main_output_folder_path.parent
+                    / f"{main_output_folder_path.name}_mid"
+                )
                 this_iter_folder_path = mid_optimization_folder_path / f"{iter}"
                 this_iter_folder_path.mkdir(parents=True)
                 print(f"Saving mid opt grasp configs to {this_iter_folder_path}")
@@ -288,7 +291,9 @@ def main(cfg: GraspMetricConfig) -> None:
         ONLY_OPTIMIZE_ONE = False
         if ONLY_OPTIMIZE_ONE:
             # For faster reading in file and easier to visualize results
-            init_grasps = AllegroGraspConfig.from_grasp_config_dicts(grasp_config_dicts[:1])
+            init_grasps = AllegroGraspConfig.from_grasp_config_dicts(
+                grasp_config_dicts[:1]
+            )
         else:
             init_grasps = AllegroGraspConfig.from_grasp_config_dicts(grasp_config_dicts)
 
@@ -342,7 +347,7 @@ def main(cfg: GraspMetricConfig) -> None:
     )
 
     scores, grasp_configs = run_optimizer_loop(
-        optimizer, num_steps=cfg.optimizer.num_steps, console=console
+        optimizer, optimizer_config=cfg.optimizer, console=console
     )
 
     assert (

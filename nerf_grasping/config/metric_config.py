@@ -2,7 +2,10 @@ from dataclasses import dataclass, field
 from typing import Optional, Tuple, List, Literal, Union
 from nerf_grasping.config.base import WandbConfig, CONFIG_DATETIME_STR
 from nerf_grasping.config.classifier_config import ClassifierConfig
-from nerf_grasping.config.optimizer_config import GraspOptimizerConfig
+from nerf_grasping.config.optimizer_config import (
+    UnionOptimizerConfig,
+    SGDOptimizerConfig,
+)
 import tyro
 import pathlib
 import nerf_grasping
@@ -20,7 +23,7 @@ class GraspMetricConfig:
         / "config.yaml"
     )
     classifier_checkpoint: int = -1  # Load latest checkpoint if -1.
-    optimizer: GraspOptimizerConfig = GraspOptimizerConfig()
+    optimizer: UnionOptimizerConfig = SGDOptimizerConfig()
     init_grasp_config_dicts_path: Optional[pathlib.Path] = (
         pathlib.Path(nerf_grasping.get_repo_root())
         / "data"

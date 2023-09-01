@@ -1,7 +1,5 @@
 from dataclasses import dataclass
-import pathlib
-import nerf_grasping
-from typing import Union
+import tyro
 
 
 @dataclass
@@ -16,9 +14,15 @@ class SGDOptimizerConfig:
 
 @dataclass
 class CEMOptimizerConfig:
+    num_init_samples: int = 2500
     num_samples: int = 1000
-    elite_frac: float = 0.1
+    num_elite: int = 100
     num_iters: int = 10
 
 
-UnionOptimizerConfig = Union[SGDOptimizerConfig, CEMOptimizerConfig]
+UnionGraspOptimizerConfig = tyro.extras.subcommand_type_from_defaults(
+    {
+        "cem": CEMOptimizerConfig(),
+        "sgd": SGDOptimizerConfig(),
+    }
+)

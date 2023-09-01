@@ -11,7 +11,11 @@ import grasp_utils
 import torch
 from nerf_grasping.classifier import Classifier
 from nerf_grasping.config.classifier_config import ClassifierConfig
-from nerf_grasping.config.optimizer_config import SGDOptimizerConfig, CEMOptimizerConfig
+from nerf_grasping.config.optimizer_config import (
+    UnionGraspOptimizerConfig,
+    SGDOptimizerConfig,
+    CEMOptimizerConfig,
+)
 from typing import Tuple
 import nerf_grasping
 from functools import partial
@@ -99,7 +103,6 @@ class SGDOptimizer(Optimizer):
             momentum=optimizer_config.momentum,
         )
 
-    # TODO: refactor to dispatch optimizer on config type.
     @classmethod
     def from_configs(
         cls,
@@ -119,7 +122,6 @@ class SGDOptimizer(Optimizer):
             nerf = grasp_utils.load_nerf(nerf_config)
             progress.update(task, advance=1)
 
-        # TODO(pculbert): BRITTLE! Support more classifiers etc.
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         with Progress(
@@ -203,7 +205,7 @@ class CEMOptimizer(Optimizer):
         init_grasp_config: AllegroGraspConfig,
         nerf_config: pathlib.Path,
         classifier_config: ClassifierConfig,
-        optimizer_config: GraspOptimizerConfig,
+        optimizer_config: CEMOptimizerConfig,
         classifier_checkpoint: int = -1,
         console=Console(width=120),
     ) -> CEMOptimizer:
@@ -216,7 +218,6 @@ class CEMOptimizer(Optimizer):
             nerf = grasp_utils.load_nerf(nerf_config)
             progress.update(task, advance=1)
 
-        # TODO(pculbert): BRITTLE! Support more classifiers etc.
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         with Progress(
@@ -296,61 +297,7 @@ class CEMOptimizer(Optimizer):
 
 
 def run_optimizer_loop(
-    optimizer: Optimizer, num_steps: int, console=Console()
-) -> Tuple[torch.tensor, AllegroGraspConfig]:
-    """
-    Convenience function for running the optimizer loop.
-    """
-
-    start_column = TextColumn("[bold green]{task.description}[/bold green]")
-    progress = Progress(
-        SpinnerColumn(),
-        *Progress.get_default_columns(),
-        TextColumn("=>"),
-        TimeElapsedColumn(),
-        console=console,
-    )
-    with progress:
-        task_id = progress.add_task(
-            "Optimizing grasps...",
-            total=num_steps,
-        )
-        for iter in range(num_steps):
-            wandb_log_dict = {}
-            wandb_log_dict["optimization_step"] = iter
-            optimizer.step()
-
-            # Update progress bar.
-            progress.update(
-                task_id,
-                advance=1,
-            )
-
-            if iter % PRINT_FREQ == 0:
-                console.print(
-                    f"Iter: {iter} | Min score: {optimizer.grasp_scores.min():.3f} | Max score: {optimizer.grasp_scores.max():.3f} | Mean score: {optimizer.grasp_scores.mean():.3f} | Std dev: {optimizer.grasp_scores.std():.3f}"
-                )
-
-            # Log to wandb.
-            wandb_log_dict["scores"] = optimizer.grasp_scores.detach().cpu().numpy()
-            wandb_log_dict["min_score"] = optimizer.grasp_scores.min().item()
-            wandb_log_dict["max_score"] = optimizer.grasp_scores.max().item()
-            wandb_log_dict["mean_score"] = optimizer.grasp_scores.mean().item()
-            wandb_log_dict["std_score"] = optimizer.grasp_scores.std().item()
-
-            if wandb.run is not None:
-                wandb.log(wandb_log_dict)
-
-    # Sort grasp scores and configs by score.
-    _, sort_indices = torch.sort(optimizer.grasp_scores, descending=False)
-    return (
-        optimizer.grasp_scores[sort_indices],
-        optimizer.grasp_config[sort_indices],
-    )
-
-
-def run_optimizer_loop(
-    optimizer: Optimizer, optimizer_config: GraspOptimizerConfig, console=Console()
+    optimizer: Optimizer, optimizer_config: UnionGraspOptimizerConfig, console=Console()
 ) -> Tuple[torch.tensor, AllegroGraspConfig]:
     """
     Convenience function for running the optimizer loop.
@@ -462,7 +409,7 @@ def main(cfg: GraspMetricConfig) -> None:
         grasp_config_dicts = np.load(
             cfg.init_grasp_config_dicts_path, allow_pickle=True
         )
-      
+
         ONLY_OPTIMIZE_ONE = False
         if ONLY_OPTIMIZE_ONE:
             # For faster reading in file and easier to visualize results
@@ -470,18 +417,27 @@ def main(cfg: GraspMetricConfig) -> None:
                 grasp_config_dicts[:1]
             )
         else:
-            init_grasp_configs = AllegroGraspConfig.from_grasp_config_dicts(grasp_config_dicts)
-            
-        # Get indices of preferred split.
-        train_inds, val_inds, test_inds = get_split_inds(
-            init_grasp_config.batch_size,
-            [
-                cfg.classifier_config.data.frac_train,
-                cfg.classifier_config.data.frac_val,
-                cfg.classifier_config.data.frac_test,
-            ],
-            cfg.classifier_config.random_seed,
-        )
+            if isinstance(cfg.optimizer, SGDOptimizerConfig):
+                num_grasps = cfg.optimizer.num_grasps
+            elif isinstance(cfg.optimizer, CEMOptimizerConfig):
+                num_grasps = cfg.optimizer.num_init_samples
+            else:
+                raise ValueError(f"Invalid optimizer config: {cfg.optimizer}")
+
+            init_grasp_configs = AllegroGraspConfig.from_grasp_config_dicts(
+                grasp_config_dicts
+            )
+
+            # Get indices of preferred split.
+            train_inds, val_inds, test_inds = get_split_inds(
+                init_grasp_configs.batch_size,
+                [
+                    cfg.classifier_config.data.frac_train,
+                    cfg.classifier_config.data.frac_val,
+                    cfg.classifier_config.data.frac_test,
+                ],
+                cfg.classifier_config.random_seed,
+            )
 
             if cfg.grasp_split == "train":
                 data_inds = train_inds
@@ -492,15 +448,15 @@ def main(cfg: GraspMetricConfig) -> None:
             else:
                 raise ValueError(f"Invalid grasp_split: {cfg.grasp_split}")
 
-            data_inds = np.random.choice(data_inds, size=cfg.optimizer.num_grasps)
-            init_grasp_configs = init_grasps[data_inds]
-    
+            data_inds = np.random.choice(data_inds, size=num_grasps)
+            init_grasp_configs = init_grasp_configs[data_inds]
+
         progress.update(task, advance=1)
 
     # Create Optimizer.
     if isinstance(cfg.optimizer, SGDOptimizerConfig):
         optimizer = SGDOptimizer.from_configs(
-            init_grasp_config,
+            init_grasp_configs,
             cfg.nerf_checkpoint_path,
             cfg.classifier_config,
             cfg.optimizer,
@@ -509,7 +465,7 @@ def main(cfg: GraspMetricConfig) -> None:
         )
     elif isinstance(cfg.optimizer, CEMOptimizerConfig):
         optimizer = CEMOptimizer.from_configs(
-            init_grasp_config,
+            init_grasp_configs,
             cfg.nerf_checkpoint_path,
             cfg.classifier_config,
             cfg.optimizer,

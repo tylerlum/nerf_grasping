@@ -11,12 +11,21 @@ from nerf_grasping.classifier import (
 from nerf_grasping.config.base import WandbConfig, CONFIG_DATETIME_STR
 from nerf_grasping.config.nerfdata_config import (
     BaseNerfDataConfig,
-    UnionNerfDataConfig,
     GridNerfDataConfig,
     DepthImageNerfDataConfig,
+    GraspConditionedGridDataConfig,
 )
+from enum import Enum, auto
 import tyro
 import pathlib
+
+
+class ConditioningType(Enum):
+    """Enum for conditioning type."""
+
+    NONE = auto()
+    FINGERTIP_TRANSFORMS = auto()
+    GRASP_TRANSFORM = auto()
 
 
 @dataclass(frozen=True)
@@ -248,6 +257,7 @@ class ClassifierConfig:
     dataloader: ClassifierDataLoaderConfig = ClassifierDataLoaderConfig()
     training: ClassifierTrainingConfig = ClassifierTrainingConfig()
     checkpoint_workspace: CheckpointWorkspaceConfig = CheckpointWorkspaceConfig()
+    conditioning_type: ConditioningType = ConditioningType.FINGERTIP_TRANSFORMS
 
     wandb: WandbConfig = field(
         default_factory=lambda: WandbConfig(
@@ -278,12 +288,14 @@ DEFAULTS_DICT = {
             conv_channels=[32, 64, 128], mlp_hidden_layers=[256, 256]
         ),
         nerfdata_config=GridNerfDataConfig(),
+        conditioning_type=ConditioningType.FINGERTIP_TRANSFORMS,
     ),
     "cnn-2d-1d": ClassifierConfig(
         model_config=CNN_2D_1D_ModelConfig(
             conv_2d_film_hidden_layers=[256, 256], mlp_hidden_layers=[256, 256]
         ),
         nerfdata_config=GridNerfDataConfig(),
+        conditioning_type=ConditioningType.FINGERTIP_TRANSFORMS,
     ),
     "simple-cnn-2d-1d": ClassifierConfig(
         model_config=Simple_CNN_2D_1D_ModelConfig(
@@ -294,6 +306,7 @@ DEFAULTS_DICT = {
             film_1d_hidden_layers=[32, 32],
         ),
         nerfdata_config=GridNerfDataConfig(),
+        conditioning_type=ConditioningType.FINGERTIP_TRANSFORMS,
     ),
     "small-simple-cnn-2d-1d": ClassifierConfig(
         model_config=Simple_CNN_2D_1D_ModelConfig(
@@ -304,6 +317,19 @@ DEFAULTS_DICT = {
             film_1d_hidden_layers=[8, 8],
         ),
         nerfdata_config=GridNerfDataConfig(),
+        conditioning_type=ConditioningType.FINGERTIP_TRANSFORMS,
+    ),
+    "grasp-cond-cnn-2d-1d": ClassifierConfig(
+        model_config=Simple_CNN_2D_1D_ModelConfig(
+            mlp_hidden_layers=[32, 32],
+            conv_2d_channels=[32, 64, 128],
+            conv_1d_channels=[32, 32],
+            film_2d_hidden_layers=[32, 32],
+            film_1d_hidden_layers=[32, 32],
+            conditioning_dim=7 + 16 + 4,
+        ),
+        nerfdata_config=GraspConditionedGridDataConfig(),
+        conditioning_type=ConditioningType.GRASP_TRANSFORM,
     ),
 }
 

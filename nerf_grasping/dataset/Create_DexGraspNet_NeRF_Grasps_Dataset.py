@@ -302,8 +302,8 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
             grasp_idx_dataset,
             grasp_transforms_dataset,
         ) = create_grid_dataset(cfg, hdf5_file)
-        full_grasp_config_dataset = hdf5_file.create_dataset(
-            "/full_grasp_config",
+        conditioning_var_dataset = hdf5_file.create_dataset(
+            "/conditioning_var",
             shape=(
                 max_num_datapoints,
                 cfg.fingertip_config.n_fingers,
@@ -649,7 +649,7 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                     grasp_transforms_dataset[current_idx] = transforms
 
                     if isinstance(cfg, GraspConditionedGridDataConfig):
-                        full_grasp_config_dataset[current_idx] = grasp_config_arr
+                        conditioning_var_dataset[current_idx] = grasp_config_arr
 
                     current_idx += 1
 

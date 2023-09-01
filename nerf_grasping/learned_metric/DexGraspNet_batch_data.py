@@ -31,6 +31,9 @@ class BatchDataInput:
     grasp_transforms: pp.LieTensor
     fingertip_config: BaseFingertipConfig  # have to take this because all these shape checks used to use hardcoded constants.
     random_rotate_transform: Optional[pp.LieTensor] = None
+    conditioning_var: Optional[
+        torch.Tensor
+    ] = None  # Optional conditioning var for the classifier. This will get passed if not None, otherwise pass grasp_transforms.
 
     def to(self, device) -> BatchDataInput:
         self.nerf_densities = self.nerf_densities.to(device)
@@ -40,6 +43,8 @@ class BatchDataInput:
             if self.random_rotate_transform is not None
             else None
         )
+        if self.conditioning_var is not None:
+            self.conditioning_var = self.conditioning_var.to(device)
         return self
 
     @property

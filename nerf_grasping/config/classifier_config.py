@@ -1,3 +1,4 @@
+from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional, Literal, Tuple, List, Union
 from nerf_grasping.config.fingertip_config import UnionFingertipConfig
@@ -8,7 +9,12 @@ from nerf_grasping.classifier import (
     Classifier,
 )
 from nerf_grasping.config.base import WandbConfig, CONFIG_DATETIME_STR
-from nerf_grasping.config.nerfdata_config import NerfDataConfig
+from nerf_grasping.config.nerfdata_config import (
+    BaseNerfDataConfig,
+    UnionNerfDataConfig,
+    GridNerfDataConfig,
+    DepthImageNerfDataConfig,
+)
 import tyro
 import pathlib
 
@@ -27,13 +33,15 @@ class ClassifierDataConfig:
     use_random_rotations: bool = True
     """Flag to add random rotations to augment the dataset."""
 
+    debug_shuffle_labels: bool = False
+    """Flag to randomize all the labels to see what memorization looks like."""
+
 
 @dataclass(frozen=True)
 class ClassifierDataLoaderConfig:
     """Parameters for dataloader."""
 
     batch_size: int = 32
-
 
     num_workers: int = 8
     """Number of workers for the dataloader."""
@@ -160,12 +168,6 @@ class CNN_3D_XYZ_ModelConfig(ClassifierModelConfig):
         )
 
 
-# TODO(pculbert): fix.
-# UnionClassifierModelConfig = Union[
-#     CNN_3D_XYZ_ModelConfig, ClassifierModelConfig
-# ]  # Passing none here so union is valid.
-
-
 @dataclass(frozen=True)
 class CNN_2D_1D_ModelConfig(ClassifierModelConfig):
     """Parameters for the CNN_2D_1D_Classifier."""
@@ -237,34 +239,15 @@ class Simple_CNN_2D_1D_ModelConfig(ClassifierModelConfig):
         )
 
 
-UnionClassifierModelConfig = tyro.extras.subcommand_type_from_defaults(
-    {
-        "cnn_3d_xyz": CNN_3D_XYZ_ModelConfig(
-            conv_channels=[32, 64, 128], mlp_hidden_layers=[256, 256]
-        ),
-        "cnn_2d_1d": CNN_2D_1D_ModelConfig(
-            conv_2d_film_hidden_layers=[256, 256], mlp_hidden_layers=[256, 256]
-        ),
-        "simple_cnn_2d_1d": Simple_CNN_2D_1D_ModelConfig(
-            mlp_hidden_layers=[32, 32],
-            conv_2d_channels=[32, 64, 128],
-            conv_1d_channels=[32, 32],
-            film_2d_hidden_layers=[32, 32],
-            film_1d_hidden_layers=[32, 32],
-        ),
-    }
-)
-
-
 @dataclass
 class ClassifierConfig:
-    model_config: UnionClassifierModelConfig
-    data: ClassifierDataConfig
-    nerfdata_config: NerfDataConfig
-    dataloader: ClassifierDataLoaderConfig
-    training: ClassifierTrainingConfig
-    checkpoint_workspace: CheckpointWorkspaceConfig
-    nerfdata_cfg_path: Optional[pathlib.Path]
+    model_config: ClassifierModelConfig
+    nerfdata_config: UnionNerfDataConfig
+    nerfdata_cfg_path: Optional[pathlib.Path] = None
+    data: ClassifierDataConfig = ClassifierDataConfig()
+    dataloader: ClassifierDataLoaderConfig = ClassifierDataLoaderConfig()
+    training: ClassifierTrainingConfig = ClassifierTrainingConfig()
+    checkpoint_workspace: CheckpointWorkspaceConfig = CheckpointWorkspaceConfig()
 
     wandb: WandbConfig = field(
         default_factory=lambda: WandbConfig(
@@ -285,19 +268,47 @@ class ClassifierConfig:
         if self.nerfdata_cfg_path is not None:
             print(f"Loading nerfdata config from {self.nerfdata_cfg_path}")
             self.nerfdata_config = tyro.extras.from_yaml(
-                NerfDataConfig, self.nerfdata_cfg_path.open()
+                type(self.nerfdata_config), self.nerfdata_cfg_path.open()
             )
-        elif self.nerfdata_config.config_filepath.exists():
-            print(
-                f"Loading nerfdata config from {self.nerfdata_config.config_filepath}"
-            )
-            self.nerfdata_config = tyro.extras.from_yaml(
-                NerfDataConfig, self.nerfdata_config.config_filepath.open()
-            )
-        else:
-            print("Loading default nerfdata config")
 
+
+UnionClassifierConfig = tyro.extras.subcommand_type_from_defaults(
+    {
+        "cnn-3d-xyz": ClassifierConfig(
+            model_config=CNN_3D_XYZ_ModelConfig(
+                conv_channels=[32, 64, 128], mlp_hidden_layers=[256, 256]
+            ),
+            nerfdata_config=GridNerfDataConfig(),
+        ),
+        "cnn-2d-1d": ClassifierConfig(
+            model_config=CNN_2D_1D_ModelConfig(
+                conv_2d_film_hidden_layers=[256, 256], mlp_hidden_layers=[256, 256]
+            ),
+            nerfdata_config=GridNerfDataConfig(),
+        ),
+        "simple-cnn-2d-1d": ClassifierConfig(
+            model_config=Simple_CNN_2D_1D_ModelConfig(
+                mlp_hidden_layers=[32, 32],
+                conv_2d_channels=[32, 64, 128],
+                conv_1d_channels=[32, 32],
+                film_2d_hidden_layers=[32, 32],
+                film_1d_hidden_layers=[32, 32],
+            ),
+            nerfdata_config=GridNerfDataConfig(),
+        ),
+        "small-simple-cnn-2d-1d": ClassifierConfig(
+            model_config=Simple_CNN_2D_1D_ModelConfig(
+                mlp_hidden_layers=[32, 32],
+                conv_2d_channels=[8, 8, 16],
+                conv_1d_channels=[8, 8],
+                film_2d_hidden_layers=[8, 8],
+                film_1d_hidden_layers=[8, 8],
+            ),
+            nerfdata_config=GridNerfDataConfig(),
+        ),
+    }
+)
 
 if __name__ == "__main__":
-    cfg = tyro.cli(ClassifierConfig)
+    cfg = tyro.cli(UnionClassifierConfig)
     print(cfg)

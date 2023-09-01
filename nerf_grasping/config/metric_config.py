@@ -19,7 +19,7 @@ class GraspMetricConfig:
     classifier_config_path: Optional[pathlib.Path] = (
         pathlib.Path(nerf_grasping.get_repo_root())
         / "Train_DexGraspNet_NeRF_Grasp_Metric_workspaces"
-        / "2023-08-28_14-24-03"
+        / "2023-08-30_02-14-46"
         / "config.yaml"
     )
     classifier_checkpoint: int = -1  # Load latest checkpoint if -1.
@@ -27,18 +27,18 @@ class GraspMetricConfig:
     init_grasp_config_dicts_path: Optional[pathlib.Path] = (
         pathlib.Path(nerf_grasping.get_repo_root())
         / "data"
-        / "2023-08-26_overfit_evaled_grasp_config_dicts"
-        / "mug_0_10.npy"
+        / "2023-08-29_evaled_grasp_config_dicts_trial_big"
+        / "mug_0_1000.npy"
     )
     output_path: Optional[pathlib.Path] = None
     grasp_split: Literal["train", "val", "test"] = "val"
     nerf_checkpoint_path: pathlib.Path = (
         pathlib.Path(nerf_grasping.get_repo_root())
         / "data"
-        / "nerfcheckpoints_trial"
-        / "mug_0_10"
+        / "2023-08-29_nerfcheckpoints_trial"
+        / "mug_0_1000"
         / "nerfacto"
-        / "2023-08-25_130206"
+        / "2023-08-30_014749"
         / "config.yml"
     )
     wandb: Optional[WandbConfig] = field(
@@ -62,9 +62,10 @@ class GraspMetricConfig:
 
         if self.output_path is None:
             print("Using default output path.")
-            self.output_path = pathlib.Path(
-                str(self.init_grasp_config_dicts_path).replace(".npy", "_optimized.npy")
-            )
+            filename = self.init_grasp_config_dicts_path.name
+            input_folder_path = self.init_grasp_config_dicts_path.parent
+            output_folder_path = input_folder_path.parent / f"{input_folder_path.name}_optimized"
+            self.output_path = output_folder_path / filename
 
 
 if __name__ == "__main__":

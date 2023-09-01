@@ -12,6 +12,7 @@ from typing import List, Tuple, Dict, Any, Iterable, Union
 import nerfstudio
 from nerf_grasping.classifier import Classifier
 from nerf_grasping.learned_metric.DexGraspNet_batch_data import BatchDataInput
+from nerf_grasping.config.fingertip_config import UnionFingertipConfig
 
 ALLEGRO_URDF_PATH = list(
     pathlib.Path(nerf_grasping.get_package_root()).rglob(
@@ -176,6 +177,7 @@ class AllegroGraspConfig(torch.nn.Module):
         batch_size: int = 1,
         chain: pk.chain.Chain = load_allegro(),
         requires_grad: bool = True,
+        num_fingers: int = 4,
     ):
         # TODO(pculbert): refactor for arbitrary batch sizes.
         # TODO(pculbert): add device/dtype kwargs.
@@ -186,10 +188,13 @@ class AllegroGraspConfig(torch.nn.Module):
 
         # NOTE: grasp orientations has a batch dim for fingers,
         # since we choose one grasp dir / finger.
+        # grasp_orientations refers to the orientation of each finger in world frame
+        # (i.e. the third column of grasp_orientations rotation matrix is the finger approach direction in world frame)
         self.grasp_orientations = pp.Parameter(
-            pp.identity_SO3(batch_size, grasp_utils.NUM_FINGERS),
+            pp.identity_SO3(batch_size, num_fingers),
             requires_grad=requires_grad,
         )
+        self.num_fingers = num_fingers
 
     @classmethod
     def from_path(cls, path: pathlib.Path):
@@ -208,6 +213,7 @@ class AllegroGraspConfig(torch.nn.Module):
         wrist_pose: pp.LieTensor,
         joint_angles: torch.Tensor,
         grasp_orientations: pp.LieTensor,
+        num_fingers: int = 4,
     ):
         """
         Factory method to create an AllegroGraspConfig from values
@@ -219,9 +225,9 @@ class AllegroGraspConfig(torch.nn.Module):
         # Check shapes.
         assert joint_angles.shape == (batch_size, 16)
         assert wrist_pose.shape == (batch_size, 7)
-        assert grasp_orientations.shape == (batch_size, grasp_utils.NUM_FINGERS, 4)
+        assert grasp_orientations.shape == (batch_size, num_fingers, 4)
 
-        grasp_config = cls(batch_size).to(
+        grasp_config = cls(batch_size, num_fingers=num_fingers).to(
             device=wrist_pose.device, dtype=wrist_pose.dtype
         )
         grasp_config.hand_config.set_wrist_pose(wrist_pose)
@@ -236,6 +242,7 @@ class AllegroGraspConfig(torch.nn.Module):
         std_orientation: float = 0.1,
         std_wrist_pose: float = 0.1,
         std_joint_angles: float = 0.1,
+        num_fingers: int = 4,
     ):
         """
         Factory method to create a random AllegroGraspConfig.
@@ -249,7 +256,7 @@ class AllegroGraspConfig(torch.nn.Module):
             std_orientation
             * torch.randn(
                 batch_size,
-                grasp_utils.NUM_FINGERS,
+                num_fingers,
                 3,
                 device=grasp_config.grasp_orientations.device,
                 dtype=grasp_config.grasp_orientations.dtype,
@@ -276,13 +283,17 @@ class AllegroGraspConfig(torch.nn.Module):
         return grasp_config.from_values(wrist_pose, joint_angles, grasp_orientations)
 
     @classmethod
-    def from_grasp_config_dicts(cls, grasp_config_dicts: List[Dict[str, Any]]):
+    def from_grasp_config_dicts(
+        cls,
+        grasp_config_dicts: List[Dict[str, Any]],
+        num_fingers: int = 4,
+    ):
         """
         Factory method get grasp configs from a grasp config_dicts
         """
         # Load grasp data + instantiate correctly-sized config object.
         batch_size = len(grasp_config_dicts)
-        grasp_config = cls(batch_size)
+        grasp_config = cls(batch_size, num_fingers=num_fingers)
         device = grasp_config.grasp_orientations.device
         dtype = grasp_config.grasp_orientations.dtype
 
@@ -291,15 +302,13 @@ class AllegroGraspConfig(torch.nn.Module):
             grasp_config_dicts
         )
 
-        # TODO: Figure out if this needs to be modified
-        # Is grasp orientations relative to finger frame or world frame
         grasp_orientations_list = []
         for i in range(batch_size):
             grasp_config_dict = grasp_config_dicts[i]
             grasp_orientations = torch.tensor(
                 grasp_config_dict["grasp_orientations"], device=device, dtype=dtype
             )
-            assert grasp_orientations.shape == (grasp_utils.NUM_FINGERS, 3, 3)
+            assert grasp_orientations.shape == (grasp_config.num_fingers, 3, 3)
             grasp_orientations = pp.from_matrix(grasp_orientations, pp.SO3_type)
             grasp_orientations_list.append(grasp_orientations)
         grasp_orientations_list = torch.stack(grasp_orientations_list, dim=0)
@@ -394,7 +403,27 @@ class AllegroGraspConfig(torch.nn.Module):
     def grasp_frame_transforms(self) -> pp.LieTensor:
         """Returns SE(3) transforms for ``grasp frame'', i.e.,
         z-axis pointing along grasp direction."""
-        return self.fingertip_transforms @ SO3_to_SE3(self.grasp_orientations)
+        fingertip_positions = self.fingertip_transforms.translation()
+        assert fingertip_positions.shape == (
+            self.batch_size,
+            self.num_fingers,
+            3,
+        )
+
+        grasp_orientations = self.grasp_orientations
+        assert grasp_orientations.lshape == (self.batch_size, self.num_fingers)
+
+        transforms = pp.SE3(
+            torch.cat(
+                [
+                    fingertip_positions,
+                    grasp_orientations,
+                ],
+                dim=-1,
+            )
+        )
+        assert transforms.lshape == (self.batch_size, self.num_fingers)
+        return transforms
 
     @property
     def grasp_dirs(self) -> torch.Tensor:  # shape [B, 4, 3].
@@ -413,11 +442,15 @@ class GraspMetric(torch.nn.Module):
         self,
         nerf_model: nerfstudio.models.base_model.Model,
         classifier_model: Classifier,
+        fingertip_config: UnionFingertipConfig,
     ):
         super().__init__()
         self.nerf_model = nerf_model
         self.classifier_model = classifier_model
-        self.ray_origins_finger_frame = grasp_utils.get_ray_origins_finger_frame()
+        self.fingertip_config = fingertip_config
+        self.ray_origins_finger_frame = grasp_utils.get_ray_origins_finger_frame(
+            fingertip_config
+        )
 
     def forward(self, grasp_config: AllegroGraspConfig):
         # Generate RaySamples.
@@ -433,9 +466,9 @@ class GraspMetric(torch.nn.Module):
         assert densities.shape == (
             grasp_config.batch_size,
             4,
-            grasp_utils.NUM_PTS_X,
-            grasp_utils.NUM_PTS_Y,
-            grasp_utils.NUM_PTS_Z,
+            self.fingertip_config.num_pts_x,
+            self.fingertip_config.num_pts_y,
+            self.fingertip_config.num_pts_z,
         )
 
         # TODO(pculbert): I think this doubles up some work since we've already computed
@@ -447,6 +480,9 @@ class GraspMetric(torch.nn.Module):
 
         # Pass grasp transforms, densities into classifier.
         return self.classifier_model.get_failure_probability(batch_data_input)
+
+    def get_failure_probability(self, grasp_config: AllegroGraspConfig):
+        return self(grasp_config)
 
 
 class IndexingDataset(torch.utils.data.Dataset):

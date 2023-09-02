@@ -10,7 +10,7 @@ import nerf_grasping
 import nerfstudio
 from matplotlib import pyplot as plt
 from nerf_grasping.grasp_utils import (
-    get_ray_samples,
+    get_ray_samples_helper,
     get_ray_origins_finger_frame_helper,
 )
 from nerfstudio.cameras.rays import RayBundle, RaySamples
@@ -270,38 +270,10 @@ def get_ray_samples_in_mesh_region(
     identity_transform = pp.identity_SE3(num_pts_x, num_pts_y).to(
         ray_origins_object_frame.device
     )
-    ray_samples = get_ray_samples(
+    ray_samples = get_ray_samples_helper(
         ray_origins_object_frame,
         identity_transform,
         num_pts_z=num_pts_z,
         grasp_depth_mm=grasp_depth_mm,
     )
     return ray_samples
-
-
-# TODO: remove, deprecated.
-# def get_bbox_ray_samples(
-#     bbox_min: np.ndarray,
-#     bbox_max: np.ndarray,
-#     num_points_x: int = 5 * NUM_PTS_X,
-#     num_points_y: int = 5 * NUM_PTS_Y,
-#     num_points_z: int = 5 * NUM_PTS_Z,
-# ):
-#     """
-#     Creates a nerfstudio RaySamples object for querying the NeRF on a
-#     grid inside an axis-aligned bounding box.
-#     """
-
-#     x_points = np.linspace(bbox_min[0], bbox_max[0], num_points_x)
-#     y_points = np.linspace(bbox_min[1], bbox_max[1], num_points_y)
-
-#     xx, yy = np.meshgrid(x_points, y_points, indexing="ij")
-#     zz = bbox_min[-1] * np.ones_like(xx)
-
-#     ray_origins = np.stack([xx, yy, zz], axis=-1)
-
-#     transform = torch.eye(4)
-
-#     return get_ray_samples(
-#         ray_origins, transform, num_points_z, 1000 * (bbox_max[-1] - bbox_min[-1])
-#     )

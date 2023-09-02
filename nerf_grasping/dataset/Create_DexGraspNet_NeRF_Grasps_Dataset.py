@@ -470,14 +470,14 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                         ],
                         query_points_colors_list=nerf_alphas,
                         num_fingers=cfg.fingertip_config.n_fingers,
-                        title=f"Mesh and Query Points, Sucess: {evaled_grasp_config_dict['passed_eval']}",
+                        title=f"Mesh and Query Points, Success: {evaled_grasp_config_dict['passed_eval']}",
                     )
                     fig.show()
                     fig2 = plot_mesh_and_transforms(
                         mesh=mesh,
                         transforms=[tt.matrix().numpy() for tt in transforms],
                         num_fingers=cfg.fingertip_config.n_fingers,
-                        title=f"Mesh and Transforms, Sucess: {evaled_grasp_config_dict['passed_eval']}",
+                        title=f"Mesh and Transforms, Success: {evaled_grasp_config_dict['passed_eval']}",
                     )
                     fig2.show()
 

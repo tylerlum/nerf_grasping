@@ -121,6 +121,7 @@ def get_ray_bundles(
     ray_dirs_world_frame = (
         transform.rotation() @ ray_dirs_finger_frame
     )  # [*batch_dims, num_pts_x,  num_pts_y, 3]
+
     assert ray_dirs_world_frame.shape == (*batch_dims, 1, 1, 3)
 
     # Create dummy pixel areas object.
@@ -152,6 +153,9 @@ def get_ray_samples_helper(
     num_pts_z: int,
     grasp_depth_mm: float,
 ):
+    num_pts_x, num_pts_y = ray_origins_finger_frame.shape[:2]
+    assert ray_origins_finger_frame.shape == (num_pts_x, num_pts_y, 3)
+
     ray_bundles = get_ray_bundles(ray_origins_finger_frame, transform)
     grasp_depth_m = grasp_depth_mm / 1000.0
 
@@ -162,16 +166,16 @@ def get_ray_samples_helper(
         steps=num_pts_z,
         dtype=transform.dtype,
         device=transform.device,
-    )  # [num_pts_z]
+    )
+    assert sample_dists.shape == (num_pts_z,)
 
     for _ in range(len(transform.lshape)):
         sample_dists = sample_dists.unsqueeze(0)
 
     sample_dists = sample_dists.expand(
         *ray_origins_finger_frame.shape[:-1], num_pts_z
-    ).unsqueeze(
-        -1
-    )  # [*batch_dims, num_pts_x, num_pts_y, num_pts_z, 1]
+    ).unsqueeze(-1)
+    assert sample_dists.shape == (num_pts_x, num_pts_y, num_pts_z, 1)
 
     # Pull ray samples -- note these are degenerate, i.e., the deltas field is meaningless.
     return ray_bundles.get_ray_samples(sample_dists, sample_dists)

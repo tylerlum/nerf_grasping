@@ -24,6 +24,7 @@
 import pathlib
 import h5py
 import math
+import matplotlib.pyplot as plt
 import torch
 import pypose as pp
 import nerf_grasping
@@ -476,7 +477,7 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                     fig2.show()
 
                     if cfg.plot_all_high_density_points:
-                        PLOT_NUM_PTS_X, PLOT_NUM_PTS_Y, PLOT_NUM_PTS_Z = 200, 200, 200
+                        PLOT_NUM_PTS_X, PLOT_NUM_PTS_Y, PLOT_NUM_PTS_Z = 100, 100, 100
                         ray_samples_in_mesh_region = get_ray_samples_in_mesh_region(
                             mesh=mesh,
                             num_pts_x=PLOT_NUM_PTS_X,
@@ -518,13 +519,11 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                                 -1, 3
                             ),
                             query_points_colors=nerf_alphas_in_mesh_region.reshape(-1),
-                            density_threshold=0.001,
+                            density_threshold=0.01,
                         )
                         fig3.show()
 
                     if cfg.plot_alphas_each_finger_1D:
-                        import matplotlib.pyplot as plt
-
                         nrows, ncols = cfg.fingertip_config.n_fingers, 1
                         fig4, axes = plt.subplots(
                             nrows=nrows, ncols=ncols, figsize=(10, 10)
@@ -583,7 +582,8 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                                 )
                                 ax.set_title(f"finger {finger_i}, image {image_i}")
                         fig5.tight_layout()
-                        fig5.show(block=True)
+                        fig5.show()
+                        plt.show(block=True)
 
                         assert False, "cfg.plot_only_one is True"
 

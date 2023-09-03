@@ -269,7 +269,7 @@ def get_ray_samples_in_mesh_region(
     num_pts_x: int,
     num_pts_y: int,
     num_pts_z: int,
-    beyond_mesh_region_scale: float = 2,
+    beyond_mesh_region_scale: float = 1.5,
 ) -> RaySamples:
     # Get bounds from mesh
     min_bounds, max_bounds = mesh.bounds * beyond_mesh_region_scale

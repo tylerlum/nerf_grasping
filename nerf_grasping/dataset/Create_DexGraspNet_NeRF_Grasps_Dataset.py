@@ -423,17 +423,15 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                 with loop_timer.add_section_timer("get_query_points"):
                     query_points_list = [
                         np.copy(
-                            rr.frustums.get_positions().cpu().numpy()
+                            rr.frustums.get_positions().cpu().numpy().reshape(
+                                cfg.fingertip_config.num_pts_x,
+                                cfg.fingertip_config.num_pts_y,
+                                cfg.fingertip_config.num_pts_z,
+                                3,
+                            )
                         )  # Shape [n_x, n_y, n_z, 3]
                         for rr in ray_samples_list
                     ]
-
-                    assert query_points_list[0].shape == (
-                        cfg.fingertip_config.num_pts_x,
-                        cfg.fingertip_config.num_pts_y,
-                        cfg.fingertip_config.num_pts_z,
-                        3,
-                    ), f"query_points_list[0].shape: {query_points_list[0].shape}"
 
                 # Get densities
                 with loop_timer.add_section_timer("get_nerf_densities"):
@@ -442,14 +440,13 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                         .detach()
                         .cpu()
                         .numpy()
-                        .squeeze(axis=-1)  # Remove extra dim
+                        .reshape(
+                            cfg.fingertip_config.num_pts_x,
+                            cfg.fingertip_config.num_pts_y,
+                            cfg.fingertip_config.num_pts_z,
+                        )
                         for ray_samples in ray_samples_list  # Shape [n_x, n_y, n_z].
                     ]
-                    assert nerf_densities[0].shape == (
-                        cfg.fingertip_config.num_pts_x,
-                        cfg.fingertip_config.num_pts_y,
-                        cfg.fingertip_config.num_pts_z,
-                    ), f"nerf_densities[0].shape: {nerf_densities[0].shape}"
 
                 # Plot
                 if cfg.plot_only_one:
@@ -479,7 +476,7 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                     fig2.show()
 
                     if cfg.plot_all_high_density_points:
-                        PLOT_NUM_PTS_X, PLOT_NUM_PTS_Y, PLOT_NUM_PTS_Z = 50, 50, 50
+                        PLOT_NUM_PTS_X, PLOT_NUM_PTS_Y, PLOT_NUM_PTS_Z = 200, 200, 200
                         ray_samples_in_mesh_region = get_ray_samples_in_mesh_region(
                             mesh=mesh,
                             num_pts_x=PLOT_NUM_PTS_X,
@@ -490,13 +487,13 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                             ray_samples_in_mesh_region.frustums.get_positions()
                             .cpu()
                             .numpy()
+                            .reshape(
+                                PLOT_NUM_PTS_X,
+                                PLOT_NUM_PTS_Y,
+                                PLOT_NUM_PTS_Z,
+                                3,
+                            )
                         )
-                        assert query_points_in_mesh_region_isaac_frame.shape == (
-                            PLOT_NUM_PTS_X,
-                            PLOT_NUM_PTS_Y,
-                            PLOT_NUM_PTS_Z,
-                            3,
-                        ), f"{query_points_in_mesh_region_isaac_frame.shape}"
                         nerf_densities_in_mesh_region = (
                             nerf_model.get_density(
                                 ray_samples_in_mesh_region.to("cuda")
@@ -504,13 +501,12 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                             .detach()
                             .cpu()
                             .numpy()
-                            .squeeze(axis=-1)  # Remove extra dim
+                            .reshape(
+                                PLOT_NUM_PTS_X,
+                                PLOT_NUM_PTS_Y,
+                                PLOT_NUM_PTS_Z,
+                            )
                         )
-                        assert nerf_densities_in_mesh_region.shape == (
-                            PLOT_NUM_PTS_X,
-                            PLOT_NUM_PTS_Y,
-                            PLOT_NUM_PTS_Z,
-                        ), f"{nerf_densities_in_mesh_region.shape}"
 
                         nerf_alphas_in_mesh_region = 1 - np.exp(
                             -delta * nerf_densities_in_mesh_region
@@ -587,7 +583,7 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                                 )
                                 ax.set_title(f"finger {finger_i}, image {image_i}")
                         fig5.tight_layout()
-                        fig5.show()
+                        fig5.show(block=True)
 
                         assert False, "cfg.plot_only_one is True"
 

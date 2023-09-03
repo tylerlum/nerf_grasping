@@ -39,6 +39,7 @@ def get_object_code(cfg_path: pathlib.Path) -> str:
     object_code = obj_str[:idx]
     return object_code
 
+
 def parse_object_code_and_scale(object_code_and_scale_str: str) -> Tuple[str, float]:
     # Input: sem-Gun-4745991e7c0c7966a93f1ea6ebdeec6f_0_10
     # Output: sem-Gun-4745991e7c0c7966a93f1ea6ebdeec6f, 0.10
@@ -51,7 +52,6 @@ def parse_object_code_and_scale(object_code_and_scale_str: str) -> Tuple[str, fl
         object_code_and_scale_str[idx + idx_offset_for_scale :].replace("_", ".")
     )
     return object_code, object_scale
-
 
 
 def get_scene_dict() -> Dict[str, Any]:
@@ -176,8 +176,15 @@ def plot_mesh_and_query_points(
     query_points_colors_list = np.stack(query_points_colors_list, axis=0)
 
     num_pts = query_points_list.shape[1]
-    assert query_points_list.shape == (num_fingers, num_pts, 3), f"{query_points_list.shape}"
-    assert query_points_colors_list.shape == (num_fingers, num_pts), f"{query_points_colors_list.shape}"
+    assert query_points_list.shape == (
+        num_fingers,
+        num_pts,
+        3,
+    ), f"{query_points_list.shape}"
+    assert query_points_colors_list.shape == (
+        num_fingers,
+        num_pts,
+    ), f"{query_points_colors_list.shape}"
 
     fig = plot_mesh(mesh)
     for finger_idx in range(num_fingers):
@@ -258,10 +265,14 @@ def plot_mesh_and_high_density_points(
 
 
 def get_ray_samples_in_mesh_region(
-    mesh: trimesh.Trimesh, num_pts_x: int, num_pts_y: int, num_pts_z: int
+    mesh: trimesh.Trimesh,
+    num_pts_x: int,
+    num_pts_y: int,
+    num_pts_z: int,
+    beyond_mesh_region_scale: float = 2,
 ) -> RaySamples:
     # Get bounds from mesh
-    min_bounds, max_bounds = mesh.bounds
+    min_bounds, max_bounds = mesh.bounds * beyond_mesh_region_scale
     x_min, y_min, z_min = min_bounds
     x_max, y_max, z_max = max_bounds
     finger_width_mm = (x_max - x_min) * 1000
@@ -277,9 +288,7 @@ def get_ray_samples_in_mesh_region(
         z_offset_mm=z_min * 1000,
     )
     assert ray_origins_object_frame.shape == (num_pts_x, num_pts_y, 3)
-    identity_transform = pp.identity_SE3(1).to(
-        ray_origins_object_frame.device
-    )
+    identity_transform = pp.identity_SE3(1).to(ray_origins_object_frame.device)
     ray_samples = get_ray_samples_helper(
         ray_origins_object_frame,
         identity_transform,

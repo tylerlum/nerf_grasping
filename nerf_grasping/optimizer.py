@@ -16,6 +16,7 @@ from nerf_grasping.config.optimizer_config import (
     SGDOptimizerConfig,
     CEMOptimizerConfig,
 )
+from nerf_grasping.config.nerfdata_config import GraspConditionedGridDataConfig
 from typing import Tuple
 import nerf_grasping
 from functools import partial
@@ -77,8 +78,16 @@ class Optimizer:
         grasp_metric = GraspMetric(nerf, classifier)
         return cls(init_grasp_config, grasp_metric)
 
-    def optimize(self) -> Tuple[torch.tensor, AllegroGraspConfig]:
-        raise NotImplementedError
+    @property
+    def grasp_scores(self) -> torch.tensor:
+        if isinstance(
+            self.classifier_config.nerfdata_config, GraspConditionedGridDataConfig
+        ):
+            return self.grasp_metric.get_failure_probability(
+                self.grasp_config, self.grasp_config.as_tensor()
+            )
+        else:
+            return self.grasp_metric(self.grasp_config)
 
 
 class SGDOptimizer(Optimizer):
@@ -87,6 +96,7 @@ class SGDOptimizer(Optimizer):
         init_grasp_config: AllegroGraspConfig,
         grasp_metric: GraspMetric,
         optimizer_config: SGDOptimizerConfig,
+        classifier_config: ClassifierConfig,
     ):
         """
         Constructor for SGDOptimizer.
@@ -102,6 +112,7 @@ class SGDOptimizer(Optimizer):
             lr=optimizer_config.lr,
             momentum=optimizer_config.momentum,
         )
+        self.classifier_config = classifier_config
 
     @classmethod
     def from_configs(
@@ -122,6 +133,7 @@ class SGDOptimizer(Optimizer):
             nerf = grasp_utils.load_nerf(nerf_config)
             progress.update(task, advance=1)
 
+        breakpoint()
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         with Progress(
@@ -161,23 +173,23 @@ class SGDOptimizer(Optimizer):
         init_grasp_config = init_grasp_config.to(device=device)
 
         # Wrap Nerf and Classifier in GraspMetric.
-        grasp_metric = GraspMetric(nerf, cnn)
+        grasp_metric = GraspMetric(
+            nerf, cnn, classifier_config.nerfdata_config.fingertip_config
+        )
 
-        return cls(init_grasp_config, grasp_metric, optimizer_config)
+        init_grasp_config.wrist_pose.requires_grad = False
+
+        return cls(init_grasp_config, grasp_metric, optimizer_config, classifier_config)
 
     def step(self):
         self.optimizer.zero_grad()
-        loss = self.grasp_metric(self.grasp_config)
+        loss = self.grasp_scores
         assert loss.shape == (self.grasp_config.batch_size,)
 
         # TODO(pculbert): Think about clipping joint angles
         # to feasible range.
         loss.mean().backward()
         self.optimizer.step()
-
-    @property
-    def grasp_scores(self) -> torch.tensor:
-        return self.grasp_metric.get_failure_probability(self.grasp_config)
 
 
 class CEMOptimizer(Optimizer):
@@ -186,6 +198,7 @@ class CEMOptimizer(Optimizer):
         grasp_metric: GraspMetric,
         optimizer_config: CEMOptimizerConfig,
         grasp_config: AllegroGraspConfig,
+        classifier_config: ClassifierConfig,
     ):
         """
         Constructor for SGDOptimizer.
@@ -198,6 +211,7 @@ class CEMOptimizer(Optimizer):
         self.grasp_config = grasp_config
         self.grasp_metric = grasp_metric
         self.optimizer_config = optimizer_config
+        self.classifier_config = classifier_config
 
     # TODO: refactor to dispatch optimizer on config type.
     @classmethod
@@ -259,7 +273,12 @@ class CEMOptimizer(Optimizer):
             nerf, cnn, classifier_config.nerfdata_config.fingertip_config
         )
 
-        return cls(grasp_metric, optimizer_config, init_grasp_config.to(device=device))
+        return cls(
+            grasp_metric,
+            optimizer_config,
+            init_grasp_config.to(device=device),
+            classifier_config,
+        )
 
     def step(self):
         # Find the elite fraction of samples.
@@ -342,11 +361,6 @@ class CEMOptimizer(Optimizer):
             + grasp_orientation_innovations,
         )
 
-    @property
-    def grasp_scores(self) -> torch.tensor:
-        with torch.no_grad():
-            return self.grasp_metric(self.grasp_config)
-
 
 def run_optimizer_loop(
     optimizer: Optimizer, optimizer_config: UnionGraspOptimizerConfig, console=Console()
@@ -355,75 +369,77 @@ def run_optimizer_loop(
     Convenience function for running the optimizer loop.
     """
 
-    start_column = TextColumn("[bold green]{task.description}[/bold green]")
-    progress = Progress(
-        SpinnerColumn(),
-        *Progress.get_default_columns(),
-        TextColumn("=>"),
-        TimeElapsedColumn(),
-        console=console,
-    )
-    with progress:
-        task_id = progress.add_task(
-            "Optimizing grasps...",
-            total=optimizer_config.num_steps,
-        )
-        for iter in range(optimizer_config.num_steps):
-            wandb_log_dict = {}
-            wandb_log_dict["optimization_step"] = iter
-            optimizer.step()
+    # start_column = TextColumn("[bold green]{task.description}[/bold green]")
+    # progress = Progress(
+    #     SpinnerColumn(),
+    #     *Progress.get_default_columns(),
+    #     TextColumn("=>"),
+    #     TimeElapsedColumn(),
+    #     console=console,
+    # )
+    # with progress:
+    #     task_id = progress.add_task(
+    #         "Optimizing grasps...",
+    #         total=optimizer_config.num_steps,
+    #     )
+    for iter in range(optimizer_config.num_steps):
+        wandb_log_dict = {}
+        wandb_log_dict["optimization_step"] = iter
+        optimizer.step()
 
-            # Update progress bar.
-            progress.update(
-                task_id,
-                advance=1,
+        # # Update progress bar.
+        # progress.update(
+        #     task_id,
+        #     advance=1,
+        # )
+
+        if iter % optimizer_config.print_freq == 0:
+            # console.print(
+            #     f"Iter: {iter} | Min score: {optimizer.grasp_scores.min():.3f} | Max score: {optimizer.grasp_scores.max():.3f} | Mean score: {optimizer.grasp_scores.mean():.3f} | Std dev: {optimizer.grasp_scores.std():.3f}"
+            # )
+            print(
+                f"Iter: {iter} | Min score: {optimizer.grasp_scores.min():.3f} | Max score: {optimizer.grasp_scores.max():.3f} | Mean score: {optimizer.grasp_scores.mean():.3f} | Std dev: {optimizer.grasp_scores.std():.3f}"
             )
 
-            if iter % optimizer_config.print_freq == 0:
-                console.print(
-                    f"Iter: {iter} | Min score: {optimizer.grasp_scores.min():.3f} | Max score: {optimizer.grasp_scores.max():.3f} | Mean score: {optimizer.grasp_scores.mean():.3f} | Std dev: {optimizer.grasp_scores.std():.3f}"
-                )
+        # Log to wandb.
+        wandb_log_dict["scores"] = optimizer.grasp_scores.detach().cpu().numpy()
+        wandb_log_dict["min_score"] = optimizer.grasp_scores.min().item()
+        wandb_log_dict["max_score"] = optimizer.grasp_scores.max().item()
+        wandb_log_dict["mean_score"] = optimizer.grasp_scores.mean().item()
+        wandb_log_dict["std_score"] = optimizer.grasp_scores.std().item()
 
-            # Log to wandb.
-            wandb_log_dict["scores"] = optimizer.grasp_scores.detach().cpu().numpy()
-            wandb_log_dict["min_score"] = optimizer.grasp_scores.min().item()
-            wandb_log_dict["max_score"] = optimizer.grasp_scores.max().item()
-            wandb_log_dict["mean_score"] = optimizer.grasp_scores.mean().item()
-            wandb_log_dict["std_score"] = optimizer.grasp_scores.std().item()
+        if wandb.run is not None:
+            wandb.log(wandb_log_dict)
 
-            if wandb.run is not None:
-                wandb.log(wandb_log_dict)
+        if iter % optimizer_config.save_grasps_freq == 0:
+            # Save mid optimization grasps to file
+            grasp_config_dicts = optimizer.grasp_config.as_dicts()
+            for ii, dd in enumerate(grasp_config_dicts):
+                dd["score"] = optimizer.grasp_scores[ii].item()
 
-            if iter % optimizer_config.save_grasps_freq == 0:
-                # Save mid optimization grasps to file
-                grasp_config_dicts = optimizer.grasp_config.as_dicts()
-                for ii, dd in enumerate(grasp_config_dicts):
-                    dd["score"] = optimizer.grasp_scores[ii].item()
-
-                # To interface with mid optimization visualizer, need to create new folder (mid_optimization_folder_path)
-                # that only has folders with iteration number (no other files)
-                # TODO: Decide if this should just store in cfg.output_path.parent (does this cause issues?) or store in new folder
-                # <mid_optimization_folder_path>
-                #    - 0
-                #        - <object_code_and_scale_str>.py
-                #    - x
-                #        - <object_code_and_scale_str>.py
-                #    - 2x
-                #        - <object_code_and_scale_str>.py
-                #    - 3x
-                #        - <object_code_and_scale_str>.py
-                main_output_folder_path, filename = (
-                    cfg.output_path.parent,
-                    cfg.output_path.name,
-                )
-                mid_optimization_folder_path = (
-                    main_output_folder_path.parent
-                    / f"{main_output_folder_path.name}_mid"
-                )
-                this_iter_folder_path = mid_optimization_folder_path / f"{iter}"
-                this_iter_folder_path.mkdir(parents=True, exist_ok=True)
-                print(f"Saving mid opt grasp configs to {this_iter_folder_path}")
-                np.save(this_iter_folder_path / filename, grasp_config_dicts)
+            # To interface with mid optimization visualizer, need to create new folder (mid_optimization_folder_path)
+            # that only has folders with iteration number (no other files)
+            # TODO: Decide if this should just store in cfg.output_path.parent (does this cause issues?) or store in new folder
+            # <mid_optimization_folder_path>
+            #    - 0
+            #        - <object_code_and_scale_str>.py
+            #    - x
+            #        - <object_code_and_scale_str>.py
+            #    - 2x
+            #        - <object_code_and_scale_str>.py
+            #    - 3x
+            #        - <object_code_and_scale_str>.py
+            main_output_folder_path, filename = (
+                cfg.output_path.parent,
+                cfg.output_path.name,
+            )
+            mid_optimization_folder_path = (
+                main_output_folder_path.parent / f"{main_output_folder_path.name}_mid"
+            )
+            this_iter_folder_path = mid_optimization_folder_path / f"{iter}"
+            this_iter_folder_path.mkdir(parents=True, exist_ok=True)
+            print(f"Saving mid opt grasp configs to {this_iter_folder_path}")
+            np.save(this_iter_folder_path / filename, grasp_config_dicts)
 
     # Sort grasp scores and configs by score.
     _, sort_indices = torch.sort(optimizer.grasp_scores, descending=False)

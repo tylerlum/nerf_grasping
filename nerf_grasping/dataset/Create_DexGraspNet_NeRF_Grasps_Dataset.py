@@ -442,25 +442,22 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                         .detach()
                         .cpu()
                         .numpy()
+                        .squeeze(axis=-1)  # Remove extra dim
                         for ray_samples in ray_samples_list  # Shape [n_x, n_y, n_z].
                     ]
-
                     assert nerf_densities[0].shape == (
                         cfg.fingertip_config.num_pts_x,
                         cfg.fingertip_config.num_pts_y,
                         cfg.fingertip_config.num_pts_z,
-                        1,
                     ), f"nerf_densities[0].shape: {nerf_densities[0].shape}"
 
                 # Plot
                 if cfg.plot_only_one:
-                    # delta = DIST_BTWN_PTS_MM / 1000
                     delta = (
                         cfg.fingertip_config.grasp_depth_mm
                         / 1000
                         / (cfg.fingertip_config.num_pts_z - 1)
                     )
-                    # assert np.isclose(delta, other_delta)
 
                     nerf_alphas = [1 - np.exp(-delta * dd) for dd in nerf_densities]
                     fig = plot_mesh_and_query_points(
@@ -468,7 +465,7 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                         query_points_list=[
                             qq.reshape(-1, 3) for qq in query_points_list
                         ],
-                        query_points_colors_list=nerf_alphas,
+                        query_points_colors_list=[x.reshape(-1) for x in nerf_alphas],
                         num_fingers=cfg.fingertip_config.n_fingers,
                         title=f"Mesh and Query Points, Success: {evaled_grasp_config_dict['passed_eval']}",
                     )
@@ -482,36 +479,50 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                     fig2.show()
 
                     if cfg.plot_all_high_density_points:
+                        PLOT_NUM_PTS_X, PLOT_NUM_PTS_Y, PLOT_NUM_PTS_Z = 50, 50, 50
                         ray_samples_in_mesh_region = get_ray_samples_in_mesh_region(
                             mesh=mesh,
-                            num_pts_x=50,
-                            num_pts_y=50,
-                            num_pts_z=50,
+                            num_pts_x=PLOT_NUM_PTS_X,
+                            num_pts_y=PLOT_NUM_PTS_Y,
+                            num_pts_z=PLOT_NUM_PTS_Z,
                         )
                         query_points_in_mesh_region_isaac_frame = np.copy(
                             ray_samples_in_mesh_region.frustums.get_positions()
                             .cpu()
                             .numpy()
-                            .reshape(-1, 3)
                         )
+                        assert query_points_in_mesh_region_isaac_frame.shape == (
+                            PLOT_NUM_PTS_X,
+                            PLOT_NUM_PTS_Y,
+                            PLOT_NUM_PTS_Z,
+                            3,
+                        ), f"{query_points_in_mesh_region_isaac_frame.shape}"
                         nerf_densities_in_mesh_region = (
                             nerf_model.get_density(
                                 ray_samples_in_mesh_region.to("cuda")
                             )[0]
-                            .reshape(-1)
                             .detach()
                             .cpu()
                             .numpy()
+                            .squeeze(axis=-1)  # Remove extra dim
                         )
+                        assert nerf_densities_in_mesh_region.shape == (
+                            PLOT_NUM_PTS_X,
+                            PLOT_NUM_PTS_Y,
+                            PLOT_NUM_PTS_Z,
+                        ), f"{nerf_densities_in_mesh_region.shape}"
+
                         nerf_alphas_in_mesh_region = 1 - np.exp(
                             -delta * nerf_densities_in_mesh_region
                         )
 
                         fig3 = plot_mesh_and_high_density_points(
                             mesh=mesh,
-                            query_points=query_points_in_mesh_region_isaac_frame,
-                            query_points_colors=nerf_alphas_in_mesh_region,
-                            density_threshold=0.01,
+                            query_points=query_points_in_mesh_region_isaac_frame.reshape(
+                                -1, 3
+                            ),
+                            query_points_colors=nerf_alphas_in_mesh_region.reshape(-1),
+                            density_threshold=0.001,
                         )
                         fig3.show()
 

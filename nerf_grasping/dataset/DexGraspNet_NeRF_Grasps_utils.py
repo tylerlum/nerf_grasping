@@ -168,14 +168,24 @@ def plot_mesh_and_query_points(
     num_fingers: int,
     title: str = "Query Points",
 ) -> go.Figure:
+    # Shape checks
     assert (
         len(query_points_list) == len(query_points_colors_list) == num_fingers
-    ), f"{len(query_points_list)} != {num_fingers}"
-    fig = plot_mesh(mesh)
+    ), f"{len(query_points_list)} != {len(query_points_colors_list)} != {num_fingers}"
+    query_points_list = np.stack(query_points_list, axis=0)
+    query_points_colors_list = np.stack(query_points_colors_list, axis=0)
 
+    num_pts = query_points_list.shape[1]
+    assert query_points_list.shape == (num_fingers, num_pts, 3), f"{query_points_list.shape}"
+    assert query_points_colors_list.shape == (num_fingers, num_pts), f"{query_points_colors_list.shape}"
+
+    fig = plot_mesh(mesh)
     for finger_idx in range(num_fingers):
         query_points = query_points_list[finger_idx]
         query_points_colors = query_points_colors_list[finger_idx]
+        assert query_points.shape == (num_pts, 3)
+        assert query_points_colors.shape == (num_pts,)
+
         query_point_plot = go.Scatter3d(
             x=query_points[:, 0],
             y=query_points[:, 1],
@@ -183,7 +193,7 @@ def plot_mesh_and_query_points(
             mode="markers",
             marker=dict(
                 size=4,
-                color=query_points_colors.squeeze(-1),
+                color=query_points_colors,
                 colorscale="viridis",
                 colorbar=dict(title="Density Scale") if finger_idx == 0 else {},
             ),
@@ -210,9 +220,9 @@ def plot_mesh_and_high_density_points(
     query_points_colors: np.ndarray,
     density_threshold: float,
 ) -> go.Figure:
-    n_pts = query_points.shape[0]
-    assert query_points.shape == (n_pts, 3), f"{query_points.shape}"
-    assert query_points_colors.shape == (n_pts,), f"{query_points_colors.shape}"
+    num_pts = query_points.shape[0]
+    assert query_points.shape == (num_pts, 3), f"{query_points.shape}"
+    assert query_points_colors.shape == (num_pts,), f"{query_points_colors.shape}"
 
     fig = plot_mesh(mesh)
 

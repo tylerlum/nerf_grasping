@@ -24,6 +24,7 @@
 import pathlib
 import h5py
 import math
+import matplotlib.pyplot as plt
 import torch
 import pypose as pp
 import nerf_grasping
@@ -423,17 +424,15 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                 with loop_timer.add_section_timer("get_query_points"):
                     query_points_list = [
                         np.copy(
-                            rr.frustums.get_positions().cpu().numpy()
+                            rr.frustums.get_positions().cpu().numpy().reshape(
+                                cfg.fingertip_config.num_pts_x,
+                                cfg.fingertip_config.num_pts_y,
+                                cfg.fingertip_config.num_pts_z,
+                                3,
+                            )
                         )  # Shape [n_x, n_y, n_z, 3]
                         for rr in ray_samples_list
                     ]
-
-                    assert query_points_list[0].shape == (
-                        cfg.fingertip_config.num_pts_x,
-                        cfg.fingertip_config.num_pts_y,
-                        cfg.fingertip_config.num_pts_z,
-                        3,
-                    ), f"query_points_list[0].shape: {query_points_list[0].shape}"
 
                 # Get densities
                 with loop_timer.add_section_timer("get_nerf_densities"):
@@ -442,25 +441,21 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                         .detach()
                         .cpu()
                         .numpy()
+                        .reshape(
+                            cfg.fingertip_config.num_pts_x,
+                            cfg.fingertip_config.num_pts_y,
+                            cfg.fingertip_config.num_pts_z,
+                        )
                         for ray_samples in ray_samples_list  # Shape [n_x, n_y, n_z].
                     ]
 
-                    assert nerf_densities[0].shape == (
-                        cfg.fingertip_config.num_pts_x,
-                        cfg.fingertip_config.num_pts_y,
-                        cfg.fingertip_config.num_pts_z,
-                        1,
-                    ), f"nerf_densities[0].shape: {nerf_densities[0].shape}"
-
                 # Plot
                 if cfg.plot_only_one:
-                    # delta = DIST_BTWN_PTS_MM / 1000
                     delta = (
                         cfg.fingertip_config.grasp_depth_mm
                         / 1000
                         / (cfg.fingertip_config.num_pts_z - 1)
                     )
-                    # assert np.isclose(delta, other_delta)
 
                     nerf_alphas = [1 - np.exp(-delta * dd) for dd in nerf_densities]
                     fig = plot_mesh_and_query_points(
@@ -468,56 +463,67 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                         query_points_list=[
                             qq.reshape(-1, 3) for qq in query_points_list
                         ],
-                        query_points_colors_list=nerf_alphas,
+                        query_points_colors_list=[x.reshape(-1) for x in nerf_alphas],
                         num_fingers=cfg.fingertip_config.n_fingers,
-                        title=f"Mesh and Query Points, Sucess: {evaled_grasp_config_dict['passed_eval']}",
+                        title=f"Mesh and Query Points, Success: {evaled_grasp_config_dict['passed_eval']}",
                     )
                     fig.show()
                     fig2 = plot_mesh_and_transforms(
                         mesh=mesh,
                         transforms=[tt.matrix().numpy() for tt in transforms],
                         num_fingers=cfg.fingertip_config.n_fingers,
-                        title=f"Mesh and Transforms, Sucess: {evaled_grasp_config_dict['passed_eval']}",
+                        title=f"Mesh and Transforms, Success: {evaled_grasp_config_dict['passed_eval']}",
                     )
                     fig2.show()
 
                     if cfg.plot_all_high_density_points:
+                        PLOT_NUM_PTS_X, PLOT_NUM_PTS_Y, PLOT_NUM_PTS_Z = 100, 100, 100
                         ray_samples_in_mesh_region = get_ray_samples_in_mesh_region(
                             mesh=mesh,
-                            num_pts_x=10,
-                            num_pts_y=10,
-                            num_pts_z=10,
+                            num_pts_x=PLOT_NUM_PTS_X,
+                            num_pts_y=PLOT_NUM_PTS_Y,
+                            num_pts_z=PLOT_NUM_PTS_Z,
                         )
                         query_points_in_mesh_region_isaac_frame = np.copy(
                             ray_samples_in_mesh_region.frustums.get_positions()
                             .cpu()
                             .numpy()
-                            .reshape(-1, 3)
+                            .reshape(
+                                PLOT_NUM_PTS_X,
+                                PLOT_NUM_PTS_Y,
+                                PLOT_NUM_PTS_Z,
+                                3,
+                            )
                         )
                         nerf_densities_in_mesh_region = (
                             nerf_model.get_density(
                                 ray_samples_in_mesh_region.to("cuda")
                             )[0]
-                            .reshape(-1)
                             .detach()
                             .cpu()
                             .numpy()
+                            .reshape(
+                                PLOT_NUM_PTS_X,
+                                PLOT_NUM_PTS_Y,
+                                PLOT_NUM_PTS_Z,
+                            )
                         )
+
                         nerf_alphas_in_mesh_region = 1 - np.exp(
                             -delta * nerf_densities_in_mesh_region
                         )
 
                         fig3 = plot_mesh_and_high_density_points(
                             mesh=mesh,
-                            query_points=query_points_in_mesh_region_isaac_frame,
-                            query_points_colors=nerf_alphas_in_mesh_region,
+                            query_points=query_points_in_mesh_region_isaac_frame.reshape(
+                                -1, 3
+                            ),
+                            query_points_colors=nerf_alphas_in_mesh_region.reshape(-1),
                             density_threshold=0.01,
                         )
                         fig3.show()
 
                     if cfg.plot_alphas_each_finger_1D:
-                        import matplotlib.pyplot as plt
-
                         nrows, ncols = cfg.fingertip_config.n_fingers, 1
                         fig4, axes = plt.subplots(
                             nrows=nrows, ncols=ncols, figsize=(10, 10)
@@ -577,6 +583,7 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                                 ax.set_title(f"finger {finger_i}, image {image_i}")
                         fig5.tight_layout()
                         fig5.show()
+                        plt.show(block=True)
 
                         assert False, "cfg.plot_only_one is True"
 

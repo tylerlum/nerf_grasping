@@ -11,7 +11,11 @@ import grasp_utils
 import torch
 from nerf_grasping.classifier import Classifier
 from nerf_grasping.config.classifier_config import ClassifierConfig
-from nerf_grasping.config.optimizer_config import GraspOptimizerConfig
+from nerf_grasping.config.optimizer_config import (
+    UnionGraspOptimizerConfig,
+    SGDOptimizerConfig,
+    CEMOptimizerConfig,
+)
 from typing import Tuple
 import nerf_grasping
 from functools import partial
@@ -52,14 +56,16 @@ class Optimizer:
     A base class for grasp optimizers.
     """
 
-    def __init__(self, init_grasps: AllegroGraspConfig, grasp_metric: GraspMetric):
-        self.grasp_config = init_grasps
+    def __init__(
+        self, init_grasp_config: AllegroGraspConfig, grasp_metric: GraspMetric
+    ):
+        self.grasp_config = init_grasp_config
         self.grasp_metric = grasp_metric
 
     @classmethod
     def from_configs(
         cls,
-        init_grasps: AllegroGraspConfig,
+        init_grasp_config: AllegroGraspConfig,
         nerf_config: pathlib.Path,
         classifier_config: pathlib.Path,
     ) -> Optimizer:
@@ -69,7 +75,7 @@ class Optimizer:
         nerf = grasp_utils.load_nerf(nerf_config)
         classifier = Classifier(classifier_config)
         grasp_metric = GraspMetric(nerf, classifier)
-        return cls(init_grasps, grasp_metric)
+        return cls(init_grasp_config, grasp_metric)
 
     def optimize(self) -> Tuple[torch.tensor, AllegroGraspConfig]:
         raise NotImplementedError
@@ -78,33 +84,32 @@ class Optimizer:
 class SGDOptimizer(Optimizer):
     def __init__(
         self,
-        init_grasps: AllegroGraspConfig,
+        init_grasp_config: AllegroGraspConfig,
         grasp_metric: GraspMetric,
-        optimizer_config: GraspOptimizerConfig,
+        optimizer_config: SGDOptimizerConfig,
     ):
         """
         Constructor for SGDOptimizer.
 
         Args:
-            init_grasps: Initial grasp configuration.
+            init_grasp_config: Initial grasp configuration.
             grasp_metric: GraspMetric object defining the metric to optimize.
             **kwargs: Keyword arguments to pass to torch.optim.SGD.
         """
-        super().__init__(init_grasps, grasp_metric)
+        super().__init__(init_grasp_config, grasp_metric)
         self.optimizer = torch.optim.SGD(
             self.grasp_config.parameters(),
             lr=optimizer_config.lr,
             momentum=optimizer_config.momentum,
         )
 
-    # TODO: refactor to dispatch optimizer on config type.
     @classmethod
     def from_configs(
         cls,
-        init_grasps: AllegroGraspConfig,
+        init_grasp_config: AllegroGraspConfig,
         nerf_config: pathlib.Path,
         classifier_config: ClassifierConfig,
-        optimizer_config: GraspOptimizerConfig,
+        optimizer_config: SGDOptimizerConfig,
         classifier_checkpoint: int = -1,
         console=Console(width=120),
     ) -> SGDOptimizer:
@@ -117,7 +122,6 @@ class SGDOptimizer(Optimizer):
             nerf = grasp_utils.load_nerf(nerf_config)
             progress.update(task, advance=1)
 
-        # TODO(pculbert): BRITTLE! Support more classifiers etc.
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         with Progress(
@@ -126,7 +130,9 @@ class SGDOptimizer(Optimizer):
             console=console,
         ) as progress:
             task = progress.add_task("Loading CNN", total=1)
-            cnn = classifier_config.model_config.get_classifier().to(device=device)
+            cnn = classifier_config.model_config.get_classifier_from_fingertip_config(
+                classifier_config.nerfdata_config.fingertip_config
+            ).to(device=device)
 
             # Load checkpoint if specified.
             checkpoint_path = (
@@ -152,12 +158,12 @@ class SGDOptimizer(Optimizer):
         cnn.eval()
 
         # Put grasps on the correc device.
-        init_grasps = init_grasps.to(device=device)
+        init_grasp_config = init_grasp_config.to(device=device)
 
         # Wrap Nerf and Classifier in GraspMetric.
         grasp_metric = GraspMetric(nerf, cnn)
 
-        return cls(init_grasps, grasp_metric, optimizer_config)
+        return cls(init_grasp_config, grasp_metric, optimizer_config)
 
     def step(self):
         self.optimizer.zero_grad()
@@ -174,8 +180,176 @@ class SGDOptimizer(Optimizer):
         return self.grasp_metric.get_failure_probability(self.grasp_config)
 
 
+class CEMOptimizer(Optimizer):
+    def __init__(
+        self,
+        grasp_metric: GraspMetric,
+        optimizer_config: CEMOptimizerConfig,
+        grasp_config: AllegroGraspConfig,
+    ):
+        """
+        Constructor for SGDOptimizer.
+
+        Args:
+            init_grasp_config: Initial grasp configuration.
+            grasp_metric: GraspMetric object defining the metric to optimize.
+            **kwargs: Keyword arguments to pass to torch.optim.SGD.
+        """
+        self.grasp_config = grasp_config
+        self.grasp_metric = grasp_metric
+        self.optimizer_config = optimizer_config
+
+    # TODO: refactor to dispatch optimizer on config type.
+    @classmethod
+    def from_configs(
+        cls,
+        init_grasp_config: AllegroGraspConfig,
+        nerf_config: pathlib.Path,
+        classifier_config: ClassifierConfig,
+        optimizer_config: CEMOptimizerConfig,
+        classifier_checkpoint: int = -1,
+        console=Console(width=120),
+    ) -> CEMOptimizer:
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[bold blue]{task.description} "),
+            console=console,
+        ) as progress:
+            task = progress.add_task("Loading NeRF", total=1)
+            nerf = grasp_utils.load_nerf(nerf_config)
+            progress.update(task, advance=1)
+
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[bold blue]{task.description} "),
+            console=console,
+        ) as progress:
+            task = progress.add_task("Loading CNN", total=1)
+            cnn = classifier_config.model_config.get_classifier_from_fingertip_config(
+                classifier_config.nerfdata_config.fingertip_config
+            ).to(device=device)
+
+            # Load checkpoint if specified.
+            checkpoint_path = (
+                pathlib.Path(classifier_config.checkpoint_workspace.root_dir)
+                / classifier_config.checkpoint_workspace.leaf_dir
+            )
+
+            if classifier_checkpoint == -1:
+                # take latest checkpoint.
+                all_checkpoints = checkpoint_path.glob("*.pt")
+                checkpoint_path = max(all_checkpoints, key=pathlib.Path.stat)
+            else:
+                checkpoint_path = (
+                    checkpoint_path / f"checkpoint_{classifier_checkpoint:04}.pt"
+                )
+
+            cnn.load_state_dict(
+                torch.load(checkpoint_path)["nerf_to_grasp_success_model"]
+            )
+
+            progress.update(task, advance=1)
+
+        cnn.eval()
+
+        # Wrap Nerf and Classifier in GraspMetric.
+        grasp_metric = GraspMetric(
+            nerf, cnn, classifier_config.nerfdata_config.fingertip_config
+        )
+
+        return cls(grasp_metric, optimizer_config, init_grasp_config.to(device=device))
+
+    def step(self):
+        # Find the elite fraction of samples.
+        elite_inds = torch.argsort(self.grasp_scores)[: self.optimizer_config.num_elite]
+        elite_grasps = self.grasp_config[elite_inds]
+
+        # Compute the mean and covariance of the grasp config.
+        elite_mean = elite_grasps.mean()
+        (
+            elite_cov_wrist_pose,
+            elite_cov_joint_angles,
+            elite_cov_grasp_orientations,
+        ) = elite_grasps.cov()
+
+        elite_chol_wrist_pose = (
+            torch.linalg.cholesky(
+                elite_cov_wrist_pose
+                + self.optimizer_config.min_cov_std**2
+                * torch.eye(6, device=elite_cov_wrist_pose.device)
+            )
+        ).unsqueeze(0)
+
+        wrist_pose_perturbations = torch.randn_like(
+            elite_mean.wrist_pose.Log()
+            .expand(self.optimizer_config.num_samples, -1)
+            .unsqueeze(-1)
+        )
+
+        wrist_pose_innovations = (
+            elite_chol_wrist_pose @ wrist_pose_perturbations
+        ).squeeze(-1)
+
+        elite_chol_joint_angles = (
+            torch.linalg.cholesky(
+                elite_cov_joint_angles
+                + self.optimizer_config.min_cov_std**2
+                * torch.eye(16, device=elite_cov_joint_angles.device)
+            )
+        ).unsqueeze(0)
+
+        joint_angle_perturbations = torch.randn_like(
+            elite_mean.joint_angles.expand(self.optimizer_config.num_samples, -1)
+        ).unsqueeze(-1)
+
+        joint_angle_innovations = (
+            elite_chol_joint_angles @ joint_angle_perturbations
+        ).squeeze(-1)
+
+        elite_chol_grasp_orientations = (
+            torch.linalg.cholesky(
+                elite_cov_grasp_orientations
+                + self.optimizer_config.min_cov_std**2
+                * torch.eye(3, device=elite_cov_grasp_orientations.device).unsqueeze(0)
+            )
+        ).unsqueeze(0)
+
+        grasp_orientation_perturbations = (
+            torch.randn_like(elite_mean.grasp_orientations.Log())
+            .expand(self.optimizer_config.num_samples, -1, -1)
+            .unsqueeze(-1)
+        )
+
+        grasp_orientation_innovations = (
+            elite_chol_grasp_orientations @ grasp_orientation_perturbations
+        ).squeeze(-1)
+
+        # Sample grasp configs from the current mean and covariance.
+        self.grasp_config = AllegroGraspConfig.from_values(
+            wrist_pose=elite_mean.wrist_pose.expand(
+                self.optimizer_config.num_samples, -1
+            )
+            + wrist_pose_innovations,
+            joint_angles=elite_mean.joint_angles.expand(
+                self.optimizer_config.num_samples, -1
+            )
+            + joint_angle_innovations,
+            grasp_orientations=elite_mean.grasp_orientations.expand(
+                self.optimizer_config.num_samples, -1, -1
+            )
+            + grasp_orientation_innovations,
+        )
+
+    @property
+    def grasp_scores(self) -> torch.tensor:
+        with torch.no_grad():
+            return self.grasp_metric(self.grasp_config)
+
+
 def run_optimizer_loop(
-    optimizer: Optimizer, optimizer_config: GraspOptimizerConfig, console=Console()
+    optimizer: Optimizer, optimizer_config: UnionGraspOptimizerConfig, console=Console()
 ) -> Tuple[torch.tensor, AllegroGraspConfig]:
     """
     Convenience function for running the optimizer loop.
@@ -247,7 +421,7 @@ def run_optimizer_loop(
                     / f"{main_output_folder_path.name}_mid"
                 )
                 this_iter_folder_path = mid_optimization_folder_path / f"{iter}"
-                this_iter_folder_path.mkdir(parents=True)
+                this_iter_folder_path.mkdir(parents=True, exist_ok=True)
                 print(f"Saving mid opt grasp configs to {this_iter_folder_path}")
                 np.save(this_iter_folder_path / filename, grasp_config_dicts)
 
@@ -291,15 +465,24 @@ def main(cfg: GraspMetricConfig) -> None:
         ONLY_OPTIMIZE_ONE = False
         if ONLY_OPTIMIZE_ONE:
             # For faster reading in file and easier to visualize results
-            init_grasps = AllegroGraspConfig.from_grasp_config_dicts(
+            init_grasp_configs = AllegroGraspConfig.from_grasp_config_dicts(
                 grasp_config_dicts[:1]
             )
         else:
-            init_grasps = AllegroGraspConfig.from_grasp_config_dicts(grasp_config_dicts)
+            if isinstance(cfg.optimizer, SGDOptimizerConfig):
+                num_grasps = cfg.optimizer.num_grasps
+            elif isinstance(cfg.optimizer, CEMOptimizerConfig):
+                num_grasps = cfg.optimizer.num_init_samples
+            else:
+                raise ValueError(f"Invalid optimizer config: {cfg.optimizer}")
+
+            init_grasp_configs = AllegroGraspConfig.from_grasp_config_dicts(
+                grasp_config_dicts
+            )
 
             # Get indices of preferred split.
             train_inds, val_inds, test_inds = get_split_inds(
-                init_grasps.batch_size,
+                init_grasp_configs.batch_size,
                 [
                     cfg.classifier_config.data.frac_train,
                     cfg.classifier_config.data.frac_val,
@@ -317,19 +500,32 @@ def main(cfg: GraspMetricConfig) -> None:
             else:
                 raise ValueError(f"Invalid grasp_split: {cfg.grasp_split}")
 
-            data_inds = np.random.choice(data_inds, size=cfg.optimizer.num_grasps)
-            init_grasps = init_grasps[data_inds]
+            data_inds = np.random.choice(data_inds, size=num_grasps)
+            init_grasp_configs = init_grasp_configs[data_inds]
+
         progress.update(task, advance=1)
 
-    # Create SGDOptimizer.
-    optimizer = SGDOptimizer.from_configs(
-        init_grasps,
-        cfg.nerf_checkpoint_path,
-        cfg.classifier_config,
-        cfg.optimizer,
-        cfg.classifier_checkpoint,
-        console=console,
-    )
+    # Create Optimizer.
+    if isinstance(cfg.optimizer, SGDOptimizerConfig):
+        optimizer = SGDOptimizer.from_configs(
+            init_grasp_configs,
+            cfg.nerf_checkpoint_path,
+            cfg.classifier_config,
+            cfg.optimizer,
+            cfg.classifier_checkpoint,
+            console=console,
+        )
+    elif isinstance(cfg.optimizer, CEMOptimizerConfig):
+        optimizer = CEMOptimizer.from_configs(
+            init_grasp_configs,
+            cfg.nerf_checkpoint_path,
+            cfg.classifier_config,
+            cfg.optimizer,
+            cfg.classifier_checkpoint,
+            console=console,
+        )
+    else:
+        raise ValueError(f"Invalid optimizer config: {cfg.optimizer}")
 
     table = Table(title="Grasp scores")
     table.add_column("Iteration", justify="right")
@@ -371,6 +567,7 @@ def main(cfg: GraspMetricConfig) -> None:
         dd["score"] = scores[ii].item()
 
     print(f"Saving sorted grasp configs to {cfg.output_path}")
+    cfg.output_path.parent.mkdir(parents=True, exist_ok=True)
     np.save(str(cfg.output_path), grasp_config_dicts)
 
     wandb.finish()

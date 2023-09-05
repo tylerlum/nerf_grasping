@@ -141,9 +141,14 @@ class Simple_CNN_2D_1D_Classifier(Classifier):
 
     def forward(self, batch_data_input: BatchDataInput) -> torch.Tensor:
         # Run model
-        logits = self.model(
-            batch_data_input.nerf_alphas, batch_data_input.grasp_transforms.tensor()
-        )
+        if batch_data_input.conditioning_var is not None:
+            logits = self.model(
+                batch_data_input.nerf_alphas, batch_data_input.conditioning_var
+            )
+        else:
+            logits = self.model(
+                batch_data_input.nerf_alphas, batch_data_input.grasp_transforms.tensor()
+            )
         return logits
 
 

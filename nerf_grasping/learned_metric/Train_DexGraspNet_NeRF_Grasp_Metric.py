@@ -44,6 +44,7 @@ from nerf_grasping.config.classifier_config import (
     UnionClassifierConfig,
 )
 from nerf_grasping.config.fingertip_config import BaseFingertipConfig
+from nerf_grasping.config.nerfdata_config import GraspConditionedGridDataConfig
 import os
 import pypose as pp
 import h5py
@@ -263,12 +264,15 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
         load_grasp_successes_in_ram: bool = True,
         load_grasp_transforms_in_ram: bool = True,
         load_nerf_configs_in_ram: bool = True,
+        use_conditioning_var: bool = False,
+        load_conditioning_var_in_ram: bool = True,
     ) -> None:
         super().__init__()
         self.input_hdf5_filepath = input_hdf5_filepath
 
         # Recommended in https://discuss.pytorch.org/t/dataloader-when-num-worker-0-there-is-bug/25643/13
         self.hdf5_file = None
+        self.use_conditioning_var = use_conditioning_var
 
         with h5py.File(self.input_hdf5_filepath, "r") as hdf5_file:
             self.len = self._set_length(
@@ -319,6 +323,13 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
             self.nerf_configs = (
                 hdf5_file["/nerf_config"][()] if load_nerf_configs_in_ram else None
             )
+
+            if use_conditioning_var:
+                self.conditioning_var = (
+                    hdf5_file["/conditioning_var"][()]
+                    if load_conditioning_var_in_ram
+                    else None
+                )
 
     @localscope.mfc
     def _set_length(
@@ -394,6 +405,20 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
         assert grasp_success.shape == ()
         assert grasp_transforms.shape == (NUM_FINGERS, 4, 4)
 
+        if self.use_conditioning_var:
+            conditioning_var = (
+                self.hdf5_file["/conditioning_var"][idx]
+                if self.conditioning_var is None
+                else self.conditioning_var[idx]
+            )
+            return (
+                nerf_densities,
+                grasp_success,
+                grasp_transforms,
+                nerf_config,
+                conditioning_var,
+            )
+
         return nerf_densities, grasp_success, grasp_transforms, nerf_config
 
 
@@ -407,6 +432,9 @@ full_dataset = NeRFGrid_To_GraspSuccess_HDF5_Dataset(
     load_grasp_successes_in_ram=cfg.dataloader.load_grasp_successes_in_ram,
     load_grasp_transforms_in_ram=cfg.dataloader.load_grasp_transforms_in_ram,
     load_nerf_configs_in_ram=cfg.dataloader.load_nerf_configs_in_ram,
+    use_conditioning_var=isinstance(
+        cfg.nerfdata_config, GraspConditionedGridDataConfig
+    ),
 )
 
 train_dataset, val_dataset, test_dataset = random_split(
@@ -452,9 +480,20 @@ def custom_collate_fn(
     fingertip_config: BaseFingertipConfig,
     use_random_rotations: bool = True,
     debug_shuffle_labels: bool = False,
+    use_conditioning_var: bool = False,
 ) -> BatchData:
     batch = torch.utils.data.dataloader.default_collate(batch)
-    nerf_densities, grasp_successes, grasp_transforms, nerf_configs = batch
+    if use_conditioning_var:
+        (
+            nerf_densities,
+            grasp_successes,
+            grasp_transforms,
+            nerf_configs,
+            conditioning_var,
+        ) = batch
+    else:
+        nerf_densities, grasp_successes, grasp_transforms, nerf_configs = batch
+        conditioning_var = None
 
     if debug_shuffle_labels:
         shuffle_inds = torch.randperm(grasp_successes.shape[0])
@@ -474,6 +513,7 @@ def custom_collate_fn(
             grasp_transforms=grasp_transforms,
             random_rotate_transform=random_rotate_transform,
             fingertip_config=fingertip_config,
+            conditioning_var=conditioning_var,
         ),
         grasp_success=grasp_successes,
         nerf_config=nerf_configs,
@@ -491,6 +531,10 @@ train_loader = DataLoader(
         custom_collate_fn,
         fingertip_config=cfg.nerfdata_config.fingertip_config,
         use_random_rotations=cfg.data.use_random_rotations,
+        debug_shuffle_labels=cfg.data.debug_shuffle_labels,
+        use_conditioning_var=isinstance(
+            cfg.nerfdata_config, GraspConditionedGridDataConfig
+        ),
     ),
 )
 val_loader = DataLoader(
@@ -503,7 +547,9 @@ val_loader = DataLoader(
         custom_collate_fn,
         fingertip_config=cfg.nerfdata_config.fingertip_config,
         use_random_rotations=False,
-        debug_shuffle_labels=cfg.data.debug_shuffle_labels,
+        use_conditioning_var=isinstance(
+            cfg.nerfdata_config, GraspConditionedGridDataConfig
+        ),
     ),  # Run val over actual grasp transforms (no random rotations)
 )
 test_loader = DataLoader(
@@ -516,6 +562,9 @@ test_loader = DataLoader(
         custom_collate_fn,
         use_random_rotations=False,
         fingertip_config=cfg.nerfdata_config.fingertip_config,
+        use_conditioning_var=isinstance(
+            cfg.nerfdata_config, GraspConditionedGridDataConfig
+        ),
     ),  # Run test over actual test transforms.
 )
 
@@ -1018,6 +1067,7 @@ def run_training_loop(
         if epoch % training_cfg.val_freq == 0 and (
             epoch != 0 or training_cfg.val_on_epoch_0
         ):
+            nerf_to_grasp_success_model.eval()
             iterate_through_dataloader(
                 phase=Phase.VAL,
                 dataloader=val_loader,
@@ -1027,6 +1077,8 @@ def run_training_loop(
                 wandb_log_dict=wandb_log_dict,
             )
         val_time_taken = time.time() - start_val_time
+
+        nerf_to_grasp_success_model.train()
 
         if wandb.run is not None:
             wandb.log(wandb_log_dict)

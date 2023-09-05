@@ -110,6 +110,7 @@ class CNN2DFiLM(nn.Module):
                 nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1)
             )
             self.conv_layers.append(nn.ReLU())
+            self.conv_layers.append(nn.Dropout2d(p=0.1, inplace=False))
             self.conv_layers.append(nn.BatchNorm2d(out_channels))
             self.conv_layers.append(
                 FiLMLayer(
@@ -199,6 +200,7 @@ class CNN1DFiLM(nn.Module):
                 )
             )
             self.conv_layers.append(nn.ReLU())
+            self.conv_layers.append(torch.nn.Dropout(p=0.1, inplace=False))
             self.conv_layers.append(nn.BatchNorm1d(out_channels))
             self.conv_layers.append(
                 FiLMLayer(
@@ -208,6 +210,7 @@ class CNN1DFiLM(nn.Module):
                     film_hidden_layers,
                 )
             )
+
             self.conv_layers.append(self.pooling)
 
         # Compute output shape

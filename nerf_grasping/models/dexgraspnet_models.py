@@ -118,7 +118,7 @@ class CNN_2D_1D_Model(nn.Module):
             pooling_method=ConvOutputTo1D.AVG_POOL_SPATIAL,
             film_hidden_layers=conv_2d_film_hidden_layers,
             # resnet_type="resnet18", # TODO: Config this
-            resnet_type="resnet_smaller", # TODO: Config this
+            resnet_type="resnet_smaller",  # TODO: Config this
         )
 
         self.conv_1d = ConvEncoder1D(
@@ -210,9 +210,7 @@ class CNN_2D_1D_Model(nn.Module):
         assert_equals(
             x.shape, (batch_size * n_fingers, self.conv_2d.output_dim(), seq_len)
         )
-        assert_equals(
-            conditioning.shape, (batch_size * n_fingers, conditioning_dim)
-        )
+        assert_equals(conditioning.shape, (batch_size * n_fingers, conditioning_dim))
 
         # Conv 1D
         x = self.conv_1d(x, conditioning=conditioning)

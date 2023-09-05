@@ -21,7 +21,7 @@ class CEMOptimizerConfig(BaseOptimizerConfig):
     num_init_samples: int = 250
     num_samples: int = 250
     num_elite: int = 50
-    num_steps: int = 10
+    num_steps: int = 30
     min_cov_std: float = 1e-2
 
 

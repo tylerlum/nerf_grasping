@@ -10,7 +10,7 @@ import nerf_grasping
 import nerfstudio
 from matplotlib import pyplot as plt
 from nerf_grasping.grasp_utils import (
-    get_ray_samples,
+    get_ray_samples_helper,
     get_ray_origins_finger_frame_helper,
 )
 from nerfstudio.cameras.rays import RayBundle, RaySamples
@@ -39,6 +39,7 @@ def get_object_code(cfg_path: pathlib.Path) -> str:
     object_code = obj_str[:idx]
     return object_code
 
+
 def parse_object_code_and_scale(object_code_and_scale_str: str) -> Tuple[str, float]:
     # Input: sem-Gun-4745991e7c0c7966a93f1ea6ebdeec6f_0_10
     # Output: sem-Gun-4745991e7c0c7966a93f1ea6ebdeec6f, 0.10
@@ -51,7 +52,6 @@ def parse_object_code_and_scale(object_code_and_scale_str: str) -> Tuple[str, fl
         object_code_and_scale_str[idx + idx_offset_for_scale :].replace("_", ".")
     )
     return object_code, object_scale
-
 
 
 def get_scene_dict() -> Dict[str, Any]:
@@ -168,14 +168,31 @@ def plot_mesh_and_query_points(
     num_fingers: int,
     title: str = "Query Points",
 ) -> go.Figure:
+    # Shape checks
     assert (
         len(query_points_list) == len(query_points_colors_list) == num_fingers
-    ), f"{len(query_points_list)} != {num_fingers}"
-    fig = plot_mesh(mesh)
+    ), f"{len(query_points_list)} != {len(query_points_colors_list)} != {num_fingers}"
+    query_points_list = np.stack(query_points_list, axis=0)
+    query_points_colors_list = np.stack(query_points_colors_list, axis=0)
 
+    num_pts = query_points_list.shape[1]
+    assert query_points_list.shape == (
+        num_fingers,
+        num_pts,
+        3,
+    ), f"{query_points_list.shape}"
+    assert query_points_colors_list.shape == (
+        num_fingers,
+        num_pts,
+    ), f"{query_points_colors_list.shape}"
+
+    fig = plot_mesh(mesh)
     for finger_idx in range(num_fingers):
         query_points = query_points_list[finger_idx]
         query_points_colors = query_points_colors_list[finger_idx]
+        assert query_points.shape == (num_pts, 3)
+        assert query_points_colors.shape == (num_pts,)
+
         query_point_plot = go.Scatter3d(
             x=query_points[:, 0],
             y=query_points[:, 1],
@@ -183,7 +200,7 @@ def plot_mesh_and_query_points(
             mode="markers",
             marker=dict(
                 size=4,
-                color=query_points_colors.squeeze(-1),
+                color=query_points_colors,
                 colorscale="viridis",
                 colorbar=dict(title="Density Scale") if finger_idx == 0 else {},
             ),
@@ -210,9 +227,9 @@ def plot_mesh_and_high_density_points(
     query_points_colors: np.ndarray,
     density_threshold: float,
 ) -> go.Figure:
-    n_pts = query_points.shape[0]
-    assert query_points.shape == (n_pts, 3), f"{query_points.shape}"
-    assert query_points_colors.shape == (n_pts,), f"{query_points_colors.shape}"
+    num_pts = query_points.shape[0]
+    assert query_points.shape == (num_pts, 3), f"{query_points.shape}"
+    assert query_points_colors.shape == (num_pts,), f"{query_points_colors.shape}"
 
     fig = plot_mesh(mesh)
 
@@ -248,10 +265,14 @@ def plot_mesh_and_high_density_points(
 
 
 def get_ray_samples_in_mesh_region(
-    mesh: trimesh.Trimesh, num_pts_x: int, num_pts_y: int, num_pts_z: int
+    mesh: trimesh.Trimesh,
+    num_pts_x: int,
+    num_pts_y: int,
+    num_pts_z: int,
+    beyond_mesh_region_scale: float = 1.5,
 ) -> RaySamples:
     # Get bounds from mesh
-    min_bounds, max_bounds = mesh.bounds
+    min_bounds, max_bounds = mesh.bounds * beyond_mesh_region_scale
     x_min, y_min, z_min = min_bounds
     x_max, y_max, z_max = max_bounds
     finger_width_mm = (x_max - x_min) * 1000
@@ -267,41 +288,11 @@ def get_ray_samples_in_mesh_region(
         z_offset_mm=z_min * 1000,
     )
     assert ray_origins_object_frame.shape == (num_pts_x, num_pts_y, 3)
-    identity_transform = pp.identity_SE3(num_pts_x, num_pts_y).to(
-        ray_origins_object_frame.device
-    )
-    ray_samples = get_ray_samples(
+    identity_transform = pp.identity_SE3(1).to(ray_origins_object_frame.device)
+    ray_samples = get_ray_samples_helper(
         ray_origins_object_frame,
         identity_transform,
         num_pts_z=num_pts_z,
         grasp_depth_mm=grasp_depth_mm,
     )
     return ray_samples
-
-
-# TODO: remove, deprecated.
-# def get_bbox_ray_samples(
-#     bbox_min: np.ndarray,
-#     bbox_max: np.ndarray,
-#     num_points_x: int = 5 * NUM_PTS_X,
-#     num_points_y: int = 5 * NUM_PTS_Y,
-#     num_points_z: int = 5 * NUM_PTS_Z,
-# ):
-#     """
-#     Creates a nerfstudio RaySamples object for querying the NeRF on a
-#     grid inside an axis-aligned bounding box.
-#     """
-
-#     x_points = np.linspace(bbox_min[0], bbox_max[0], num_points_x)
-#     y_points = np.linspace(bbox_min[1], bbox_max[1], num_points_y)
-
-#     xx, yy = np.meshgrid(x_points, y_points, indexing="ij")
-#     zz = bbox_min[-1] * np.ones_like(xx)
-
-#     ray_origins = np.stack([xx, yy, zz], axis=-1)
-
-#     transform = torch.eye(4)
-
-#     return get_ray_samples(
-#         ray_origins, transform, num_points_z, 1000 * (bbox_max[-1] - bbox_min[-1])
-#     )

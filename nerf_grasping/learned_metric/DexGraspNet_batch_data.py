@@ -5,7 +5,7 @@ import pypose as pp
 import torch
 from typing import List, Optional
 import numpy as np
-from nerf_grasping.dataset.DexGraspNet_NeRF_Grasps_utils import (
+from nerf_grasping.grasp_utils import (
     get_ray_samples,
 )
 from nerf_grasping.grasp_utils import (

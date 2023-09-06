@@ -21,6 +21,7 @@
 # The purpose of this script is to iterate through each NeRF object and evaled grasp config, sample densities in the grasp trajectory, and store the data
 
 # %%
+import sys
 import pathlib
 import h5py
 import math
@@ -33,7 +34,7 @@ import trimesh
 import numpy as np
 from tqdm import tqdm
 from datetime import datetime
-from typing import Tuple, List, Dict, Any
+from typing import Tuple, List, Dict, Any, Optional
 from nerf_grasping.dataset.DexGraspNet_NeRF_Grasps_utils import (
     plot_mesh_and_query_points,
     plot_mesh_and_transforms,
@@ -299,6 +300,80 @@ def create_depth_image_dataset(cfg: DepthImageNerfDataConfig, hdf5_file: h5py.Fi
     )
 
 
+@localscope.mfc
+def get_nerf_densities(
+    loop_timer: LoopTimer,
+    cfg: UnionNerfDataConfig,
+    grasp_frame_transforms: pp.LieTensor,
+) -> Tuple[np.ndarray, np.ndarray]:
+    assert grasp_frame_transforms.lshape == (cfg.fingertip_config.n_fingers,)
+
+    transform_list = [
+        grasp_frame_transforms[i].detach().clone()
+        for i in range(cfg.fingertip_config.n_fingers)
+    ]
+
+    # Create density grid for grid dataset.
+    if isinstance(cfg, GridNerfDataConfig) or isinstance(
+        cfg, GraspConditionedGridDataConfig
+    ):
+        # Transform query points
+        with loop_timer.add_section_timer("get_transformed_points"):
+            ray_samples_list = [
+                get_ray_samples(
+                    ray_origins_finger_frame, transform, cfg.fingertip_config
+                )
+                for transform in transform_list
+            ]
+
+        with loop_timer.add_section_timer("get_query_points"):
+            query_points_list = [
+                np.copy(
+                    rr.frustums.get_positions()
+                    .cpu()
+                    .numpy()
+                    .reshape(
+                        cfg.fingertip_config.num_pts_x,
+                        cfg.fingertip_config.num_pts_y,
+                        cfg.fingertip_config.num_pts_z,
+                        3,
+                    )
+                )  # Shape [n_x, n_y, n_z, 3]
+                for rr in ray_samples_list
+            ]
+
+        # Get densities
+        with loop_timer.add_section_timer("get_nerf_densities"):
+            nerf_densities = [
+                nerf_model.get_density(ray_samples.to("cuda"))[0]
+                .detach()
+                .cpu()
+                .numpy()
+                .reshape(
+                    cfg.fingertip_config.num_pts_x,
+                    cfg.fingertip_config.num_pts_y,
+                    cfg.fingertip_config.num_pts_z,
+                )
+                for ray_samples in ray_samples_list  # Shape [n_x, n_y, n_z].
+            ]
+
+        query_points_list = np.stack(query_points_list, axis=0).reshape(
+            cfg.fingertip_config.n_fingers,
+            cfg.fingertip_config.num_pts_x,
+            cfg.fingertip_config.num_pts_y,
+            cfg.fingertip_config.num_pts_z,
+            3,
+        )
+        nerf_densities = np.stack(nerf_densities, axis=0).reshape(
+            cfg.fingertip_config.n_fingers,
+            cfg.fingertip_config.num_pts_x,
+            cfg.fingertip_config.num_pts_y,
+            cfg.fingertip_config.num_pts_z,
+        )
+
+        return nerf_densities, query_points_list
+
+
 with h5py.File(cfg.output_filepath, "w") as hdf5_file:
     current_idx = 0
 
@@ -342,6 +417,8 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
             grasp_idx_dataset,
             grasp_transforms_dataset,
         ) = create_depth_image_dataset(cfg, hdf5_file)
+    else:
+        raise NotImplementedError(f"Unknown config type {cfg}")
 
     # Slice out the grasp index we want to visualize if plot_only_one is True.
     if cfg.plot_only_one:
@@ -431,11 +508,8 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
 
         if isinstance(cfg, GraspConditionedGridDataConfig):
             grasp_config_tensors = grasp_configs.as_tensor()
-            assert grasp_config_tensors.shape == (
-                grasp_configs.batch_size,
-                cfg.fingertip_config.n_fingers,
-                7 + 16,
-            )
+        else:
+            grasp_config_tensors = None
 
         for grasp_idx, (grasp_success, grasp_frame_transforms) in (
             pbar := tqdm(
@@ -450,253 +524,187 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
             )
         ):
             pbar.set_description(f"grasp data, current_idx: {current_idx}")
-            with loop_timer.add_section_timer("get_transforms"):
-                assert grasp_frame_transforms.lshape == (
-                    cfg.fingertip_config.n_fingers,
-                )
+            nerf_densities, query_points_list = get_nerf_densities(
+                loop_timer=loop_timer,
+                cfg=cfg,
+                grasp_frame_transforms=grasp_frame_transforms,
+            )
+            if cfg.plot_only_one:
+                break
 
-                transform_list = [
-                    grasp_frame_transforms[i].detach().clone()
-                    for i in range(cfg.fingertip_config.n_fingers)
-                ]
-
-            # Create density grid for grid dataset.
-            if isinstance(cfg, GridNerfDataConfig) or isinstance(
-                cfg, GraspConditionedGridDataConfig
+            # Ensure no nans (most likely come from weird grasp transforms)
+            if (
+                torch.isnan(nerf_densities).any()
+                or torch.isnan(grasp_frame_transforms).any()
             ):
-                # Transform query points
-                with loop_timer.add_section_timer("get_transformed_points"):
-                    ray_samples_list = [
-                        get_ray_samples(
-                            ray_origins_finger_frame, transform, cfg.fingertip_config
-                        )
-                        for transform in transform_list
-                    ]
-
-                with loop_timer.add_section_timer("get_query_points"):
-                    query_points_list = [
-                        np.copy(
-                            rr.frustums.get_positions()
-                            .cpu()
-                            .numpy()
-                            .reshape(
-                                cfg.fingertip_config.num_pts_x,
-                                cfg.fingertip_config.num_pts_y,
-                                cfg.fingertip_config.num_pts_z,
-                                3,
-                            )
-                        )  # Shape [n_x, n_y, n_z, 3]
-                        for rr in ray_samples_list
-                    ]
-
-                if isinstance(cfg, GraspConditionedGridDataConfig):
-                    with loop_timer.add_section_timer("get_grasp_config"):
-                        grasp_config_arr = (
-                            grasp_config_tensors[grasp_idx].detach().cpu().numpy()
-                        )
-                        assert grasp_config_arr.shape == (
-                            cfg.fingertip_config.n_fingers,
-                            7 + 16 + 4,
-                        )
-
-                # Get densities
-                with loop_timer.add_section_timer("get_nerf_densities"):
-                    nerf_densities = [
-                        nerf_model.get_density(ray_samples.to("cuda"))[0]
-                        .detach()
-                        .cpu()
-                        .numpy()
-                        .reshape(
-                            cfg.fingertip_config.num_pts_x,
-                            cfg.fingertip_config.num_pts_y,
-                            cfg.fingertip_config.num_pts_z,
-                        )
-                        for ray_samples in ray_samples_list  # Shape [n_x, n_y, n_z].
-                    ]
-
-                # Plot
-                if cfg.plot_only_one:
-                    delta = (
-                        cfg.fingertip_config.grasp_depth_mm
-                        / 1000
-                        / (cfg.fingertip_config.num_pts_z - 1)
-                    )
-
-                    nerf_alphas = [1 - np.exp(-delta * dd) for dd in nerf_densities]
-                    fig = plot_mesh_and_query_points(
-                        mesh=mesh,
-                        query_points_list=[
-                            qq.reshape(-1, 3) for qq in query_points_list
-                        ],
-                        query_points_colors_list=[x.reshape(-1) for x in nerf_alphas],
-                        num_fingers=cfg.fingertip_config.n_fingers,
-                        title=f"Mesh and Query Points, Success: {grasp_successes[grasp_idx]}",
-                    )
-                    fig.show()
-                    fig2 = plot_mesh_and_transforms(
-                        mesh=mesh,
-                        transforms=[tt.matrix().numpy() for tt in transform_list],
-                        num_fingers=cfg.fingertip_config.n_fingers,
-                        title=f"Mesh and Transforms, Success: {grasp_successes[grasp_idx]}",
-                    )
-                    fig2.show()
-
-                    if cfg.plot_all_high_density_points:
-                        PLOT_NUM_PTS_X, PLOT_NUM_PTS_Y, PLOT_NUM_PTS_Z = 100, 100, 100
-                        ray_samples_in_mesh_region = get_ray_samples_in_mesh_region(
-                            mesh=mesh,
-                            num_pts_x=PLOT_NUM_PTS_X,
-                            num_pts_y=PLOT_NUM_PTS_Y,
-                            num_pts_z=PLOT_NUM_PTS_Z,
-                        )
-                        query_points_in_mesh_region_isaac_frame = np.copy(
-                            ray_samples_in_mesh_region.frustums.get_positions()
-                            .cpu()
-                            .numpy()
-                            .reshape(
-                                PLOT_NUM_PTS_X,
-                                PLOT_NUM_PTS_Y,
-                                PLOT_NUM_PTS_Z,
-                                3,
-                            )
-                        )
-                        nerf_densities_in_mesh_region = (
-                            nerf_model.get_density(
-                                ray_samples_in_mesh_region.to("cuda")
-                            )[0]
-                            .detach()
-                            .cpu()
-                            .numpy()
-                            .reshape(
-                                PLOT_NUM_PTS_X,
-                                PLOT_NUM_PTS_Y,
-                                PLOT_NUM_PTS_Z,
-                            )
-                        )
-
-                        nerf_alphas_in_mesh_region = 1 - np.exp(
-                            -delta * nerf_densities_in_mesh_region
-                        )
-
-                        fig3 = plot_mesh_and_high_density_points(
-                            mesh=mesh,
-                            query_points=query_points_in_mesh_region_isaac_frame.reshape(
-                                -1, 3
-                            ),
-                            query_points_colors=nerf_alphas_in_mesh_region.reshape(-1),
-                            density_threshold=0.01,
-                        )
-                        fig3.show()
-
-                    if cfg.plot_alphas_each_finger_1D:
-                        nrows, ncols = cfg.fingertip_config.n_fingers, 1
-                        fig4, axes = plt.subplots(
-                            nrows=nrows, ncols=ncols, figsize=(10, 10)
-                        )
-                        axes = axes.flatten()
-                        for i in range(cfg.fingertip_config.n_fingers):
-                            ax = axes[i]
-                            finger_alphas = nerf_alphas[i].reshape(
-                                cfg.fingertip_config.num_pts_x,
-                                cfg.fingertip_config.num_pts_y,
-                                cfg.fingertip_config.num_pts_z,
-                            )
-                            finger_alphas_maxes = np.max(finger_alphas, axis=(0, 1))
-                            finger_alphas_means = np.mean(finger_alphas, axis=(0, 1))
-                            ax.plot(finger_alphas_maxes, label="max")
-                            ax.plot(finger_alphas_means, label="mean")
-                            ax.legend()
-                            ax.set_xlabel("z")
-                            ax.set_ylabel("alpha")
-                            ax.set_title(f"finger {i}")
-                            ax.set_ylim([0, 1])
-                        fig4.tight_layout()
-                        fig4.show()
-
-                    if cfg.plot_alpha_images_each_finger:
-                        num_images = 5
-                        nrows, ncols = cfg.fingertip_config.n_fingers, num_images
-                        fig5, axes = plt.subplots(
-                            nrows=nrows, ncols=ncols, figsize=(10, 10)
-                        )
-                        alpha_images = [
-                            x.reshape(
-                                cfg.fingertip_config.num_pts_x,
-                                cfg.fingertip_config.num_pts_y,
-                                cfg.fingertip_config.num_pts_z,
-                            )
-                            for x in nerf_alphas
-                        ]
-
-                        for finger_i in range(cfg.fingertip_config.n_fingers):
-                            for image_i in range(num_images):
-                                ax = axes[finger_i, image_i]
-                                image = alpha_images[finger_i][
-                                    :,
-                                    :,
-                                    int(
-                                        image_i
-                                        * cfg.fingertip_config.num_pts_z
-                                        / num_images
-                                    ),
-                                ]
-                                ax.imshow(
-                                    image,
-                                    vmin=nerf_alphas[i].min(),
-                                    vmax=nerf_alphas[i].max(),
-                                )
-                                ax.set_title(f"finger {finger_i}, image {image_i}")
-                        fig5.tight_layout()
-                        fig5.show()
-                        plt.show(block=True)
-
-                        assert False, "cfg.plot_only_one is True"
+                print("\n" + "-" * 80)
+                print(
+                    f"WARNING: Found {torch.isnan(nerf_densities).sum()} nerf density nans and {torch.isnan(grasp_frame_transforms).sum()} transform nans in grasp {grasp_idx} of {config}"
+                )
+                print("Skipping this one...")
+                print("-" * 80 + "\n")
+                continue
 
             # Save values
-            if cfg.save_dataset:
-                with loop_timer.add_section_timer("save values"):
-                    nerf_densities = np.stack(nerf_densities, axis=0).reshape(
+            if not cfg.save_dataset:
+                continue
+            with loop_timer.add_section_timer("save values"):
+                nerf_densities_dataset[current_idx] = nerf_densities.cpu().numpy()
+                grasp_success_dataset[current_idx] = grasp_success
+                nerf_config_dataset[current_idx] = str(config)
+                object_code_dataset[current_idx] = object_code
+                object_scale_dataset[current_idx] = object_scale
+                grasp_idx_dataset[current_idx] = grasp_idx
+                grasp_transforms_dataset[current_idx] = (
+                    grasp_frame_transforms.matrix().cpu().numpy()
+                )
+
+                if isinstance(cfg, GraspConditionedGridDataConfig):
+                    grasp_config_tensor = (
+                        grasp_config_tensors[grasp_idx].detach().cpu().numpy()
+                    )
+                    assert grasp_config_tensor.shape == (
                         cfg.fingertip_config.n_fingers,
-                        cfg.fingertip_config.num_pts_x,
-                        cfg.fingertip_config.num_pts_y,
-                        cfg.fingertip_config.num_pts_z,
+                        7 + 16,
                     )
-                    grasp_transforms = np.stack(
-                        [tt.matrix().cpu().numpy() for tt in transforms], axis=0
-                    )
+                    conditioning_var_dataset[current_idx] = grasp_config_tensor
 
-                    # Ensure no nans (most likely come from nerf densities)
-                    if (
-                        np.isnan(nerf_densities).any()
-                        or np.isnan(grasp_transforms).any()
-                    ):
-                        print()
-                        print("-" * 80)
-                        print(
-                            f"WARNING: Found {np.isnan(nerf_densities).sum()} nerf density nans and {np.isnan(grasp_transforms).sum()} transform nans in grasp {grasp_idx} of {config}"
-                        )
-                        print("Skipping this one...")
-                        print("-" * 80)
-                        print()
-                        continue
+                current_idx += 1
 
-                    nerf_densities_dataset[current_idx] = nerf_densities
-                    grasp_success_dataset[current_idx] = DICT_TO_CHANGE["passed_eval"]
-                    nerf_config_dataset[current_idx] = str(config)
-                    object_code_dataset[current_idx] = object_code
-                    object_scale_dataset[current_idx] = object_scale
-                    grasp_idx_dataset[current_idx] = grasp_idx
-                    grasp_transforms_dataset[current_idx] = grasp_transforms
+                # May not be max_num_data_points if nan grasps
+                hdf5_file.attrs["num_data_points"] = current_idx
 
-                    if isinstance(cfg, GraspConditionedGridDataConfig):
-                        conditioning_var_dataset[current_idx] = grasp_config_arr
-
-                    current_idx += 1
-
-                    # May not be max_num_data_points if nan grasps
-                    hdf5_file.attrs["num_data_points"] = current_idx
         if cfg.print_timing:
             loop_timer.pretty_print_section_times()
         print()
 
 # %%
+if not cfg.plot_only_one:
+    print("Done!")
+    sys.exit()
+
+nerf_densities: np.ndarray = torch.from_numpy(
+    nerf_densities_dataset[cfg.nerf_visualize_index]
+)
+
+# Plot
+delta = (
+    cfg.fingertip_config.grasp_depth_mm / 1000 / (cfg.fingertip_config.num_pts_z - 1)
+)
+
+nerf_alphas = [1 - np.exp(-delta * dd) for dd in nerf_densities]
+fig = plot_mesh_and_query_points(
+    mesh=mesh,
+    query_points_list=[qq.reshape(-1, 3) for qq in query_points_list],
+    query_points_colors_list=[x.reshape(-1) for x in nerf_alphas],
+    num_fingers=cfg.fingertip_config.n_fingers,
+    title=f"Mesh and Query Points, Success: {grasp_success}",
+)
+fig.show()
+fig2 = plot_mesh_and_transforms(
+    mesh=mesh,
+    transforms=[
+        grasp_frame_transforms[i].matrix().numpy()
+        for i in range(cfg.fingertip_config.n_fingers)
+    ],
+    num_fingers=cfg.fingertip_config.n_fingers,
+    title=f"Mesh and Transforms, Success: {grasp_success}",
+)
+fig2.show()
+
+if cfg.plot_all_high_density_points:
+    PLOT_NUM_PTS_X, PLOT_NUM_PTS_Y, PLOT_NUM_PTS_Z = 100, 100, 100
+    ray_samples_in_mesh_region = get_ray_samples_in_mesh_region(
+        mesh=mesh,
+        num_pts_x=PLOT_NUM_PTS_X,
+        num_pts_y=PLOT_NUM_PTS_Y,
+        num_pts_z=PLOT_NUM_PTS_Z,
+    )
+    query_points_in_mesh_region_isaac_frame = np.copy(
+        ray_samples_in_mesh_region.frustums.get_positions()
+        .cpu()
+        .numpy()
+        .reshape(
+            PLOT_NUM_PTS_X,
+            PLOT_NUM_PTS_Y,
+            PLOT_NUM_PTS_Z,
+            3,
+        )
+    )
+    nerf_densities_in_mesh_region = (
+        nerf_model.get_density(ray_samples_in_mesh_region.to("cuda"))[0]
+        .detach()
+        .cpu()
+        .numpy()
+        .reshape(
+            PLOT_NUM_PTS_X,
+            PLOT_NUM_PTS_Y,
+            PLOT_NUM_PTS_Z,
+        )
+    )
+
+    nerf_alphas_in_mesh_region = 1 - np.exp(-delta * nerf_densities_in_mesh_region)
+
+    fig3 = plot_mesh_and_high_density_points(
+        mesh=mesh,
+        query_points=query_points_in_mesh_region_isaac_frame.reshape(-1, 3),
+        query_points_colors=nerf_alphas_in_mesh_region.reshape(-1),
+        density_threshold=0.01,
+    )
+    fig3.show()
+
+if cfg.plot_alphas_each_finger_1D:
+    nrows, ncols = cfg.fingertip_config.n_fingers, 1
+    fig4, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=(10, 10))
+    axes = axes.flatten()
+    for i in range(cfg.fingertip_config.n_fingers):
+        ax = axes[i]
+        finger_alphas = nerf_alphas[i].reshape(
+            cfg.fingertip_config.num_pts_x,
+            cfg.fingertip_config.num_pts_y,
+            cfg.fingertip_config.num_pts_z,
+        )
+        finger_alphas_maxes = np.max(finger_alphas, axis=(0, 1))
+        finger_alphas_means = np.mean(finger_alphas, axis=(0, 1))
+        ax.plot(finger_alphas_maxes, label="max")
+        ax.plot(finger_alphas_means, label="mean")
+        ax.legend()
+        ax.set_xlabel("z")
+        ax.set_ylabel("alpha")
+        ax.set_title(f"finger {i}")
+        ax.set_ylim([0, 1])
+    fig4.tight_layout()
+    fig4.show()
+
+if cfg.plot_alpha_images_each_finger:
+    num_images = 5
+    nrows, ncols = cfg.fingertip_config.n_fingers, num_images
+    fig5, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=(10, 10))
+    alpha_images = [
+        x.reshape(
+            cfg.fingertip_config.num_pts_x,
+            cfg.fingertip_config.num_pts_y,
+            cfg.fingertip_config.num_pts_z,
+        )
+        for x in nerf_alphas
+    ]
+
+    for finger_i in range(cfg.fingertip_config.n_fingers):
+        for image_i in range(num_images):
+            ax = axes[finger_i, image_i]
+            image = alpha_images[finger_i][
+                :,
+                :,
+                int(image_i * cfg.fingertip_config.num_pts_z / num_images),
+            ]
+            ax.imshow(
+                image,
+                vmin=nerf_alphas[i].min(),
+                vmax=nerf_alphas[i].max(),
+            )
+            ax.set_title(f"finger {finger_i}, image {image_i}")
+    fig5.tight_layout()
+    fig5.show()
+    plt.show(block=True)
+
+assert False, "cfg.plot_only_one is True"

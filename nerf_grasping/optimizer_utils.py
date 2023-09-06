@@ -91,7 +91,7 @@ class AllegroHandConfig(torch.nn.Module):
 
         wrist_translation = trans
         wrist_quat = pp.from_matrix(rot, pp.SO3_type)
-        wrist_pose = pp.SE3(torch.cat([wrist_translation, wrist_quat], dim=0))
+        wrist_pose = pp.SE3(torch.cat([wrist_translation, wrist_quat], dim=1))
 
         return cls.from_values(wrist_pose=wrist_pose, joint_angles=joint_angles)
 
@@ -311,8 +311,8 @@ class AllegroGraspConfig(torch.nn.Module):
         )
 
         grasp_orientations = torch.from_numpy(
-            grasp_config_dict["grasp_orientations"], device=device, dtype=dtype
-        )
+            grasp_config_dict["grasp_orientations"]
+        ).to(device).to(dtype)
         assert grasp_orientations.shape == (batch_size, num_fingers, 3, 3)
 
         # Set the grasp config's data.

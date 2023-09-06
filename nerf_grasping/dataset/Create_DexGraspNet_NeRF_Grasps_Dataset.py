@@ -21,6 +21,7 @@
 # The purpose of this script is to iterate through each NeRF object and evaled grasp config, sample densities in the grasp trajectory, and store the data
 
 # %%
+import nerfstudio
 import sys
 import pathlib
 import h5py
@@ -98,8 +99,10 @@ def parse_nerf_config(nerf_config: pathlib.Path) -> str:
     return object_code_and_scale_str
 
 
-@localscope.mfc
-def count_total_num_grasps(nerf_configs: List[pathlib.Path]) -> int:
+@localscope.mfc(allowed=["tqdm"])
+def count_total_num_grasps(
+    nerf_configs: List[pathlib.Path], evaled_grasp_config_dicts_path: pathlib.Path
+) -> int:
     ACTUALLY_COUNT_ALL = False
     total_num_grasps = 0
 
@@ -110,7 +113,7 @@ def count_total_num_grasps(nerf_configs: List[pathlib.Path]) -> int:
             object_code_and_scale_str
         )
         evaled_grasp_config_dict_filepath = (
-            cfg.evaled_grasp_config_dicts_path / f"{object_code_and_scale_str}.npy"
+            evaled_grasp_config_dicts_path / f"{object_code_and_scale_str}.npy"
         )
         assert (
             evaled_grasp_config_dict_filepath.exists()
@@ -181,7 +184,10 @@ nerf_configs = nerf_configs[: cfg.limit_num_configs]
 if cfg.max_num_data_points_per_file is not None:
     max_num_datapoints = len(nerf_configs) * cfg.max_num_data_points_per_file
 else:
-    max_num_datapoints = count_total_num_grasps(nerf_configs)
+    max_num_datapoints = count_total_num_grasps(
+        nerf_configs=nerf_configs,
+        evaled_grasp_config_dicts_path=cfg.evaled_grasp_config_dicts_path,
+    )
 
 print(f"max num datapoints: {max_num_datapoints}")
 
@@ -199,7 +205,7 @@ print(cfg)
 
 
 @localscope.mfc
-def create_grid_dataset(cfg: GridNerfDataConfig, hdf5_file: h5py.File):
+def create_grid_dataset(cfg: GridNerfDataConfig, hdf5_file: h5py.File, max_num_datapoints: int):
     nerf_densities_dataset = hdf5_file.create_dataset(
         "/nerf_densities",
         shape=(
@@ -251,7 +257,7 @@ def create_grid_dataset(cfg: GridNerfDataConfig, hdf5_file: h5py.File):
 
 
 @localscope.mfc
-def create_depth_image_dataset(cfg: DepthImageNerfDataConfig, hdf5_file: h5py.File):
+def create_depth_image_dataset(cfg: DepthImageNerfDataConfig, hdf5_file: h5py.File, max_num_datapoints: int):
     nerf_densities_dataset = hdf5_file.create_dataset(
         "/depth_images",
         shape=(
@@ -305,6 +311,8 @@ def get_nerf_densities(
     loop_timer: LoopTimer,
     cfg: UnionNerfDataConfig,
     grasp_frame_transforms: pp.LieTensor,
+    ray_origins_finger_frame: torch.Tensor,
+    nerf_model: nerfstudio.models.base_model.Model,
 ) -> Tuple[np.ndarray, np.ndarray]:
     assert grasp_frame_transforms.lshape == (cfg.fingertip_config.n_fingers,)
 
@@ -387,7 +395,7 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
             object_scale_dataset,
             grasp_idx_dataset,
             grasp_transforms_dataset,
-        ) = create_grid_dataset(cfg, hdf5_file)
+        ) = create_grid_dataset(cfg, hdf5_file, max_num_datapoints)
         conditioning_var_dataset = hdf5_file.create_dataset(
             "/conditioning_var",
             shape=(
@@ -406,7 +414,7 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
             object_scale_dataset,
             grasp_idx_dataset,
             grasp_transforms_dataset,
-        ) = create_grid_dataset(cfg, hdf5_file)
+        ) = create_grid_dataset(cfg, hdf5_file, max_num_datapoints)
     elif isinstance(cfg, DepthImageNerfDataConfig):
         (
             nerf_densities_dataset,
@@ -416,7 +424,7 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
             object_scale_dataset,
             grasp_idx_dataset,
             grasp_transforms_dataset,
-        ) = create_depth_image_dataset(cfg, hdf5_file)
+        ) = create_depth_image_dataset(cfg, hdf5_file, max_num_datapoints)
     else:
         raise NotImplementedError(f"Unknown config type {cfg}")
 
@@ -464,7 +472,7 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
         with loop_timer.add_section_timer("load grasp data"):
             evaled_grasp_config_dict: Dict[str, Any] = np.load(
                 evaled_grasp_config_dict_filepath, allow_pickle=True
-            )
+            ).item()
 
         # Extract useful parts of grasp data
         grasp_configs = AllegroGraspConfig.from_grasp_config_dict(
@@ -526,6 +534,8 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                 loop_timer=loop_timer,
                 cfg=cfg,
                 grasp_frame_transforms=grasp_frame_transforms,
+                ray_origins_finger_frame=ray_origins_finger_frame,
+                nerf_model=nerf_model,
             )
             if cfg.plot_only_one:
                 break
@@ -547,14 +557,14 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
             if not cfg.save_dataset:
                 continue
             with loop_timer.add_section_timer("save values"):
-                nerf_densities_dataset[current_idx] = nerf_densities.cpu().numpy()
+                nerf_densities_dataset[current_idx] = nerf_densities
                 grasp_success_dataset[current_idx] = grasp_success
                 nerf_config_dataset[current_idx] = str(config)
                 object_code_dataset[current_idx] = object_code
                 object_scale_dataset[current_idx] = object_scale
                 grasp_idx_dataset[current_idx] = grasp_idx
                 grasp_transforms_dataset[current_idx] = (
-                    grasp_frame_transforms.matrix().cpu().numpy()
+                    grasp_frame_transforms.matrix().cpu().detach().numpy()
                 )
 
                 if isinstance(cfg, GraspConditionedGridDataConfig):

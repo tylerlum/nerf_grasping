@@ -24,10 +24,10 @@ class BaseNerfDataConfig:
         dexgraspnet_data_root / "2023-09-01_meshdata_trial"
     )
     evaled_grasp_config_dicts_path: pathlib.Path = (
-        dexgraspnet_data_root / "2023-09-01_evaled_grasp_config_dicts_trial_big"
+        dexgraspnet_data_root / "2023-09-05_evaled_grasp_config_dicts_trial_testset_ws1"
     )
     nerf_checkpoints_path: pathlib.Path = (
-        dexgraspnet_data_root / "2023-09-02_nerfcheckpoints_trial"
+        dexgraspnet_data_root / "2023-09-04_nerfcheckpoints_trial"
     )
     output_filepath: Optional[pathlib.Path] = None
     plot_only_one: bool = False

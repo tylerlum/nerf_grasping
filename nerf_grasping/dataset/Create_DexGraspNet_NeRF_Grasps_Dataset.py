@@ -508,8 +508,6 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
 
         if isinstance(cfg, GraspConditionedGridDataConfig):
             grasp_config_tensors = grasp_configs.as_tensor()
-        else:
-            grasp_config_tensors = None
 
         for grasp_idx, (grasp_success, grasp_frame_transforms) in (
             pbar := tqdm(
@@ -534,12 +532,12 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
 
             # Ensure no nans (most likely come from weird grasp transforms)
             if (
-                torch.isnan(nerf_densities).any()
+                np.isnan(nerf_densities).any()
                 or torch.isnan(grasp_frame_transforms).any()
             ):
                 print("\n" + "-" * 80)
                 print(
-                    f"WARNING: Found {torch.isnan(nerf_densities).sum()} nerf density nans and {torch.isnan(grasp_frame_transforms).sum()} transform nans in grasp {grasp_idx} of {config}"
+                    f"WARNING: Found {np.isnan(nerf_densities).sum()} nerf density nans and {torch.isnan(grasp_frame_transforms).sum()} transform nans in grasp {grasp_idx} of {config}"
                 )
                 print("Skipping this one...")
                 print("-" * 80 + "\n")
@@ -582,10 +580,6 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
 if not cfg.plot_only_one:
     print("Done!")
     sys.exit()
-
-nerf_densities: np.ndarray = torch.from_numpy(
-    nerf_densities_dataset[cfg.nerf_visualize_index]
-)
 
 # Plot
 delta = (

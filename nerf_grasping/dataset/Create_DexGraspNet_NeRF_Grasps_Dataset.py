@@ -88,6 +88,7 @@ tqdm = partial(std_tqdm, dynamic_ncols=True)
 
 
 # %%
+@localscope.mfc
 def parse_nerf_config(nerf_config: pathlib.Path) -> str:
     # Input: PosixPath('2023-08-25_nerfcheckpoints/sem-Gun-4745991e7c0c7966a93f1ea6ebdeec6f_0_10/nerfacto/2023-08-25_132225/config.yml')
     # Return sem-Gun-4745991e7c0c7966a93f1ea6ebdeec6f_0_10
@@ -96,6 +97,7 @@ def parse_nerf_config(nerf_config: pathlib.Path) -> str:
     return object_code_and_scale_str
 
 
+@localscope.mfc
 def count_total_num_grasps(nerf_configs: List[pathlib.Path]) -> int:
     ACTUALLY_COUNT_ALL = False
     total_num_grasps = 0
@@ -195,6 +197,7 @@ print(cfg)
 # ## Define dataset creation functions and run.
 
 
+@localscope.mfc
 def create_grid_dataset(cfg: GridNerfDataConfig, hdf5_file: h5py.File):
     nerf_densities_dataset = hdf5_file.create_dataset(
         "/nerf_densities",
@@ -246,6 +249,7 @@ def create_grid_dataset(cfg: GridNerfDataConfig, hdf5_file: h5py.File):
     )
 
 
+@localscope.mfc
 def create_depth_image_dataset(cfg: DepthImageNerfDataConfig, hdf5_file: h5py.File):
     nerf_densities_dataset = hdf5_file.create_dataset(
         "/depth_images",
@@ -417,32 +421,44 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
 
         grasp_configs = grasp_configs[:max_num_datapoints]
         grasp_successes = grasp_successes[:max_num_datapoints]
-        grasp_frame_transforms = grasp_configs.grasp_frame_transforms
+        grasp_frame_transforms_arr = grasp_configs.grasp_frame_transforms
 
-        for grasp_idx in (
+        assert grasp_successes.shape == (grasp_configs.batch_size,)
+        assert grasp_frame_transforms_arr.lshape == (
+            grasp_configs.batch_size,
+            cfg.fingertip_config.n_fingers,
+        )
+
+        if isinstance(cfg, GraspConditionedGridDataConfig):
+            grasp_config_tensors = grasp_configs.as_tensor()
+            assert grasp_config_tensors.shape == (
+                grasp_configs.batch_size,
+                cfg.fingertip_config.n_fingers,
+                7 + 16,
+            )
+
+        for grasp_idx, (grasp_success, grasp_frame_transforms) in (
             pbar := tqdm(
-                range(grasp_configs.batch_size),
+                enumerate(
+                    zip(
+                        grasp_successes,
+                        grasp_frame_transforms_arr,
+                    )
+                ),
+                total=grasp_configs.batch_size,
                 dynamic_ncols=True,
             )
         ):
             pbar.set_description(f"grasp data, current_idx: {current_idx}")
-            # TODO: Break up section timer into load/FK calls to see what's slowing us down.
             with loop_timer.add_section_timer("get_transforms"):
-                try:
-                    transforms = grasp_frame_transforms[grasp_idx]
-                    assert transforms.lshape == (cfg.fingertip_config.n_fingers,)
+                assert grasp_frame_transforms.lshape == (
+                    cfg.fingertip_config.n_fingers,
+                )
 
-                    transform_list = [
-                        transforms[i].detach().clone()
-                        for i in range(cfg.fingertip_config.n_fingers)
-                    ]
-                except ValueError as e:
-                    print("+" * 80)
-                    print(f"ValueError: {e}")
-                    print(f"Skipping grasp_idx: {grasp_idx} for config: {config}")
-                    print("+" * 80)
-                    print()
-                    continue
+                transform_list = [
+                    grasp_frame_transforms[i].detach().clone()
+                    for i in range(cfg.fingertip_config.n_fingers)
+                ]
 
             # Create density grid for grid dataset.
             if isinstance(cfg, GridNerfDataConfig) or isinstance(
@@ -475,9 +491,7 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
 
                 if isinstance(cfg, GraspConditionedGridDataConfig):
                     with loop_timer.add_section_timer("get_grasp_config"):
-                        grasp_config_arr = (
-                            grasp_configs.as_tensor().detach().cpu().numpy().squeeze(0)
-                        )
+                        grasp_config_arr = grasp_config_tensors[grasp_idx].detach().cpu().numpy()
                         assert grasp_config_arr.shape == (
                             cfg.fingertip_config.n_fingers,
                             7 + 16 + 4,
@@ -650,7 +664,10 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                     )
 
                     # Ensure no nans (most likely come from nerf densities)
-                    if np.isnan(nerf_densities).any() or np.isnan(grasp_transforms).any():
+                    if (
+                        np.isnan(nerf_densities).any()
+                        or np.isnan(grasp_transforms).any()
+                    ):
                         print()
                         print("-" * 80)
                         print(

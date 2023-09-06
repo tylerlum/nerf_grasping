@@ -412,7 +412,7 @@ def run_optimizer_loop(
 
         if iter % optimizer_config.save_grasps_freq == 0:
             # Save mid optimization grasps to file
-            grasp_config_dicts = optimizer.grasp_config.as_dicts()
+            grasp_config_dicts = optimizer.grasp_config.as_dict()
             for ii, dd in enumerate(grasp_config_dicts):
                 dd["score"] = optimizer.grasp_scores[ii].item()
 
@@ -480,7 +480,7 @@ def main(cfg: GraspMetricConfig) -> None:
         ONLY_OPTIMIZE_ONE = False
         if ONLY_OPTIMIZE_ONE:
             # For faster reading in file and easier to visualize results
-            init_grasp_configs = AllegroGraspConfig.from_grasp_config_dicts(
+            init_grasp_configs = AllegroGraspConfig.from_grasp_config_dict(
                 grasp_config_dicts[:1]
             )
         else:
@@ -491,7 +491,7 @@ def main(cfg: GraspMetricConfig) -> None:
             else:
                 raise ValueError(f"Invalid optimizer config: {cfg.optimizer}")
 
-            init_grasp_configs = AllegroGraspConfig.from_grasp_config_dicts(
+            init_grasp_configs = AllegroGraspConfig.from_grasp_config_dict(
                 grasp_config_dicts
             )
 
@@ -577,7 +577,7 @@ def main(cfg: GraspMetricConfig) -> None:
     )
     console.print(table)
 
-    grasp_config_dicts = grasp_configs.as_dicts()
+    grasp_config_dicts = grasp_configs.as_dict()
     for ii, dd in enumerate(grasp_config_dicts):
         dd["score"] = scores[ii].item()
 

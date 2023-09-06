@@ -16,28 +16,6 @@ from nerfstudio.utils import eval_utils
 from nerf_grasping.config.fingertip_config import BaseFingertipConfig
 
 
-DEXGRASPNET_TRANS_NAMES = ["WRJTx", "WRJTy", "WRJTz"]
-DEXGRASPNET_ROT_NAMES = ["WRJRx", "WRJRy", "WRJRz"]
-ALLEGRO_JOINT_NAMES = [
-    "joint_0.0",
-    "joint_1.0",
-    "joint_2.0",
-    "joint_3.0",
-    "joint_4.0",
-    "joint_5.0",
-    "joint_6.0",
-    "joint_7.0",
-    "joint_8.0",
-    "joint_9.0",
-    "joint_10.0",
-    "joint_11.0",
-    "joint_12.0",
-    "joint_13.0",
-    "joint_14.0",
-    "joint_15.0",
-]
-
-
 def get_ray_origins_finger_frame_helper(
     num_pts_x: int,
     num_pts_y: int,
@@ -189,56 +167,6 @@ def load_nerf(cfg_path: pathlib.Path) -> nerfstudio.models.base_model.Model:
     _, pipeline, _, _ = eval_utils.eval_setup(cfg_path, test_mode="inference")
 
     return pipeline.model.field
-
-
-def get_hand_config_from_hand_config_dict(
-    hand_config_dict: dict,
-) -> Tuple[pp.LieTensor, torch.Tensor]:
-    qpos = hand_config_dict["qpos"]
-
-    # Get wrist pose.
-    wrist_translation = torch.tensor([qpos[tn] for tn in DEXGRASPNET_TRANS_NAMES])
-    assert wrist_translation.shape == (3,)
-
-    euler_angles = torch.tensor([qpos[rn] for rn in DEXGRASPNET_ROT_NAMES])
-    wrist_quat = torch.tensor(transforms3d.euler.euler2quat(*euler_angles, axes="sxyz"))
-    wrist_quat = wrist_quat[[1, 2, 3, 0]]  # Convert (w, x, y, z) -> (x, y, z, w)
-    assert wrist_quat.shape == (4,)
-
-    wrist_pose = pp.SE3(torch.cat([wrist_translation, wrist_quat], dim=0))
-
-    # Get joint angles.
-    joint_angles = torch.tensor([qpos[jn] for jn in ALLEGRO_JOINT_NAMES])
-    assert joint_angles.shape == (16,)
-
-    return wrist_pose, joint_angles
-
-
-def get_hand_config_dict_from_hand_config(
-    wrist_pose: pp.LieTensor,
-    joint_angles: torch.Tensor,
-) -> dict:
-    assert joint_angles.shape == (16,)
-    qpos = {}
-    for ii, jn in enumerate(ALLEGRO_JOINT_NAMES):
-        qpos[jn] = joint_angles[ii].item()
-
-    assert wrist_pose.shape == (7,)
-    wrist_translation = wrist_pose.translation().detach().cpu().numpy()
-    wrist_quat = wrist_pose.rotation().detach().cpu().numpy()
-    assert wrist_translation.shape == (3,)
-    assert wrist_quat.shape == (4,)
-
-    wrist_quat = wrist_quat[[3, 0, 1, 2]]  # Convert (x, y, z, w) -> (w, x, y, z)
-    euler_angles = transforms3d.euler.quat2euler(wrist_quat, axes="sxyz")
-    assert len(euler_angles) == 3
-    for ii, rn in enumerate(DEXGRASPNET_ROT_NAMES):
-        qpos[rn] = euler_angles[ii]
-
-    for ii, tn in enumerate(DEXGRASPNET_TRANS_NAMES):
-        qpos[tn] = wrist_translation[ii]
-
-    return {"qpos": qpos}
 
 
 def normalize(x: np.ndarray) -> np.ndarray:

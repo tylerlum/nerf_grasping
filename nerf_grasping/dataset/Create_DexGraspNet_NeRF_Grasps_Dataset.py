@@ -57,6 +57,7 @@ from nerf_grasping.config.nerfdata_config import (
     GraspConditionedGridDataConfig,
 )
 import tyro
+from localscope import localscope
 
 datetime_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
@@ -105,18 +106,23 @@ def count_total_num_grasps(nerf_configs: List[pathlib.Path]) -> int:
         object_code, object_scale = parse_object_code_and_scale(
             object_code_and_scale_str
         )
-        evaled_grasp_config_dicts_filepath = (
+        evaled_grasp_config_dict_filepath = (
             cfg.evaled_grasp_config_dicts_path / f"{object_code_and_scale_str}.npy"
         )
         assert (
-            evaled_grasp_config_dicts_filepath.exists()
-        ), f"evaled_grasp_config_dicts_filepath {evaled_grasp_config_dicts_filepath} does not exist"
-        evaled_grasp_config_dicts: List[Dict[str, Any]] = np.load(
-            evaled_grasp_config_dicts_filepath, allow_pickle=True
-        )
+            evaled_grasp_config_dict_filepath.exists()
+        ), f"evaled_grasp_config_dict_filepath {evaled_grasp_config_dict_filepath} does not exist"
+        evaled_grasp_config_dict: Dict[str, Any] = np.load(
+            evaled_grasp_config_dict_filepath, allow_pickle=True
+        ).item()
+
+        num_grasps = evaled_grasp_config_dict["trans"].shape[0]
+        assert evaled_grasp_config_dict["trans"].shape == (
+            num_grasps,
+            3,
+        )  # Sanity check
 
         # Count num_grasps
-        num_grasps = len(evaled_grasp_config_dicts)
         if not ACTUALLY_COUNT_ALL:
             print(
                 f"assuming all {len(nerf_configs)} evaled grasp config dicts have {num_grasps} grasps"
@@ -356,15 +362,15 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
             mesh_path = (
                 cfg.dexgraspnet_meshdata_root / object_code / "coacd" / "decomposed.obj"
             )
-            evaled_grasp_config_dicts_filepath = (
+            evaled_grasp_config_dict_filepath = (
                 cfg.evaled_grasp_config_dicts_path / f"{object_code_and_scale_str}.npy"
             )
 
             # Check that mesh and grasp dataset exist
             assert mesh_path.exists(), f"mesh_path {mesh_path} does not exist"
             assert os.path.exists(
-                evaled_grasp_config_dicts_filepath
-            ), f"evaled_grasp_config_dicts_filepath {evaled_grasp_config_dicts_filepath} does not exist"
+                evaled_grasp_config_dict_filepath
+            ), f"evaled_grasp_config_dict_filepath {evaled_grasp_config_dict_filepath} does not exist"
 
         # Read in data
         with loop_timer.add_section_timer("load_nerf"):
@@ -375,37 +381,47 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
             mesh.apply_transform(trimesh.transformations.scale_matrix(object_scale))
 
         with loop_timer.add_section_timer("load grasp data"):
-            evaled_grasp_config_dicts: List[Dict[str, Any]] = np.load(
-                evaled_grasp_config_dicts_filepath, allow_pickle=True
+            evaled_grasp_config_dict: Dict[str, Any] = np.load(
+                evaled_grasp_config_dict_filepath, allow_pickle=True
             )
+
+        # Extract useful parts of grasp data
+        grasp_configs = AllegroGraspConfig.from_grasp_config_dict(
+            evaled_grasp_config_dict
+        )
+        grasp_successes = evaled_grasp_config_dict["passed_eval"]
 
         # If plot_only_one is True, slice out the grasp index we want to visualize.
         if cfg.plot_only_one:
             assert cfg.grasp_visualize_index is not None
-            assert cfg.grasp_visualize_index < len(
-                evaled_grasp_config_dicts
-            ), f"Visualize index out of bounds"
-            evaled_grasp_config_dicts = evaled_grasp_config_dicts[
+            assert (
+                cfg.grasp_visualize_index < grasp_configs.batch_size
+            ), f"{cfg.grasp_visualize_index} out of bounds for batch size {grasp_configs.batch_size}"
+            grasp_configs = grasp_configs[
+                cfg.grasp_visualize_index : cfg.grasp_visualize_index + 1
+            ]
+            grasp_successes = grasp_successes[
                 cfg.grasp_visualize_index : cfg.grasp_visualize_index + 1
             ]
 
         if (
             cfg.max_num_data_points_per_file is not None
-            and len(evaled_grasp_config_dicts) > cfg.max_num_data_points_per_file
+            and grasp_configs.batch_size > cfg.max_num_data_points_per_file
         ):
             print(
                 "WARNING: Too many grasp configs, dropping some datapoints from NeRF dataset."
             )
             print(
-                f"len(evaled_grasp_config_dicts) = {len(evaled_grasp_config_dicts)}, cfg.max_num_data_points_per_file = {cfg.max_num_data_points_per_file}"
+                f"batch_size = {grasp_configs.batch_size}, cfg.max_num_data_points_per_file = {cfg.max_num_data_points_per_file}"
             )
 
-        evaled_grasp_config_dicts = evaled_grasp_config_dicts[:max_num_datapoints]
+        grasp_configs = grasp_configs[:max_num_datapoints]
+        grasp_successes = grasp_successes[:max_num_datapoints]
+        grasp_frame_transforms = grasp_configs.grasp_frame_transforms
 
-        for grasp_idx, evaled_grasp_config_dict in (
+        for grasp_idx in (
             pbar := tqdm(
-                enumerate(evaled_grasp_config_dicts),
-                total=len(evaled_grasp_config_dicts),
+                range(grasp_configs.batch_size),
                 dynamic_ncols=True,
             )
         ):
@@ -413,13 +429,10 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
             # TODO: Break up section timer into load/FK calls to see what's slowing us down.
             with loop_timer.add_section_timer("get_transforms"):
                 try:
-                    grasp_config = AllegroGraspConfig.from_grasp_config_dicts(
-                        evaled_grasp_config_dicts[grasp_idx : grasp_idx + 1],
-                    )
-                    transforms = grasp_config.grasp_frame_transforms.squeeze(dim=0)
+                    transforms = grasp_frame_transforms[grasp_idx]
                     assert transforms.lshape == (cfg.fingertip_config.n_fingers,)
 
-                    transforms = [
+                    transform_list = [
                         transforms[i].detach().clone()
                         for i in range(cfg.fingertip_config.n_fingers)
                     ]
@@ -441,13 +454,16 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                         get_ray_samples(
                             ray_origins_finger_frame, transform, cfg.fingertip_config
                         )
-                        for transform in transforms
+                        for transform in transform_list
                     ]
 
                 with loop_timer.add_section_timer("get_query_points"):
                     query_points_list = [
                         np.copy(
-                            rr.frustums.get_positions().cpu().numpy().reshape(
+                            rr.frustums.get_positions()
+                            .cpu()
+                            .numpy()
+                            .reshape(
                                 cfg.fingertip_config.num_pts_x,
                                 cfg.fingertip_config.num_pts_y,
                                 cfg.fingertip_config.num_pts_z,
@@ -460,7 +476,7 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                 if isinstance(cfg, GraspConditionedGridDataConfig):
                     with loop_timer.add_section_timer("get_grasp_config"):
                         grasp_config_arr = (
-                            grasp_config.as_tensor().detach().cpu().numpy().squeeze(0)
+                            grasp_configs.as_tensor().detach().cpu().numpy().squeeze(0)
                         )
                         assert grasp_config_arr.shape == (
                             cfg.fingertip_config.n_fingers,
@@ -498,14 +514,14 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                         ],
                         query_points_colors_list=[x.reshape(-1) for x in nerf_alphas],
                         num_fingers=cfg.fingertip_config.n_fingers,
-                        title=f"Mesh and Query Points, Success: {evaled_grasp_config_dict['passed_eval']}",
+                        title=f"Mesh and Query Points, Success: {grasp_successes[grasp_idx]}",
                     )
                     fig.show()
                     fig2 = plot_mesh_and_transforms(
                         mesh=mesh,
-                        transforms=[tt.matrix().numpy() for tt in transforms],
+                        transforms=[tt.matrix().numpy() for tt in transform_list],
                         num_fingers=cfg.fingertip_config.n_fingers,
-                        title=f"Mesh and Transforms, Success: {evaled_grasp_config_dict['passed_eval']}",
+                        title=f"Mesh and Transforms, Success: {grasp_successes[grasp_idx]}",
                     )
                     fig2.show()
 
@@ -629,16 +645,16 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                         cfg.fingertip_config.num_pts_y,
                         cfg.fingertip_config.num_pts_z,
                     )
-                    transforms = np.stack(
+                    grasp_transforms = np.stack(
                         [tt.matrix().cpu().numpy() for tt in transforms], axis=0
                     )
 
                     # Ensure no nans (most likely come from nerf densities)
-                    if np.isnan(nerf_densities).any() or np.isnan(transforms).any():
+                    if np.isnan(nerf_densities).any() or np.isnan(grasp_transforms).any():
                         print()
                         print("-" * 80)
                         print(
-                            f"WARNING: Found {np.isnan(nerf_densities).sum()} nerf density nans and {np.isnan(transforms).sum()} transform nans in grasp {grasp_idx} of {config}"
+                            f"WARNING: Found {np.isnan(nerf_densities).sum()} nerf density nans and {np.isnan(grasp_transforms).sum()} transform nans in grasp {grasp_idx} of {config}"
                         )
                         print("Skipping this one...")
                         print("-" * 80)
@@ -646,14 +662,12 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                         continue
 
                     nerf_densities_dataset[current_idx] = nerf_densities
-                    grasp_success_dataset[current_idx] = evaled_grasp_config_dict[
-                        "passed_eval"
-                    ]
+                    grasp_success_dataset[current_idx] = DICT_TO_CHANGE["passed_eval"]
                     nerf_config_dataset[current_idx] = str(config)
                     object_code_dataset[current_idx] = object_code
                     object_scale_dataset[current_idx] = object_scale
                     grasp_idx_dataset[current_idx] = grasp_idx
-                    grasp_transforms_dataset[current_idx] = transforms
+                    grasp_transforms_dataset[current_idx] = grasp_transforms
 
                     if isinstance(cfg, GraspConditionedGridDataConfig):
                         conditioning_var_dataset[current_idx] = grasp_config_arr

@@ -19,22 +19,22 @@ dexgraspnet_data_root: pathlib.Path = (
 dexgraspnet_meshdata_root: pathlib.Path = (
     dexgraspnet_data_root / "2023-08-29_meshdata_trial"
 )
-evaled_grasp_config_dicts_filepath: pathlib.Path = (
+evaled_grasp_config_dicts_path: pathlib.Path = (
     dexgraspnet_data_root / "2023-08-29_evaled_grasp_config_dicts_trial_big"
 )
 object_code_and_scale_str = "mug_0_1000"
 
 object_code, object_scale = parse_object_code_and_scale(object_code_and_scale_str)
 
-evaled_grasp_config_dicts_filepath = (
-    evaled_grasp_config_dicts_filepath / f"{object_code_and_scale_str}.npy"
+evaled_grasp_config_dict_filepath = (
+    evaled_grasp_config_dicts_path / f"{object_code_and_scale_str}.npy"
 )
 
-evaled_grasp_config_dicts: List[Dict[str, Any]] = np.load(
-    evaled_grasp_config_dicts_filepath, allow_pickle=True
-)
-batch_size = len(evaled_grasp_config_dicts)
-print(f"len(evaled_grasp_config_dicts) = {len(evaled_grasp_config_dicts)}")
+evaled_grasp_config_dict: Dict[str, Any] = np.load(
+    evaled_grasp_config_dict_filepath, allow_pickle=True
+).item()
+batch_size = evaled_grasp_config_dict["trans"].shape[0]
+print(f"batch_size = {batch_size}")
 
 # %%
 mesh_path = dexgraspnet_meshdata_root / object_code / "coacd" / "decomposed.obj"
@@ -42,8 +42,8 @@ mesh = trimesh.load(mesh_path, force="mesh")
 mesh.apply_transform(trimesh.transformations.scale_matrix(object_scale))
 
 # %%
-hand_config = AllegroHandConfig.from_hand_config_dicts(
-    evaled_grasp_config_dicts,
+hand_config = AllegroHandConfig.from_hand_config_dict(
+    evaled_grasp_config_dict,
 )
 fingertip_positions = (
     hand_config.get_fingertip_transforms().translation().detach().cpu().numpy()
@@ -56,7 +56,7 @@ assert fingertip_positions.shape == (
     n_fingers,
     3,
 )
-successes = np.array([d["passed_eval"] for d in evaled_grasp_config_dicts])
+successes = evaled_grasp_config_dict["passed_eval"]
 assert successes.shape == (batch_size,)
 
 # %%

@@ -80,17 +80,19 @@ class AllegroHandConfig(torch.nn.Module):
         return hand_config
 
     @classmethod
-    def from_hand_config_dicts(cls, hand_config_dicts: List[Dict[str, Any]]):
-        # Assemble these samples into the data we need for the grasp config.
-        hand_data_tuples = [
-            grasp_utils.get_hand_config_from_hand_config_dict(x)
-            for x in hand_config_dicts
-        ]
+    def from_hand_config_dict(cls, hand_config_dict: Dict[str, Any]):
+        trans = torch.from_numpy(hand_config_dict["trans"]).float()
+        rot = torch.from_numpy(hand_config_dict["rot"]).float()
+        joint_angles = torch.from_numpy(hand_config_dict["joint_angles"]).float()
+        batch_size = trans.shape[0]
+        assert trans.shape == (batch_size, 3)
+        assert rot.shape == (batch_size, 3, 3)
+        assert joint_angles.shape == (batch_size, 16)
 
-        # List of tuples -> tuple of lists.
-        wrist_pose, joint_angles = list(zip(*hand_data_tuples))
-        wrist_pose = torch.stack(wrist_pose, dim=0).float()
-        joint_angles = torch.stack(joint_angles, dim=0).float()
+        wrist_translation = trans
+        wrist_quat = pp.from_matrix(rot, pp.SO3_type)
+        wrist_pose = pp.SE3(torch.cat([wrist_translation, wrist_quat], dim=1))
+
         return cls.from_values(wrist_pose=wrist_pose, joint_angles=joint_angles)
 
     def set_wrist_pose(self, wrist_pose: pp.LieTensor):
@@ -123,14 +125,18 @@ class AllegroHandConfig(torch.nn.Module):
             [self.wrist_pose @ fp for fp in fingertip_pyposes], dim=1
         )  # shape [B, batch_size, 7]
 
-    def as_dicts(self):
+    def as_dict(self):
         """
-        Returns a list of dicts, one for each sample in the batch.
+        Returns a hand config dict
         """
-        return [
-            grasp_utils.get_hand_config_dict_from_hand_config(ww, jj)
-            for ww, jj in zip(self.wrist_pose, self.joint_angles)
-        ]
+        trans = self.wrist_pose.translation().detach().cpu().numpy()
+        rot = self.wrist_pose.rotation().matrix().detach().cpu().numpy()
+        joint_angles = self.joint_angles.detach().cpu().numpy()
+        return {
+            "trans": trans,
+            "rot": rot,
+            "joint_angles": joint_angles,
+        }
 
     def as_tensor(self):
         """
@@ -285,53 +291,48 @@ class AllegroGraspConfig(torch.nn.Module):
         return grasp_config.from_values(wrist_pose, joint_angles, grasp_orientations)
 
     @classmethod
-    def from_grasp_config_dicts(
+    def from_grasp_config_dict(
         cls,
-        grasp_config_dicts: List[Dict[str, Any]],
+        grasp_config_dict: Dict[str, Any],
         num_fingers: int = 4,
     ):
         """
-        Factory method get grasp configs from a grasp config_dicts
+        Factory method get grasp configs from grasp config_dict
         """
         # Load grasp data + instantiate correctly-sized config object.
-        batch_size = len(grasp_config_dicts)
+        batch_size = grasp_config_dict["trans"].shape[0]
         grasp_config = cls(batch_size, num_fingers=num_fingers)
         device = grasp_config.grasp_orientations.device
         dtype = grasp_config.grasp_orientations.dtype
 
         # Load hand config
-        grasp_config.hand_config = AllegroHandConfig.from_hand_config_dicts(
-            grasp_config_dicts
+        grasp_config.hand_config = AllegroHandConfig.from_hand_config_dict(
+            grasp_config_dict
         )
 
-        grasp_orientations_list = []
-        for i in range(batch_size):
-            grasp_config_dict = grasp_config_dicts[i]
-            grasp_orientations = torch.tensor(
-                grasp_config_dict["grasp_orientations"], device=device, dtype=dtype
-            )
-            assert grasp_orientations.shape == (grasp_config.num_fingers, 3, 3)
-            grasp_orientations = pp.from_matrix(grasp_orientations, pp.SO3_type)
-            grasp_orientations_list.append(grasp_orientations)
-        grasp_orientations_list = torch.stack(grasp_orientations_list, dim=0)
+        grasp_orientations = torch.from_numpy(
+            grasp_config_dict["grasp_orientations"]
+        ).to(device).to(dtype)
+        assert grasp_orientations.shape == (batch_size, num_fingers, 3, 3)
 
         # Set the grasp config's data.
-        grasp_config.set_grasp_orientations(grasp_orientations_list)
+        grasp_config.set_grasp_orientations(
+            pp.from_matrix(grasp_orientations, pp.SO3_type)
+        )
 
         return grasp_config
 
-    def as_dicts(self):
-        dict_list = self.hand_config.as_dicts()
+    def as_dict(self):
+        hand_config_dict = self.hand_config.as_dict()
+        hand_config_dict_batch_size = hand_config_dict["trans"].shape[0]
         assert (
-            len(dict_list) == self.batch_size
-        ), f"Batch size {self.batch_size} does not match length of hand dict list {len(dict_list)}"
+            hand_config_dict_batch_size == self.batch_size
+        ), f"Batch size {self.batch_size} does not match hand_config_dict_batch_size of {hand_config_dict_batch_size}"
 
-        for i in range(self.batch_size):
-            dict_list[i]["grasp_orientations"] = (
-                self.grasp_orientations[i].matrix().detach().cpu().numpy()
-            )
-
-        return dict_list
+        hand_config_dict["grasp_orientations"] = (
+            self.grasp_orientations.matrix().detach().cpu().numpy()
+        )
+        return hand_config_dict
 
     def as_tensor(self):
         """

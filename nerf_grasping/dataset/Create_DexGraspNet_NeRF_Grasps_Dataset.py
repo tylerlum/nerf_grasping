@@ -591,6 +591,7 @@ if not cfg.plot_only_one:
     print("Done!")
     sys.exit()
 
+grasp_frame_transforms = grasp_frame_transforms.matrix().cpu().detach().numpy()
 # Plot
 delta = (
     cfg.fingertip_config.grasp_depth_mm / 1000 / (cfg.fingertip_config.num_pts_z - 1)
@@ -608,7 +609,7 @@ fig.show()
 fig2 = plot_mesh_and_transforms(
     mesh=mesh,
     transforms=[
-        grasp_frame_transforms[i].matrix().numpy()
+        grasp_frame_transforms[i]
         for i in range(cfg.fingertip_config.n_fingers)
     ],
     num_fingers=cfg.fingertip_config.n_fingers,

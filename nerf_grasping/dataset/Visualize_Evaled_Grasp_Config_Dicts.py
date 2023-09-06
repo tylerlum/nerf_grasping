@@ -16,11 +16,9 @@ from nerf_grasping.dataset.DexGraspNet_NeRF_Grasps_utils import (
 dexgraspnet_data_root: pathlib.Path = (
     pathlib.Path(nerf_grasping.get_repo_root()) / "data"
 )
-dexgraspnet_meshdata_root: pathlib.Path = (
-    dexgraspnet_data_root / "2023-08-29_meshdata_trial"
-)
+dexgraspnet_meshdata_root: pathlib.Path = dexgraspnet_data_root / "meshdata_trial"
 evaled_grasp_config_dicts_path: pathlib.Path = (
-    dexgraspnet_data_root / "2023-08-29_evaled_grasp_config_dicts_trial_big"
+    dexgraspnet_data_root / "2023-09-06_evaled_grasp_config_dicts"
 )
 object_code_and_scale_str = "mug_0_1000"
 

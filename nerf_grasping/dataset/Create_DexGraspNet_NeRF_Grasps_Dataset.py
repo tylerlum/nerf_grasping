@@ -491,7 +491,9 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
 
                 if isinstance(cfg, GraspConditionedGridDataConfig):
                     with loop_timer.add_section_timer("get_grasp_config"):
-                        grasp_config_arr = grasp_config_tensors[grasp_idx].detach().cpu().numpy()
+                        grasp_config_arr = (
+                            grasp_config_tensors[grasp_idx].detach().cpu().numpy()
+                        )
                         assert grasp_config_arr.shape == (
                             cfg.fingertip_config.n_fingers,
                             7 + 16 + 4,

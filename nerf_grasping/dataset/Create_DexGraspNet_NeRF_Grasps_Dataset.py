@@ -54,6 +54,7 @@ from nerf_grasping.config.nerfdata_config import (
     UnionNerfDataConfig,
     DepthImageNerfDataConfig,
     GridNerfDataConfig,
+    GraspConditionedGridDataConfig,
 )
 import tyro
 
@@ -291,7 +292,27 @@ def create_depth_image_dataset(cfg: DepthImageNerfDataConfig, hdf5_file: h5py.Fi
 with h5py.File(cfg.output_filepath, "w") as hdf5_file:
     current_idx = 0
 
-    if isinstance(cfg, GridNerfDataConfig):
+    if isinstance(cfg, GraspConditionedGridDataConfig):
+        # Create dataset with extra field for full grasp config.
+        (
+            nerf_densities_dataset,
+            grasp_success_dataset,
+            nerf_config_dataset,
+            object_code_dataset,
+            object_scale_dataset,
+            grasp_idx_dataset,
+            grasp_transforms_dataset,
+        ) = create_grid_dataset(cfg, hdf5_file)
+        conditioning_var_dataset = hdf5_file.create_dataset(
+            "/conditioning_var",
+            shape=(
+                max_num_datapoints,
+                cfg.fingertip_config.n_fingers,
+                7 + 16 + 4,
+            ),  # 7 for pose, 16 for rotation matrix, 4 for grasp orientation, for each finger
+            dtype="f",
+        )
+    elif isinstance(cfg, GridNerfDataConfig):
         (
             nerf_densities_dataset,
             grasp_success_dataset,
@@ -411,7 +432,9 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                     continue
 
             # Create density grid for grid dataset.
-            if isinstance(cfg, GridNerfDataConfig):
+            if isinstance(cfg, GridNerfDataConfig) or isinstance(
+                cfg, GraspConditionedGridDataConfig
+            ):
                 # Transform query points
                 with loop_timer.add_section_timer("get_transformed_points"):
                     ray_samples_list = [
@@ -433,6 +456,16 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                         )  # Shape [n_x, n_y, n_z, 3]
                         for rr in ray_samples_list
                     ]
+
+                if isinstance(cfg, GraspConditionedGridDataConfig):
+                    with loop_timer.add_section_timer("get_grasp_config"):
+                        grasp_config_arr = (
+                            grasp_config.as_tensor().detach().cpu().numpy().squeeze(0)
+                        )
+                        assert grasp_config_arr.shape == (
+                            cfg.fingertip_config.n_fingers,
+                            7 + 16 + 4,
+                        )
 
                 # Get densities
                 with loop_timer.add_section_timer("get_nerf_densities"):
@@ -621,6 +654,9 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                     object_scale_dataset[current_idx] = object_scale
                     grasp_idx_dataset[current_idx] = grasp_idx
                     grasp_transforms_dataset[current_idx] = transforms
+
+                    if isinstance(cfg, GraspConditionedGridDataConfig):
+                        conditioning_var_dataset[current_idx] = grasp_config_arr
 
                     current_idx += 1
 

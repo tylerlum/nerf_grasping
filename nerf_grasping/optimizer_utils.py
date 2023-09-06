@@ -8,7 +8,7 @@ import torch
 import nerf_grasping
 from nerf_grasping import grasp_utils
 
-from typing import List, Tuple, Dict, Any, Iterable, Union
+from typing import List, Tuple, Dict, Any, Iterable, Union, Optional
 import nerfstudio
 from nerf_grasping.classifier import Classifier
 from nerf_grasping.learned_metric.DexGraspNet_batch_data import BatchDataInput
@@ -335,13 +335,15 @@ class AllegroGraspConfig(torch.nn.Module):
 
     def as_tensor(self):
         """
-        Returns a tensor of shape [batch_size, 23 + 4 * 7]
+        Returns a tensor of shape [batch_size, num_fingers, 7 + 16 + 4]
         with all config parameters.
         """
         return torch.cat(
             (
-                self.hand_config.as_tensor(),
-                self.grasp_orientations.tensor().reshape(self.batch_size, -1),
+                self.hand_config.as_tensor()
+                .unsqueeze(-2)
+                .expand(-1, self.num_fingers, -1),
+                self.grasp_orientations.tensor(),
             ),
             dim=-1,
         )
@@ -456,7 +458,11 @@ class GraspMetric(torch.nn.Module):
             fingertip_config
         )
 
-    def forward(self, grasp_config: AllegroGraspConfig):
+    def forward(
+        self,
+        grasp_config: AllegroGraspConfig,
+        conditioning_var: Optional[torch.Tensor] = None,
+    ):
         # Generate RaySamples.
         ray_samples = grasp_utils.get_ray_samples(
             self.ray_origins_finger_frame,
@@ -477,19 +483,22 @@ class GraspMetric(torch.nn.Module):
             self.fingertip_config.num_pts_z,
         )
 
-        # TODO(pculbert): I think this doubles up some work since we've already computed
-        # the sample positions -- check this isn't a big performance hit.
         batch_data_input = BatchDataInput(
             nerf_densities=densities,
             grasp_transforms=grasp_config.grasp_frame_transforms,
             fingertip_config=self.fingertip_config,
+            conditioning_var=conditioning_var,
         )
 
         # Pass grasp transforms, densities into classifier.
         return self.classifier_model.get_failure_probability(batch_data_input)
 
-    def get_failure_probability(self, grasp_config: AllegroGraspConfig):
-        return self(grasp_config)
+    def get_failure_probability(
+        self,
+        grasp_config: AllegroGraspConfig,
+        conditioning_var: Optional[torch.Tensor] = None,
+    ):
+        return self(grasp_config, conditioning_var)
 
 
 class IndexingDataset(torch.utils.data.Dataset):

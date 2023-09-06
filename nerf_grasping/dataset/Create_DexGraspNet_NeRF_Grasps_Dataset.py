@@ -318,7 +318,7 @@ def get_nerf_densities(
         cfg, GraspConditionedGridDataConfig
     ):
         # Transform query points
-        with loop_timer.add_section_timer("get_transformed_points"):
+        with loop_timer.add_section_timer("get_ray_samples"):
             ray_samples_list = [
                 get_ray_samples(
                     ray_origins_finger_frame, transform, cfg.fingertip_config
@@ -326,7 +326,7 @@ def get_nerf_densities(
                 for transform in transform_list
             ]
 
-        with loop_timer.add_section_timer("get_query_points"):
+        with loop_timer.add_section_timer("frustums.get_positions"):
             query_points_list = [
                 np.copy(
                     rr.frustums.get_positions()
@@ -343,7 +343,7 @@ def get_nerf_densities(
             ]
 
         # Get densities
-        with loop_timer.add_section_timer("get_nerf_densities"):
+        with loop_timer.add_section_timer("get_density"):
             nerf_densities = [
                 nerf_model.get_density(ray_samples.to("cuda"))[0]
                 .detach()

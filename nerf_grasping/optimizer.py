@@ -133,7 +133,6 @@ class SGDOptimizer(Optimizer):
             nerf = grasp_utils.load_nerf(nerf_config)
             progress.update(task, advance=1)
 
-        breakpoint()
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         with Progress(

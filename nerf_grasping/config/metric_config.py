@@ -27,7 +27,7 @@ class GraspMetricConfig:
         / "config.yaml"
     )
     classifier_checkpoint: int = -1  # Load latest checkpoint if -1.
-    init_grasp_config_dicts_path: Optional[pathlib.Path] = (
+    init_grasp_config_dict_path: Optional[pathlib.Path] = (
         pathlib.Path(nerf_grasping.get_repo_root())
         / "data"
         / "2023-08-29_evaled_grasp_config_dicts_trial_big"
@@ -64,8 +64,8 @@ class GraspMetricConfig:
 
         if self.output_path is None:
             print("Using default output path.")
-            filename = self.init_grasp_config_dicts_path.name
-            input_folder_path = self.init_grasp_config_dicts_path.parent
+            filename = self.init_grasp_config_dict_path.name
+            input_folder_path = self.init_grasp_config_dict_path.parent
             output_folder_path = (
                 input_folder_path.parent / f"{input_folder_path.name}_optimized"
             )

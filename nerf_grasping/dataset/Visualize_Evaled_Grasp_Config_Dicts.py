@@ -32,7 +32,7 @@ evaled_grasp_config_dict_filepath = (
 
 evaled_grasp_config_dict: Dict[str, Any] = np.load(
     evaled_grasp_config_dict_filepath, allow_pickle=True
-)
+).item()
 batch_size = evaled_grasp_config_dict["trans"].shape[0]
 print(f"batch_size = {batch_size}")
 

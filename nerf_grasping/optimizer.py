@@ -474,7 +474,7 @@ def main(cfg: GraspMetricConfig) -> None:
         # TODO: Find a way to load a particular split of the grasp_data.
         init_grasp_config_dict = np.load(
             cfg.init_grasp_config_dict_path, allow_pickle=True
-        )
+        ).item()
 
         if isinstance(cfg.optimizer, SGDOptimizerConfig):
             num_grasps = cfg.optimizer.num_grasps

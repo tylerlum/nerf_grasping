@@ -64,7 +64,7 @@ class GraspMetricConfig:
 
         if self.output_path is None:
             print("Using default output path.")
-            filename = self.init_grasp_config_dict_path.name
+            filename = self.nerf_checkpoint_path.parents[2].stem
             input_folder_path = self.init_grasp_config_dict_path.parent
             output_folder_path = (
                 input_folder_path.parent / f"{input_folder_path.name}_optimized"

@@ -160,7 +160,7 @@ def get_ray_samples_helper(
 
 
 def get_nerf_configs(nerf_checkpoints_path: str) -> List[pathlib.Path]:
-    return list(pathlib.Path(nerf_checkpoints_path).rglob("config.yml"))
+    return list(pathlib.Path(nerf_checkpoints_path).rglob("nerfacto/*/config.yml"))
 
 
 def load_nerf(cfg_path: pathlib.Path) -> nerfstudio.models.base_model.Model:

@@ -92,6 +92,9 @@ class CNN2DFiLM(nn.Module):
         num_in_channels: int,
         pooling=nn.AvgPool2d(kernel_size=2),
         film_hidden_layers: Tuple[int, ...] = (32,),
+        dropout_every: int = 1,
+        pooling_every: int = 2,
+        condition_every: int = 2,
     ):
         super().__init__()
         self.input_shape = input_shape
@@ -100,6 +103,9 @@ class CNN2DFiLM(nn.Module):
         self.num_in_channels = num_in_channels
         self.pooling = pooling
         self.film_hidden_layers = film_hidden_layers
+        self.dropout_every = dropout_every
+        self.pooling_every = pooling_every
+        self.condition_every = condition_every
 
         # Build model
         self.conv_layers = nn.ModuleList()
@@ -110,17 +116,20 @@ class CNN2DFiLM(nn.Module):
                 nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1)
             )
             self.conv_layers.append(nn.ReLU())
-            self.conv_layers.append(nn.Dropout2d(p=0.1, inplace=False))
+            if i % self.dropout_every == 0:
+                self.conv_layers.append(nn.Dropout2d(p=0.1, inplace=False))
             self.conv_layers.append(nn.BatchNorm2d(out_channels))
-            self.conv_layers.append(
-                FiLMLayer(
-                    2,
-                    out_channels,
-                    conditioning_dim,
-                    hidden_dims=film_hidden_layers,
+            if i % self.condition_every == 0:
+                self.conv_layers.append(
+                    FiLMLayer(
+                        2,
+                        out_channels,
+                        conditioning_dim,
+                        hidden_dims=film_hidden_layers,
+                    )
                 )
-            )
-            self.conv_layers.append(self.pooling)
+            if i % self.pooling_every == 0:
+                self.conv_layers.append(self.pooling)
 
         # Compute output shape
         with torch.no_grad():
@@ -180,6 +189,9 @@ class CNN1DFiLM(nn.Module):
         kernel_size: int = 3,
         pooling=nn.MaxPool1d(kernel_size=3),
         film_hidden_layers: Tuple[int, ...] = (32,),
+        pooling_every: int = 2,
+        dropout_every: int = 1,
+        condition_every: int = 2,
     ):
         super().__init__()
         self.seq_len = seq_len
@@ -188,10 +200,13 @@ class CNN1DFiLM(nn.Module):
         self.kernel_size = kernel_size
         self.num_in_channels = num_in_channels
         self.pooling = pooling
+        self.dropout_every = dropout_every
+        self.pooling_every = pooling_every
+        self.condition_every = condition_every
 
         # Build model
         self.conv_layers = nn.ModuleList()
-        for i, (in_channels, out_channels) in enumerate(
+        for ii, (in_channels, out_channels) in enumerate(
             zip([self.num_in_channels] + conv_channels[:-1], conv_channels)
         ):
             self.conv_layers.append(
@@ -200,18 +215,21 @@ class CNN1DFiLM(nn.Module):
                 )
             )
             self.conv_layers.append(nn.ReLU())
-            self.conv_layers.append(torch.nn.Dropout(p=0.1, inplace=False))
+            if ii % self.dropout_every == 0:
+                self.conv_layers.append(torch.nn.Dropout(p=0.1, inplace=False))
             self.conv_layers.append(nn.BatchNorm1d(out_channels))
-            self.conv_layers.append(
-                FiLMLayer(
-                    1,
-                    out_channels,
-                    conditioning_dim,
-                    film_hidden_layers,
+            if ii % self.condition_every == 0:
+                self.conv_layers.append(
+                    FiLMLayer(
+                        1,
+                        out_channels,
+                        conditioning_dim,
+                        film_hidden_layers,
+                    )
                 )
-            )
 
-            self.conv_layers.append(self.pooling)
+            if ii % self.pooling_every == 0:
+                self.conv_layers.append(self.pooling)
 
         # Compute output shape
         with torch.no_grad():

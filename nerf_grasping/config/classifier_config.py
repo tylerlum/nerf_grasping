@@ -322,10 +322,10 @@ DEFAULTS_DICT = {
     "grasp-cond-cnn-2d-1d": ClassifierConfig(
         model_config=Simple_CNN_2D_1D_ModelConfig(
             mlp_hidden_layers=[32, 32],
-            conv_2d_channels=[32, 64, 128],
-            conv_1d_channels=[32, 32],
-            film_2d_hidden_layers=[32, 32],
-            film_1d_hidden_layers=[32, 32],
+            conv_2d_channels=[8, 64, 128],
+            conv_1d_channels=[8, 8],
+            film_2d_hidden_layers=[16, 16, 16],
+            film_1d_hidden_layers=[16, 16, 16],
             conditioning_dim=7 + 16 + 4,
         ),
         nerfdata_config=GraspConditionedGridDataConfig(),

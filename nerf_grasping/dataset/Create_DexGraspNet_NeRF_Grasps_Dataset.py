@@ -205,7 +205,9 @@ print(cfg)
 
 
 @localscope.mfc
-def create_grid_dataset(cfg: GridNerfDataConfig, hdf5_file: h5py.File, max_num_datapoints: int):
+def create_grid_dataset(
+    cfg: GridNerfDataConfig, hdf5_file: h5py.File, max_num_datapoints: int
+):
     nerf_densities_dataset = hdf5_file.create_dataset(
         "/nerf_densities",
         shape=(
@@ -257,7 +259,9 @@ def create_grid_dataset(cfg: GridNerfDataConfig, hdf5_file: h5py.File, max_num_d
 
 
 @localscope.mfc
-def create_depth_image_dataset(cfg: DepthImageNerfDataConfig, hdf5_file: h5py.File, max_num_datapoints: int):
+def create_depth_image_dataset(
+    cfg: DepthImageNerfDataConfig, hdf5_file: h5py.File, max_num_datapoints: int
+):
     nerf_densities_dataset = hdf5_file.create_dataset(
         "/depth_images",
         shape=(
@@ -573,7 +577,9 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                     )
                     assert grasp_config_tensor.shape == (
                         cfg.fingertip_config.n_fingers,
-                        7 + 16,
+                        7
+                        + 16
+                        + 4,  # wrist pose, joint angles, grasp orientations (as quats)
                     )
                     conditioning_var_dataset[current_idx] = grasp_config_tensor
 
@@ -609,8 +615,7 @@ fig.show()
 fig2 = plot_mesh_and_transforms(
     mesh=mesh,
     transforms=[
-        grasp_frame_transforms[i]
-        for i in range(cfg.fingertip_config.n_fingers)
+        grasp_frame_transforms[i] for i in range(cfg.fingertip_config.n_fingers)
     ],
     num_fingers=cfg.fingertip_config.n_fingers,
     title=f"Mesh and Transforms, Success: {grasp_success}",

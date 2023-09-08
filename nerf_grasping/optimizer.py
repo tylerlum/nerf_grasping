@@ -107,12 +107,28 @@ class SGDOptimizer(Optimizer):
             **kwargs: Keyword arguments to pass to torch.optim.SGD.
         """
         super().__init__(init_grasp_config, grasp_metric)
-        self.optimizer = torch.optim.SGD(
-            self.grasp_config.parameters(),
-            lr=optimizer_config.lr,
+        if optimizer_config.opt_wrist_pose:
+            self.wrist_optimizer = torch.optim.SGD(
+                [self.grasp_config.wrist_pose],
+                lr=optimizer_config.wrist_lr,
+                momentum=optimizer_config.momentum,
+            )
+
+        self.joint_optimizer = torch.optim.SGD(
+            [self.grasp_config.joint_angles],
+            lr=optimizer_config.finger_lr,
             momentum=optimizer_config.momentum,
         )
+
+        if optimizer_config.opt_grasp_dirs:
+            self.grasp_dir_optimizer = torch.optim.SGD(
+                [self.grasp_config.grasp_orientations],
+                lr=optimizer_config.grasp_dir_lr,
+                momentum=optimizer_config.momentum,
+            )
+
         self.classifier_config = classifier_config
+        self.optimizer_config = optimizer_config
 
     @classmethod
     def from_configs(
@@ -176,19 +192,30 @@ class SGDOptimizer(Optimizer):
             nerf, cnn, classifier_config.nerfdata_config.fingertip_config
         )
 
-        init_grasp_config.wrist_pose.requires_grad = False
+        init_grasp_config.wrist_pose.requires_grad = optimizer_config.opt_wrist_pose
+        init_grasp_config.grasp_orientations.requires_grad = (
+            optimizer_config.opt_grasp_dirs
+        )
 
         return cls(init_grasp_config, grasp_metric, optimizer_config, classifier_config)
 
     def step(self):
-        self.optimizer.zero_grad()
+        self.joint_optimizer.zero_grad()
+        if self.optimizer_config.opt_wrist_pose:
+            self.wrist_optimizer.zero_grad()
+        if self.optimizer_config.opt_grasp_dirs:
+            self.grasp_dir_optimizer.zero_grad()
         loss = self.grasp_scores
         assert loss.shape == (self.grasp_config.batch_size,)
 
         # TODO(pculbert): Think about clipping joint angles
         # to feasible range.
         loss.mean().backward()
-        self.optimizer.step()
+        self.joint_optimizer.step()
+        if self.optimizer_config.opt_wrist_pose:
+            self.wrist_optimizer.step()
+        if self.optimizer_config.opt_grasp_dirs:
+            self.grasp_dir_optimizer.step()
 
 
 class CEMOptimizer(Optimizer):
@@ -441,6 +468,7 @@ def run_optimizer_loop(
 
     # Sort grasp scores and configs by score.
     _, sort_indices = torch.sort(optimizer.grasp_scores, descending=False)
+    print(f"best 5: {sort_indices[:5]}")
     return (
         optimizer.grasp_scores[sort_indices],
         optimizer.grasp_config[sort_indices],

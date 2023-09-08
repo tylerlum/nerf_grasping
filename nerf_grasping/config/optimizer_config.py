@@ -11,9 +11,13 @@ class BaseOptimizerConfig:
 @dataclass
 class SGDOptimizerConfig(BaseOptimizerConfig):
     num_steps: int = 35
-    num_grasps: int = 64
-    lr: float = 1e-4
+    num_grasps: int = 256
+    finger_lr: float = 5e-2
+    grasp_dir_lr: float = 5e-2
+    wrist_lr: float = 5e-4
     momentum: float = 0.9
+    opt_wrist_pose: bool = True
+    opt_grasp_dirs: bool = True
 
 
 @dataclass

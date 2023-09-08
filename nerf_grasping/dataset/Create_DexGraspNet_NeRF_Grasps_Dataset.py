@@ -108,7 +108,6 @@ def count_total_num_grasps(
 
     for config in tqdm(nerf_configs, desc="counting num grasps", dynamic_ncols=True):
         # Read in grasp data
-        breakpoint()
         object_code_and_scale_str = parse_nerf_config(config)
         object_code, object_scale = parse_object_code_and_scale(
             object_code_and_scale_str

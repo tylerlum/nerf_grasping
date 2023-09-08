@@ -90,7 +90,7 @@ class CNN2DFiLM(nn.Module):
         conv_channels: List[int],
         conditioning_dim: int,
         num_in_channels: int,
-        pooling=nn.AvgPool2d(kernel_size=2),
+        pooling=nn.MaxPool2d(kernel_size=2),
         film_hidden_layers: Tuple[int, ...] = (32,),
         dropout_every: int = 1,
         pooling_every: int = 2,

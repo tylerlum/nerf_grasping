@@ -50,7 +50,7 @@ class ClassifierDataConfig:
 class ClassifierDataLoaderConfig:
     """Parameters for dataloader."""
 
-    batch_size: int = 32
+    batch_size: int = 256
 
     num_workers: int = 8
     """Number of workers for the dataloader."""
@@ -322,10 +322,10 @@ DEFAULTS_DICT = {
     "grasp-cond-cnn-2d-1d": ClassifierConfig(
         model_config=Simple_CNN_2D_1D_ModelConfig(
             mlp_hidden_layers=[32, 32],
-            conv_2d_channels=[8, 64, 128],
-            conv_1d_channels=[8, 8],
-            film_2d_hidden_layers=[16, 16, 16],
-            film_1d_hidden_layers=[16, 16, 16],
+            conv_2d_channels=[8, 8],
+            conv_1d_channels=[8],
+            film_2d_hidden_layers=[8, 8],
+            film_1d_hidden_layers=[8],
             conditioning_dim=7 + 16 + 4,
         ),
         nerfdata_config=GraspConditionedGridDataConfig(),

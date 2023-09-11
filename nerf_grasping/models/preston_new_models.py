@@ -94,7 +94,7 @@ class CNN2DFiLM(nn.Module):
         film_hidden_layers: Tuple[int, ...] = (32,),
         dropout_every: int = 1,
         pooling_every: int = 2,
-        condition_every: int = 2,
+        condition_every: int = 1,
     ):
         super().__init__()
         self.input_shape = input_shape
@@ -144,7 +144,7 @@ class CNN2DFiLM(nn.Module):
 
     def forward(self, x: torch.Tensor, conditioning: torch.Tensor):
         """
-        Forward pass for FiLM CNN.
+        Forward pass for FiLM 2D CNN.
 
         Args:
             x: input tensor of shape (batch_size, num_in_channels, *input_shape)
@@ -170,11 +170,9 @@ class CNN2DFiLM(nn.Module):
             else:
                 x = layer(x)
 
-        x = x.flatten(-2, -1)
-
         # Reshape batch dims
         if batch_dims is not None:
-            x = x.reshape(*batch_dims, *x.shape[-2:])  # Batch dims, n_c, n_f
+            x = x.reshape(*batch_dims, *x.shape[-3:])  # Batch dims, n_c, n_w, n_h
 
         return x
 
@@ -191,7 +189,8 @@ class CNN1DFiLM(nn.Module):
         film_hidden_layers: Tuple[int, ...] = (32,),
         pooling_every: int = 2,
         dropout_every: int = 1,
-        condition_every: int = 2,
+        condition_every: int = 1,
+        use_residual_conections: bool = True,
     ):
         super().__init__()
         self.seq_len = seq_len
@@ -268,6 +267,29 @@ class CNN1DFiLM(nn.Module):
         return x
 
 
+class LSTMModel(nn.Module):
+    def __init__(self, input_size, hidden_size, num_layers):
+        super(LSTMModel, self).__init__()
+        self.hidden_size = hidden_size
+        self.num_layers = num_layers
+
+        # LSTM layer
+        self.lstm = nn.LSTM(input_size, hidden_size, num_layers, batch_first=True)
+
+    def forward(self, x):
+        # Initialize hidden state with zeros
+        h0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size).to(x.device)
+
+        # Initialize cell state
+        c0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size).to(x.device)
+
+        # We need to detach as we are doing truncated backpropagation through time (BPTT)
+        out, _ = self.lstm(x, (h0, c0))
+
+        # Index hidden state of last time step
+        return out[:, -1, :]
+
+
 if __name__ == "__main__":
     # Full stack: [B, n_f, n_z, n_x, n_y] input
     B, n_f, n_z, n_x, n_y = 5, 10, 15, 16, 17
@@ -303,7 +325,7 @@ if __name__ == "__main__":
     assert out_2d.shape == (B, n_f, n_z, *cnn2d_output_shape)
 
     # Permute and reshape out_2d -> in_1d.
-    out_2d = out_2d.flatten(-2, -1)  # Flatten CNN channels, xy dim.
+    out_2d = out_2d.flatten(-3, -1)  # Flatten CNN channels, xy dim.
     out_2d = out_2d.permute(0, 1, 3, 2)  # Permute to (B, n_f, n_c, n_z)
 
     conv1d_channels = [13, 6]

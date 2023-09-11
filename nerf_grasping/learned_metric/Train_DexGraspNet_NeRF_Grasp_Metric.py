@@ -491,6 +491,7 @@ def custom_collate_fn(
             nerf_configs,
             conditioning_var,
         ) = batch
+
     else:
         nerf_densities, grasp_successes, grasp_transforms, nerf_configs = batch
         conditioning_var = None
@@ -504,6 +505,22 @@ def custom_collate_fn(
     batch_size = nerf_densities.shape[0]
     if use_random_rotations:
         random_rotate_transform = sample_random_rotate_transforms(N=batch_size)
+
+        if use_conditioning_var:
+            # Apply random rotation to grasp config.
+            # NOTE: hardcodes that conditioning is a grasp conditioning.
+            wrist_pose = pp.SE3(conditioning_var[..., :7])
+            joint_angles = conditioning_var[..., 7:23]
+            grasp_orientations = pp.SO3(conditioning_var[..., 23:])
+
+            wrist_pose = random_rotate_transform.unsqueeze(1) @ wrist_pose
+            grasp_orientations = (
+                random_rotate_transform.rotation().unsqueeze(1) @ grasp_orientations
+            )
+
+            conditioning_var = torch.cat(
+                (wrist_pose.data, joint_angles, grasp_orientations.data), axis=-1
+            )
     else:
         random_rotate_transform = None
 

@@ -11,7 +11,7 @@ from nerf_grasping.models.tyler_new_models import (
     ConvEncoder1D,
 )
 
-from nerf_grasping.models.preston_new_models import CNN2DFiLM, CNN1DFiLM, MLP
+from nerf_grasping.models.preston_new_models import CNN2DFiLM, CNN1DFiLM, MLP, LSTMModel
 
 
 def assert_equals(a, b):
@@ -280,7 +280,9 @@ class Simple_CNN_2D_1D_Model(nn.Module):
         )
 
         self.flattened_2d_output_shape = (
-            self.cnn2d_film.output_shape[0] * self.cnn2d_film.output_shape[1]
+            self.cnn2d_film.output_shape[0]
+            * self.cnn2d_film.output_shape[1]
+            * self.cnn2d_film.output_shape[2]
         )
 
         self.cnn1d_film = CNN1DFiLM(
@@ -325,6 +327,8 @@ class Simple_CNN_2D_1D_Model(nn.Module):
             (batch_size, n_fingers, n_z, *self.cnn2d_film.output_shape),
         )
 
+        x = x.flatten(-2, -1)  # flatten x/y
+
         # Flatten + permute stuff for correct 1D CNN batch shapes.
         x = x.flatten(-2, -1)  # Flatten 2DCNN channels + x/y dims.
         x = x.permute(0, 1, 3, 2)  # Put n_z as the sequence dim.
@@ -351,3 +355,292 @@ class Simple_CNN_2D_1D_Model(nn.Module):
 
         # Forward MLP pass.
         return self.mlp(x)
+
+
+class Simple_CNN_1D_2D_Model(nn.Module):
+    def __init__(
+        self,
+        grid_shape: Tuple[int, int, int],  # n_x, n_y, n_z
+        n_fingers: int,
+        conditioning_dim: int = 7,
+        n_classes: int = 2,
+        mlp_hidden_layers: List[int] = [32, 32],
+        conv_2d_channels: List[int] = [32, 16, 8, 4],
+        conv_1d_channels: List[int] = [4, 8],
+        film_2d_hidden_layers: List[int] = [8, 8],
+        film_1d_hidden_layers: List[int] = [8, 8],
+    ):
+        super().__init__()
+        self.grid_shape = grid_shape
+        self.n_fingers = n_fingers
+        self.conditioning_dim = conditioning_dim
+        self.n_classes = n_classes
+
+        n_x, n_y, n_z = self.grid_shape
+
+        self.cnn2d_film = CNN2DFiLM(
+            input_shape=(n_x, n_y),
+            conv_channels=conv_2d_channels,
+            conditioning_dim=conditioning_dim,
+            num_in_channels=1,
+            film_hidden_layers=film_2d_hidden_layers,
+        )
+
+        self.flattened_2d_output_shape = (
+            self.cnn2d_film.output_shape[0]
+            * self.cnn2d_film.output_shape[1]
+            * self.cnn2d_film.output_shape[2]
+        )
+
+        self.cnn1d_film = CNN1DFiLM(
+            seq_len=n_z,
+            conv_channels=conv_1d_channels,
+            conditioning_dim=conditioning_dim,
+            num_in_channels=self.flattened_2d_output_shape,
+            film_hidden_layers=film_1d_hidden_layers,
+        )
+
+        self.flattened_1d_output_shape = (
+            self.cnn1d_film.output_shape[0] * self.cnn1d_film.output_shape[1]
+        )
+
+        self.mlp = MLP(
+            (self.flattened_1d_output_shape + self.conditioning_dim) * self.n_fingers,
+            mlp_hidden_layers,
+            n_classes,
+        )
+
+    def forward(self, x: torch.Tensor, conditioning: torch.Tensor) -> torch.Tensor:
+        batch_size = x.shape[
+            0
+        ]  # Hardcoding no leading batch dims on input -- probably good to check here.
+        n_fingers = self.n_fingers
+        n_x, n_y, n_z = self.grid_shape
+        conditioning_dim = self.conditioning_dim
+
+        # Check shapes
+        assert_equals(x.shape, (batch_size, n_fingers, n_x, n_y, n_z))
+        assert_equals(conditioning.shape, (batch_size, n_fingers, conditioning_dim))
+
+        # Permute and expand stuff for correct 2D CNN batch shapes.
+        x = x.permute(0, 1, 4, 2, 3)  # Put n_z as a batch dim.
+        x = x.unsqueeze(-3)  # Add channel dim.
+        conditioning_2d = conditioning.unsqueeze(2).expand(-1, -1, n_z, -1)
+
+        # Forward 2D CNN pass.
+        x = self.cnn2d_film(x, conditioning=conditioning_2d)
+        assert_equals(
+            x.shape,
+            (batch_size, n_fingers, n_z, *self.cnn2d_film.output_shape),
+        )
+
+        x = x.flatten(-2, -1)  # flatten x/y
+
+        # Flatten + permute stuff for correct 1D CNN batch shapes.
+        x = x.flatten(-2, -1)  # Flatten 2DCNN channels + x/y dims.
+        x = x.permute(0, 1, 3, 2)  # Put n_z as the sequence dim.
+        assert_equals(
+            x.shape,
+            (batch_size, n_fingers, self.flattened_2d_output_shape, n_z),
+        )
+
+        # Forward 1D CNN pass.
+        x = self.cnn1d_film(x, conditioning=conditioning)
+        x = x.flatten(-2, -1)  # Flatten 1DCNN channels + z dim.
+        assert_equals(
+            x.shape,
+            (batch_size, n_fingers, self.flattened_1d_output_shape),
+        )
+
+        # Add context one last time + flatten across fingers.
+        x = torch.cat([x, conditioning], dim=-1)
+        assert_equals(
+            x.shape,
+            (batch_size, n_fingers, self.flattened_1d_output_shape + conditioning_dim),
+        )
+        x = x.flatten(-2, -1)
+
+        # Forward MLP pass.
+        return self.mlp(x)
+
+
+class Simple_CNN_LSTM_Model(nn.Module):
+    def __init__(
+        self,
+        grid_shape: Tuple[int, int, int],  # n_x, n_y, n_z
+        n_fingers: int,
+        conditioning_dim: int = 7,
+        n_classes: int = 2,
+        mlp_hidden_layers: List[int] = [32, 32],
+        conv_2d_channels: List[int] = [32, 16, 8, 4],
+        film_2d_hidden_layers: List[int] = [8, 8],
+        lstm_hidden_size: int = 32,
+        num_lstm_layers: int = 1,
+    ):
+        super().__init__()
+        self.grid_shape = grid_shape
+        self.n_fingers = n_fingers
+        self.conditioning_dim = conditioning_dim
+        self.n_classes = n_classes
+        self.lstm_hidden_size = lstm_hidden_size
+        self.num_lstm_layers = num_lstm_layers
+
+        n_x, n_y, n_z = self.grid_shape
+
+        # Will perform reduction to eliminate z dim after this.
+
+        self.cnn2d_film = CNN2DFiLM(
+            input_shape=(n_x, n_y),
+            conv_channels=conv_2d_channels,
+            conditioning_dim=conditioning_dim,
+            num_in_channels=1,
+            film_hidden_layers=film_2d_hidden_layers,
+        )
+
+        self.flattened_2d_output_shape = (
+            self.cnn2d_film.output_shape[0]
+            * self.cnn2d_film.output_shape[1]
+            * self.cnn2d_film.output_shape[2]
+        )
+
+        self.lstm = LSTMModel(
+            input_size=self.flattened_2d_output_shape,
+            hidden_size=lstm_hidden_size,
+            num_layers=num_lstm_layers,
+        )
+
+        self.mlp = MLP(
+            (self.lstm_hidden_size + self.conditioning_dim) * self.n_fingers,
+            mlp_hidden_layers,
+            n_classes,
+        )
+
+    def forward(self, x: torch.Tensor, conditioning: torch.Tensor) -> torch.Tensor:
+        batch_size = x.shape[
+            0
+        ]  # Hardcoding no leading batch dims on input -- probably good to check here.
+        n_fingers = self.n_fingers
+        n_x, n_y, n_z = self.grid_shape
+        conditioning_dim = self.conditioning_dim
+
+        # Check shapes
+        assert_equals(x.shape, (batch_size, n_fingers, n_x, n_y, n_z))
+        assert_equals(conditioning.shape, (batch_size, n_fingers, conditioning_dim))
+
+        # Permute and expand stuff for correct 2D CNN batch shapes
+        x = x.permute(0, 1, 4, 2, 3)  # Put n_z as a batch dim.
+        x = x.unsqueeze(-3)  # Add channel dim.
+        conditioning_2d = conditioning.unsqueeze(2).expand(-1, -1, n_z, -1)
+
+        # Forward 2D CNN pass.
+        x = self.cnn2d_film(x, conditioning=conditioning_2d)
+        assert_equals(
+            x.shape,
+            (batch_size, n_fingers, n_z, *self.cnn2d_film.output_shape),
+        )
+
+        x = x.flatten(-3, -1)  # flatten x,y,channels
+        assert_equals(
+            x.shape,
+            (batch_size, n_fingers, n_z, self.flattened_2d_output_shape),
+        )
+
+        # Flatten + permute stuff for correct LSTM batch shapes.
+        x = x.reshape(
+            -1, n_z, self.flattened_2d_output_shape
+        )  # Flatten batch/num_fingers dims
+        assert_equals(
+            x.shape,
+            (batch_size * n_fingers, n_z, self.flattened_2d_output_shape),
+        )
+
+        # Run LSTM over z dim.
+        x = self.lstm(x)
+
+        # Shape check
+        assert_equals(
+            x.shape,
+            (
+                batch_size * n_fingers,
+                self.lstm_hidden_size,
+            ),
+        )
+
+        # Reshape x and add conditioning for MLP.
+        x = x.reshape(batch_size, n_fingers, self.lstm_hidden_size)
+        x = torch.cat([x, conditioning], dim=-1)
+
+        assert_equals(
+            x.shape,
+            (
+                batch_size,
+                n_fingers,
+                self.lstm_hidden_size + conditioning_dim,
+            ),
+        )
+
+        # Flatten num fingers.
+        x = x.flatten(-2, -1)
+
+        # Forward MLP pass.
+        return self.mlp(x)
+
+
+if __name__ == "__main__":
+    # Dry run 2D / 1D CNNs.
+
+    # 2D / 1D CNN.
+    model = Simple_CNN_2D_1D_Model(
+        grid_shape=(32, 32, 32),
+        n_fingers=2,
+        conditioning_dim=7,
+        n_classes=2,
+        mlp_hidden_layers=[32, 32],
+        conv_2d_channels=[32, 16, 8, 4],
+        conv_1d_channels=[4, 8],
+        film_2d_hidden_layers=[8, 8],
+        film_1d_hidden_layers=[8, 8],
+    )
+
+    batch_size = 2
+    n_fingers = 2
+    n_x, n_y, n_z = 32, 32, 32
+    conditioning_dim = 7
+
+    x = torch.zeros(batch_size, n_fingers, n_x, n_y, n_z)
+    conditioning = torch.zeros(batch_size, n_fingers, conditioning_dim)
+
+    logits = model(x, conditioning)
+    assert_equals(logits.shape, (batch_size, model.n_classes))
+
+    # 1D / 2D CNN.
+    model = Simple_CNN_1D_2D_Model(
+        grid_shape=(32, 32, 32),
+        n_fingers=2,
+        conditioning_dim=7,
+        n_classes=2,
+        mlp_hidden_layers=[32, 32],
+        conv_2d_channels=[32, 16, 8, 4],
+        conv_1d_channels=[4, 8],
+        film_2d_hidden_layers=[8, 8],
+        film_1d_hidden_layers=[8, 8],
+    )
+
+    logits = model(x, conditioning)
+    assert_equals(logits.shape, (batch_size, model.n_classes))
+
+    # LSTM.
+    model = Simple_CNN_LSTM_Model(
+        grid_shape=(32, 32, 32),
+        n_fingers=2,
+        conditioning_dim=7,
+        n_classes=2,
+        mlp_hidden_layers=[32, 32],
+        conv_2d_channels=[32, 16, 8, 4],
+        film_2d_hidden_layers=[8, 8],
+        lstm_hidden_size=32,
+        num_lstm_layers=1,
+    )
+
+    logits = model(x, conditioning)
+    assert_equals(logits.shape, (batch_size, model.n_classes))

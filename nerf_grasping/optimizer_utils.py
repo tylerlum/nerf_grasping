@@ -310,9 +310,11 @@ class AllegroGraspConfig(torch.nn.Module):
             grasp_config_dict
         )
 
-        grasp_orientations = torch.from_numpy(
-            grasp_config_dict["grasp_orientations"]
-        ).to(device).to(dtype)
+        grasp_orientations = (
+            torch.from_numpy(grasp_config_dict["grasp_orientations"])
+            .to(device)
+            .to(dtype)
+        )
         assert grasp_orientations.shape == (batch_size, num_fingers, 3, 3)
 
         # Set the grasp config's data.
@@ -450,6 +452,7 @@ class GraspMetric(torch.nn.Module):
         nerf_model: nerfstudio.models.base_model.Model,
         classifier_model: Classifier,
         fingertip_config: UnionFingertipConfig,
+        return_type: str = "failure_probability",
     ):
         super().__init__()
         self.nerf_model = nerf_model
@@ -458,6 +461,7 @@ class GraspMetric(torch.nn.Module):
         self.ray_origins_finger_frame = grasp_utils.get_ray_origins_finger_frame(
             fingertip_config
         )
+        self.return_type = return_type
 
     def forward(
         self,
@@ -492,7 +496,10 @@ class GraspMetric(torch.nn.Module):
         )
 
         # Pass grasp transforms, densities into classifier.
-        return self.classifier_model.get_failure_probability(batch_data_input)
+        if self.return_type == "failure_probability":
+            return self.classifier_model.get_failure_probability(batch_data_input)
+        elif self.return_type == "failure_logits":
+            return self.classifier_model(batch_data_input)[:, -1]
 
     def get_failure_probability(
         self,

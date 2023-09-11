@@ -7,6 +7,8 @@ from nerf_grasping.models.dexgraspnet_models import (
     CNN_3D_Model,
     CNN_2D_1D_Model,
     Simple_CNN_2D_1D_Model,
+    Simple_CNN_1D_2D_Model,
+    Simple_CNN_LSTM_Model,
 )
 from nerf_grasping.learned_metric.DexGraspNet_batch_data import BatchDataInput
 from typing import Iterable, Tuple, List
@@ -137,6 +139,80 @@ class Simple_CNN_2D_1D_Classifier(Classifier):
             conv_1d_channels=conv_1d_channels,
             film_2d_hidden_layers=film_2d_hidden_layers,
             film_1d_hidden_layers=film_1d_hidden_layers,
+        )
+
+    def forward(self, batch_data_input: BatchDataInput) -> torch.Tensor:
+        # Run model
+        if batch_data_input.conditioning_var is not None:
+            logits = self.model(
+                batch_data_input.nerf_alphas, batch_data_input.conditioning_var
+            )
+        else:
+            logits = self.model(
+                batch_data_input.nerf_alphas, batch_data_input.grasp_transforms.tensor()
+            )
+        return logits
+
+
+class Simple_CNN_1D_2D_Classifier(Classifier):
+    def __init__(
+        self,
+        grid_shape: Tuple[int, int, int],
+        n_fingers: int,
+        conditioning_dim: int,
+        mlp_hidden_layers: List[int] = [32, 32],
+        conv_2d_channels: List[int] = [32, 16, 8, 4],
+        conv_1d_channels: List[int] = [4, 8],
+        film_2d_hidden_layers: List[int] = [8, 8],
+        film_1d_hidden_layers: List[int] = [8, 8],
+    ) -> None:
+        super().__init__()
+        self.model = Simple_CNN_1D_2D_Model(
+            grid_shape=grid_shape,
+            n_fingers=n_fingers,
+            conditioning_dim=conditioning_dim,
+            mlp_hidden_layers=mlp_hidden_layers,
+            conv_2d_channels=conv_2d_channels,
+            conv_1d_channels=conv_1d_channels,
+            film_2d_hidden_layers=film_2d_hidden_layers,
+            film_1d_hidden_layers=film_1d_hidden_layers,
+        )
+
+    def forward(self, batch_data_input: BatchDataInput) -> torch.Tensor:
+        # Run model
+        if batch_data_input.conditioning_var is not None:
+            logits = self.model(
+                batch_data_input.nerf_alphas, batch_data_input.conditioning_var
+            )
+        else:
+            logits = self.model(
+                batch_data_input.nerf_alphas, batch_data_input.grasp_transforms.tensor()
+            )
+        return logits
+
+
+class Simple_CNN_LSTM_Classifier(Classifier):
+    def __init__(
+        self,
+        grid_shape: Tuple[int, int, int],
+        n_fingers: int,
+        conditioning_dim: int,
+        mlp_hidden_layers: List[int] = [32, 32],
+        conv_2d_channels: List[int] = [32, 16, 8, 4],
+        film_2d_hidden_layers: List[int] = [8, 8],
+        lstm_hidden_size: int = 32,
+        num_lstm_layers: int = 1,
+    ) -> None:
+        super().__init__()
+        self.model = Simple_CNN_LSTM_Model(
+            grid_shape=grid_shape,
+            n_fingers=n_fingers,
+            conditioning_dim=conditioning_dim,
+            mlp_hidden_layers=mlp_hidden_layers,
+            conv_2d_channels=conv_2d_channels,
+            film_2d_hidden_layers=film_2d_hidden_layers,
+            lstm_hidden_size=lstm_hidden_size,
+            num_lstm_layers=num_lstm_layers,
         )
 
     def forward(self, batch_data_input: BatchDataInput) -> torch.Tensor:

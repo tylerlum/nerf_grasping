@@ -23,7 +23,9 @@ class BaseNerfDataConfig:
     dexgraspnet_meshdata_root: pathlib.Path = (
         dexgraspnet_data_root / "2023-09-01_meshdata_trial"
     )
-    evaled_grasp_config_dicts_path: pathlib.Path = None
+    evaled_grasp_config_dicts_path: pathlib.Path = (
+        dexgraspnet_data_root / "2023-09-05_evaled_grasp_config_dicts_trial_testset_ws1"
+    )
     nerf_checkpoints_path: pathlib.Path = (
         dexgraspnet_data_root / "2023-09-04_nerfcheckpoints_trial"
     )
@@ -42,15 +44,6 @@ class BaseNerfDataConfig:
     plot_alpha_images_each_finger: bool = True
 
     fingertip_config: Optional[UnionFingertipConfig] = EvenlySpacedFingertipConfig()
-
-    def __post_init__(self):
-        if self.output_filepath is None:
-            self.output_filepath = (
-                pathlib.Path(
-                    str(self.evaled_grasp_config_dicts_path) + "_learned_metric_dataset"
-                )
-                / f"{CONFIG_DATETIME_STR}_learned_metric_dataset.h5"
-            )
 
     @property
     def config_filepath(self) -> pathlib.Path:

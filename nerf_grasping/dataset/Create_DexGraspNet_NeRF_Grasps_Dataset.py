@@ -51,6 +51,7 @@ from nerf_grasping.grasp_utils import (
     get_nerf_configs,
     load_nerf,
 )
+from nerf_grasping.config.base import CONFIG_DATETIME_STR
 from functools import partial
 from nerf_grasping.config.nerfdata_config import (
     UnionNerfDataConfig,
@@ -149,6 +150,12 @@ else:
 if isinstance(cfg, DepthImageNerfDataConfig):
     raise NotImplementedError("DepthImageNerfDataConfig not implemented yet")
 
+if cfg.output_filepath is None:
+    cfg.output_filepath = (
+        cfg.evaled_grasp_config_dicts_path.parent
+        / "learned_metric_dataset"
+        / f"{CONFIG_DATETIME_STR}_learned_metric_dataset.h5"
+    )
 # %%
 if not cfg.output_filepath.parent.exists():
     print(f"Creating output folder {cfg.output_filepath.parent}")

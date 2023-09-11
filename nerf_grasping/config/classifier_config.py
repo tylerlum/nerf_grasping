@@ -6,6 +6,8 @@ from nerf_grasping.classifier import (
     CNN_3D_XYZ_Classifier,
     CNN_2D_1D_Classifier,
     Simple_CNN_2D_1D_Classifier,
+    Simple_CNN_1D_2D_Classifier,
+    Simple_CNN_LSTM_Classifier,
     Classifier,
 )
 from nerf_grasping.config.base import WandbConfig, CONFIG_DATETIME_STR
@@ -248,6 +250,81 @@ class Simple_CNN_2D_1D_ModelConfig(ClassifierModelConfig):
         )
 
 
+@dataclass(frozen=True)
+class Simple_CNN_1D_2D_ModelConfig(ClassifierModelConfig):
+    mlp_hidden_layers: List[int]
+    conv_2d_channels: List[int]
+    conv_1d_channels: List[int]
+    film_2d_hidden_layers: List[int]
+    film_1d_hidden_layers: List[int]
+    mlp_hidden_layers: List[int]
+    conditioning_dim: int = 7
+    n_fingers: int = 4
+
+    @classmethod
+    def grid_shape_from_fingertip_config(
+        self, fingertip_config: UnionFingertipConfig
+    ) -> List[int]:
+        return [
+            fingertip_config.num_pts_x,
+            fingertip_config.num_pts_y,
+            fingertip_config.num_pts_z,
+        ]
+
+    def get_classifier_from_fingertip_config(
+        self, fingertip_config: UnionFingertipConfig
+    ) -> Classifier:
+        """Helper method to return the correct classifier from config."""
+
+        return Simple_CNN_1D_2D_Classifier(
+            grid_shape=self.grid_shape_from_fingertip_config(fingertip_config),
+            n_fingers=self.n_fingers,
+            conditioning_dim=self.conditioning_dim,
+            mlp_hidden_layers=self.mlp_hidden_layers,
+            conv_2d_channels=self.conv_2d_channels,
+            conv_1d_channels=self.conv_1d_channels,
+            film_2d_hidden_layers=self.film_2d_hidden_layers,
+            film_1d_hidden_layers=self.film_1d_hidden_layers,
+        )
+
+
+@dataclass(frozen=True)
+class Simple_CNN_LSTM_ModelConfig(ClassifierModelConfig):
+    mlp_hidden_layers: List[int]
+    conv_2d_channels: List[int]
+    film_2d_hidden_layers: List[int]
+    lstm_hidden_size: int
+    num_lstm_layers: int
+    conditioning_dim: int = 7
+    n_fingers: int = 4
+
+    @classmethod
+    def grid_shape_from_fingertip_config(
+        self, fingertip_config: UnionFingertipConfig
+    ) -> List[int]:
+        return [
+            fingertip_config.num_pts_x,
+            fingertip_config.num_pts_y,
+            fingertip_config.num_pts_z,
+        ]
+
+    def get_classifier_from_fingertip_config(
+        self, fingertip_config: UnionFingertipConfig
+    ) -> Classifier:
+        """Helper method to return the correct classifier from config."""
+
+        return Simple_CNN_LSTM_Classifier(
+            grid_shape=self.grid_shape_from_fingertip_config(fingertip_config),
+            n_fingers=self.n_fingers,
+            conditioning_dim=self.conditioning_dim,
+            mlp_hidden_layers=self.mlp_hidden_layers,
+            conv_2d_channels=self.conv_2d_channels,
+            film_2d_hidden_layers=self.film_2d_hidden_layers,
+            lstm_hidden_size=self.lstm_hidden_size,
+            num_lstm_layers=self.num_lstm_layers,
+        )
+
+
 @dataclass
 class ClassifierConfig:
     model_config: ClassifierModelConfig
@@ -321,11 +398,35 @@ DEFAULTS_DICT = {
     ),
     "grasp-cond-cnn-2d-1d": ClassifierConfig(
         model_config=Simple_CNN_2D_1D_ModelConfig(
+            mlp_hidden_layers=[256, 256],
+            conv_2d_channels=[16, 32, 128, 256],
+            conv_1d_channels=[128],
+            film_2d_hidden_layers=[128, 128],
+            film_1d_hidden_layers=[16, 16],
+            conditioning_dim=7 + 16 + 4,
+        ),
+        nerfdata_config=GraspConditionedGridDataConfig(),
+        conditioning_type=ConditioningType.GRASP_TRANSFORM,
+    ),
+    "grasp-cond-cnn-1d-2d": ClassifierConfig(
+        model_config=Simple_CNN_1D_2D_ModelConfig(
             mlp_hidden_layers=[32, 32],
-            conv_2d_channels=[8, 8],
-            conv_1d_channels=[8],
-            film_2d_hidden_layers=[8, 8],
-            film_1d_hidden_layers=[8],
+            conv_2d_channels=[32, 64, 128],
+            conv_1d_channels=[128, 64, 32],
+            film_2d_hidden_layers=[32, 32],
+            film_1d_hidden_layers=[32, 32],
+            conditioning_dim=7 + 16 + 4,
+        ),
+        nerfdata_config=GraspConditionedGridDataConfig(),
+        conditioning_type=ConditioningType.GRASP_TRANSFORM,
+    ),
+    "grasp-cond-cnn-lstm": ClassifierConfig(
+        model_config=Simple_CNN_LSTM_ModelConfig(
+            mlp_hidden_layers=[64, 64],
+            conv_2d_channels=[32, 32, 32, 32],
+            film_2d_hidden_layers=[64, 64],
+            lstm_hidden_size=64,
+            num_lstm_layers=1,
             conditioning_dim=7 + 16 + 4,
         ),
         nerfdata_config=GraspConditionedGridDataConfig(),

@@ -39,6 +39,7 @@ class BaseNerfDataConfig:
     max_num_data_points_per_file: Optional[
         int
     ] = None  # None for count actual num data points
+    ray_samples_chunk_size: int = 2500
     plot_all_high_density_points: bool = True
     plot_alphas_each_finger_1D: bool = True
     plot_alpha_images_each_finger: bool = True

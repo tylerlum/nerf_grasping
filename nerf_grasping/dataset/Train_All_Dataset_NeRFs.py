@@ -17,6 +17,7 @@ class NerfTrainingConfig:
     scene_scale: float = 0.2
     use_multiprocess: bool = True
     num_workers: int = 8
+    continue_training: bool = True
 
 
 def run_command(object_code_and_scale_str, cfg, nerfcheckpoints_path):
@@ -47,7 +48,32 @@ def main(cfg: NerfTrainingConfig):
     if cfg.nerfcheckpoints_path is None:
         nerfcheckpoints_path = cfg.nerfdata_path.parent / "nerfcheckpoints"
 
-    print(f"Found {len(object_code_and_scale_strs)} objects.")
+    print(f"Found {len(object_code_and_scale_strs)} objects in {cfg.nerfdata_path}.")
+
+    existing_object_code_and_scale_strs = (
+        [path.stem for path in nerfcheckpoints_path.iterdir()]
+        if nerfcheckpoints_path.exists()
+        else []
+    )
+
+    if cfg.continue_training:
+        # Get set of objects that have already been trained on
+
+        print(
+            f"Found {len(existing_object_code_and_scale_strs)} objects in {nerfcheckpoints_path}."
+        )
+
+        object_code_and_scale_strs = list(
+            set(object_code_and_scale_strs) - set(existing_object_code_and_scale_strs)
+        )
+
+        print(f"Continuing training on {len(object_code_and_scale_strs)} objects.")
+    elif len(existing_object_code_and_scale_strs) > 0:
+        raise ValueError(
+            f"Found {len(existing_object_code_and_scale_strs)} objects in {nerfcheckpoints_path}."
+            + " Set continue_training to True to continue training on these objects, or change output path."
+        )
+
     print(f"Saving checkpoints to {nerfcheckpoints_path}")
 
     if cfg.use_multiprocess:

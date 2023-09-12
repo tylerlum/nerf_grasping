@@ -9,7 +9,7 @@ from nerf_grasping.config.metric_config import GraspMetricConfig
 import pathlib
 import grasp_utils
 import torch
-from nerf_grasping.classifier import Classifier
+from nerf_grasping.classifier import Classifier, Simple_CNN_LSTM_Classifier
 from nerf_grasping.config.classifier_config import ClassifierConfig
 from nerf_grasping.config.optimizer_config import (
     UnionGraspOptimizerConfig,
@@ -182,14 +182,17 @@ class SGDOptimizer(Optimizer):
 
             progress.update(task, advance=1)
 
-        cnn.eval()
+        if not isinstance(cnn, Simple_CNN_LSTM_Classifier):
+            cnn.eval()  # weird LSTM thing where cudnn hasn't implemented the backwards pass in eval (??)
 
-        # Put grasps on the correc device.
+        # Put grasps on the correct device.
         init_grasp_config = init_grasp_config.to(device=device)
 
         # Wrap Nerf and Classifier in GraspMetric.
         grasp_metric = GraspMetric(
-            nerf, cnn, classifier_config.nerfdata_config.fingertip_config
+            nerf,
+            cnn,
+            classifier_config.nerfdata_config.fingertip_config,
         )
 
         init_grasp_config.wrist_pose.requires_grad = optimizer_config.opt_wrist_pose
@@ -465,6 +468,8 @@ def run_optimizer_loop(
             this_iter_folder_path.mkdir(parents=True, exist_ok=True)
             print(f"Saving mid opt grasp config dict to {this_iter_folder_path}")
             np.save(this_iter_folder_path / filename, grasp_config_dict)
+
+    optimizer.grasp_metric.eval()
 
     # Sort grasp scores and configs by score.
     _, sort_indices = torch.sort(optimizer.grasp_scores, descending=False)

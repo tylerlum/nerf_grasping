@@ -51,6 +51,7 @@ from nerf_grasping.grasp_utils import (
     get_nerf_configs,
     load_nerf,
 )
+from nerf_grasping.config.base import CONFIG_DATETIME_STR
 from functools import partial
 from nerf_grasping.config.nerfdata_config import (
     UnionNerfDataConfig,
@@ -149,6 +150,12 @@ else:
 if isinstance(cfg, DepthImageNerfDataConfig):
     raise NotImplementedError("DepthImageNerfDataConfig not implemented yet")
 
+if cfg.output_filepath is None:
+    cfg.output_filepath = (
+        cfg.evaled_grasp_config_dicts_path.parent
+        / "learned_metric_dataset"
+        / f"{CONFIG_DATETIME_STR}_learned_metric_dataset.h5"
+    )
 # %%
 if not cfg.output_filepath.parent.exists():
     print(f"Creating output folder {cfg.output_filepath.parent}")
@@ -445,148 +452,160 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
     # Iterate through all
     loop_timer = LoopTimer()
     for config in tqdm(nerf_configs, desc="nerf configs", dynamic_ncols=True):
-        with loop_timer.add_section_timer("prepare to read in data"):
-            object_code_and_scale_str = parse_nerf_config(config)
-            object_code, object_scale = parse_object_code_and_scale(
-                object_code_and_scale_str
+        try:
+            with loop_timer.add_section_timer("prepare to read in data"):
+                object_code_and_scale_str = parse_nerf_config(config)
+                object_code, object_scale = parse_object_code_and_scale(
+                    object_code_and_scale_str
+                )
+
+                # Prepare to read in data
+                mesh_path = (
+                    cfg.dexgraspnet_meshdata_root
+                    / object_code
+                    / "coacd"
+                    / "decomposed.obj"
+                )
+                evaled_grasp_config_dict_filepath = (
+                    cfg.evaled_grasp_config_dicts_path
+                    / f"{object_code_and_scale_str}.npy"
+                )
+
+                # Check that mesh and grasp dataset exist
+                assert mesh_path.exists(), f"mesh_path {mesh_path} does not exist"
+                assert os.path.exists(
+                    evaled_grasp_config_dict_filepath
+                ), f"evaled_grasp_config_dict_filepath {evaled_grasp_config_dict_filepath} does not exist"
+
+            # Read in data
+            with loop_timer.add_section_timer("load_nerf"):
+                nerf_model = load_nerf(config)
+
+            with loop_timer.add_section_timer("load mesh"):
+                mesh = trimesh.load(mesh_path, force="mesh")
+                mesh.apply_transform(trimesh.transformations.scale_matrix(object_scale))
+
+            with loop_timer.add_section_timer("load grasp data"):
+                evaled_grasp_config_dict: Dict[str, Any] = np.load(
+                    evaled_grasp_config_dict_filepath, allow_pickle=True
+                ).item()
+
+            # Extract useful parts of grasp data
+            grasp_configs = AllegroGraspConfig.from_grasp_config_dict(
+                evaled_grasp_config_dict
             )
+            grasp_successes = evaled_grasp_config_dict["passed_eval"]
 
-            # Prepare to read in data
-            mesh_path = (
-                cfg.dexgraspnet_meshdata_root / object_code / "coacd" / "decomposed.obj"
-            )
-            evaled_grasp_config_dict_filepath = (
-                cfg.evaled_grasp_config_dicts_path / f"{object_code_and_scale_str}.npy"
-            )
-
-            # Check that mesh and grasp dataset exist
-            assert mesh_path.exists(), f"mesh_path {mesh_path} does not exist"
-            assert os.path.exists(
-                evaled_grasp_config_dict_filepath
-            ), f"evaled_grasp_config_dict_filepath {evaled_grasp_config_dict_filepath} does not exist"
-
-        # Read in data
-        with loop_timer.add_section_timer("load_nerf"):
-            nerf_model = load_nerf(config)
-
-        with loop_timer.add_section_timer("load mesh"):
-            mesh = trimesh.load(mesh_path, force="mesh")
-            mesh.apply_transform(trimesh.transformations.scale_matrix(object_scale))
-
-        with loop_timer.add_section_timer("load grasp data"):
-            evaled_grasp_config_dict: Dict[str, Any] = np.load(
-                evaled_grasp_config_dict_filepath, allow_pickle=True
-            ).item()
-
-        # Extract useful parts of grasp data
-        grasp_configs = AllegroGraspConfig.from_grasp_config_dict(
-            evaled_grasp_config_dict
-        )
-        grasp_successes = evaled_grasp_config_dict["passed_eval"]
-
-        # If plot_only_one is True, slice out the grasp index we want to visualize.
-        if cfg.plot_only_one:
-            assert cfg.grasp_visualize_index is not None
-            assert (
-                cfg.grasp_visualize_index < grasp_configs.batch_size
-            ), f"{cfg.grasp_visualize_index} out of bounds for batch size {grasp_configs.batch_size}"
-            grasp_configs = grasp_configs[
-                cfg.grasp_visualize_index : cfg.grasp_visualize_index + 1
-            ]
-            grasp_successes = grasp_successes[
-                cfg.grasp_visualize_index : cfg.grasp_visualize_index + 1
-            ]
-
-        if (
-            cfg.max_num_data_points_per_file is not None
-            and grasp_configs.batch_size > cfg.max_num_data_points_per_file
-        ):
-            print(
-                "WARNING: Too many grasp configs, dropping some datapoints from NeRF dataset."
-            )
-            print(
-                f"batch_size = {grasp_configs.batch_size}, cfg.max_num_data_points_per_file = {cfg.max_num_data_points_per_file}"
-            )
-
-        grasp_configs = grasp_configs[:max_num_datapoints]
-        grasp_successes = grasp_successes[:max_num_datapoints]
-        grasp_frame_transforms_arr = grasp_configs.grasp_frame_transforms
-
-        assert grasp_successes.shape == (grasp_configs.batch_size,)
-        assert grasp_frame_transforms_arr.lshape == (
-            grasp_configs.batch_size,
-            cfg.fingertip_config.n_fingers,
-        )
-
-        if isinstance(cfg, GraspConditionedGridDataConfig):
-            grasp_config_tensors = grasp_configs.as_tensor()
-
-        for grasp_idx, (grasp_success, grasp_frame_transforms) in (
-            pbar := tqdm(
-                enumerate(
-                    zip(
-                        grasp_successes,
-                        grasp_frame_transforms_arr,
-                    )
-                ),
-                total=grasp_configs.batch_size,
-                dynamic_ncols=True,
-            )
-        ):
-            pbar.set_description(f"grasp data, current_idx: {current_idx}")
-            nerf_densities, query_points_list = get_nerf_densities(
-                loop_timer=loop_timer,
-                cfg=cfg,
-                grasp_frame_transforms=grasp_frame_transforms,
-                ray_origins_finger_frame=ray_origins_finger_frame,
-                nerf_model=nerf_model,
-            )
+            # If plot_only_one is True, slice out the grasp index we want to visualize.
             if cfg.plot_only_one:
-                break
+                assert cfg.grasp_visualize_index is not None
+                assert (
+                    cfg.grasp_visualize_index < grasp_configs.batch_size
+                ), f"{cfg.grasp_visualize_index} out of bounds for batch size {grasp_configs.batch_size}"
+                grasp_configs = grasp_configs[
+                    cfg.grasp_visualize_index : cfg.grasp_visualize_index + 1
+                ]
+                grasp_successes = grasp_successes[
+                    cfg.grasp_visualize_index : cfg.grasp_visualize_index + 1
+                ]
 
-            # Ensure no nans (most likely come from weird grasp transforms)
             if (
-                np.isnan(nerf_densities).any()
-                or torch.isnan(grasp_frame_transforms).any()
+                cfg.max_num_data_points_per_file is not None
+                and grasp_configs.batch_size > cfg.max_num_data_points_per_file
             ):
-                print("\n" + "-" * 80)
                 print(
-                    f"WARNING: Found {np.isnan(nerf_densities).sum()} nerf density nans and {torch.isnan(grasp_frame_transforms).sum()} transform nans in grasp {grasp_idx} of {config}"
+                    "WARNING: Too many grasp configs, dropping some datapoints from NeRF dataset."
                 )
-                print("Skipping this one...")
-                print("-" * 80 + "\n")
-                continue
-
-            # Save values
-            if not cfg.save_dataset:
-                continue
-            with loop_timer.add_section_timer("save values"):
-                nerf_densities_dataset[current_idx] = nerf_densities
-                grasp_success_dataset[current_idx] = grasp_success
-                nerf_config_dataset[current_idx] = str(config)
-                object_code_dataset[current_idx] = object_code
-                object_scale_dataset[current_idx] = object_scale
-                grasp_idx_dataset[current_idx] = grasp_idx
-                grasp_transforms_dataset[current_idx] = (
-                    grasp_frame_transforms.matrix().cpu().detach().numpy()
+                print(
+                    f"batch_size = {grasp_configs.batch_size}, cfg.max_num_data_points_per_file = {cfg.max_num_data_points_per_file}"
                 )
 
-                if isinstance(cfg, GraspConditionedGridDataConfig):
-                    grasp_config_tensor = (
-                        grasp_config_tensors[grasp_idx].detach().cpu().numpy()
-                    )
-                    assert grasp_config_tensor.shape == (
-                        cfg.fingertip_config.n_fingers,
-                        7
-                        + 16
-                        + 4,  # wrist pose, joint angles, grasp orientations (as quats)
-                    )
-                    conditioning_var_dataset[current_idx] = grasp_config_tensor
+            grasp_configs = grasp_configs[:max_num_datapoints]
+            grasp_successes = grasp_successes[:max_num_datapoints]
+            grasp_frame_transforms_arr = grasp_configs.grasp_frame_transforms
 
-                current_idx += 1
+            assert grasp_successes.shape == (grasp_configs.batch_size,)
+            assert grasp_frame_transforms_arr.lshape == (
+                grasp_configs.batch_size,
+                cfg.fingertip_config.n_fingers,
+            )
 
-                # May not be max_num_data_points if nan grasps
-                hdf5_file.attrs["num_data_points"] = current_idx
+            if isinstance(cfg, GraspConditionedGridDataConfig):
+                grasp_config_tensors = grasp_configs.as_tensor()
+
+            # TODO: Batch this instead of looping through each grasp.
+            for grasp_idx, (grasp_success, grasp_frame_transforms) in (
+                pbar := tqdm(
+                    enumerate(
+                        zip(
+                            grasp_successes,
+                            grasp_frame_transforms_arr,
+                        )
+                    ),
+                    total=grasp_configs.batch_size,
+                    dynamic_ncols=True,
+                )
+            ):
+                pbar.set_description(f"grasp data, current_idx: {current_idx}")
+                nerf_densities, query_points_list = get_nerf_densities(
+                    loop_timer=loop_timer,
+                    cfg=cfg,
+                    grasp_frame_transforms=grasp_frame_transforms,
+                    ray_origins_finger_frame=ray_origins_finger_frame,
+                    nerf_model=nerf_model,
+                )
+                if cfg.plot_only_one:
+                    break
+
+                # Ensure no nans (most likely come from weird grasp transforms)
+                if (
+                    np.isnan(nerf_densities).any()
+                    or torch.isnan(grasp_frame_transforms).any()
+                ):
+                    print("\n" + "-" * 80)
+                    print(
+                        f"WARNING: Found {np.isnan(nerf_densities).sum()} nerf density nans and {torch.isnan(grasp_frame_transforms).sum()} transform nans in grasp {grasp_idx} of {config}"
+                    )
+                    print("Skipping this one...")
+                    print("-" * 80 + "\n")
+                    continue
+
+                # Save values
+                if not cfg.save_dataset:
+                    continue
+                with loop_timer.add_section_timer("save values"):
+                    nerf_densities_dataset[current_idx] = nerf_densities
+                    grasp_success_dataset[current_idx] = grasp_success
+                    nerf_config_dataset[current_idx] = str(config)
+                    object_code_dataset[current_idx] = object_code
+                    object_scale_dataset[current_idx] = object_scale
+                    grasp_idx_dataset[current_idx] = grasp_idx
+                    grasp_transforms_dataset[current_idx] = (
+                        grasp_frame_transforms.matrix().cpu().detach().numpy()
+                    )
+
+                    if isinstance(cfg, GraspConditionedGridDataConfig):
+                        grasp_config_tensor = (
+                            grasp_config_tensors[grasp_idx].detach().cpu().numpy()
+                        )
+                        assert grasp_config_tensor.shape == (
+                            cfg.fingertip_config.n_fingers,
+                            7
+                            + 16
+                            + 4,  # wrist pose, joint angles, grasp orientations (as quats)
+                        )
+                        conditioning_var_dataset[current_idx] = grasp_config_tensor
+
+                    current_idx += 1
+
+                    # May not be max_num_data_points if nan grasps
+                    hdf5_file.attrs["num_data_points"] = current_idx
+        except:
+            print("\n" + "-" * 80)
+            print(f"WARNING: Failed to process {config}")
+            print("Skipping this one...")
+            print("-" * 80 + "\n")
+            continue
 
         if cfg.print_timing:
             loop_timer.pretty_print_section_times()

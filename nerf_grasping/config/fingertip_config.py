@@ -28,10 +28,10 @@ class EvenlySpacedFingertipConfig(BaseFingertipConfig):
 
     def __init__(
         self,
-        distance_between_pts_mm: float = 0.5,
+        distance_between_pts_mm: float = 1,
         finger_width_mm: float = 20.0,
         finger_height_mm: float = 20.0,
-        grasp_depth_mm: float = 40.0,
+        grasp_depth_mm: float = 30.0,
         num_pts_x: Optional[int] = None,
         num_pts_y: Optional[int] = None,
         num_pts_z: Optional[int] = None,

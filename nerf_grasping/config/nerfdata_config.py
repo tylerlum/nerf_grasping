@@ -45,15 +45,6 @@ class BaseNerfDataConfig:
 
     fingertip_config: Optional[UnionFingertipConfig] = EvenlySpacedFingertipConfig()
 
-    def __post_init__(self):
-        if self.output_filepath is None:
-            self.output_filepath = (
-                pathlib.Path(
-                    str(self.evaled_grasp_config_dicts_path) + "_learned_metric_dataset"
-                )
-                / f"{CONFIG_DATETIME_STR}_learned_metric_dataset.h5"
-            )
-
     @property
     def config_filepath(self) -> pathlib.Path:
         return self.output_filepath.parent / "config.yml"

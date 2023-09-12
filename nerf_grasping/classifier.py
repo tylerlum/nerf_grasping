@@ -18,47 +18,33 @@ class Classifier(nn.Module):
     def __init__(self) -> None:
         super().__init__()
 
-    def forward(self, batch_data_input: BatchDataInput) -> torch.Tensor:
-        nerf_densities = batch_data_input.nerf_densities
-        batch_size = nerf_densities.shape[0]
-
-        # TODO: I think we can actually assert this
-        # since the fingertip configs are in the batch data input.
-        # assert nerf_densities.shape == (
-        #     batch_size,
-        #     NUM_FINGERS,
-        #     NUM_PTS_X,
-        #     NUM_PTS_Y,
-        #     NUM_PTS_Z,
-        # )
-
-        grasp_transforms = batch_data_input.grasp_transforms
-        assert grasp_transforms.ltype == pp.SE3_type
-
-        # TODO: see above, I think we can do the assert.
-        # assert grasp_transforms.lshape == (batch_size, NUM_FINGERS)
-
-        hardcoded_output = torch.zeros(
-            batch_size, dtype=nerf_densities.dtype, device=nerf_densities.device
-        )
-        assert hardcoded_output.shape == (batch_size,)
+    def forward(self, batch_data_input: BatchDataInput) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         raise NotImplementedError
-        return hardcoded_output
-
-    def get_success_logits(self, batch_data_input: BatchDataInput) -> torch.Tensor:
-        return self(batch_data_input)
 
     def get_failure_probability(self, batch_data_input: BatchDataInput) -> torch.Tensor:
-        logits = self.get_success_logits(batch_data_input)
+        passed_simulation_logits, passed_penetration_threshold_logits, passed_self_penetration_threshold_logits = self.get_all_logits(batch_data_input)
         N_CLASSES = 2
-        assert logits.shape == (batch_data_input.batch_size, N_CLASSES)
+
+        for logits in [passed_simulation_logits, passed_penetration_threshold_logits, passed_self_penetration_threshold_logits]:
+            assert logits.shape == (batch_data_input.batch_size, N_CLASSES)
 
         # REMOVE, using to ensure gradients are non-zero
         # for overfit classifier.
         PROB_SCALING = 1e0
 
         # Return failure probabilities (as loss).
-        return nn.functional.softmax(PROB_SCALING * logits, dim=-1)[:, 0]
+        passed_simulation_probs = nn.functional.softmax(PROB_SCALING * passed_simulation_logits, dim=-1)
+        passed_penetration_threshold_probs = nn.functional.softmax(PROB_SCALING * passed_penetration_threshold_logits, dim=-1)
+        passed_self_penetration_threshold_probs = nn.functional.softmax(PROB_SCALING * passed_self_penetration_threshold_logits, dim=-1)
+        passed_all_probs = (
+            passed_simulation_probs[:, 1]
+            * passed_penetration_threshold_probs[:, 1]
+            * passed_self_penetration_threshold_probs[:, 1]
+        )
+        return 1.0 - passed_all_probs
+
+    def get_all_logits(self, batch_data_input: BatchDataInput) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        return self(batch_data_input)
 
 
 class CNN_3D_XYZ_Classifier(Classifier):
@@ -82,12 +68,12 @@ class CNN_3D_XYZ_Classifier(Classifier):
             n_fingers=n_fingers,
         )
 
-    def forward(self, batch_data_input: BatchDataInput) -> torch.Tensor:
+    def forward(self, batch_data_input: BatchDataInput) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         # Run model
-        logits = self.model.get_success_logits(
+        all_logits = self.model.get_all_logits(
             batch_data_input.nerf_alphas_with_augmented_coords
         )
-        return logits
+        return all_logits
 
 
 class CNN_2D_1D_Classifier(Classifier):
@@ -108,13 +94,13 @@ class CNN_2D_1D_Classifier(Classifier):
             mlp_hidden_layers=mlp_hidden_layers,
         )
 
-    def forward(self, batch_data_input: BatchDataInput) -> torch.Tensor:
+    def forward(self, batch_data_input: BatchDataInput) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         # Run model
-        logits = self.model.get_success_logits(
+        all_logits = self.model.get_all_logits(
             batch_data_input.nerf_alphas, batch_data_input.augmented_grasp_transforms
         )
 
-        return logits
+        return all_logits
 
 
 class Simple_CNN_2D_1D_Classifier(Classifier):
@@ -141,17 +127,17 @@ class Simple_CNN_2D_1D_Classifier(Classifier):
             film_1d_hidden_layers=film_1d_hidden_layers,
         )
 
-    def forward(self, batch_data_input: BatchDataInput) -> torch.Tensor:
+    def forward(self, batch_data_input: BatchDataInput) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         # Run model
         if batch_data_input.conditioning_var is not None:
-            logits = self.model(
-                batch_data_input.nerf_alphas, batch_data_input.conditioning_var
-            )
+            conditioning = batch_data_input.conditioning_var
         else:
-            logits = self.model(
-                batch_data_input.nerf_alphas, batch_data_input.grasp_transforms.tensor()
-            )
-        return logits
+            conditioning = batch_data_input.grasp_transforms.tensor()
+
+        all_logits = self.model.get_all_logits(
+            batch_data_input.nerf_alphas, conditioning
+        )
+        return all_logits
 
 
 class Simple_CNN_1D_2D_Classifier(Classifier):
@@ -178,17 +164,17 @@ class Simple_CNN_1D_2D_Classifier(Classifier):
             film_1d_hidden_layers=film_1d_hidden_layers,
         )
 
-    def forward(self, batch_data_input: BatchDataInput) -> torch.Tensor:
+    def forward(self, batch_data_input: BatchDataInput) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         # Run model
         if batch_data_input.conditioning_var is not None:
-            logits = self.model(
-                batch_data_input.nerf_alphas, batch_data_input.conditioning_var
-            )
+            conditioning = batch_data_input.conditioning_var
         else:
-            logits = self.model(
-                batch_data_input.nerf_alphas, batch_data_input.grasp_transforms.tensor()
-            )
-        return logits
+            conditioning = batch_data_input.grasp_transforms.tensor()
+
+        all_logits = self.model.get_all_logits(
+            batch_data_input.nerf_alphas, conditioning
+        )
+        return all_logits
 
 
 class Simple_CNN_LSTM_Classifier(Classifier):
@@ -215,17 +201,17 @@ class Simple_CNN_LSTM_Classifier(Classifier):
             num_lstm_layers=num_lstm_layers,
         )
 
-    def forward(self, batch_data_input: BatchDataInput) -> torch.Tensor:
+    def forward(self, batch_data_input: BatchDataInput) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         # Run model
         if batch_data_input.conditioning_var is not None:
-            logits = self.model(
-                batch_data_input.nerf_alphas, batch_data_input.conditioning_var
-            )
+            conditioning = batch_data_input.conditioning_var
         else:
-            logits = self.model(
-                batch_data_input.nerf_alphas, batch_data_input.grasp_transforms.tensor()
-            )
-        return logits
+            conditioning = batch_data_input.grasp_transforms.tensor()
+
+        all_logits = self.model.get_all_logits(
+            batch_data_input.nerf_alphas, conditioning
+        )
+        return all_logits
 
 
 def main() -> None:

@@ -53,13 +53,23 @@ class CNN_3D_Model(nn.Module):
             self.conv_output_dim,
         )
 
-        self.mlp = mlp(
+        self.passed_simulation_mlp = mlp(
+            num_inputs=self.conv_output_dim * self.n_fingers,
+            num_outputs=self.n_classes,
+            hidden_layers=mlp_hidden_layers,
+        )
+        self.passed_penetration_threshold_mlp = mlp(
+            num_inputs=self.conv_output_dim * self.n_fingers,
+            num_outputs=self.n_classes,
+            hidden_layers=mlp_hidden_layers,
+        )
+        self.passed_self_penetration_threshold_mlp = mlp(
             num_inputs=self.conv_output_dim * self.n_fingers,
             num_outputs=self.n_classes,
             hidden_layers=mlp_hidden_layers,
         )
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         batch_size = x.shape[0]
         assert x.shape == (
             batch_size,
@@ -78,15 +88,16 @@ class CNN_3D_Model(nn.Module):
         x = x.reshape(batch_size, self.n_fingers, self.conv_output_dim)
         x = x.reshape(batch_size, self.n_fingers * self.conv_output_dim)
 
-        x = self.mlp(x)
-        assert x.shape == (batch_size, self.n_classes), f"{x.shape}"
-        return x
+        passed_simulation_logits = self.passed_simulation_mlp(x)
+        passed_penetration_threshold_logits = self.passed_penetration_threshold_mlp(x)
+        passed_self_penetration_threshold_logits = self.passed_self_penetration_threshold_mlp(x)
+        assert passed_simulation_logits.shape == (batch_size, self.n_classes), f"{passed_simulation_logits.shape}"
+        assert passed_penetration_threshold_logits.shape == (batch_size, self.n_classes), f"{passed_penetration_threshold_logits.shape}"
+        assert passed_self_penetration_threshold_logits.shape == (batch_size, self.n_classes), f"{passed_self_penetration_threshold_logits.shape}"
+        return passed_simulation_logits, passed_penetration_threshold_logits, passed_self_penetration_threshold_logits
 
-    def get_success_logits(self, x: torch.Tensor) -> torch.Tensor:
+    def get_all_logits(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         return self(x)
-
-    def get_success_probability(self, x: torch.Tensor) -> torch.Tensor:
-        return nn.functional.softmax(self.get_success_logits(x), dim=-1)
 
     @property
     @lru_cache()
@@ -127,14 +138,26 @@ class CNN_2D_1D_Model(nn.Module):
             pooling_method=ConvOutputTo1D.AVG_POOL_SPATIAL,
             # TODO: Config this
         )
-        self.mlp = mlp(
+        self.passed_simulation_mlp = mlp(
+            num_inputs=n_fingers * self.conv_1d.output_dim()
+            + n_fingers * conditioning_dim,
+            num_outputs=self.n_classes,
+            hidden_layers=mlp_hidden_layers,
+        )
+        self.passed_penetration_threshold_mlp = mlp(
+            num_inputs=n_fingers * self.conv_1d.output_dim()
+            + n_fingers * conditioning_dim,
+            num_outputs=self.n_classes,
+            hidden_layers=mlp_hidden_layers,
+        )
+        self.passed_self_penetration_threshold_mlp = mlp(
             num_inputs=n_fingers * self.conv_1d.output_dim()
             + n_fingers * conditioning_dim,
             num_outputs=self.n_classes,
             hidden_layers=mlp_hidden_layers,
         )
 
-    def forward(self, x: torch.Tensor, conditioning: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, conditioning: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         batch_size = x.shape[0]
         n_fingers = self.n_fingers
         n_pts_x, n_pts_y, n_pts_z = self.grid_shape
@@ -231,18 +254,18 @@ class CNN_2D_1D_Model(nn.Module):
         )
 
         # MLP
-        x = self.mlp(x)
-        assert_equals(x.shape, (batch_size, self.n_classes))
+        passed_simulation_logits = self.passed_simulation_mlp(x)
+        passed_penetration_threshold_logits = self.passed_penetration_threshold_mlp(x)
+        passed_self_penetration_threshold_logits = self.passed_self_penetration_threshold_mlp(x)
+        assert_equals(passed_simulation_logits.shape, (batch_size, self.n_classes))
+        assert_equals(passed_penetration_threshold_logits.shape, (batch_size, self.n_classes))
+        assert_equals(passed_self_penetration_threshold_logits.shape, (batch_size, self.n_classes))
+        return passed_simulation_logits, passed_penetration_threshold_logits, passed_self_penetration_threshold_logits
 
-        return x
-
-    def get_success_logits(
+    def get_all_logits(
         self, x: torch.Tensor, conditioning: torch.Tensor
-    ) -> torch.Tensor:
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         return self(x, conditioning=conditioning)
-
-    def get_success_probability(self, x: torch.Tensor) -> torch.Tensor:
-        return nn.functional.softmax(self.get_success_logits(x), dim=-1)
 
     @property
     @lru_cache()
@@ -297,13 +320,23 @@ class Simple_CNN_2D_1D_Model(nn.Module):
             self.cnn1d_film.output_shape[0] * self.cnn1d_film.output_shape[1]
         )
 
-        self.mlp = MLP(
+        self.passed_simulation_mlp = MLP(
+            (self.flattened_1d_output_shape + self.conditioning_dim) * self.n_fingers,
+            mlp_hidden_layers,
+            n_classes,
+        )
+        self.passed_penetration_threshold_mlp = MLP(
+            (self.flattened_1d_output_shape + self.conditioning_dim) * self.n_fingers,
+            mlp_hidden_layers,
+            n_classes,
+        )
+        self.passed_self_penetration_threshold_mlp = MLP(
             (self.flattened_1d_output_shape + self.conditioning_dim) * self.n_fingers,
             mlp_hidden_layers,
             n_classes,
         )
 
-    def forward(self, x: torch.Tensor, conditioning: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, conditioning: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         batch_size = x.shape[
             0
         ]  # Hardcoding no leading batch dims on input -- probably good to check here.
@@ -354,7 +387,13 @@ class Simple_CNN_2D_1D_Model(nn.Module):
         x = x.flatten(-2, -1)
 
         # Forward MLP pass.
-        return self.mlp(x)
+        passed_simulation_logits = self.passed_simulation_mlp(x)
+        passed_penetration_threshold_logits = self.passed_penetration_threshold_mlp(x)
+        passed_self_penetration_threshold_logits = self.passed_self_penetration_threshold_mlp(x)
+        return passed_simulation_logits, passed_penetration_threshold_logits, passed_self_penetration_threshold_logits
+
+    def get_all_logits(self, x: torch.Tensor, conditioning: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        return self(x, conditioning=conditioning)
 
 
 class Simple_CNN_1D_2D_Model(nn.Module):
@@ -404,13 +443,23 @@ class Simple_CNN_1D_2D_Model(nn.Module):
             self.cnn1d_film.output_shape[0] * self.cnn1d_film.output_shape[1]
         )
 
-        self.mlp = MLP(
+        self.passed_simulation_mlp = MLP(
+            (self.flattened_1d_output_shape + self.conditioning_dim) * self.n_fingers,
+            mlp_hidden_layers,
+            n_classes,
+        )
+        self.passed_penetration_threshold_mlp = MLP(
+            (self.flattened_1d_output_shape + self.conditioning_dim) * self.n_fingers,
+            mlp_hidden_layers,
+            n_classes,
+        )
+        self.passed_self_penetration_threshold_mlp = MLP(
             (self.flattened_1d_output_shape + self.conditioning_dim) * self.n_fingers,
             mlp_hidden_layers,
             n_classes,
         )
 
-    def forward(self, x: torch.Tensor, conditioning: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, conditioning: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         batch_size = x.shape[
             0
         ]  # Hardcoding no leading batch dims on input -- probably good to check here.
@@ -461,8 +510,10 @@ class Simple_CNN_1D_2D_Model(nn.Module):
         x = x.flatten(-2, -1)
 
         # Forward MLP pass.
-        return self.mlp(x)
-
+        passed_simulation_logits = self.passed_simulation_mlp(x)
+        passed_penetration_threshold_logits = self.passed_penetration_threshold_mlp(x)
+        passed_self_penetration_threshold_logits = self.passed_self_penetration_threshold_mlp(x)
+        return passed_simulation_logits, passed_penetration_threshold_logits, passed_self_penetration_threshold_logits
 
 class Simple_CNN_LSTM_Model(nn.Module):
     def __init__(
@@ -509,13 +560,23 @@ class Simple_CNN_LSTM_Model(nn.Module):
             num_layers=num_lstm_layers,
         )
 
-        self.mlp = MLP(
+        self.passed_simulation_mlp = MLP(
+            (self.lstm_hidden_size + self.conditioning_dim) * self.n_fingers,
+            mlp_hidden_layers,
+            n_classes,
+        )
+        self.passed_penetration_threshold_mlp = MLP(
+            (self.lstm_hidden_size + self.conditioning_dim) * self.n_fingers,
+            mlp_hidden_layers,
+            n_classes,
+        )
+        self.passed_self_penetration_threshold_mlp = MLP(
             (self.lstm_hidden_size + self.conditioning_dim) * self.n_fingers,
             mlp_hidden_layers,
             n_classes,
         )
 
-    def forward(self, x: torch.Tensor, conditioning: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, conditioning: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         batch_size = x.shape[
             0
         ]  # Hardcoding no leading batch dims on input -- probably good to check here.
@@ -583,7 +644,13 @@ class Simple_CNN_LSTM_Model(nn.Module):
         x = x.flatten(-2, -1)
 
         # Forward MLP pass.
-        return self.mlp(x)
+        passed_simulation_logits = self.passed_simulation_mlp(x)
+        passed_penetration_threshold_logits = self.passed_penetration_threshold_mlp(x)
+        passed_self_penetration_threshold_logits = self.passed_self_penetration_threshold_mlp(x)
+        return passed_simulation_logits, passed_penetration_threshold_logits, passed_self_penetration_threshold_logits
+
+    def get_all_logits(self, x: torch.Tensor, conditioning: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        return self(x, conditioning=conditioning)
 
 
 if __name__ == "__main__":
@@ -610,8 +677,10 @@ if __name__ == "__main__":
     x = torch.zeros(batch_size, n_fingers, n_x, n_y, n_z)
     conditioning = torch.zeros(batch_size, n_fingers, conditioning_dim)
 
-    logits = model(x, conditioning)
-    assert_equals(logits.shape, (batch_size, model.n_classes))
+    passed_simulation_logits, passed_penetration_threshold_logits, passed_self_penetration_threshold_logits = model.get_all_logits(x, conditioning)
+    assert_equals(passed_simulation_logits.shape, (batch_size, model.n_classes))
+    assert_equals(passed_penetration_threshold_logits.shape, (batch_size, model.n_classes))
+    assert_equals(passed_self_penetration_threshold_logits.shape, (batch_size, model.n_classes))
 
     # 1D / 2D CNN.
     model = Simple_CNN_1D_2D_Model(
@@ -626,8 +695,10 @@ if __name__ == "__main__":
         film_1d_hidden_layers=[8, 8],
     )
 
-    logits = model(x, conditioning)
-    assert_equals(logits.shape, (batch_size, model.n_classes))
+    passed_simulation_logits, passed_penetration_threshold_logits, passed_self_penetration_threshold_logits = model.get_all_logits(x, conditioning)
+    assert_equals(passed_simulation_logits.shape, (batch_size, model.n_classes))
+    assert_equals(passed_penetration_threshold_logits.shape, (batch_size, model.n_classes))
+    assert_equals(passed_self_penetration_threshold_logits.shape, (batch_size, model.n_classes))
 
     # LSTM.
     model = Simple_CNN_LSTM_Model(
@@ -642,5 +713,7 @@ if __name__ == "__main__":
         num_lstm_layers=1,
     )
 
-    logits = model(x, conditioning)
-    assert_equals(logits.shape, (batch_size, model.n_classes))
+    passed_simulation_logits, passed_penetration_threshold_logits, passed_self_penetration_threshold_logits = model.get_all_logits(x, conditioning)
+    assert_equals(passed_simulation_logits.shape, (batch_size, model.n_classes))
+    assert_equals(passed_penetration_threshold_logits.shape, (batch_size, model.n_classes))
+    assert_equals(passed_self_penetration_threshold_logits.shape, (batch_size, model.n_classes))

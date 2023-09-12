@@ -172,15 +172,26 @@ class BatchDataInput:
 
 
 @dataclass
-class BatchData:
-    input: BatchDataInput
-    grasp_success: torch.Tensor
-    nerf_config: List[str]
+class BatchDataOutput:
+    passed_simulation: torch.Tensor
+    passed_penetration_threshold: torch.Tensor
+    passed_self_penetration_threshold: torch.Tensor
 
-    def to(self, device) -> BatchData:
-        self.input = self.input.to(device)
-        self.grasp_success = self.grasp_success.to(device)
+    def to(self, device) -> BatchDataOutput:
+        self.passed_simulation = self.passed_simulation.to(device)
+        self.passed_penetration_threshold = self.passed_penetration_threshold.to(device)
+        self.passed_self_penetration_threshold = (
+            self.passed_self_penetration_threshold.to(device)
+        )
         return self
+
+    @property
+    def grasp_success(self) -> torch.Tensor:
+        return (
+            self.passed_simulation
+            & self.passed_penetration_threshold
+            & self.passed_self_penetration_threshold
+        )
 
     @property
     def batch_size(self) -> int:
@@ -189,3 +200,23 @@ class BatchData:
     @property
     def device(self) -> torch.device:
         return self.grasp_success.device
+
+
+@dataclass
+class BatchData:
+    input: BatchDataInput
+    output: BatchDataOutput
+    nerf_config: List[str]
+
+    def to(self, device) -> BatchData:
+        self.input = self.input.to(device)
+        self.output = self.output.to(device)
+        return self
+
+    @property
+    def batch_size(self) -> int:
+        return self.output.batch_size
+
+    @property
+    def device(self) -> torch.device:
+        return self.output.device

@@ -228,6 +228,32 @@ class Simple_CNN_LSTM_Classifier(Classifier):
         return logits
 
 
+class Ensemble_Classifier(Classifier):
+    def __init__(self, classifiers: List[Classifier]) -> None:
+        self.classifiers = classifiers
+
+    def forward(self, batch_data_input: BatchDataInput) -> torch.Tensor:
+        all_logits = []
+        for classifier in self.classifiers:
+            logits = classifier.get_success_logits(batch_data_input)
+            assert logits.shape == (
+                batch_data_input.batch_size,
+                2,
+            )
+            all_logits.append(logits)
+
+        all_logits = torch.stack(all_logits, dim=0)
+        assert all_logits.shape == (
+            len(self.classifiers),
+            batch_data_input.batch_size,
+            2,
+        )
+
+        # Note when aggregating logits across classifiers, we need to be careful
+        # TODO: think about this more
+        return torch.mean(all_logits, dim=0)
+
+
 def main() -> None:
     # Prepare inputs
     DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")

@@ -288,8 +288,8 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
                 len(hdf5_file["/passed_penetration_threshold"].shape) == 1
             ), f"{hdf5_file['/passed_penetration_threshold'].shape}"
             assert (
-                len(hdf5_file["/passed_self_penetration_threshold"].shape) == 1
-            ), f"{hdf5_file['/passed_self_penetration_threshold'].shape}"
+                len(hdf5_file["/passed_eval"].shape) == 1
+            ), f"{hdf5_file['/passed_eval'].shape}"
             assert hdf5_file["/nerf_densities"].shape[1:] == (
                 NUM_FINGERS,
                 NUM_PTS_X,
@@ -320,9 +320,9 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
                 if load_grasp_successes_in_ram
                 else None
             )
-            self.passed_self_penetration_thresholds = (
+            self.passed_evals = (
                 torch.from_numpy(
-                    hdf5_file["/passed_self_penetration_threshold"][()]
+                    hdf5_file["/passed_eval"][()]
                 ).long()
                 if load_grasp_successes_in_ram
                 else None
@@ -417,12 +417,12 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
             if self.passed_penetration_thresholds is None
             else self.passed_penetration_thresholds[idx]
         )
-        passed_self_penetration_threshold = (
+        passed_eval = (
             torch.from_numpy(
-                np.array(self.hdf5_file["/passed_self_penetration_threshold"][idx])
+                np.array(self.hdf5_file["/passed_eval"][idx])
             ).long()
-            if self.passed_self_penetration_thresholds is None
-            else self.passed_self_penetration_thresholds[idx]
+            if self.passed_evals is None
+            else self.passed_evals[idx]
         )
 
         grasp_transforms = (
@@ -440,7 +440,7 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
         assert nerf_densities.shape == (NUM_FINGERS, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
         assert passed_simulation.shape == ()
         assert passed_penetration_threshold.shape == ()
-        assert passed_self_penetration_threshold.shape == ()
+        assert passed_eval.shape == ()
         assert grasp_transforms.shape == (NUM_FINGERS, 4, 4)
 
         if self.use_conditioning_var:
@@ -456,7 +456,7 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
             nerf_densities,
             passed_simulation,
             passed_penetration_threshold,
-            passed_self_penetration_threshold,
+            passed_eval,
             grasp_transforms,
             nerf_config,
             conditioning_var,
@@ -528,7 +528,7 @@ def custom_collate_fn(
         nerf_densities,
         passed_simulation,
         passed_penetration_threshold,
-        passed_self_penetration_threshold,
+        passed_eval,
         grasp_transforms,
         nerf_configs,
         conditioning_var,
@@ -543,7 +543,7 @@ def custom_collate_fn(
         shuffle_inds = torch.randperm(passed_simulation.shape[0])
         passed_simulation = passed_simulation[shuffle_inds]
         passed_penetration_threshold = passed_penetration_threshold[shuffle_inds]
-        passed_self_penetration_threshold = passed_self_penetration_threshold[
+        passed_eval = passed_eval[
             shuffle_inds
         ]
 
@@ -582,7 +582,7 @@ def custom_collate_fn(
         output=BatchDataOutput(
             passed_simulation=passed_simulation,
             passed_penetration_threshold=passed_penetration_threshold,
-            passed_self_penetration_threshold=passed_self_penetration_threshold,
+            passed_eval=passed_eval,
         )
         nerf_config=nerf_configs,
     )
@@ -652,7 +652,7 @@ def print_shapes(batch_data: BatchData) -> None:
         f"passed_penetration_threshold.shape: {batch_data.output.passed_penetration_threshold.shape}"
     )
     print(
-        f"passed_self_penetration_threshold.shape: {batch_data.output.passed_self_penetration_threshold.shape}"
+        f"passed_eval.shape: {batch_data.output.passed_eval.shape}"
     )
     print(f"grasp_transforms.shape: {batch_data.input.grasp_transforms.shape}")
     print(f"len(nerf_config): {len(batch_data.nerf_config)}")
@@ -702,7 +702,7 @@ def plot_example(
     passed_penetration_threshold = batch_data.output.passed_penetration_threshold[
         idx_to_visualize
     ].item()
-    passed_self_penetration_threshold = batch_data.output.passed_self_penetration_threshold[
+    passed_eval = batch_data.output.passed_eval[
         idx_to_visualize
     ].item()
 
@@ -710,7 +710,7 @@ def plot_example(
     assert grasp_success in [0, 1]
     assert passed_simulation in [0, 1]
     assert passed_penetration_threshold in [0, 1]
-    assert passed_self_penetration_threshold in [0, 1]
+    assert passed_eval in [0, 1]
 
     nerf_config_path = pathlib.Path(batch_data.nerf_config[idx_to_visualize])
     object_code = get_object_code(nerf_config_path)
@@ -765,7 +765,7 @@ def plot_example(
     )
     # Set title to label
     fig.update_layout(
-        title_text=f"grasp_success = {grasp_success}, passed_simulation = {passed_simulation}, passed_penetration_threshold = {passed_penetration_threshold}, passed_self_penetration_threshold = {passed_self_penetration_threshold}"
+        title_text=f"grasp_success = {grasp_success}, passed_simulation = {passed_simulation}, passed_penetration_threshold = {passed_penetration_threshold}, passed_eval = {passed_eval}"
     )
     return fig
 
@@ -780,7 +780,7 @@ def plot_example(
 # fig.show()
 
 # %%
-EXAMPLE_BATCH_DATA.output.grasp_success, EXAMPLE_BATCH_DATA.output.passed_simulation, EXAMPLE_BATCH_DATA.output.passed_penetration_threshold, EXAMPLE_BATCH_DATA.output.passed_self_penetration_threshold
+EXAMPLE_BATCH_DATA.output.grasp_success, EXAMPLE_BATCH_DATA.output.passed_simulation, EXAMPLE_BATCH_DATA.output.passed_penetration_threshold, EXAMPLE_BATCH_DATA.output.passed_eval
 
 # # %%
 # fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=14)
@@ -963,7 +963,7 @@ def iterate_through_dataloader(
     device: torch.device,
     passed_simulation_ce_loss_fn: nn.CrossEntropyLoss,
     passed_penetration_threshold_ce_loss_fn: nn.CrossEntropyLoss,
-    passed_self_penetration_threshold_ce_loss_fn: nn.CrossEntropyLoss,
+    passed_eval_ce_loss_fn: nn.CrossEntropyLoss,
     wandb_log_dict: dict,
     training_cfg: Optional[TrainingConfig] = None,
     optimizer: Optional[torch.optim.Optimizer] = None,
@@ -1005,7 +1005,7 @@ def iterate_through_dataloader(
                 (
                     passed_simulation_logits,
                     passed_penetration_threshold_logits,
-                    passed_self_penetration_threshold_logits,
+                    passed_eval_logits,
                 ) = nerf_to_grasp_success_model.get_all_logits(batch_data.input)
                 passed_simulation_ce_loss = passed_simulation_ce_loss_fn(
                     input=passed_simulation_logits, target=batch_data.passed_simulation
@@ -1016,16 +1016,16 @@ def iterate_through_dataloader(
                         target=batch_data.passed_penetration_threshold,
                     )
                 )
-                passed_self_penetration_threshold_ce_loss = (
-                    passed_self_penetration_threshold_ce_loss_fn(
-                        input=passed_self_penetration_threshold_logits,
-                        target=batch_data.passed_self_penetration_threshold,
+                passed_eval_ce_loss = (
+                    passed_eval_ce_loss_fn(
+                        input=passed_eval_logits,
+                        target=batch_data.passed_eval,
                     )
                 )
                 total_loss = (
                     passed_simulation_ce_loss
                     + passed_penetration_threshold_ce_loss
-                    + passed_self_penetration_threshold_ce_loss
+                    + passed_eval_ce_loss
                 )
 
             # Gradient step
@@ -1125,7 +1125,7 @@ def run_training_loop(
     device: torch.device,
     passed_simulation_ce_loss_fn: nn.CrossEntropyLoss,
     passed_penetration_threshold_ce_loss_fn: nn.CrossEntropyLoss,
-    passed_self_penetration_threshold_ce_loss_fn: nn.CrossEntropyLoss,
+    passed_eval_ce_loss_fn: nn.CrossEntropyLoss,
     optimizer: torch.optim.Optimizer,
     checkpoint_workspace_dir_path: str,
     lr_scheduler: Optional[torch.optim.lr_scheduler.LRScheduler] = None,
@@ -1165,7 +1165,7 @@ def run_training_loop(
             device=device,
             passed_simulation_ce_loss_fn=passed_simulation_ce_loss_fn,
             passed_penetration_threshold_ce_loss_fn=passed_penetration_threshold_ce_loss_fn,
-            passed_self_penetration_threshold_ce_loss_fn=passed_self_penetration_threshold_ce_loss_fn,
+            passed_eval_ce_loss_fn=passed_eval_ce_loss_fn,
             wandb_log_dict=wandb_log_dict,
             training_cfg=training_cfg,
             optimizer=optimizer,
@@ -1224,8 +1224,8 @@ def compute_class_weight_np(
             passed_penetration_threshold_np = np.array(
                 hdf5_file["/passed_penetration_threshold"][()]
             )
-            passed_self_penetration_threshold_np = np.array(
-                hdf5_file["/passed_self_penetration_threshold"][()]
+            passed_eval_np = np.array(
+                hdf5_file["/passed_eval"][()]
             )
         t2 = time.time()
         print(f"Loaded grasp success data in {t2 - t1:.2f} s")
@@ -1236,7 +1236,7 @@ def compute_class_weight_np(
         passed_penetration_threshold_np = passed_penetration_threshold_np[
             train_dataset.indices
         ]
-        passed_self_penetration_threshold_np = passed_self_penetration_threshold_np[
+        passed_eval_np = passed_eval_np[
             train_dataset.indices
         ]
         t4 = time.time()
@@ -1254,10 +1254,10 @@ def compute_class_weight_np(
             classes=np.unique(passed_penetration_threshold_np),
             y=passed_penetration_threshold_np,
         )
-        passed_self_penetration_threshold_class_weight_np = compute_class_weight(
+        passed_eval_class_weight_np = compute_class_weight(
             class_weight="balanced",
-            classes=np.unique(passed_self_penetration_threshold_np),
-            y=passed_self_penetration_threshold_np,
+            classes=np.unique(passed_eval_np),
+            y=passed_eval_np,
         )
         t6 = time.time()
         print(f"Computed class weight in {t6 - t5:.2f} s")
@@ -1267,10 +1267,10 @@ def compute_class_weight_np(
         print("Using default class weight")
         passed_simulation_class_weight_np = np.array([1.0, 1.0])
         passed_penetration_threshold_class_weight_np = np.array([1.0, 1.0])
-        passed_self_penetration_threshold_class_weight_np = np.array([1.0, 1.0])
-    return passed_simulation_class_weight_np, passed_penetration_threshold_class_weight_np, passed_self_penetration_threshold_class_weight_np
+        passed_eval_class_weight_np = np.array([1.0, 1.0])
+    return passed_simulation_class_weight_np, passed_penetration_threshold_class_weight_np, passed_eval_class_weight_np
 
-passed_simulation_class_weight, passed_penetration_threshold_class_weight, passed_self_penetration_threshold_class_weight= (
+passed_simulation_class_weight, passed_penetration_threshold_class_weight, passed_eval_class_weight= (
     compute_class_weight_np(
         train_dataset=train_dataset, input_dataset_full_path=input_dataset_full_path
     )
@@ -1281,22 +1281,22 @@ passed_simulation_class_weight = (
 passed_penetration_threshold_class_weight = (
     torch.from_numpy(passed_penetration_threshold_class_weight).float().to(device)
 )
-passed_self_penetration_threshold_class_weight = (
-    torch.from_numpy(passed_self_penetration_threshold_class_weight).float().to(device)
+passed_eval_class_weight = (
+    torch.from_numpy(passed_eval_class_weight).float().to(device)
 )
 print(f"passed_simulation_class_weight = {passed_simulation_class_weight}")
 print(f"passed_penetration_threshold_class_weight = {passed_penetration_threshold_class_weight}")
-print(f"passed_self_penetration_threshold_class_weight = {passed_self_penetration_threshold_class_weight}")
+print(f"passed_eval_class_weight = {passed_eval_class_weight}")
 
 PUNISH_FALSE_POSITIVE_FACTOR = 1.0
 if PUNISH_FALSE_POSITIVE_FACTOR != 1.0:
     print(f"HACK: PUNISH_FALSE_POSITIVE_FACTOR = {PUNISH_FALSE_POSITIVE_FACTOR}")
     passed_simulation_class_weight[1] *= PUNISH_FALSE_POSITIVE_FACTOR
     passed_penetration_threshold_class_weight[1] *= PUNISH_FALSE_POSITIVE_FACTOR
-    passed_self_penetration_threshold_class_weight[1] *= PUNISH_FALSE_POSITIVE_FACTOR
+    passed_eval_class_weight[1] *= PUNISH_FALSE_POSITIVE_FACTOR
     print(f"After hack, passed_simulation_class_weight: {passed_simulation_class_weight}")
     print(f"After hack, passed_penetration_threshold_class_weight: {passed_penetration_threshold_class_weight}")
-    print(f"After hack, passed_self_penetration_threshold_class_weight: {passed_self_penetration_threshold_class_weight}")
+    print(f"After hack, passed_eval_class_weight: {passed_eval_class_weight}")
 
 passed_simulation_ce_loss_fn = nn.CrossEntropyLoss(
     weight=passed_simulation_class_weight, label_smoothing=cfg.training.label_smoothing
@@ -1304,8 +1304,8 @@ passed_simulation_ce_loss_fn = nn.CrossEntropyLoss(
 passed_penetration_threshold_ce_loss_fn = nn.CrossEntropyLoss(
     weight=passed_penetration_threshold_class_weight, label_smoothing=cfg.training.label_smoothing
 )
-passed_self_penetration_threshold_ce_loss_fn = nn.CrossEntropyLoss(
-    weight=passed_self_penetration_threshold_class_weight, label_smoothing=cfg.training.label_smoothing
+passed_eval_ce_loss_fn = nn.CrossEntropyLoss(
+    weight=passed_eval_class_weight, label_smoothing=cfg.training.label_smoothing
 )
 
 

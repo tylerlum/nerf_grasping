@@ -38,9 +38,10 @@ class Classifier(nn.Module):
         PROB_SCALING = 1e0
 
         # TODO: Consider scaling differently for each task
-        passed_tasks_probs = nn.functional.softmax(PROB_SCALING * all_logits, dim=-1)
-        passed_all_probs = torch.prod(passed_tasks_probs, dim=1)
-        assert_equals(passed_all_probs.shape, (batch_data_input.batch_size, N_CLASSES))
+        passed_task_probs = nn.functional.softmax(PROB_SCALING * all_logits, dim=-1)[:, 0]
+        assert_equals(passed_task_probs.shape, (batch_data_input.batch_size, n_tasks))
+        passed_all_probs = torch.prod(passed_task_probs, dim=-1)
+        assert_equals(passed_all_probs.shape, (batch_data_input.batch_size,))
 
         # Return failure probabilities (as loss).
         return 1.0 - passed_all_probs

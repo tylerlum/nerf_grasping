@@ -230,7 +230,7 @@ def main() -> None:
     # Prepare inputs
     DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     FINGERTIP_CONFIG = EvenlySpacedFingertipConfig()
-    BATCH_SIZE = 1
+    BATCH_SIZE = 4
     NUM_FINGERS = FINGERTIP_CONFIG.n_fingers
     NUM_PTS_X = FINGERTIP_CONFIG.num_pts_x
     NUM_PTS_Y = FINGERTIP_CONFIG.num_pts_y

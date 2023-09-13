@@ -43,6 +43,7 @@ from nerf_grasping.classifier import Classifier
 from nerf_grasping.dataset.timers import LoopTimer
 from nerf_grasping.config.classifier_config import (
     UnionClassifierConfig,
+    TaskType,
 )
 from nerf_grasping.config.fingertip_config import BaseFingertipConfig
 from nerf_grasping.config.nerfdata_config import GraspConditionedGridDataConfig
@@ -961,14 +962,14 @@ def iterate_through_dataloader(
     dataloader: DataLoader,
     nerf_to_grasp_success_model: Classifier,
     device: torch.device,
-    passed_simulation_ce_loss_fn: nn.CrossEntropyLoss,
-    passed_penetration_threshold_ce_loss_fn: nn.CrossEntropyLoss,
-    passed_eval_ce_loss_fn: nn.CrossEntropyLoss,
+    ce_loss_fns: List[nn.CrossEntropyLoss],
     wandb_log_dict: dict,
     training_cfg: Optional[TrainingConfig] = None,
     optimizer: Optional[torch.optim.Optimizer] = None,
     lr_scheduler: Optional[torch.optim.lr_scheduler.LRScheduler] = None,
 ) -> None:
+    temp_log_dict = {}  # Make code cleaner by excluding phase name until the end
+
     assert phase in [Phase.TRAIN, Phase.VAL, Phase.TEST]
     if phase == Phase.TRAIN:
         nerf_to_grasp_success_model.train()
@@ -979,8 +980,8 @@ def iterate_through_dataloader(
 
     loop_timer = LoopTimer()
     with torch.set_grad_enabled(phase == Phase.TRAIN):
-        losses_dict = defaultdict(list)
-        all_predictions, all_ground_truths = [], []
+        losses_dict = defaultdict(list)  # loss name => list of losses (one loss per batch)
+        predictions_dict, ground_truths_dict = defaultdict(list), defaultdict(list)  # task name => list of predictions / ground truths (one per datapoint)
 
         dataload_section_timer = loop_timer.add_section_timer("Data").start()
         for batch_idx, batch_data in (
@@ -1002,31 +1003,42 @@ def iterate_through_dataloader(
 
             # Forward pass
             with loop_timer.add_section_timer("Fwd"):
-                (
-                    passed_simulation_logits,
-                    passed_penetration_threshold_logits,
-                    passed_eval_logits,
-                ) = nerf_to_grasp_success_model.get_all_logits(batch_data.input)
-                passed_simulation_ce_loss = passed_simulation_ce_loss_fn(
-                    input=passed_simulation_logits, target=batch_data.passed_simulation
+                all_logits = nerf_to_grasp_success_model.get_all_logits(batch_data.input)
+                assert all_logits.shape == (
+                    batch_data.batch_size,
+                    nerf_to_grasp_success_model.n_tasks,
+                    nerf_to_grasp_success_model.n_classes,
                 )
-                passed_penetration_threshold_ce_loss = (
-                    passed_penetration_threshold_ce_loss_fn(
-                        input=passed_penetration_threshold_logits,
-                        target=batch_data.passed_penetration_threshold,
+
+                if cfg.task_type == TaskType.PASSED_SIMULATION:
+                    task_targets = [batch_data.output.passed_simulation]
+                elif cfg.task_type == TaskType.PASSED_PENETRATION_THRESHOLD:
+                    task_targets = [batch_data.output.passed_penetration_threshold]
+                elif cfg.task_type == TaskType.PASSED_EVAL:
+                    task_targets = [batch_data.output.passed_eval]
+                elif cfg.task_type == TaskType.PASSED_SIMULATION_AND_PENETRATION_THRESHOLD:
+                    task_targets = [
+                        batch_data.output.passed_simulation,
+                        batch_data.output.passed_penetration_threshold,
+                    ]
+                else:
+                    raise ValueError(f"Unknown task_type: {cfg.task_type}")
+
+                assert len(ce_loss_fns) == nerf_to_grasp_success_model.n_tasks
+                assert len(task_targets) == nerf_to_grasp_success_model.n_tasks
+                assert len(cfg.task_type.task_target_names) == nerf_to_grasp_success_model.n_tasks
+
+                task_losses = []
+                for task_i, (ce_loss_fn, task_target, task_target_name) in enumerate(
+                    zip(ce_loss_fns, task_targets, cfg.task_type.task_target_names)
+                ):
+                    task_logits = all_logits[:, task_i, :]
+                    task_loss = ce_loss_fn(
+                        input=task_logits, target=task_target,
                     )
-                )
-                passed_eval_ce_loss = (
-                    passed_eval_ce_loss_fn(
-                        input=passed_eval_logits,
-                        target=batch_data.passed_eval,
-                    )
-                )
-                total_loss = (
-                    passed_simulation_ce_loss
-                    + passed_penetration_threshold_ce_loss
-                    + passed_eval_ce_loss
-                )
+                    losses_dict[f"{task_target_name}_loss"].append(task_loss.item())
+                    task_losses.append(task_loss)
+                total_loss = sum(task_losses) # TODO: Consider weighting losses.
 
             # Gradient step
             with loop_timer.add_section_timer("Bwd"):
@@ -1053,10 +1065,14 @@ def iterate_through_dataloader(
 
             # Gather predictions
             with loop_timer.add_section_timer("Gather"):
-                passed_simulation_predictions = passed_simulation_logits.argmax(dim=-1).tolist()
-                passed_simulation_ground_truths = batch_data.passed_simulation.tolist()
-                all_predictions += passed_simulation_predictions
-                all_ground_truths += passed_simulation_ground_truths
+                for task_i, (task_target, task_target_name) in enumerate(
+                    zip(task_targets, cfg.task_type.task_target_names)
+                ):
+                    task_logits = all_logits[:, task_i, :]
+                    predictions = task_logits.argmax(dim=-1).tolist()
+                    ground_truths = task_target.tolist()
+                    predictions_dict[f"{task_target_name}"] += predictions
+                    ground_truths_dict[f"{task_target_name}"] += ground_truths
 
             # Set description
             loss_log_str = (
@@ -1077,42 +1093,47 @@ def iterate_through_dataloader(
                 dataload_section_timer = loop_timer.add_section_timer("Data").start()
 
     if optimizer is not None:
-        wandb_log_dict[f"{phase.name.lower()}_lr"] = optimizer.param_groups[0]["lr"]
+        temp_log_dict["lr"] = optimizer.param_groups[0]["lr"]
 
     with loop_timer.add_section_timer("Agg Loss"):
         for loss_name, losses in losses_dict.items():
-            wandb_log_dict[f"{phase.name.lower()}_{loss_name}"] = np.mean(losses)
+            temp_log_dict[f"{loss_name}"] = np.mean(losses)
 
     with loop_timer.add_section_timer("Metrics"):
-        if len(all_ground_truths) > 0 and len(all_predictions) > 0:
-            for name, function in [
+        assert set(predictions_dict.keys()) == set(ground_truths_dict.keys()) == set(cfg.task_type.task_target_names)
+        for task_target_name in cfg.task_type.task_target_names:
+            predictions = predictions_dict[task_target_name]
+            ground_truths = ground_truths_dict[task_target_name]
+            for metric_name, function in [
                 ("accuracy", accuracy_score),
                 ("precision", precision_score),
                 ("recall", recall_score),
                 ("f1", f1_score),
             ]:
-                wandb_log_dict[f"{phase.name.lower()}_{name}"] = function(
-                    y_true=all_ground_truths, y_pred=all_predictions
+                temp_log_dict[f"{task_target_name}_{metric_name}"] = function(
+                    y_true=ground_truths, y_pred=predictions
                 )
+
     with loop_timer.add_section_timer("Confusion Matrix"):
-        if (
-            len(all_ground_truths) > 0
-            and len(all_predictions) > 0
-            and wandb.run is not None
-        ):
-            wandb_log_dict[
-                f"{phase.name.lower()}_confusion_matrix"
+        assert set(predictions_dict.keys()) == set(ground_truths_dict.keys()) == set(cfg.task_type.task_target_names)
+        for task_target_name in cfg.task_type.task_target_names:
+            predictions = predictions_dict[task_target_name]
+            ground_truths = ground_truths_dict[task_target_name]
+            temp_log_dict[
+                f"{task_target_name}_confusion_matrix"
             ] = wandb.plot.confusion_matrix(
                 preds=all_predictions,
                 y_true=all_ground_truths,
                 class_names=["failure", "success"],
-                title=f"{phase.name.title()} Confusion Matrix",
+                title=f"{phase.name.title()} {task_target_name} Confusion Matrix",
             )
 
     loop_timer.pretty_print_section_times()
     print()
     print()
 
+    for key, value in temp_log_dict.items():
+        wandb_log_dict[f"{phase.name.lower()}_{key}"] = value
     return
 
 
@@ -1123,9 +1144,7 @@ def run_training_loop(
     val_loader: DataLoader,
     nerf_to_grasp_success_model: Classifier,
     device: torch.device,
-    passed_simulation_ce_loss_fn: nn.CrossEntropyLoss,
-    passed_penetration_threshold_ce_loss_fn: nn.CrossEntropyLoss,
-    passed_eval_ce_loss_fn: nn.CrossEntropyLoss,
+    ce_loss_fns: List[nn.CrossEntropyLoss],
     optimizer: torch.optim.Optimizer,
     checkpoint_workspace_dir_path: str,
     lr_scheduler: Optional[torch.optim.lr_scheduler.LRScheduler] = None,
@@ -1163,9 +1182,7 @@ def run_training_loop(
             dataloader=train_loader,
             nerf_to_grasp_success_model=nerf_to_grasp_success_model,
             device=device,
-            passed_simulation_ce_loss_fn=passed_simulation_ce_loss_fn,
-            passed_penetration_threshold_ce_loss_fn=passed_penetration_threshold_ce_loss_fn,
-            passed_eval_ce_loss_fn=passed_eval_ce_loss_fn,
+            ce_loss_fns=ce_loss_fns,
             wandb_log_dict=wandb_log_dict,
             training_cfg=training_cfg,
             optimizer=optimizer,
@@ -1185,7 +1202,7 @@ def run_training_loop(
                 dataloader=val_loader,
                 nerf_to_grasp_success_model=nerf_to_grasp_success_model,
                 device=device,
-                ce_loss_fn=ce_loss_fn,
+                ce_loss_fns=ce_loss_fns,
                 wandb_log_dict=wandb_log_dict,
             )
         val_time_taken = time.time() - start_val_time
@@ -1270,7 +1287,7 @@ def compute_class_weight_np(
         passed_eval_class_weight_np = np.array([1.0, 1.0])
     return passed_simulation_class_weight_np, passed_penetration_threshold_class_weight_np, passed_eval_class_weight_np
 
-passed_simulation_class_weight, passed_penetration_threshold_class_weight, passed_eval_class_weight= (
+passed_simulation_class_weight, passed_penetration_threshold_class_weight, passed_eval_class_weight = (
     compute_class_weight_np(
         train_dataset=train_dataset, input_dataset_full_path=input_dataset_full_path
     )
@@ -1308,6 +1325,19 @@ passed_eval_ce_loss_fn = nn.CrossEntropyLoss(
     weight=passed_eval_class_weight, label_smoothing=cfg.training.label_smoothing
 )
 
+if cfg.task_type == TaskType.PASSED_SIMULATION:
+    ce_loss_fns = [passed_simulation_ce_loss_fn]
+elif cfg.task_type == TaskType.PASSED_PENETRATION_THRESHOLD:
+    ce_loss_fns = [passed_penetration_threshold_ce_loss_fn]
+elif cfg.task_type == TaskType.PASSED_EVAL:
+    ce_loss_fns = [passed_eval_ce_loss_fn]
+elif cfg.task_type == TaskType.PASSED_SIMULATION_AND_PENETRATION_THRESHOLD:
+    ce_loss_fns = [
+        passed_simulation_ce_loss_fn,
+        passed_penetration_threshold_ce_loss_fn,
+    ]
+else:
+    raise ValueError(f"Unknown task_type: {cfg.task_type}")
 
 # Save out config to file if we haven't yet.
 cfg_path = pathlib.Path(checkpoint_workspace_dir_path) / "config.yaml"
@@ -1331,7 +1361,7 @@ run_training_loop(
     val_loader=val_loader,
     nerf_to_grasp_success_model=nerf_to_grasp_success_model,
     device=device,
-    ce_loss_fn=ce_loss_fn,
+    ce_loss_fns=ce_loss_fns,
     optimizer=optimizer,
     checkpoint_workspace_dir_path=checkpoint_workspace_dir_path,
     lr_scheduler=lr_scheduler,
@@ -1351,7 +1381,7 @@ iterate_through_dataloader(
     dataloader=test_loader,
     nerf_to_grasp_success_model=nerf_to_grasp_success_model,
     device=device,
-    ce_loss_fn=ce_loss_fn,
+    ce_loss_fns=ce_loss_fns,
     wandb_log_dict=wandb_log_dict,
 )
 wandb.log(wandb_log_dict)

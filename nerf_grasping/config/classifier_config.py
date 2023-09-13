@@ -31,21 +31,24 @@ class TaskType(Enum):
     PASSED_SIMULATION_AND_PENETRATION_THRESHOLD = auto()
 
     @property
-    def n_tasks(self):
-        if any(
-            self is x
-            for x in [
-                TaskType.PASSED_SIMULATION,
-                TaskType.PASSED_PENETRATION_THRESHOLD,
-                TaskType.PASSED_EVAL,
+    def n_tasks(self) -> int:
+        return len(self.task_names)
+
+    @property
+    def task_names(self) -> List[str]:
+        if self == TaskType.PASSED_SIMULATION:
+            return ["passed_simulation"]
+        elif self == TaskType.PASSED_PENETRATION_THRESHOLD:
+            return ["passed_penetration_threshold"]
+        elif self == TaskType.PASSED_EVAL:
+            return ["passed_eval"]
+        elif self == TaskType.PASSED_SIMULATION_AND_PENETRATION_THRESHOLD:
+            return [
+                "passed_simulation",
+                "passed_penetration_threshold",
             ]
-        ):
-            return 1
-        if any(
-            self is x for x in [TaskType.PASSED_SIMULATION_AND_PENETRATION_THRESHOLD]
-        ):
-            return 2
-        raise NotImplementedError
+        else:
+            raise ValueError(f"Unknown task_type: {self}")
 
 
 class ConditioningType(Enum):

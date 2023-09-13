@@ -316,6 +316,16 @@ def create_depth_image_dataset(
 
 
 @torch.no_grad()
+def get_depth_images(
+    loop_timer: LoopTimer,
+    cfg: UnionNerfDataConfig,
+    grasp_frame_transforms: pp.LieTensor,
+    nerf_model: nerfstudio.models.base_model.Model,
+) -> [torch.tensor]:
+    pass
+
+
+@torch.no_grad()
 @localscope.mfc
 def get_nerf_densities(
     loop_timer: LoopTimer,
@@ -323,7 +333,7 @@ def get_nerf_densities(
     grasp_frame_transforms: pp.LieTensor,
     ray_origins_finger_frame: torch.Tensor,
     nerf_model: nerfstudio.models.base_model.Model,
-) -> Tuple[np.ndarray, np.ndarray]:
+) -> Tuple[torch.tensor, torch.tensor]:
     # Shape check grasp_frame_transforms
     batch_size = grasp_frame_transforms.shape[0]
     assert grasp_frame_transforms.lshape == (

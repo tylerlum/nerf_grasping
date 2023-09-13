@@ -584,7 +584,7 @@ def custom_collate_fn(
             passed_simulation=passed_simulation,
             passed_penetration_threshold=passed_penetration_threshold,
             passed_eval=passed_eval,
-        )
+        ),
         nerf_config=nerf_configs,
     )
 

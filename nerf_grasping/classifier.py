@@ -56,18 +56,15 @@ class CNN_3D_XYZ_Classifier(Classifier):
         conv_channels: Iterable[int],
         mlp_hidden_layers: Iterable[int],
         n_fingers: int,
+        n_tasks: int,
     ) -> None:
         super().__init__()
-        self.input_shape = input_shape
-        self.conv_channels = conv_channels
-        self.mlp_hidden_layers = mlp_hidden_layers
-        self.n_fingers = n_fingers
-
         self.model = CNN_3D_Model(
             input_shape=input_shape,
             conv_channels=conv_channels,
             mlp_hidden_layers=mlp_hidden_layers,
             n_fingers=n_fingers,
+            n_tasks=n_tasks,
         )
 
     def forward(self, batch_data_input: BatchDataInput) -> torch.Tensor:
@@ -83,6 +80,7 @@ class CNN_2D_1D_Classifier(Classifier):
         self,
         grid_shape: Tuple[int, int, int],
         n_fingers: int,
+        n_tasks: int,
         conditioning_dim: int,
         conv_2d_film_hidden_layers: Tuple[int, ...],
         mlp_hidden_layers: Tuple[int, ...],
@@ -91,6 +89,7 @@ class CNN_2D_1D_Classifier(Classifier):
         self.model = CNN_2D_1D_Model(
             grid_shape=grid_shape,
             n_fingers=n_fingers,
+            n_tasks=n_tasks,
             conditioning_dim=conditioning_dim,
             conv_2d_film_hidden_layers=conv_2d_film_hidden_layers,
             mlp_hidden_layers=mlp_hidden_layers,
@@ -110,6 +109,7 @@ class Simple_CNN_2D_1D_Classifier(Classifier):
         self,
         grid_shape: Tuple[int, int, int],
         n_fingers: int,
+        n_tasks: int,
         conditioning_dim: int,
         mlp_hidden_layers: List[int] = [32, 32],
         conv_2d_channels: List[int] = [32, 16, 8, 4],
@@ -121,6 +121,7 @@ class Simple_CNN_2D_1D_Classifier(Classifier):
         self.model = Simple_CNN_2D_1D_Model(
             grid_shape=grid_shape,
             n_fingers=n_fingers,
+            n_tasks=n_tasks,
             conditioning_dim=conditioning_dim,
             mlp_hidden_layers=mlp_hidden_layers,
             conv_2d_channels=conv_2d_channels,
@@ -147,6 +148,7 @@ class Simple_CNN_1D_2D_Classifier(Classifier):
         self,
         grid_shape: Tuple[int, int, int],
         n_fingers: int,
+        n_tasks: int,
         conditioning_dim: int,
         mlp_hidden_layers: List[int] = [32, 32],
         conv_2d_channels: List[int] = [32, 16, 8, 4],
@@ -158,6 +160,7 @@ class Simple_CNN_1D_2D_Classifier(Classifier):
         self.model = Simple_CNN_1D_2D_Model(
             grid_shape=grid_shape,
             n_fingers=n_fingers,
+            n_tasks=n_tasks,
             conditioning_dim=conditioning_dim,
             mlp_hidden_layers=mlp_hidden_layers,
             conv_2d_channels=conv_2d_channels,
@@ -184,6 +187,7 @@ class Simple_CNN_LSTM_Classifier(Classifier):
         self,
         grid_shape: Tuple[int, int, int],
         n_fingers: int,
+        n_tasks: int,
         conditioning_dim: int,
         mlp_hidden_layers: List[int] = [32, 32],
         conv_2d_channels: List[int] = [32, 16, 8, 4],
@@ -195,6 +199,7 @@ class Simple_CNN_LSTM_Classifier(Classifier):
         self.model = Simple_CNN_LSTM_Model(
             grid_shape=grid_shape,
             n_fingers=n_fingers,
+            n_tasks=n_tasks,
             conditioning_dim=conditioning_dim,
             mlp_hidden_layers=mlp_hidden_layers,
             conv_2d_channels=conv_2d_channels,
@@ -217,19 +222,39 @@ class Simple_CNN_LSTM_Classifier(Classifier):
 
 
 def main() -> None:
+    from nerf_grasping.config.fingertip_config import (
+        EvenlySpacedFingertipConfig,
+    )
+
     # Prepare inputs
     DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    FINGERTIP_CONFIG = EvenlySpacedFingertipConfig()
+    BATCH_SIZE = 1
+    NUM_FINGERS = FINGERTIP_CONFIG.n_fingers
+    NUM_PTS_X = FINGERTIP_CONFIG.num_pts_x
+    NUM_PTS_Y = FINGERTIP_CONFIG.num_pts_y
+    NUM_PTS_Z = FINGERTIP_CONFIG.num_pts_z
+    N_TASKS = 2
+    print("=" * 80)
+    print(f"DEVICE: {DEVICE}")
+    print(f"BATCH_SIZE: {BATCH_SIZE}")
+    print(f"NUM_FINGERS: {NUM_FINGERS}")
+    print(f"NUM_PTS_X: {NUM_PTS_X}")
+    print(f"NUM_PTS_Y: {NUM_PTS_Y}")
+    print(f"NUM_PTS_Z: {NUM_PTS_Z}")
+    print(f"N_TASKS: {N_TASKS}")
+    print("=" * 80 + "\n")
 
     # Example input
-    batch_size = 2
     nerf_densities = torch.rand(
-        batch_size, NUM_FINGERS, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z
+        BATCH_SIZE, NUM_FINGERS, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z
     ).to(DEVICE)
-    grasp_transforms = pp.identity_SE3(batch_size, NUM_FINGERS).to(DEVICE)
+    grasp_transforms = pp.identity_SE3(BATCH_SIZE, NUM_FINGERS).to(DEVICE)
 
     batch_data_input = BatchDataInput(
         nerf_densities=nerf_densities,
         grasp_transforms=grasp_transforms,
+        fingertip_config=EvenlySpacedFingertipConfig()
     ).to(DEVICE)
 
     # Create model
@@ -238,10 +263,12 @@ def main() -> None:
         conv_channels=[32, 64, 128],
         mlp_hidden_layers=[256, 256],
         n_fingers=NUM_FINGERS,
+        n_tasks=N_TASKS,
     ).to(DEVICE)
     cnn_2d_1d_classifier = CNN_2D_1D_Classifier(
         grid_shape=(NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z),
         n_fingers=NUM_FINGERS,
+        n_tasks=N_TASKS,
         conditioning_dim=7,
         conv_2d_film_hidden_layers=(256, 256),
         mlp_hidden_layers=(256, 256),
@@ -250,25 +277,34 @@ def main() -> None:
     simple_cnn_2d_1d_classifier = Simple_CNN_2D_1D_Classifier(
         grid_shape=(NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z),
         n_fingers=NUM_FINGERS,
+        n_tasks=N_TASKS,
         conditioning_dim=7,
         # conv_2d_film_hidden_layers=(32, 32),
         mlp_hidden_layers=(64, 64),
     ).to(DEVICE)
 
     # Run model
+    cnn_3d_all_logits = cnn_3d_classifier.get_all_logits(batch_data_input)
     cnn_3d_scores = cnn_3d_classifier.get_failure_probability(batch_data_input)
+    print(f"cnn_3d_all_logits.shape = {cnn_3d_all_logits.shape}")
     print(f"cnn_3d_scores: {cnn_3d_scores}")
-    print(f"cnn_3d_scores.shape: {cnn_3d_scores.shape}")
+    print(f"cnn_3d_scores.shape: {cnn_3d_scores.shape}" + "\n")
 
+    cnn_2d_1d_all_logits = cnn_2d_1d_classifier.get_all_logits(batch_data_input)
     cnn_2d_1d_scores = cnn_2d_1d_classifier.get_failure_probability(batch_data_input)
+    print(f"cnn_2d_1d_all_logits.shape = {cnn_2d_1d_all_logits.shape}")
     print(f"cnn_2d_1d_scores: {cnn_2d_1d_scores}")
-    print(f"cnn_2d_1d_scores.shape: {cnn_2d_1d_scores.shape}")
+    print(f"cnn_2d_1d_scores.shape: {cnn_2d_1d_scores.shape}" + "\n")
 
+    simple_cnn_2d_1d_all_logits = simple_cnn_2d_1d_classifier.get_all_logits(
+        batch_data_input
+    )
     simple_cnn_2d_1d_scores = simple_cnn_2d_1d_classifier.get_failure_probability(
         batch_data_input
     )
+    print(f"simple_cnn_2d_1d_all_logits.shape = {simple_cnn_2d_1d_all_logits.shape}")
     print(f"simple_cnn_2d_1d_scores: {simple_cnn_2d_1d_scores}")
-    print(f"simple_cnn_2d_1d_scores.shape: {simple_cnn_2d_1d_scores.shape}")
+    print(f"simple_cnn_2d_1d_scores.shape: {simple_cnn_2d_1d_scores.shape}" + "\n")
 
 
 if __name__ == "__main__":

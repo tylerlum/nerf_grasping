@@ -828,7 +828,8 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 assert cfg.model_config is not None
 nerf_to_grasp_success_model: Classifier = (
     cfg.model_config.get_classifier_from_fingertip_config(
-        cfg.nerfdata_config.fingertip_config
+        fingertip_config=cfg.nerfdata_config.fingertip_config,
+        n_tasks=cfg.task_type.n_tasks,
     ).to(device)
 )
 

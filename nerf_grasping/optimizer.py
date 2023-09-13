@@ -158,7 +158,8 @@ class SGDOptimizer(Optimizer):
         ) as progress:
             task = progress.add_task("Loading CNN", total=1)
             cnn = classifier_config.model_config.get_classifier_from_fingertip_config(
-                classifier_config.nerfdata_config.fingertip_config
+                fingertip_config=classifier_config.nerfdata_config.fingertip_config,
+                n_tasks=classifier_config.task_type.n_tasks,
             ).to(device=device)
 
             # Load checkpoint if specified.
@@ -271,7 +272,8 @@ class CEMOptimizer(Optimizer):
         ) as progress:
             task = progress.add_task("Loading CNN", total=1)
             cnn = classifier_config.model_config.get_classifier_from_fingertip_config(
-                classifier_config.nerfdata_config.fingertip_config
+                fingertip_config=classifier_config.nerfdata_config.fingertip_config,
+                n_tasks=classifier_config.task_type.n_tasks,
             ).to(device=device)
 
             # Load checkpoint if specified.

@@ -66,9 +66,7 @@ class CNN_3D_Model(nn.Module):
             hidden_layers=mlp_hidden_layers,
         )
 
-    def forward(
-        self, x: torch.Tensor
-    ) -> torch.Tensor:
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         batch_size = x.shape[0]
         assert_equals(
             x.shape,
@@ -98,9 +96,7 @@ class CNN_3D_Model(nn.Module):
         all_logits = all_logits.reshape(batch_size, self.n_tasks, self.n_classes)
         return all_logits
 
-    def get_all_logits(
-        self, x: torch.Tensor
-    ) -> torch.Tensor:
+    def get_all_logits(self, x: torch.Tensor) -> torch.Tensor:
         return self(x)
 
 
@@ -144,13 +140,11 @@ class CNN_2D_1D_Model(nn.Module):
         self.mlp = mlp(
             num_inputs=n_fingers * self.conv_1d.output_dim()
             + n_fingers * conditioning_dim,
-            num_outputs=self.n_classes*self.n_tasks,
+            num_outputs=self.n_classes * self.n_tasks,
             hidden_layers=mlp_hidden_layers,
         )
 
-    def forward(
-        self, x: torch.Tensor, conditioning: torch.Tensor
-    ) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, conditioning: torch.Tensor) -> torch.Tensor:
         batch_size = x.shape[0]
         n_fingers = self.n_fingers
         n_pts_x, n_pts_y, n_pts_z = self.grid_shape
@@ -313,9 +307,7 @@ class Simple_CNN_2D_1D_Model(nn.Module):
             n_classes * n_tasks,
         )
 
-    def forward(
-        self, x: torch.Tensor, conditioning: torch.Tensor
-    ) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, conditioning: torch.Tensor) -> torch.Tensor:
         batch_size = x.shape[
             0
         ]  # Hardcoding no leading batch dims on input -- probably good to check here.
@@ -432,9 +424,7 @@ class Simple_CNN_1D_2D_Model(nn.Module):
             n_classes * n_tasks,
         )
 
-    def forward(
-        self, x: torch.Tensor, conditioning: torch.Tensor
-    ) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, conditioning: torch.Tensor) -> torch.Tensor:
         batch_size = x.shape[
             0
         ]  # Hardcoding no leading batch dims on input -- probably good to check here.
@@ -490,6 +480,11 @@ class Simple_CNN_1D_2D_Model(nn.Module):
         all_logits = all_logits.reshape(batch_size, self.n_tasks, self.n_classes)
         return all_logits
 
+    def get_all_logits(
+        self, x: torch.Tensor, conditioning: torch.Tensor
+    ) -> torch.Tensor:
+        return self(x, conditioning=conditioning)
+
 
 class Simple_CNN_LSTM_Model(nn.Module):
     def __init__(
@@ -544,9 +539,7 @@ class Simple_CNN_LSTM_Model(nn.Module):
             n_classes * n_tasks,
         )
 
-    def forward(
-        self, x: torch.Tensor, conditioning: torch.Tensor
-    ) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, conditioning: torch.Tensor) -> torch.Tensor:
         batch_size = x.shape[
             0
         ]  # Hardcoding no leading batch dims on input -- probably good to check here.
@@ -626,40 +619,52 @@ class Simple_CNN_LSTM_Model(nn.Module):
 
 
 if __name__ == "__main__":
-    # Dry run 2D / 1D CNNs.
+    batch_size = 2
+    n_fingers = 2
+    n_x, n_y, n_z = 32, 32, 32
+    conditioning_dim = 7
+    n_tasks = 1
+    n_classes = 2
+    print("=" * 80)
+    print(f"batch_size: {batch_size}")
+    print(f"n_fingers: {n_fingers}")
+    print(f"n_x: {n_x}")
+    print(f"n_y: {n_y}")
+    print(f"n_z: {n_z}")
+    print(f"conditioning_dim: {conditioning_dim}")
+    print(f"n_tasks: {n_tasks}")
+    print(f"n_classes: {n_classes}")
+    print("=" * 80 + "\n")
 
     # 2D / 1D CNN.
     model = Simple_CNN_2D_1D_Model(
-        grid_shape=(32, 32, 32),
-        n_fingers=2,
-        conditioning_dim=7,
-        n_tasks=1,
-        n_classes=2,
+        grid_shape=(n_x, n_y, n_z),
+        n_fingers=n_fingers,
+        conditioning_dim=conditioning_dim,
+        n_tasks=n_tasks,
+        n_classes=n_classes,
         mlp_hidden_layers=[32, 32],
         conv_2d_channels=[32, 16, 8, 4],
         conv_1d_channels=[4, 8],
         film_2d_hidden_layers=[8, 8],
         film_1d_hidden_layers=[8, 8],
     )
-
-    batch_size = 2
-    n_fingers = 2
-    n_x, n_y, n_z = 32, 32, 32
-    conditioning_dim = 7
 
     x = torch.zeros(batch_size, n_fingers, n_x, n_y, n_z)
     conditioning = torch.zeros(batch_size, n_fingers, conditioning_dim)
 
     all_logits = model.get_all_logits(x, conditioning)
     assert_equals(all_logits.shape, (batch_size, model.n_tasks, model.n_classes))
+    print("For 2D / 1D CNN:")
+    print(f"all_logits.shape: {all_logits.shape}" + "\n")
 
     # 1D / 2D CNN.
     model = Simple_CNN_1D_2D_Model(
         grid_shape=(32, 32, 32),
         n_fingers=2,
         conditioning_dim=7,
-        n_tasks=1,
-        n_classes=2,
+        n_tasks=n_tasks,
+        n_classes=n_classes,
         mlp_hidden_layers=[32, 32],
         conv_2d_channels=[32, 16, 8, 4],
         conv_1d_channels=[4, 8],
@@ -668,14 +673,16 @@ if __name__ == "__main__":
     )
     all_logits = model.get_all_logits(x, conditioning)
     assert_equals(all_logits.shape, (batch_size, model.n_tasks, model.n_classes))
+    print("For 1D / 2D CNN:")
+    print(f"all_logits.shape: {all_logits.shape}" + "\n")
 
     # LSTM.
     model = Simple_CNN_LSTM_Model(
         grid_shape=(32, 32, 32),
         n_fingers=2,
         conditioning_dim=7,
-        n_tasks=1,
-        n_classes=2,
+        n_tasks=n_tasks,
+        n_classes=n_classes,
         mlp_hidden_layers=[32, 32],
         conv_2d_channels=[32, 16, 8, 4],
         film_2d_hidden_layers=[8, 8],
@@ -684,3 +691,5 @@ if __name__ == "__main__":
     )
     all_logits = model.get_all_logits(x, conditioning)
     assert_equals(all_logits.shape, (batch_size, model.n_tasks, model.n_classes))
+    print("For LSTM:")
+    print(f"all_logits.shape: {all_logits.shape}" + "\n")

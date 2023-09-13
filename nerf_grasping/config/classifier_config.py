@@ -22,6 +22,32 @@ import tyro
 import pathlib
 
 
+class TaskType(Enum):
+    """Enum for task type."""
+
+    PASSED_SIMULATION = auto()
+    PASSED_PENETRATION_THRESHOLD = auto()
+    PASSED_EVAL = auto()
+    PASSED_SIMULATION_AND_PENETRATION_THRESHOLD = auto()
+
+    @property
+    def n_tasks(self):
+        if any(
+            self is x
+            for x in [
+                TaskType.PASSED_SIMULATION,
+                TaskType.PASSED_PENETRATION_THRESHOLD,
+                TaskType.PASSED_EVAL,
+            ]
+        ):
+            return 1
+        if any(
+            self is x for x in [TaskType.PASSED_SIMULATION_AND_PENETRATION_THRESHOLD]
+        ):
+            return 2
+        raise NotImplementedError
+
+
 class ConditioningType(Enum):
     """Enum for conditioning type."""
 
@@ -138,7 +164,7 @@ class ClassifierModelConfig:
     """Default (abstract) parameters for the classifier."""
 
     def get_classifier_from_fingertip_config(
-        self, fingertip_config: UnionFingertipConfig
+        self, fingertip_config: UnionFingertipConfig, n_tasks: int,
     ) -> Classifier:
         """Helper method to return the correct classifier from config."""
         raise NotImplementedError("Implement in subclass.")
@@ -166,7 +192,7 @@ class CNN_3D_XYZ_ModelConfig(ClassifierModelConfig):
         ]
 
     def get_classifier_from_fingertip_config(
-        self, fingertip_config: UnionFingertipConfig
+        self, fingertip_config: UnionFingertipConfig, n_tasks: int,
     ) -> Classifier:
         """Helper method to return the correct classifier from config."""
 
@@ -335,6 +361,7 @@ class ClassifierConfig:
     training: ClassifierTrainingConfig = ClassifierTrainingConfig()
     checkpoint_workspace: CheckpointWorkspaceConfig = CheckpointWorkspaceConfig()
     conditioning_type: ConditioningType = ConditioningType.FINGERTIP_TRANSFORMS
+    task_type: TaskType = TaskType.PASSED_EVAL
 
     wandb: WandbConfig = field(
         default_factory=lambda: WandbConfig(

@@ -203,6 +203,7 @@ class CNN_3D_XYZ_ModelConfig(ClassifierModelConfig):
         return CNN_3D_XYZ_Classifier(
             input_shape=input_shape,
             n_fingers=fingertip_config.n_fingers,
+            n_tasks=n_tasks,
             conv_channels=self.conv_channels,
             mlp_hidden_layers=self.mlp_hidden_layers,
         )
@@ -228,13 +229,14 @@ class CNN_2D_1D_ModelConfig(ClassifierModelConfig):
         ]
 
     def get_classifier_from_fingertip_config(
-        self, fingertip_config: UnionFingertipConfig
+        self, fingertip_config: UnionFingertipConfig, n_tasks: int,
     ) -> Classifier:
         """Helper method to return the correct classifier from config."""
 
         return CNN_2D_1D_Classifier(
             grid_shape=self.grid_shape_from_fingertip_config(fingertip_config),
             n_fingers=self.n_fingers,
+            n_tasks=n_tasks,
             conditioning_dim=self.conditioning_dim,
             conv_2d_film_hidden_layers=self.conv_2d_film_hidden_layers,
             mlp_hidden_layers=self.mlp_hidden_layers,
@@ -263,13 +265,14 @@ class Simple_CNN_2D_1D_ModelConfig(ClassifierModelConfig):
         ]
 
     def get_classifier_from_fingertip_config(
-        self, fingertip_config: UnionFingertipConfig
+        self, fingertip_config: UnionFingertipConfig, n_tasks: int,
     ) -> Classifier:
         """Helper method to return the correct classifier from config."""
 
         return Simple_CNN_2D_1D_Classifier(
             grid_shape=self.grid_shape_from_fingertip_config(fingertip_config),
             n_fingers=self.n_fingers,
+            n_tasks=n_tasks,
             conditioning_dim=self.conditioning_dim,
             mlp_hidden_layers=self.mlp_hidden_layers,
             conv_2d_channels=self.conv_2d_channels,
@@ -301,13 +304,14 @@ class Simple_CNN_1D_2D_ModelConfig(ClassifierModelConfig):
         ]
 
     def get_classifier_from_fingertip_config(
-        self, fingertip_config: UnionFingertipConfig
+        self, fingertip_config: UnionFingertipConfig, n_tasks: int,
     ) -> Classifier:
         """Helper method to return the correct classifier from config."""
 
         return Simple_CNN_1D_2D_Classifier(
             grid_shape=self.grid_shape_from_fingertip_config(fingertip_config),
             n_fingers=self.n_fingers,
+            n_tasks=n_tasks,
             conditioning_dim=self.conditioning_dim,
             mlp_hidden_layers=self.mlp_hidden_layers,
             conv_2d_channels=self.conv_2d_channels,
@@ -338,13 +342,14 @@ class Simple_CNN_LSTM_ModelConfig(ClassifierModelConfig):
         ]
 
     def get_classifier_from_fingertip_config(
-        self, fingertip_config: UnionFingertipConfig
+        self, fingertip_config: UnionFingertipConfig, n_tasks: int,
     ) -> Classifier:
         """Helper method to return the correct classifier from config."""
 
         return Simple_CNN_LSTM_Classifier(
             grid_shape=self.grid_shape_from_fingertip_config(fingertip_config),
             n_fingers=self.n_fingers,
+            n_tasks=n_tasks,
             conditioning_dim=self.conditioning_dim,
             mlp_hidden_layers=self.mlp_hidden_layers,
             conv_2d_channels=self.conv_2d_channels,

@@ -31,14 +31,18 @@ class Classifier(nn.Module):
 
         n_tasks = all_logits.shape[1]
         N_CLASSES = 2
-        assert_equals(all_logits.shape, (batch_data_input.batch_size, n_tasks, N_CLASSES))
+        assert_equals(
+            all_logits.shape, (batch_data_input.batch_size, n_tasks, N_CLASSES)
+        )
 
         # REMOVE, using to ensure gradients are non-zero
         # for overfit classifier.
         PROB_SCALING = 1e0
 
         # TODO: Consider scaling differently for each task
-        passed_task_probs = nn.functional.softmax(PROB_SCALING * all_logits, dim=-1)[:, 0]
+        passed_task_probs = nn.functional.softmax(PROB_SCALING * all_logits, dim=-1)[
+            :, 0
+        ]
         assert_equals(passed_task_probs.shape, (batch_data_input.batch_size, n_tasks))
         passed_all_probs = torch.prod(passed_task_probs, dim=-1)
         assert_equals(passed_all_probs.shape, (batch_data_input.batch_size,))
@@ -52,8 +56,18 @@ class Classifier(nn.Module):
 
         n_tasks = all_logits.shape[1]
         N_CLASSES = 2
-        assert_equals(all_logits.shape, (batch_data_input.batch_size, n_tasks, N_CLASSES))
+        assert_equals(
+            all_logits.shape, (batch_data_input.batch_size, n_tasks, N_CLASSES)
+        )
         return all_logits
+
+    @property
+    def n_tasks(self) -> int:
+        if not hasattr(self, "model"):
+            raise NotImplementedError
+        if not hasattr(self.model, "n_tasks"):
+            raise NotImplementedError
+        return self.model.n_tasks
 
 
 class CNN_3D_XYZ_Classifier(Classifier):
@@ -261,7 +275,7 @@ def main() -> None:
     batch_data_input = BatchDataInput(
         nerf_densities=nerf_densities,
         grasp_transforms=grasp_transforms,
-        fingertip_config=EvenlySpacedFingertipConfig()
+        fingertip_config=EvenlySpacedFingertipConfig(),
     ).to(DEVICE)
 
     # Create model

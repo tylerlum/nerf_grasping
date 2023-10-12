@@ -970,9 +970,7 @@ def _iterate_through_dataloader(
     optimizer: Optional[torch.optim.Optimizer] = None,
     lr_scheduler: Optional[torch.optim.lr_scheduler.LRScheduler] = None,
 ) -> Tuple[Dict[str, List[float]], Dict[str, List[float]], Dict[str, List[float]]]:
-    losses_dict = defaultdict(
-        list
-    )  # loss name => list of losses (one loss per batch)
+    losses_dict = defaultdict(list)  # loss name => list of losses (one loss per batch)
     predictions_dict, ground_truths_dict = defaultdict(list), defaultdict(
         list
     )  # task name => list of predictions / ground truths (one per datapoint)
@@ -984,6 +982,9 @@ def _iterate_through_dataloader(
     else:
         nerf_to_grasp_success_model.eval()
         assert training_cfg is None and optimizer is None
+
+    assert len(ce_loss_fns) == nerf_to_grasp_success_model.n_tasks
+    assert len(task_names) == nerf_to_grasp_success_model.n_tasks
 
     with torch.set_grad_enabled(phase == Phase.TRAIN):
         dataload_section_timer = loop_timer.add_section_timer("Data").start()
@@ -1032,11 +1033,7 @@ def _iterate_through_dataloader(
                 else:
                     raise ValueError(f"Unknown task_type: {cfg.task_type}")
 
-                assert len(ce_loss_fns) == nerf_to_grasp_success_model.n_tasks
                 assert len(task_targets) == nerf_to_grasp_success_model.n_tasks
-                assert (
-                    len(task_names) == nerf_to_grasp_success_model.n_tasks
-                )
 
                 task_losses = []
                 for task_i, (ce_loss_fn, task_target, task_name) in enumerate(
@@ -1106,6 +1103,7 @@ def _iterate_through_dataloader(
                 dataload_section_timer = loop_timer.add_section_timer("Data").start()
 
     return losses_dict, predictions_dict, ground_truths_dict
+
 
 def create_log_dict(
     phase: Phase,
@@ -1179,6 +1177,9 @@ def iterate_through_dataloader(
     optimizer: Optional[torch.optim.Optimizer] = None,
     lr_scheduler: Optional[torch.optim.lr_scheduler.LRScheduler] = None,
 ) -> Dict[str, Any]:
+    assert len(ce_loss_fns) == nerf_to_grasp_success_model.n_tasks
+    assert len(task_names) == nerf_to_grasp_success_model.n_tasks
+
     loop_timer = LoopTimer()
 
     # Iterate through dataloader and get logged results

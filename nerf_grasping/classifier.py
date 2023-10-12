@@ -47,7 +47,13 @@ class Classifier(nn.Module):
         return 1.0 - passed_all_probs
 
     def get_all_logits(self, batch_data_input: BatchDataInput) -> torch.Tensor:
-        return self(batch_data_input)
+        all_logits = self(batch_data_input)
+        assert_equals(len(all_logits.shape), 3)
+
+        n_tasks = all_logits.shape[1]
+        N_CLASSES = 2
+        assert_equals(all_logits.shape, (batch_data_input.batch_size, n_tasks, N_CLASSES))
+        return all_logits
 
 
 class CNN_3D_XYZ_Classifier(Classifier):

@@ -147,6 +147,8 @@ if __name__ == "__main__" and "get_ipython" not in dir():
 else:
     cfg: UnionNerfDataConfig = tyro.cli(UnionNerfDataConfig, args=[])
 
+print(f"Config:\n{tyro.extras.to_yaml(cfg)}")
+
 if isinstance(cfg, DepthImageNerfDataConfig):
     raise NotImplementedError("DepthImageNerfDataConfig not implemented yet")
 

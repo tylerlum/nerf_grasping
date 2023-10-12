@@ -23,7 +23,6 @@ import pathlib
 import trimesh
 import time
 from collections import defaultdict
-import functools
 from localscope import localscope
 import nerf_grasping
 from dataclasses import asdict
@@ -43,6 +42,8 @@ from nerf_grasping.classifier import Classifier
 from nerf_grasping.dataset.timers import LoopTimer
 from nerf_grasping.config.classifier_config import (
     UnionClassifierConfig,
+    ClassifierConfig,
+    ClassifierTrainingConfig,
     TaskType,
 )
 from nerf_grasping.config.fingertip_config import BaseFingertipConfig
@@ -50,7 +51,7 @@ from nerf_grasping.config.nerfdata_config import GraspConditionedGridDataConfig
 import os
 import pypose as pp
 import h5py
-from typing import Optional, Tuple, List
+from typing import Optional, Tuple, List, Dict, Any
 from sklearn.metrics import (
     ConfusionMatrixDisplay,
     confusion_matrix,
@@ -133,7 +134,8 @@ else:
     print(f"arguments = {arguments}")
 
 # %%
-cfg: UnionClassifierConfig = tyro.cli(UnionClassifierConfig, args=arguments)
+cfg: ClassifierConfig = tyro.cli(UnionClassifierConfig, args=arguments)
+assert cfg.nerfdata_config.fingertip_config is not None
 
 # A relatively dirty hack: create script globals from the config vars.
 NUM_FINGERS = cfg.nerfdata_config.fingertip_config.n_fingers
@@ -322,9 +324,7 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
                 else None
             )
             self.passed_evals = (
-                torch.from_numpy(
-                    hdf5_file["/passed_eval"][()]
-                ).long()
+                torch.from_numpy(hdf5_file["/passed_eval"][()]).long()
                 if load_grasp_successes_in_ram
                 else None
             )
@@ -389,7 +389,15 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
     )
     def __getitem__(
         self, idx: int
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, str]:
+    ) -> Tuple[
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        str,
+        Optional[torch.Tensor],
+    ]:
         if self.hdf5_file is None:
             # Hope to speed up with rdcc params
             self.hdf5_file = h5py.File(
@@ -419,9 +427,7 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
             else self.passed_penetration_thresholds[idx]
         )
         passed_eval = (
-            torch.from_numpy(
-                np.array(self.hdf5_file["/passed_eval"][idx])
-            ).long()
+            torch.from_numpy(np.array(self.hdf5_file["/passed_eval"][idx])).long()
             if self.passed_evals is None
             else self.passed_evals[idx]
         )
@@ -544,9 +550,7 @@ def custom_collate_fn(
         shuffle_inds = torch.randperm(passed_simulation.shape[0])
         passed_simulation = passed_simulation[shuffle_inds]
         passed_penetration_threshold = passed_penetration_threshold[shuffle_inds]
-        passed_eval = passed_eval[
-            shuffle_inds
-        ]
+        passed_eval = passed_eval[shuffle_inds]
 
     grasp_transforms = pp.from_matrix(grasp_transforms, pp.SE3_type)
 
@@ -647,14 +651,11 @@ else:
 @localscope.mfc
 def print_shapes(batch_data: BatchData) -> None:
     print(f"nerf_alphas.shape: {batch_data.input.nerf_alphas.shape}")
-    print(f"grasp_success.shape: {batch_data.output.grasp_success.shape}")
     print(f"passed_simulation.shape: {batch_data.output.passed_simulation.shape}")
     print(
         f"passed_penetration_threshold.shape: {batch_data.output.passed_penetration_threshold.shape}"
     )
-    print(
-        f"passed_eval.shape: {batch_data.output.passed_eval.shape}"
-    )
+    print(f"passed_eval.shape: {batch_data.output.passed_eval.shape}")
     print(f"grasp_transforms.shape: {batch_data.input.grasp_transforms.shape}")
     print(f"len(nerf_config): {len(batch_data.nerf_config)}")
     print(f"coords.shape = {batch_data.input.coords.shape}")
@@ -666,7 +667,7 @@ def print_shapes(batch_data: BatchData) -> None:
     )
 
 
-EXAMPLE_BATCH_DATA = next(iter(val_loader))
+EXAMPLE_BATCH_DATA: BatchData = next(iter(val_loader))
 print_shapes(batch_data=EXAMPLE_BATCH_DATA)
 
 # %% [markdown]
@@ -698,17 +699,13 @@ def plot_example(
 
     # Extract data
     colors = batch_data.input.nerf_alphas[idx_to_visualize]
-    grasp_success = batch_data.output.grasp_success[idx_to_visualize].item()
     passed_simulation = batch_data.output.passed_simulation[idx_to_visualize].item()
     passed_penetration_threshold = batch_data.output.passed_penetration_threshold[
         idx_to_visualize
     ].item()
-    passed_eval = batch_data.output.passed_eval[
-        idx_to_visualize
-    ].item()
+    passed_eval = batch_data.output.passed_eval[idx_to_visualize].item()
 
     assert colors.shape == (NUM_FINGERS, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
-    assert grasp_success in [0, 1]
     assert passed_simulation in [0, 1]
     assert passed_penetration_threshold in [0, 1]
     assert passed_eval in [0, 1]
@@ -766,7 +763,7 @@ def plot_example(
     )
     # Set title to label
     fig.update_layout(
-        title_text=f"grasp_success = {grasp_success}, passed_simulation = {passed_simulation}, passed_penetration_threshold = {passed_penetration_threshold}, passed_eval = {passed_eval}"
+        title_text=f"passed_simulation = {passed_simulation}, passed_penetration_threshold = {passed_penetration_threshold}, passed_eval = {passed_eval}"
     )
     return fig
 
@@ -781,7 +778,7 @@ def plot_example(
 # fig.show()
 
 # %%
-EXAMPLE_BATCH_DATA.output.grasp_success, EXAMPLE_BATCH_DATA.output.passed_simulation, EXAMPLE_BATCH_DATA.output.passed_penetration_threshold, EXAMPLE_BATCH_DATA.output.passed_eval
+EXAMPLE_BATCH_DATA.output.passed_simulation, EXAMPLE_BATCH_DATA.output.passed_penetration_threshold, EXAMPLE_BATCH_DATA.output.passed_eval
 
 # # %%
 # fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=14)
@@ -880,8 +877,10 @@ try:
         model=nerf_to_grasp_success_model,
         input_size=(
             cfg.dataloader.batch_size,
-            cfg.model_config.n_fingers,
-            *cfg.model_config.input_shape,
+            NUM_FINGERS,
+            NUM_PTS_X,
+            NUM_PTS_Y,
+            NUM_PTS_Z,
         ),
         device=device,
     )
@@ -895,8 +894,10 @@ try:
         torch.zeros(
             (
                 cfg.dataloader.batch_size,
-                cfg.model_config.n_fingers,
-                *cfg.model_config.input_shape,
+                NUM_FINGERS,
+                NUM_PTS_X,
+                NUM_PTS_Y,
+                NUM_PTS_Z,
             )
         )
         .to(device)
@@ -964,7 +965,7 @@ def iterate_through_dataloader(
     device: torch.device,
     ce_loss_fns: List[nn.CrossEntropyLoss],
     wandb_log_dict: dict,
-    training_cfg: Optional[TrainingConfig] = None,
+    training_cfg: Optional[ClassifierTrainingConfig] = None,
     optimizer: Optional[torch.optim.Optimizer] = None,
     lr_scheduler: Optional[torch.optim.lr_scheduler.LRScheduler] = None,
 ) -> None:
@@ -980,8 +981,12 @@ def iterate_through_dataloader(
 
     loop_timer = LoopTimer()
     with torch.set_grad_enabled(phase == Phase.TRAIN):
-        losses_dict = defaultdict(list)  # loss name => list of losses (one loss per batch)
-        predictions_dict, ground_truths_dict = defaultdict(list), defaultdict(list)  # task name => list of predictions / ground truths (one per datapoint)
+        losses_dict = defaultdict(
+            list
+        )  # loss name => list of losses (one loss per batch)
+        predictions_dict, ground_truths_dict = defaultdict(list), defaultdict(
+            list
+        )  # task name => list of predictions / ground truths (one per datapoint)
 
         dataload_section_timer = loop_timer.add_section_timer("Data").start()
         for batch_idx, batch_data in (
@@ -1003,7 +1008,9 @@ def iterate_through_dataloader(
 
             # Forward pass
             with loop_timer.add_section_timer("Fwd"):
-                all_logits = nerf_to_grasp_success_model.get_all_logits(batch_data.input)
+                all_logits = nerf_to_grasp_success_model.get_all_logits(
+                    batch_data.input
+                )
                 assert all_logits.shape == (
                     batch_data.batch_size,
                     nerf_to_grasp_success_model.n_tasks,
@@ -1016,7 +1023,10 @@ def iterate_through_dataloader(
                     task_targets = [batch_data.output.passed_penetration_threshold]
                 elif cfg.task_type == TaskType.PASSED_EVAL:
                     task_targets = [batch_data.output.passed_eval]
-                elif cfg.task_type == TaskType.PASSED_SIMULATION_AND_PENETRATION_THRESHOLD:
+                elif (
+                    cfg.task_type
+                    == TaskType.PASSED_SIMULATION_AND_PENETRATION_THRESHOLD
+                ):
                     task_targets = [
                         batch_data.output.passed_simulation,
                         batch_data.output.passed_penetration_threshold,
@@ -1026,19 +1036,24 @@ def iterate_through_dataloader(
 
                 assert len(ce_loss_fns) == nerf_to_grasp_success_model.n_tasks
                 assert len(task_targets) == nerf_to_grasp_success_model.n_tasks
-                assert len(cfg.task_type.task_target_names) == nerf_to_grasp_success_model.n_tasks
+                assert (
+                    len(cfg.task_type.task_names) == nerf_to_grasp_success_model.n_tasks
+                )
 
                 task_losses = []
-                for task_i, (ce_loss_fn, task_target, task_target_name) in enumerate(
-                    zip(ce_loss_fns, task_targets, cfg.task_type.task_target_names)
+                for task_i, (ce_loss_fn, task_target, task_name) in enumerate(
+                    zip(ce_loss_fns, task_targets, cfg.task_type.task_names)
                 ):
                     task_logits = all_logits[:, task_i, :]
                     task_loss = ce_loss_fn(
-                        input=task_logits, target=task_target,
+                        input=task_logits,
+                        target=task_target,
                     )
-                    losses_dict[f"{task_target_name}_loss"].append(task_loss.item())
+                    losses_dict[f"{task_name}_loss"].append(task_loss.item())
                     task_losses.append(task_loss)
-                total_loss = sum(task_losses) # TODO: Consider weighting losses.
+                total_loss = torch.sum(
+                    torch.stack(task_losses)
+                )  # TODO: Consider weighting losses.
 
             # Gradient step
             with loop_timer.add_section_timer("Bwd"):
@@ -1065,14 +1080,14 @@ def iterate_through_dataloader(
 
             # Gather predictions
             with loop_timer.add_section_timer("Gather"):
-                for task_i, (task_target, task_target_name) in enumerate(
-                    zip(task_targets, cfg.task_type.task_target_names)
+                for task_i, (task_target, task_name) in enumerate(
+                    zip(task_targets, cfg.task_type.task_names)
                 ):
                     task_logits = all_logits[:, task_i, :]
                     predictions = task_logits.argmax(dim=-1).tolist()
                     ground_truths = task_target.tolist()
-                    predictions_dict[f"{task_target_name}"] += predictions
-                    ground_truths_dict[f"{task_target_name}"] += ground_truths
+                    predictions_dict[f"{task_name}"] += predictions
+                    ground_truths_dict[f"{task_name}"] += ground_truths
 
             # Set description
             loss_log_str = (
@@ -1100,32 +1115,40 @@ def iterate_through_dataloader(
             temp_log_dict[f"{loss_name}"] = np.mean(losses)
 
     with loop_timer.add_section_timer("Metrics"):
-        assert set(predictions_dict.keys()) == set(ground_truths_dict.keys()) == set(cfg.task_type.task_target_names)
-        for task_target_name in cfg.task_type.task_target_names:
-            predictions = predictions_dict[task_target_name]
-            ground_truths = ground_truths_dict[task_target_name]
+        assert (
+            set(predictions_dict.keys())
+            == set(ground_truths_dict.keys())
+            == set(cfg.task_type.task_names)
+        )
+        for task_name in cfg.task_type.task_names:
+            predictions = predictions_dict[task_name]
+            ground_truths = ground_truths_dict[task_name]
             for metric_name, function in [
                 ("accuracy", accuracy_score),
                 ("precision", precision_score),
                 ("recall", recall_score),
                 ("f1", f1_score),
             ]:
-                temp_log_dict[f"{task_target_name}_{metric_name}"] = function(
+                temp_log_dict[f"{task_name}_{metric_name}"] = function(
                     y_true=ground_truths, y_pred=predictions
                 )
 
     with loop_timer.add_section_timer("Confusion Matrix"):
-        assert set(predictions_dict.keys()) == set(ground_truths_dict.keys()) == set(cfg.task_type.task_target_names)
-        for task_target_name in cfg.task_type.task_target_names:
-            predictions = predictions_dict[task_target_name]
-            ground_truths = ground_truths_dict[task_target_name]
+        assert (
+            set(predictions_dict.keys())
+            == set(ground_truths_dict.keys())
+            == set(cfg.task_type.task_names)
+        )
+        for task_name in cfg.task_type.task_names:
+            predictions = predictions_dict[task_name]
+            ground_truths = ground_truths_dict[task_name]
             temp_log_dict[
-                f"{task_target_name}_confusion_matrix"
+                f"{task_name}_confusion_matrix"
             ] = wandb.plot.confusion_matrix(
-                preds=all_predictions,
-                y_true=all_ground_truths,
+                preds=predictions,
+                y_true=ground_truths,
                 class_names=["failure", "success"],
-                title=f"{phase.name.title()} {task_target_name} Confusion Matrix",
+                title=f"{phase.name.title()} {task_name} Confusion Matrix",
             )
 
     loop_timer.pretty_print_section_times()
@@ -1139,7 +1162,7 @@ def iterate_through_dataloader(
 
 @localscope.mfc(allowed=["tqdm"])
 def run_training_loop(
-    training_cfg: TrainingConfig,
+    training_cfg: ClassifierTrainingConfig,
     train_loader: DataLoader,
     val_loader: DataLoader,
     nerf_to_grasp_success_model: Classifier,
@@ -1241,9 +1264,7 @@ def compute_class_weight_np(
             passed_penetration_threshold_np = np.array(
                 hdf5_file["/passed_penetration_threshold"][()]
             )
-            passed_eval_np = np.array(
-                hdf5_file["/passed_eval"][()]
-            )
+            passed_eval_np = np.array(hdf5_file["/passed_eval"][()])
         t2 = time.time()
         print(f"Loaded grasp success data in {t2 - t1:.2f} s")
 
@@ -1253,9 +1274,7 @@ def compute_class_weight_np(
         passed_penetration_threshold_np = passed_penetration_threshold_np[
             train_dataset.indices
         ]
-        passed_eval_np = passed_eval_np[
-            train_dataset.indices
-        ]
+        passed_eval_np = passed_eval_np[train_dataset.indices]
         t4 = time.time()
         print(f"Extracted training indices in {t4 - t3:.2f} s")
 
@@ -1285,12 +1304,19 @@ def compute_class_weight_np(
         passed_simulation_class_weight_np = np.array([1.0, 1.0])
         passed_penetration_threshold_class_weight_np = np.array([1.0, 1.0])
         passed_eval_class_weight_np = np.array([1.0, 1.0])
-    return passed_simulation_class_weight_np, passed_penetration_threshold_class_weight_np, passed_eval_class_weight_np
-
-passed_simulation_class_weight, passed_penetration_threshold_class_weight, passed_eval_class_weight = (
-    compute_class_weight_np(
-        train_dataset=train_dataset, input_dataset_full_path=input_dataset_full_path
+    return (
+        passed_simulation_class_weight_np,
+        passed_penetration_threshold_class_weight_np,
+        passed_eval_class_weight_np,
     )
+
+
+(
+    passed_simulation_class_weight,
+    passed_penetration_threshold_class_weight,
+    passed_eval_class_weight,
+) = compute_class_weight_np(
+    train_dataset=train_dataset, input_dataset_full_path=input_dataset_full_path
 )
 passed_simulation_class_weight = (
     torch.from_numpy(passed_simulation_class_weight).float().to(device)
@@ -1298,11 +1324,11 @@ passed_simulation_class_weight = (
 passed_penetration_threshold_class_weight = (
     torch.from_numpy(passed_penetration_threshold_class_weight).float().to(device)
 )
-passed_eval_class_weight = (
-    torch.from_numpy(passed_eval_class_weight).float().to(device)
-)
+passed_eval_class_weight = torch.from_numpy(passed_eval_class_weight).float().to(device)
 print(f"passed_simulation_class_weight = {passed_simulation_class_weight}")
-print(f"passed_penetration_threshold_class_weight = {passed_penetration_threshold_class_weight}")
+print(
+    f"passed_penetration_threshold_class_weight = {passed_penetration_threshold_class_weight}"
+)
 print(f"passed_eval_class_weight = {passed_eval_class_weight}")
 
 PUNISH_FALSE_POSITIVE_FACTOR = 1.0
@@ -1311,15 +1337,20 @@ if PUNISH_FALSE_POSITIVE_FACTOR != 1.0:
     passed_simulation_class_weight[1] *= PUNISH_FALSE_POSITIVE_FACTOR
     passed_penetration_threshold_class_weight[1] *= PUNISH_FALSE_POSITIVE_FACTOR
     passed_eval_class_weight[1] *= PUNISH_FALSE_POSITIVE_FACTOR
-    print(f"After hack, passed_simulation_class_weight: {passed_simulation_class_weight}")
-    print(f"After hack, passed_penetration_threshold_class_weight: {passed_penetration_threshold_class_weight}")
+    print(
+        f"After hack, passed_simulation_class_weight: {passed_simulation_class_weight}"
+    )
+    print(
+        f"After hack, passed_penetration_threshold_class_weight: {passed_penetration_threshold_class_weight}"
+    )
     print(f"After hack, passed_eval_class_weight: {passed_eval_class_weight}")
 
 passed_simulation_ce_loss_fn = nn.CrossEntropyLoss(
     weight=passed_simulation_class_weight, label_smoothing=cfg.training.label_smoothing
 )
 passed_penetration_threshold_ce_loss_fn = nn.CrossEntropyLoss(
-    weight=passed_penetration_threshold_class_weight, label_smoothing=cfg.training.label_smoothing
+    weight=passed_penetration_threshold_class_weight,
+    label_smoothing=cfg.training.label_smoothing,
 )
 passed_eval_ce_loss_fn = nn.CrossEntropyLoss(
     weight=passed_eval_class_weight, label_smoothing=cfg.training.label_smoothing

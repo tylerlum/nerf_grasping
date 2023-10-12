@@ -34,6 +34,7 @@ class BatchDataInput:
     conditioning_var: Optional[
         torch.Tensor
     ] = None  # Optional conditioning var for the classifier. This will get passed if not None, otherwise pass grasp_transforms.
+    nerf_density_threshold_value: Optional[float] = None
 
     def to(self, device) -> BatchDataInput:
         self.nerf_densities = self.nerf_densities.to(device)
@@ -58,7 +59,16 @@ class BatchDataInput:
         )
         if isinstance(self.fingertip_config, EvenlySpacedFingertipConfig):
             assert delta == self.fingertip_config.distance_between_pts_mm / 1000
-        return 1.0 - torch.exp(-delta * self.nerf_densities)
+        alphas = 1.0 - torch.exp(-delta * self.nerf_densities)
+
+        if self.nerf_density_threshold_value is not None:
+            alphas = torch.where(
+                self.nerf_densities > self.nerf_density_threshold_value,
+                torch.ones_like(alphas),
+                torch.zeros_like(alphas),
+            )
+
+        return alphas
 
     @property
     def coords(self) -> torch.Tensor:

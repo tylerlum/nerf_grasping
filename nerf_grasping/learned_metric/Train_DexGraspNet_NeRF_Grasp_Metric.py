@@ -42,6 +42,7 @@ from nerf_grasping.classifier import Classifier
 from nerf_grasping.dataset.timers import LoopTimer
 from nerf_grasping.config.classifier_config import (
     UnionClassifierConfig,
+    ClassifierConfig,
 )
 from nerf_grasping.config.fingertip_config import BaseFingertipConfig
 from nerf_grasping.config.nerfdata_config import GraspConditionedGridDataConfig
@@ -131,7 +132,7 @@ else:
     print(f"arguments = {arguments}")
 
 # %%
-cfg: UnionClassifierConfig = tyro.cli(UnionClassifierConfig, args=arguments)
+cfg: ClassifierConfig = tyro.cli(UnionClassifierConfig, args=arguments)
 
 # A relatively dirty hack: create script globals from the config vars.
 NUM_FINGERS = cfg.nerfdata_config.fingertip_config.n_fingers
@@ -531,6 +532,7 @@ def custom_collate_fn(
             random_rotate_transform=random_rotate_transform,
             fingertip_config=fingertip_config,
             conditioning_var=conditioning_var,
+            nerf_density_threshold_value=cfg.data.nerf_density_threshold_value,
         ),
         grasp_success=grasp_successes,
         nerf_config=nerf_configs,
@@ -1163,11 +1165,12 @@ class_weight = (
 )
 print(f"Class weight: {class_weight}")
 
-PUNISH_FALSE_POSITIVE_FACTOR = 1.0
-if PUNISH_FALSE_POSITIVE_FACTOR != 1.0:
-    print(f"HACK: PUNISH_FALSE_POSITIVE_FACTOR = {PUNISH_FALSE_POSITIVE_FACTOR}")
-    class_weight[1] *= PUNISH_FALSE_POSITIVE_FACTOR
-    print(f"After hack, class weight: {class_weight}")
+if cfg.training.extra_punish_false_positive_factor != 0.0:
+    print(
+        f"cfg.training.extra_punish_false_positive_factor = {cfg.training.extra_punish_false_positive_factor}"
+    )
+    class_weight[1] *= 1 + cfg.training.extra_punish_false_positive_factor
+    print(f"After adjustment, class weight: {class_weight}")
 
 ce_loss_fn = nn.CrossEntropyLoss(
     weight=class_weight, label_smoothing=cfg.training.label_smoothing

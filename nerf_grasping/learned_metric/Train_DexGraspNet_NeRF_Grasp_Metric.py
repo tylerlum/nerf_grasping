@@ -958,18 +958,24 @@ def save_checkpoint(
 
 # %%
 @localscope.mfc(allowed=["tqdm"])
-def iterate_through_dataloader(
+def _iterate_through_dataloader(
+    loop_timer: LoopTimer,
     phase: Phase,
     dataloader: DataLoader,
     nerf_to_grasp_success_model: Classifier,
     device: torch.device,
     ce_loss_fns: List[nn.CrossEntropyLoss],
-    wandb_log_dict: dict,
+    task_names: List[str],
     training_cfg: Optional[ClassifierTrainingConfig] = None,
     optimizer: Optional[torch.optim.Optimizer] = None,
     lr_scheduler: Optional[torch.optim.lr_scheduler.LRScheduler] = None,
-) -> None:
-    temp_log_dict = {}  # Make code cleaner by excluding phase name until the end
+) -> Tuple[Dict[str, List[float]], Dict[str, List[float]], Dict[str, List[float]]]:
+    losses_dict = defaultdict(
+        list
+    )  # loss name => list of losses (one loss per batch)
+    predictions_dict, ground_truths_dict = defaultdict(list), defaultdict(
+        list
+    )  # task name => list of predictions / ground truths (one per datapoint)
 
     assert phase in [Phase.TRAIN, Phase.VAL, Phase.TEST]
     if phase == Phase.TRAIN:
@@ -979,15 +985,7 @@ def iterate_through_dataloader(
         nerf_to_grasp_success_model.eval()
         assert training_cfg is None and optimizer is None
 
-    loop_timer = LoopTimer()
     with torch.set_grad_enabled(phase == Phase.TRAIN):
-        losses_dict = defaultdict(
-            list
-        )  # loss name => list of losses (one loss per batch)
-        predictions_dict, ground_truths_dict = defaultdict(list), defaultdict(
-            list
-        )  # task name => list of predictions / ground truths (one per datapoint)
-
         dataload_section_timer = loop_timer.add_section_timer("Data").start()
         for batch_idx, batch_data in (
             pbar := tqdm(enumerate(dataloader), total=len(dataloader))
@@ -1037,12 +1035,12 @@ def iterate_through_dataloader(
                 assert len(ce_loss_fns) == nerf_to_grasp_success_model.n_tasks
                 assert len(task_targets) == nerf_to_grasp_success_model.n_tasks
                 assert (
-                    len(cfg.task_type.task_names) == nerf_to_grasp_success_model.n_tasks
+                    len(task_names) == nerf_to_grasp_success_model.n_tasks
                 )
 
                 task_losses = []
                 for task_i, (ce_loss_fn, task_target, task_name) in enumerate(
-                    zip(ce_loss_fns, task_targets, cfg.task_type.task_names)
+                    zip(ce_loss_fns, task_targets, task_names)
                 ):
                     task_logits = all_logits[:, task_i, :]
                     task_loss = ce_loss_fn(
@@ -1081,7 +1079,7 @@ def iterate_through_dataloader(
             # Gather predictions
             with loop_timer.add_section_timer("Gather"):
                 for task_i, (task_target, task_name) in enumerate(
-                    zip(task_targets, cfg.task_type.task_names)
+                    zip(task_targets, task_names)
                 ):
                     task_logits = all_logits[:, task_i, :]
                     predictions = task_logits.argmax(dim=-1).tolist()
@@ -1107,6 +1105,18 @@ def iterate_through_dataloader(
                 # Avoid starting timer at end of last batch
                 dataload_section_timer = loop_timer.add_section_timer("Data").start()
 
+    return losses_dict, predictions_dict, ground_truths_dict
+
+def create_log_dict(
+    phase: Phase,
+    loop_timer: LoopTimer,
+    task_names: List[str],
+    losses_dict: Dict[str, List[float]],
+    predictions_dict: Dict[str, List[float]],
+    ground_truths_dict: Dict[str, List[float]],
+    optimizer: Optional[torch.optim.Optimizer] = None,
+) -> Dict[str, Any]:
+    temp_log_dict = {}  # Make code cleaner by excluding phase name until the end
     if optimizer is not None:
         temp_log_dict["lr"] = optimizer.param_groups[0]["lr"]
 
@@ -1118,9 +1128,9 @@ def iterate_through_dataloader(
         assert (
             set(predictions_dict.keys())
             == set(ground_truths_dict.keys())
-            == set(cfg.task_type.task_names)
+            == set(task_names)
         )
-        for task_name in cfg.task_type.task_names:
+        for task_name in task_names:
             predictions = predictions_dict[task_name]
             ground_truths = ground_truths_dict[task_name]
             for metric_name, function in [
@@ -1137,9 +1147,9 @@ def iterate_through_dataloader(
         assert (
             set(predictions_dict.keys())
             == set(ground_truths_dict.keys())
-            == set(cfg.task_type.task_names)
+            == set(task_names)
         )
-        for task_name in cfg.task_type.task_names:
+        for task_name in task_names:
             predictions = predictions_dict[task_name]
             ground_truths = ground_truths_dict[task_name]
             temp_log_dict[
@@ -1151,13 +1161,56 @@ def iterate_through_dataloader(
                 title=f"{phase.name.title()} {task_name} Confusion Matrix",
             )
 
+    log_dict = {}
+    for key, value in temp_log_dict.items():
+        log_dict[f"{phase.name.lower()}_{key}"] = value
+    return log_dict
+
+
+@localscope.mfc(allowed=["tqdm"])
+def iterate_through_dataloader(
+    phase: Phase,
+    dataloader: DataLoader,
+    nerf_to_grasp_success_model: Classifier,
+    device: torch.device,
+    ce_loss_fns: List[nn.CrossEntropyLoss],
+    task_names: List[str],
+    training_cfg: Optional[ClassifierTrainingConfig] = None,
+    optimizer: Optional[torch.optim.Optimizer] = None,
+    lr_scheduler: Optional[torch.optim.lr_scheduler.LRScheduler] = None,
+) -> Dict[str, Any]:
+    loop_timer = LoopTimer()
+
+    # Iterate through dataloader and get logged results
+    losses_dict, predictions_dict, ground_truths_dict = _iterate_through_dataloader(
+        loop_timer=loop_timer,
+        phase=phase,
+        dataloader=dataloader,
+        nerf_to_grasp_success_model=nerf_to_grasp_success_model,
+        device=device,
+        ce_loss_fns=ce_loss_fns,
+        task_names=task_names,
+        training_cfg=training_cfg,
+        optimizer=optimizer,
+        lr_scheduler=lr_scheduler,
+    )
+
+    # Log
+    log_dict = create_log_dict(
+        loop_timer=loop_timer,
+        phase=phase,
+        task_names=task_names,
+        losses_dict=losses_dict,
+        predictions_dict=predictions_dict,
+        ground_truths_dict=ground_truths_dict,
+        optimizer=optimizer,
+    )
+
     loop_timer.pretty_print_section_times()
     print()
     print()
 
-    for key, value in temp_log_dict.items():
-        wandb_log_dict[f"{phase.name.lower()}_{key}"] = value
-    return
+    return log_dict
 
 
 @localscope.mfc(allowed=["tqdm"])
@@ -1200,17 +1253,18 @@ def run_training_loop(
 
         # Train
         start_train_time = time.time()
-        iterate_through_dataloader(
+        train_log_dict = iterate_through_dataloader(
             phase=Phase.TRAIN,
             dataloader=train_loader,
             nerf_to_grasp_success_model=nerf_to_grasp_success_model,
             device=device,
             ce_loss_fns=ce_loss_fns,
-            wandb_log_dict=wandb_log_dict,
+            task_names=cfg.task_type.task_names,
             training_cfg=training_cfg,
             optimizer=optimizer,
             lr_scheduler=lr_scheduler,
         )
+        wandb_log_dict.update(train_log_dict)
         train_time_taken = time.time() - start_train_time
 
         # Val
@@ -1220,14 +1274,15 @@ def run_training_loop(
             epoch != 0 or training_cfg.val_on_epoch_0
         ):
             nerf_to_grasp_success_model.eval()
-            iterate_through_dataloader(
+            val_log_dict = iterate_through_dataloader(
                 phase=Phase.VAL,
                 dataloader=val_loader,
                 nerf_to_grasp_success_model=nerf_to_grasp_success_model,
                 device=device,
                 ce_loss_fns=ce_loss_fns,
-                wandb_log_dict=wandb_log_dict,
+                task_names=cfg.task_type.task_names,
             )
+            wandb_log_dict.update(val_log_dict)
         val_time_taken = time.time() - start_val_time
 
         nerf_to_grasp_success_model.train()
@@ -1407,14 +1462,15 @@ nerf_to_grasp_success_model.eval()
 wandb_log_dict = {}
 print(f"Running test metrics on epoch {cfg.training.n_epochs}")
 wandb_log_dict["epoch"] = cfg.training.n_epochs
-iterate_through_dataloader(
+test_log_dict = iterate_through_dataloader(
     phase=Phase.TEST,
     dataloader=test_loader,
     nerf_to_grasp_success_model=nerf_to_grasp_success_model,
     device=device,
     ce_loss_fns=ce_loss_fns,
-    wandb_log_dict=wandb_log_dict,
+    task_names=cfg.task_type.task_names,
 )
+wandb_log_dict.update(test_log_dict)
 wandb.log(wandb_log_dict)
 
 # %% [markdown]

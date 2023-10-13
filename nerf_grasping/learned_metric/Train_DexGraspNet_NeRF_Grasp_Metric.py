@@ -482,6 +482,7 @@ def custom_collate_fn(
     use_random_rotations: bool = True,
     debug_shuffle_labels: bool = False,
     use_conditioning_var: bool = False,
+    nerf_density_threshold_value: Optional[float] = None,
 ) -> BatchData:
     batch = torch.utils.data.dataloader.default_collate(batch)
     if use_conditioning_var:
@@ -532,7 +533,7 @@ def custom_collate_fn(
             random_rotate_transform=random_rotate_transform,
             fingertip_config=fingertip_config,
             conditioning_var=conditioning_var,
-            nerf_density_threshold_value=cfg.data.nerf_density_threshold_value,
+            nerf_density_threshold_value=nerf_density_threshold_value,
         ),
         grasp_success=grasp_successes,
         nerf_config=nerf_configs,
@@ -554,6 +555,7 @@ train_loader = DataLoader(
         use_conditioning_var=isinstance(
             cfg.nerfdata_config, GraspConditionedGridDataConfig
         ),
+        nerf_density_threshold_value=cfg.data.nerf_density_threshold_value,
     ),
 )
 val_loader = DataLoader(
@@ -569,6 +571,7 @@ val_loader = DataLoader(
         use_conditioning_var=isinstance(
             cfg.nerfdata_config, GraspConditionedGridDataConfig
         ),
+        nerf_density_threshold_value=cfg.data.nerf_density_threshold_value,
     ),  # Run val over actual grasp transforms (no random rotations)
 )
 test_loader = DataLoader(
@@ -584,6 +587,7 @@ test_loader = DataLoader(
         use_conditioning_var=isinstance(
             cfg.nerfdata_config, GraspConditionedGridDataConfig
         ),
+        nerf_density_threshold_value=cfg.data.nerf_density_threshold_value,
     ),  # Run test over actual test transforms.
 )
 

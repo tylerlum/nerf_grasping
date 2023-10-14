@@ -51,7 +51,7 @@ from nerf_grasping.config.nerfdata_config import GraspConditionedGridDataConfig
 import os
 import pypose as pp
 import h5py
-from typing import Optional, Tuple, List, Dict, Any
+from typing import Optional, Tuple, List, Dict, Any, Union
 from sklearn.metrics import (
     ConfusionMatrixDisplay,
     confusion_matrix,
@@ -265,6 +265,27 @@ run = wandb.init(
 
 
 # %%
+BatchDataTempType = Union[
+    Tuple[
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        str,
+    ],
+    Tuple[
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        str,
+        torch.Tensor,
+    ],
+]
+
+
 class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
     # @localscope.mfc  # ValueError: Cell is empty
     def __init__(
@@ -365,7 +386,6 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
     def _set_length(
         self, hdf5_file: h5py.File, max_num_data_points: Optional[int]
     ) -> int:
-        breakpoint()
         length = (
             hdf5_file.attrs["num_data_points"]
             if "num_data_points" in hdf5_file.attrs
@@ -395,17 +415,7 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
             "NUM_PTS_Z",
         ]
     )
-    def __getitem__(
-        self, idx: int
-    ) -> Tuple[
-        torch.Tensor,
-        torch.Tensor,
-        torch.Tensor,
-        torch.Tensor,
-        torch.Tensor,
-        str,
-        Optional[torch.Tensor],
-    ]:
+    def __getitem__(self, idx: int) -> BatchDataTempType:
         if self.hdf5_file is None:
             # Hope to speed up with rdcc params
             self.hdf5_file = h5py.File(
@@ -464,18 +474,24 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
                 if self.conditioning_var is None
                 else self.conditioning_var[idx]
             )
+            return (
+                nerf_densities,
+                passed_simulation,
+                passed_penetration_threshold,
+                passed_eval,
+                grasp_transforms,
+                nerf_config,
+                conditioning_var,
+            )
         else:
-            conditioning_var = None
-
-        return (
-            nerf_densities,
-            passed_simulation,
-            passed_penetration_threshold,
-            passed_eval,
-            grasp_transforms,
-            nerf_config,
-            conditioning_var,
-        )
+            return (
+                nerf_densities,
+                passed_simulation,
+                passed_penetration_threshold,
+                passed_eval,
+                grasp_transforms,
+                nerf_config,
+            )
 
 
 # %%
@@ -532,27 +548,32 @@ def sample_random_rotate_transforms(N: int) -> pp.LieTensor:
 
 @localscope.mfc
 def custom_collate_fn(
-    batch: List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor, str]],
+    batch: List[BatchDataTempType],
     fingertip_config: BaseFingertipConfig,
     use_random_rotations: bool = True,
     debug_shuffle_labels: bool = False,
     use_conditioning_var: bool = False,
 ) -> BatchData:
     batch = torch.utils.data.dataloader.default_collate(batch)
-    (
-        nerf_densities,
-        passed_simulation,
-        passed_penetration_threshold,
-        passed_eval,
-        grasp_transforms,
-        nerf_configs,
-        conditioning_var,
-    ) = batch
-
     if use_conditioning_var:
-        assert conditioning_var is not None
+        (
+            nerf_densities,
+            passed_simulation,
+            passed_penetration_threshold,
+            passed_eval,
+            grasp_transforms,
+            nerf_configs,
+            conditioning_var,
+        ) = batch
     else:
-        assert conditioning_var is None
+        (
+            nerf_densities,
+            passed_simulation,
+            passed_penetration_threshold,
+            passed_eval,
+            grasp_transforms,
+            nerf_configs,
+        ) = batch
 
     if debug_shuffle_labels:
         shuffle_inds = torch.randperm(passed_simulation.shape[0])
@@ -590,7 +611,7 @@ def custom_collate_fn(
             grasp_transforms=grasp_transforms,
             random_rotate_transform=random_rotate_transform,
             fingertip_config=fingertip_config,
-            conditioning_var=conditioning_var,
+            conditioning_var=conditioning_var if use_conditioning_var else None,
         ),
         output=BatchDataOutput(
             passed_simulation=passed_simulation,
@@ -832,12 +853,10 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Pull out just the CNN (without wrapping for LieTorch) for training.
 assert cfg.model_config is not None
-classifier: Classifier = (
-    cfg.model_config.get_classifier_from_fingertip_config(
-        fingertip_config=cfg.nerfdata_config.fingertip_config,
-        n_tasks=cfg.task_type.n_tasks,
-    ).to(device)
-)
+classifier: Classifier = cfg.model_config.get_classifier_from_fingertip_config(
+    fingertip_config=cfg.nerfdata_config.fingertip_config,
+    n_tasks=cfg.task_type.n_tasks,
+).to(device)
 
 # %%
 start_epoch = 0
@@ -862,9 +881,7 @@ lr_scheduler = get_scheduler(
 checkpoint = load_checkpoint(checkpoint_workspace_dir_path)
 if checkpoint is not None:
     print("Loading checkpoint...")
-    classifier.load_state_dict(
-        checkpoint["classifier"]
-    )
+    classifier.load_state_dict(checkpoint["classifier"])
     optimizer.load_state_dict(checkpoint["optimizer"])
     start_epoch = checkpoint["epoch"]
     if lr_scheduler is not None and "lr_scheduler" in checkpoint:
@@ -1015,9 +1032,7 @@ def _iterate_through_dataloader(
 
             # Forward pass
             with loop_timer.add_section_timer("Fwd"):
-                all_logits = classifier.get_all_logits(
-                    batch_data.input
-                )
+                all_logits = classifier.get_all_logits(batch_data.input)
                 assert all_logits.shape == (
                     batch_data.batch_size,
                     classifier.n_tasks,

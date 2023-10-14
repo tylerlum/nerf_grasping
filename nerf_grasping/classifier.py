@@ -30,9 +30,8 @@ class Classifier(nn.Module):
         assert_equals(len(all_logits.shape), 3)
 
         n_tasks = all_logits.shape[1]
-        N_CLASSES = 2
         assert_equals(
-            all_logits.shape, (batch_data_input.batch_size, n_tasks, N_CLASSES)
+            all_logits.shape, (batch_data_input.batch_size, n_tasks, self.n_classes)
         )
 
         # REMOVE, using to ensure gradients are non-zero
@@ -55,9 +54,8 @@ class Classifier(nn.Module):
         assert_equals(len(all_logits.shape), 3)
 
         n_tasks = all_logits.shape[1]
-        N_CLASSES = 2
         assert_equals(
-            all_logits.shape, (batch_data_input.batch_size, n_tasks, N_CLASSES)
+            all_logits.shape, (batch_data_input.batch_size, n_tasks, self.n_classes)
         )
         return all_logits
 
@@ -68,6 +66,10 @@ class Classifier(nn.Module):
         if not hasattr(self.model, "n_tasks"):
             raise NotImplementedError
         return self.model.n_tasks
+
+    @property
+    def n_classes(self) -> int:
+        return 2
 
 
 class CNN_3D_XYZ_Classifier(Classifier):

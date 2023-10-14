@@ -990,7 +990,7 @@ def _iterate_through_dataloader(
     classifier: Classifier,
     device: torch.device,
     ce_loss_fns: List[nn.CrossEntropyLoss],
-    task_names: List[str],
+    task_type: TaskType,
     training_cfg: Optional[ClassifierTrainingConfig] = None,
     optimizer: Optional[torch.optim.Optimizer] = None,
     lr_scheduler: Optional[torch.optim.lr_scheduler.LRScheduler] = None,
@@ -1009,7 +1009,7 @@ def _iterate_through_dataloader(
         assert training_cfg is None and optimizer is None
 
     assert len(ce_loss_fns) == classifier.n_tasks
-    assert len(task_names) == classifier.n_tasks
+    assert len(task_type.task_names) == classifier.n_tasks
 
     with torch.set_grad_enabled(phase == Phase.TRAIN):
         dataload_section_timer = loop_timer.add_section_timer("Data").start()
@@ -1039,14 +1039,14 @@ def _iterate_through_dataloader(
                     classifier.n_classes,
                 )
 
-                if cfg.task_type == TaskType.PASSED_SIMULATION:
+                if task_type == TaskType.PASSED_SIMULATION:
                     task_targets = [batch_data.output.passed_simulation]
-                elif cfg.task_type == TaskType.PASSED_PENETRATION_THRESHOLD:
+                elif task_type == TaskType.PASSED_PENETRATION_THRESHOLD:
                     task_targets = [batch_data.output.passed_penetration_threshold]
-                elif cfg.task_type == TaskType.PASSED_EVAL:
+                elif task_type == TaskType.PASSED_EVAL:
                     task_targets = [batch_data.output.passed_eval]
                 elif (
-                    cfg.task_type
+                    task_type
                     == TaskType.PASSED_SIMULATION_AND_PENETRATION_THRESHOLD
                 ):
                     task_targets = [
@@ -1054,13 +1054,13 @@ def _iterate_through_dataloader(
                         batch_data.output.passed_penetration_threshold,
                     ]
                 else:
-                    raise ValueError(f"Unknown task_type: {cfg.task_type}")
+                    raise ValueError(f"Unknown task_type: {task_type}")
 
                 assert len(task_targets) == classifier.n_tasks
 
                 task_losses = []
                 for task_i, (ce_loss_fn, task_target, task_name) in enumerate(
-                    zip(ce_loss_fns, task_targets, task_names)
+                    zip(ce_loss_fns, task_targets, task_type.task_names)
                 ):
                     task_logits = all_logits[:, task_i, :]
                     task_loss = ce_loss_fn(
@@ -1099,7 +1099,7 @@ def _iterate_through_dataloader(
             # Gather predictions
             with loop_timer.add_section_timer("Gather"):
                 for task_i, (task_target, task_name) in enumerate(
-                    zip(task_targets, task_names)
+                    zip(task_targets, task_type.task_names)
                 ):
                     task_logits = all_logits[:, task_i, :]
                     predictions = task_logits.argmax(dim=-1).tolist()
@@ -1131,7 +1131,7 @@ def _iterate_through_dataloader(
 def create_log_dict(
     phase: Phase,
     loop_timer: LoopTimer,
-    task_names: List[str],
+    task_type: TaskType,
     losses_dict: Dict[str, List[float]],
     predictions_dict: Dict[str, List[float]],
     ground_truths_dict: Dict[str, List[float]],
@@ -1149,9 +1149,9 @@ def create_log_dict(
         assert (
             set(predictions_dict.keys())
             == set(ground_truths_dict.keys())
-            == set(task_names)
+            == set(task_type.task_names)
         )
-        for task_name in task_names:
+        for task_name in task_type.task_names:
             predictions = predictions_dict[task_name]
             ground_truths = ground_truths_dict[task_name]
             for metric_name, function in [
@@ -1168,9 +1168,9 @@ def create_log_dict(
         assert (
             set(predictions_dict.keys())
             == set(ground_truths_dict.keys())
-            == set(task_names)
+            == set(task_type.task_names)
         )
-        for task_name in task_names:
+        for task_name in task_type.task_names:
             predictions = predictions_dict[task_name]
             ground_truths = ground_truths_dict[task_name]
             temp_log_dict[
@@ -1195,13 +1195,13 @@ def iterate_through_dataloader(
     classifier: Classifier,
     device: torch.device,
     ce_loss_fns: List[nn.CrossEntropyLoss],
-    task_names: List[str],
+    task_type: TaskType,
     training_cfg: Optional[ClassifierTrainingConfig] = None,
     optimizer: Optional[torch.optim.Optimizer] = None,
     lr_scheduler: Optional[torch.optim.lr_scheduler.LRScheduler] = None,
 ) -> Dict[str, Any]:
     assert len(ce_loss_fns) == classifier.n_tasks
-    assert len(task_names) == classifier.n_tasks
+    assert len(task_type.task_names) == classifier.n_tasks
 
     loop_timer = LoopTimer()
 
@@ -1213,7 +1213,7 @@ def iterate_through_dataloader(
         classifier=classifier,
         device=device,
         ce_loss_fns=ce_loss_fns,
-        task_names=task_names,
+        task_type=task_type,
         training_cfg=training_cfg,
         optimizer=optimizer,
         lr_scheduler=lr_scheduler,
@@ -1223,7 +1223,7 @@ def iterate_through_dataloader(
     log_dict = create_log_dict(
         loop_timer=loop_timer,
         phase=phase,
-        task_names=task_names,
+        task_type=task_type,
         losses_dict=losses_dict,
         predictions_dict=predictions_dict,
         ground_truths_dict=ground_truths_dict,
@@ -1247,6 +1247,7 @@ def run_training_loop(
     ce_loss_fns: List[nn.CrossEntropyLoss],
     optimizer: torch.optim.Optimizer,
     checkpoint_workspace_dir_path: str,
+    task_type: TaskType,
     lr_scheduler: Optional[torch.optim.lr_scheduler.LRScheduler] = None,
     start_epoch: int = 0,
 ) -> None:
@@ -1283,7 +1284,7 @@ def run_training_loop(
             classifier=classifier,
             device=device,
             ce_loss_fns=ce_loss_fns,
-            task_names=cfg.task_type.task_names,
+            task_type=task_type,
             training_cfg=training_cfg,
             optimizer=optimizer,
             lr_scheduler=lr_scheduler,
@@ -1304,7 +1305,7 @@ def run_training_loop(
                 classifier=classifier,
                 device=device,
                 ce_loss_fns=ce_loss_fns,
-                task_names=cfg.task_type.task_names,
+                task_type=task_type,
             )
             wandb_log_dict.update(val_log_dict)
         val_time_taken = time.time() - start_val_time
@@ -1474,6 +1475,7 @@ run_training_loop(
     ce_loss_fns=ce_loss_fns,
     optimizer=optimizer,
     checkpoint_workspace_dir_path=checkpoint_workspace_dir_path,
+    task_type=cfg.task_type,
     lr_scheduler=lr_scheduler,
     start_epoch=start_epoch,
 )
@@ -1492,7 +1494,7 @@ test_log_dict = iterate_through_dataloader(
     classifier=classifier,
     device=device,
     ce_loss_fns=ce_loss_fns,
-    task_names=cfg.task_type.task_names,
+    task_type=cfg.task_type,
 )
 wandb_log_dict.update(test_log_dict)
 wandb.log(wandb_log_dict)

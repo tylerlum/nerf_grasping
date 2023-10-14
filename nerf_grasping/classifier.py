@@ -251,6 +251,10 @@ class Ensemble_Classifier(Classifier):
 
         # Note when aggregating logits across classifiers, we need to be careful
         # TODO: think about this more
+        # https://ceur-ws.org/Vol-3215/19.pdf
+        # eg. softmax([10, 11]) = [0.2689, 0.7311] = softmax([0, 1])
+        # eg. softmax([1002, 1004]) = [0.1192, 0.8808] = softmax([0, 2])
+        # If mean logits, then softmax([506, 507.5]) = [0.1824, 0.8176] = softmax([0, 1.5])
         return torch.mean(all_logits, dim=0)
 
 

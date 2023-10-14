@@ -128,7 +128,14 @@ tqdm = partial(std_tqdm, dynamic_ncols=True)
 
 # %%
 if is_notebook():
-    arguments = []
+    arguments = [
+        "cnn-2d-1d",
+        "--task-type",
+        "PASSED_SIMULATION_AND_PENETRATION_THRESHOLD",
+        "--nerfdata-config.output-filepath",
+        "data/2023-10-13_13-12-28/learned_metric_dataset/2023-10-13_13-22-59_learned_metric_dataset.h5",
+        "nerfdata-config.fingertip-config:big-even",
+    ]
 else:
     arguments = sys.argv[1:]
     print(f"arguments = {arguments}")
@@ -265,7 +272,7 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
         input_hdf5_filepath: str,
         max_num_data_points: Optional[int] = None,
         load_nerf_densities_in_ram: bool = False,
-        load_grasp_successes_in_ram: bool = True,
+        load_grasp_labels_in_ram: bool = True,
         load_grasp_transforms_in_ram: bool = True,
         load_nerf_configs_in_ram: bool = True,
         use_conditioning_var: bool = False,
@@ -315,17 +322,17 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
             # This is small enough to fit in RAM
             self.passed_simulations = (
                 torch.from_numpy(hdf5_file["/passed_simulation"][()]).long()
-                if load_grasp_successes_in_ram
+                if load_grasp_labels_in_ram
                 else None
             )
             self.passed_penetration_thresholds = (
                 torch.from_numpy(hdf5_file["/passed_penetration_threshold"][()]).long()
-                if load_grasp_successes_in_ram
+                if load_grasp_labels_in_ram
                 else None
             )
             self.passed_evals = (
                 torch.from_numpy(hdf5_file["/passed_eval"][()]).long()
-                if load_grasp_successes_in_ram
+                if load_grasp_labels_in_ram
                 else None
             )
 
@@ -358,6 +365,7 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
     def _set_length(
         self, hdf5_file: h5py.File, max_num_data_points: Optional[int]
     ) -> int:
+        breakpoint()
         length = (
             hdf5_file.attrs["num_data_points"]
             if "num_data_points" in hdf5_file.attrs
@@ -477,7 +485,7 @@ full_dataset = NeRFGrid_To_GraspSuccess_HDF5_Dataset(
     input_hdf5_filepath=input_dataset_full_path,
     max_num_data_points=cfg.data.max_num_data_points,
     load_nerf_densities_in_ram=cfg.dataloader.load_nerf_grid_inputs_in_ram,
-    load_grasp_successes_in_ram=cfg.dataloader.load_grasp_successes_in_ram,
+    load_grasp_labels_in_ram=cfg.dataloader.load_grasp_labels_in_ram,
     load_grasp_transforms_in_ram=cfg.dataloader.load_grasp_transforms_in_ram,
     load_nerf_configs_in_ram=cfg.dataloader.load_nerf_configs_in_ram,
     use_conditioning_var=isinstance(
@@ -824,7 +832,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Pull out just the CNN (without wrapping for LieTorch) for training.
 assert cfg.model_config is not None
-nerf_to_grasp_success_model: Classifier = (
+classifier: Classifier = (
     cfg.model_config.get_classifier_from_fingertip_config(
         fingertip_config=cfg.nerfdata_config.fingertip_config,
         n_tasks=cfg.task_type.n_tasks,
@@ -834,7 +842,7 @@ nerf_to_grasp_success_model: Classifier = (
 # %%
 start_epoch = 0
 optimizer = torch.optim.AdamW(
-    params=nerf_to_grasp_success_model.parameters(),
+    params=classifier.parameters(),
     lr=cfg.training.lr,
     betas=cfg.training.betas,
     weight_decay=cfg.training.weight_decay,
@@ -854,8 +862,8 @@ lr_scheduler = get_scheduler(
 checkpoint = load_checkpoint(checkpoint_workspace_dir_path)
 if checkpoint is not None:
     print("Loading checkpoint...")
-    nerf_to_grasp_success_model.load_state_dict(
-        checkpoint["nerf_to_grasp_success_model"]
+    classifier.load_state_dict(
+        checkpoint["classifier"]
     )
     optimizer.load_state_dict(checkpoint["optimizer"])
     start_epoch = checkpoint["epoch"]
@@ -867,14 +875,14 @@ if checkpoint is not None:
 # # Visualize Model
 
 # %%
-print(f"nerf_to_grasp_success_model = {nerf_to_grasp_success_model}")
+print(f"classifier = {classifier}")
 print(f"optimizer = {optimizer}")
 print(f"lr_scheduler = {lr_scheduler}")
 
 # %%
 try:
     summary(
-        model=nerf_to_grasp_success_model,
+        model=classifier,
         input_size=(
             cfg.dataloader.batch_size,
             NUM_FINGERS,
@@ -903,13 +911,13 @@ try:
         .to(device)
         .requires_grad_(True)
     )
-    example_output = nerf_to_grasp_success_model(example_input)
+    example_output = classifier(example_input)
     dot = make_dot(
         example_output,
         params={
-            **dict(nerf_to_grasp_success_model.named_parameters()),
+            **dict(classifier.named_parameters()),
             **{"NERF_INPUT": example_input},
-            **{"GRASP_SUCCESS": example_output},
+            **{"GRASP_LABELS": example_output},
         },
     )
     model_graph_filename = "model_graph.png"
@@ -934,7 +942,7 @@ if SHOW_DOT:
 def save_checkpoint(
     checkpoint_workspace_dir_path: str,
     epoch: int,
-    nerf_to_grasp_success_model: Classifier,
+    classifier: Classifier,
     optimizer: torch.optim.Optimizer,
     lr_scheduler: Optional[torch.optim.lr_scheduler.LRScheduler] = None,
 ) -> None:
@@ -945,7 +953,7 @@ def save_checkpoint(
     torch.save(
         {
             "epoch": epoch,
-            "nerf_to_grasp_success_model": nerf_to_grasp_success_model.state_dict(),
+            "classifier": classifier.state_dict(),
             "optimizer": optimizer.state_dict(),
             "lr_scheduler": lr_scheduler.state_dict()
             if lr_scheduler is not None
@@ -962,7 +970,7 @@ def _iterate_through_dataloader(
     loop_timer: LoopTimer,
     phase: Phase,
     dataloader: DataLoader,
-    nerf_to_grasp_success_model: Classifier,
+    classifier: Classifier,
     device: torch.device,
     ce_loss_fns: List[nn.CrossEntropyLoss],
     task_names: List[str],
@@ -977,14 +985,14 @@ def _iterate_through_dataloader(
 
     assert phase in [Phase.TRAIN, Phase.VAL, Phase.TEST]
     if phase == Phase.TRAIN:
-        nerf_to_grasp_success_model.train()
+        classifier.train()
         assert training_cfg is not None and optimizer is not None
     else:
-        nerf_to_grasp_success_model.eval()
+        classifier.eval()
         assert training_cfg is None and optimizer is None
 
-    assert len(ce_loss_fns) == nerf_to_grasp_success_model.n_tasks
-    assert len(task_names) == nerf_to_grasp_success_model.n_tasks
+    assert len(ce_loss_fns) == classifier.n_tasks
+    assert len(task_names) == classifier.n_tasks
 
     with torch.set_grad_enabled(phase == Phase.TRAIN):
         dataload_section_timer = loop_timer.add_section_timer("Data").start()
@@ -1007,13 +1015,13 @@ def _iterate_through_dataloader(
 
             # Forward pass
             with loop_timer.add_section_timer("Fwd"):
-                all_logits = nerf_to_grasp_success_model.get_all_logits(
+                all_logits = classifier.get_all_logits(
                     batch_data.input
                 )
                 assert all_logits.shape == (
                     batch_data.batch_size,
-                    nerf_to_grasp_success_model.n_tasks,
-                    nerf_to_grasp_success_model.n_classes,
+                    classifier.n_tasks,
+                    classifier.n_classes,
                 )
 
                 if cfg.task_type == TaskType.PASSED_SIMULATION:
@@ -1033,7 +1041,7 @@ def _iterate_through_dataloader(
                 else:
                     raise ValueError(f"Unknown task_type: {cfg.task_type}")
 
-                assert len(task_targets) == nerf_to_grasp_success_model.n_tasks
+                assert len(task_targets) == classifier.n_tasks
 
                 task_losses = []
                 for task_i, (ce_loss_fn, task_target, task_name) in enumerate(
@@ -1061,7 +1069,7 @@ def _iterate_through_dataloader(
                         and training_cfg.grad_clip_val is not None
                     ):
                         torch.nn.utils.clip_grad_value_(
-                            nerf_to_grasp_success_model.parameters(),
+                            classifier.parameters(),
                             training_cfg.grad_clip_val,
                         )
 
@@ -1169,7 +1177,7 @@ def create_log_dict(
 def iterate_through_dataloader(
     phase: Phase,
     dataloader: DataLoader,
-    nerf_to_grasp_success_model: Classifier,
+    classifier: Classifier,
     device: torch.device,
     ce_loss_fns: List[nn.CrossEntropyLoss],
     task_names: List[str],
@@ -1177,8 +1185,8 @@ def iterate_through_dataloader(
     optimizer: Optional[torch.optim.Optimizer] = None,
     lr_scheduler: Optional[torch.optim.lr_scheduler.LRScheduler] = None,
 ) -> Dict[str, Any]:
-    assert len(ce_loss_fns) == nerf_to_grasp_success_model.n_tasks
-    assert len(task_names) == nerf_to_grasp_success_model.n_tasks
+    assert len(ce_loss_fns) == classifier.n_tasks
+    assert len(task_names) == classifier.n_tasks
 
     loop_timer = LoopTimer()
 
@@ -1187,7 +1195,7 @@ def iterate_through_dataloader(
         loop_timer=loop_timer,
         phase=phase,
         dataloader=dataloader,
-        nerf_to_grasp_success_model=nerf_to_grasp_success_model,
+        classifier=classifier,
         device=device,
         ce_loss_fns=ce_loss_fns,
         task_names=task_names,
@@ -1219,7 +1227,7 @@ def run_training_loop(
     training_cfg: ClassifierTrainingConfig,
     train_loader: DataLoader,
     val_loader: DataLoader,
-    nerf_to_grasp_success_model: Classifier,
+    classifier: Classifier,
     device: torch.device,
     ce_loss_fns: List[nn.CrossEntropyLoss],
     optimizer: torch.optim.Optimizer,
@@ -1246,7 +1254,7 @@ def run_training_loop(
             save_checkpoint(
                 checkpoint_workspace_dir_path=checkpoint_workspace_dir_path,
                 epoch=epoch,
-                nerf_to_grasp_success_model=nerf_to_grasp_success_model,
+                classifier=classifier,
                 optimizer=optimizer,
                 lr_scheduler=lr_scheduler,
             )
@@ -1257,7 +1265,7 @@ def run_training_loop(
         train_log_dict = iterate_through_dataloader(
             phase=Phase.TRAIN,
             dataloader=train_loader,
-            nerf_to_grasp_success_model=nerf_to_grasp_success_model,
+            classifier=classifier,
             device=device,
             ce_loss_fns=ce_loss_fns,
             task_names=cfg.task_type.task_names,
@@ -1274,11 +1282,11 @@ def run_training_loop(
         if epoch % training_cfg.val_freq == 0 and (
             epoch != 0 or training_cfg.val_on_epoch_0
         ):
-            nerf_to_grasp_success_model.eval()
+            classifier.eval()
             val_log_dict = iterate_through_dataloader(
                 phase=Phase.VAL,
                 dataloader=val_loader,
-                nerf_to_grasp_success_model=nerf_to_grasp_success_model,
+                classifier=classifier,
                 device=device,
                 ce_loss_fns=ce_loss_fns,
                 task_names=cfg.task_type.task_names,
@@ -1286,7 +1294,7 @@ def run_training_loop(
             wandb_log_dict.update(val_log_dict)
         val_time_taken = time.time() - start_val_time
 
-        nerf_to_grasp_success_model.train()
+        classifier.train()
 
         if wandb.run is not None:
             wandb.log(wandb_log_dict)
@@ -1304,7 +1312,7 @@ def run_training_loop(
 
 
 # %%
-wandb.watch(nerf_to_grasp_success_model, log="gradients", log_freq=100)
+wandb.watch(classifier, log="gradients", log_freq=100)
 
 
 # %%
@@ -1446,7 +1454,7 @@ run_training_loop(
     training_cfg=cfg.training,
     train_loader=train_loader,
     val_loader=val_loader,
-    nerf_to_grasp_success_model=nerf_to_grasp_success_model,
+    classifier=classifier,
     device=device,
     ce_loss_fns=ce_loss_fns,
     optimizer=optimizer,
@@ -1459,14 +1467,14 @@ run_training_loop(
 # # Test
 
 # %%
-nerf_to_grasp_success_model.eval()
+classifier.eval()
 wandb_log_dict = {}
 print(f"Running test metrics on epoch {cfg.training.n_epochs}")
 wandb_log_dict["epoch"] = cfg.training.n_epochs
 test_log_dict = iterate_through_dataloader(
     phase=Phase.TEST,
     dataloader=test_loader,
-    nerf_to_grasp_success_model=nerf_to_grasp_success_model,
+    classifier=classifier,
     device=device,
     ce_loss_fns=ce_loss_fns,
     task_names=cfg.task_type.task_names,
@@ -1481,7 +1489,7 @@ wandb.log(wandb_log_dict)
 save_checkpoint(
     checkpoint_workspace_dir_path=checkpoint_workspace_dir_path,
     epoch=cfg.training.n_epochs,
-    nerf_to_grasp_success_model=nerf_to_grasp_success_model,
+    classifier=classifier,
     optimizer=optimizer,
     lr_scheduler=lr_scheduler,
 )

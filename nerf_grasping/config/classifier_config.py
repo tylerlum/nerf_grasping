@@ -92,7 +92,7 @@ class ClassifierDataLoaderConfig:
     load_nerf_grid_inputs_in_ram: bool = False
     """Flag to load the nerf grid inputs in RAM -- otherwise load on the fly."""
 
-    load_grasp_successes_in_ram: bool = False
+    load_grasp_labels_in_ram: bool = False
     """Flag to load the grasp successes in RAM -- otherwise load on the fly."""
 
     load_grasp_transforms_in_ram: bool = False

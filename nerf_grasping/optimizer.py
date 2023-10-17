@@ -156,9 +156,10 @@ class SGDOptimizer(Optimizer):
             TextColumn("[bold blue]{task.description} "),
             console=console,
         ) as progress:
-            task = progress.add_task("Loading CNN", total=1)
-            cnn = classifier_config.model_config.get_classifier_from_fingertip_config(
-                classifier_config.nerfdata_config.fingertip_config
+            task = progress.add_task("Loading classifier", total=1)
+            classifier = classifier_config.model_config.get_classifier_from_fingertip_config(
+                fingertip_config=classifier_config.nerfdata_config.fingertip_config,
+                n_tasks=classifier_config.task_type.n_tasks,
             ).to(device=device)
 
             # Load checkpoint if specified.
@@ -176,14 +177,14 @@ class SGDOptimizer(Optimizer):
                     checkpoint_path / f"checkpoint_{classifier_checkpoint:04}.pt"
                 )
 
-            cnn.load_state_dict(
-                torch.load(checkpoint_path)["nerf_to_grasp_success_model"]
+            classifier.load_state_dict(
+                torch.load(checkpoint_path)["classifier"]
             )
 
             progress.update(task, advance=1)
 
-        if not isinstance(cnn, Simple_CNN_LSTM_Classifier):
-            cnn.eval()  # weird LSTM thing where cudnn hasn't implemented the backwards pass in eval (??)
+        if not isinstance(classifier, Simple_CNN_LSTM_Classifier):
+            classifier.eval()  # weird LSTM thing where cudnn hasn't implemented the backwards pass in eval (??)
 
         # Put grasps on the correct device.
         init_grasp_config = init_grasp_config.to(device=device)
@@ -191,7 +192,7 @@ class SGDOptimizer(Optimizer):
         # Wrap Nerf and Classifier in GraspMetric.
         grasp_metric = GraspMetric(
             nerf,
-            cnn,
+            classifier,
             classifier_config.nerfdata_config.fingertip_config,
         )
 
@@ -269,9 +270,10 @@ class CEMOptimizer(Optimizer):
             TextColumn("[bold blue]{task.description} "),
             console=console,
         ) as progress:
-            task = progress.add_task("Loading CNN", total=1)
-            cnn = classifier_config.model_config.get_classifier_from_fingertip_config(
-                classifier_config.nerfdata_config.fingertip_config
+            task = progress.add_task("Loading classifier", total=1)
+            classifier = classifier_config.model_config.get_classifier_from_fingertip_config(
+                fingertip_config=classifier_config.nerfdata_config.fingertip_config,
+                n_tasks=classifier_config.task_type.n_tasks,
             ).to(device=device)
 
             # Load checkpoint if specified.
@@ -289,17 +291,17 @@ class CEMOptimizer(Optimizer):
                     checkpoint_path / f"checkpoint_{classifier_checkpoint:04}.pt"
                 )
 
-            cnn.load_state_dict(
-                torch.load(checkpoint_path)["nerf_to_grasp_success_model"]
+            classifier.load_state_dict(
+                torch.load(checkpoint_path)["classifier"]
             )
 
             progress.update(task, advance=1)
 
-        cnn.eval()
+        classifier.eval()
 
         # Wrap Nerf and Classifier in GraspMetric.
         grasp_metric = GraspMetric(
-            nerf, cnn, classifier_config.nerfdata_config.fingertip_config
+            nerf, classifier, classifier_config.nerfdata_config.fingertip_config
         )
 
         return cls(

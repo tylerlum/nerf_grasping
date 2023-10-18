@@ -40,7 +40,9 @@ def get_object_code(cfg_path: pathlib.Path) -> str:
     return object_code
 
 
-def parse_object_code_and_scale(object_code_and_scale_str: str) -> Tuple[str, float]:
+def parse_object_code_and_scale(
+    object_code_and_scale_str: str,
+) -> Tuple[str, float]:
     # Input: sem-Gun-4745991e7c0c7966a93f1ea6ebdeec6f_0_10
     # Output: sem-Gun-4745991e7c0c7966a93f1ea6ebdeec6f, 0.10
     keyword = "_0_"
@@ -99,6 +101,7 @@ def plot_mesh_and_transforms(
     transforms: List[np.ndarray],
     num_fingers: int,
     title: str = "Mesh and Transforms",
+    highlight_idx: int = None,
 ) -> go.Figure:
     assert len(transforms) == num_fingers, f"{len(transforms)} != {num_fingers}"
 
@@ -123,7 +126,7 @@ def plot_mesh_and_transforms(
             mode="lines",
             marker=dict(
                 size=8,
-                color="red",
+                color="orange" if finger_idx is highlight_idx else "red",
                 colorscale="viridis",
             ),
             name=f"Finger {finger_idx} X Axis",
@@ -135,7 +138,7 @@ def plot_mesh_and_transforms(
             mode="lines",
             marker=dict(
                 size=8,
-                color="green",
+                color="orange" if finger_idx is highlight_idx else "green",
                 colorscale="viridis",
             ),
             name=f"Finger {finger_idx} Y Axis",

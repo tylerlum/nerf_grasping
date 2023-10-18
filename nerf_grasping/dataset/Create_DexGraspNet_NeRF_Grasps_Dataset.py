@@ -51,6 +51,10 @@ from nerf_grasping.grasp_utils import (
     get_nerf_configs,
     load_nerf,
 )
+from nerf_grasping.nerf_utils import (
+    get_cameras,
+    render,
+)
 from nerf_grasping.config.base import CONFIG_DATETIME_STR
 from functools import partial
 from nerf_grasping.config.nerfdata_config import (
@@ -267,8 +271,24 @@ def create_grid_dataset(
 def create_depth_image_dataset(
     cfg: DepthImageNerfDataConfig, hdf5_file: h5py.File, max_num_datapoints: int
 ):
-    nerf_densities_dataset = hdf5_file.create_dataset(
+    depth_images_dataset = hdf5_file.create_dataset(
         "/depth_images",
+        shape=(
+            max_num_datapoints,
+            cfg.fingertip_config.n_fingers,
+            cfg.fingertip_camera_config.H,
+            cfg.fingertip_camera_config.W,
+        ),
+        dtype="f",
+        chunks=(
+            1,
+            cfg.fingertip_config.n_fingers,
+            cfg.fingertip_camera_config.H,
+            cfg.fingertip_camera_config.W,
+        ),
+    )
+    uncertainty_images_dataset = hdf5_file.create_dataset(
+        "/uncertainty_images",
         shape=(
             max_num_datapoints,
             cfg.fingertip_config.n_fingers,
@@ -305,7 +325,8 @@ def create_depth_image_dataset(
     )
 
     return (
-        nerf_densities_dataset,
+        depth_images_dataset,
+        uncertainty_images_dataset,
         grasp_success_dataset,
         nerf_config_dataset,
         object_code_dataset,
@@ -316,13 +337,32 @@ def create_depth_image_dataset(
 
 
 @torch.no_grad()
-def get_depth_images(
+def get_depth_and_uncertainty_images(
     loop_timer: LoopTimer,
     cfg: UnionNerfDataConfig,
     grasp_frame_transforms: pp.LieTensor,
     nerf_model: nerfstudio.models.base_model.Model,
 ) -> [torch.tensor]:
-    pass
+    with loop_timer.add_section_timer("get_cameras"):
+        cameras = get_cameras(grasp_frame_transforms, cfg.fingertip_camera_config)
+
+    with loop_timer.add_section_timer("render"):
+        depth, uncertainty = render(cameras, nerf_model)
+
+        return (
+            depth.permute(2, 0, 1).view(
+                grasp_frame_transforms.shape[0],
+                cfg.fingertip_config.n_fingers,
+                cfg.fingertip_camera_config.H,
+                cfg.fingertip_camera_config.W,
+            ),
+            uncertainty.permute(2, 0, 1).view(
+                grasp_frame_transforms.shape[0],
+                cfg.fingertip_config.n_fingers,
+                cfg.fingertip_camera_config.H,
+                cfg.fingertip_camera_config.W,
+            ),
+        )
 
 
 @torch.no_grad()
@@ -424,7 +464,8 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
         ) = create_grid_dataset(cfg, hdf5_file, max_num_datapoints)
     elif isinstance(cfg, DepthImageNerfDataConfig):
         (
-            nerf_densities_dataset,
+            depth_images_dataset,
+            uncertainty_images_dataset,
             grasp_success_dataset,
             nerf_config_dataset,
             object_code_dataset,
@@ -432,6 +473,15 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
             grasp_idx_dataset,
             grasp_transforms_dataset,
         ) = create_depth_image_dataset(cfg, hdf5_file, max_num_datapoints)
+        conditioning_var_dataset = hdf5_file.create_dataset(
+            "/conditioning_var",
+            shape=(
+                max_num_datapoints,
+                cfg.fingertip_config.n_fingers,
+                7 + 16 + 4,
+            ),  # 7 for pose, 16 for rotation matrix, 4 for grasp orientation, for each finger
+            dtype="f",
+        )
     else:
         raise NotImplementedError(f"Unknown config type {cfg}")
 
@@ -529,14 +579,25 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
             if isinstance(cfg, GraspConditionedGridDataConfig):
                 grasp_config_tensors = grasp_configs.as_tensor()
 
-            # Process batch of grasp data.
-            nerf_densities, query_points = get_nerf_densities(
-                loop_timer=loop_timer,
-                cfg=cfg,
-                grasp_frame_transforms=grasp_frame_transforms,
-                ray_origins_finger_frame=ray_origins_finger_frame,
-                nerf_model=nerf_model,
-            )
+            if isinstance(cfg, GridNerfDataConfig) or isinstance(
+                cfg, GraspConditionedGridDataConfig
+            ):
+                # Process batch of grasp data.
+                nerf_densities, query_points = get_nerf_densities(
+                    loop_timer=loop_timer,
+                    cfg=cfg,
+                    grasp_frame_transforms=grasp_frame_transforms,
+                    ray_origins_finger_frame=ray_origins_finger_frame,
+                    nerf_model=nerf_model,
+                )
+
+            elif isinstance(cfg, DepthImageNerfDataConfig):
+                depth_images, uncertainty_images = get_depth_and_uncertainty_images(
+                    loop_timer=loop_timer,
+                    cfg=cfg,
+                    grasp_frame_transforms=grasp_frame_transforms,
+                    nerf_model=nerf_model,
+                )
 
             if cfg.plot_only_one:
                 break
@@ -557,7 +618,6 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
             with loop_timer.add_section_timer("save values"):
                 prev_idx = current_idx
                 current_idx += grasp_configs.batch_size
-                nerf_densities_dataset[prev_idx:current_idx] = nerf_densities
                 grasp_success_dataset[prev_idx:current_idx] = grasp_successes
                 nerf_config_dataset[prev_idx:current_idx] = [str(config)] * (
                     current_idx - prev_idx
@@ -573,7 +633,24 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                     grasp_frame_transforms.matrix().cpu().detach().numpy()
                 )
 
-                if isinstance(cfg, GraspConditionedGridDataConfig):
+                if isinstance(cfg, GridNerfDataConfig) or isinstance(
+                    cfg, GraspConditionedGridDataConfig
+                ):
+                    nerf_densities_dataset[prev_idx:current_idx] = (
+                        nerf_densities.detach().cpu().numpy()
+                    )
+
+                if isinstance(cfg, DepthImageNerfDataConfig):
+                    depth_images_dataset[prev_idx:current_idx] = (
+                        depth_images.detach().cpu().numpy()
+                    )
+                    uncertainty_images_dataset[prev_idx:current_idx] = (
+                        uncertainty_images.detach().cpu().numpy()
+                    )
+
+                if isinstance(cfg, GraspConditionedGridDataConfig) or isinstance(
+                    cfg, DepthImageNerfDataConfig
+                ):
                     grasp_config_tensors = grasp_config_tensors.detach().cpu().numpy()
                     assert grasp_config_tensors.shape == (
                         grasp_configs.batch_size,

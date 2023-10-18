@@ -10,7 +10,7 @@ import pypose as pp
 import torch
 import transforms3d
 
-from typing import List, Tuple
+from typing import List, Tuple, Literal
 from nerfstudio.cameras.rays import RayBundle, RaySamples
 from nerfstudio.utils import eval_utils
 from nerf_grasping.config.fingertip_config import BaseFingertipConfig
@@ -163,10 +163,19 @@ def get_nerf_configs(nerf_checkpoints_path: str) -> List[pathlib.Path]:
     return list(pathlib.Path(nerf_checkpoints_path).rglob("nerfacto/*/config.yml"))
 
 
-def load_nerf(cfg_path: pathlib.Path) -> nerfstudio.models.base_model.Model:
+def load_nerf(
+    cfg_path: pathlib.Path, return_type: Literal["pipeline", "model", "field"] = "field"
+) -> nerfstudio.models.base_model.Model:
     _, pipeline, _, _ = eval_utils.eval_setup(cfg_path, test_mode="inference")
 
-    return pipeline.model.field
+    if return_type == "pipeline":
+        return pipeline
+    elif return_type == "model":
+        return pipeline.model
+    elif return_type == "field":
+        return pipeline.model.field
+    else:
+        raise ValueError(f"Invalid return_type {return_type}")
 
 
 def normalize(x: np.ndarray) -> np.ndarray:

@@ -76,6 +76,9 @@ class ClassifierDataConfig:
     debug_shuffle_labels: bool = False
     """Flag to randomize all the labels to see what memorization looks like."""
 
+    nerf_density_threshold_value: Optional[float] = None
+    """Threshold used to convert nerf density values to binary 0/1 occupancy values, None for no thresholding."""
+
 
 @dataclass(frozen=True)
 class ClassifierDataLoaderConfig:
@@ -117,6 +120,10 @@ class ClassifierTrainingConfig:
     """Adam optimizer parameters."""
 
     label_smoothing: float = 0.0
+    """Cross entropy loss label smoothing"""
+
+    extra_punish_false_positive_factor: float = 0.0
+    """eps: multiply the loss weight for false positives by (1 + eps)."""
 
     lr_scheduler_name: Literal[
         "constant",

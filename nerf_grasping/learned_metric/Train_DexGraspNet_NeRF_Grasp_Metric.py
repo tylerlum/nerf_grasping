@@ -553,6 +553,7 @@ def custom_collate_fn(
     use_random_rotations: bool = True,
     debug_shuffle_labels: bool = False,
     use_conditioning_var: bool = False,
+    nerf_density_threshold_value: Optional[float] = None,
 ) -> BatchData:
     batch = torch.utils.data.dataloader.default_collate(batch)
     if use_conditioning_var:
@@ -611,6 +612,7 @@ def custom_collate_fn(
             grasp_transforms=grasp_transforms,
             random_rotate_transform=random_rotate_transform,
             fingertip_config=fingertip_config,
+            nerf_density_threshold_value=nerf_density_threshold_value,
             conditioning_var=conditioning_var if use_conditioning_var else None,
         ),
         output=BatchDataOutput(
@@ -637,6 +639,7 @@ train_loader = DataLoader(
         use_conditioning_var=isinstance(
             cfg.nerfdata_config, GraspConditionedGridDataConfig
         ),
+        nerf_density_threshold_value=cfg.data.nerf_density_threshold_value,
     ),
 )
 val_loader = DataLoader(
@@ -652,6 +655,7 @@ val_loader = DataLoader(
         use_conditioning_var=isinstance(
             cfg.nerfdata_config, GraspConditionedGridDataConfig
         ),
+        nerf_density_threshold_value=cfg.data.nerf_density_threshold_value,
     ),  # Run val over actual grasp transforms (no random rotations)
 )
 test_loader = DataLoader(
@@ -667,6 +671,7 @@ test_loader = DataLoader(
         use_conditioning_var=isinstance(
             cfg.nerfdata_config, GraspConditionedGridDataConfig
         ),
+        nerf_density_threshold_value=cfg.data.nerf_density_threshold_value,
     ),  # Run test over actual test transforms.
 )
 
@@ -1411,19 +1416,16 @@ print(
 )
 print(f"passed_eval_class_weight = {passed_eval_class_weight}")
 
-PUNISH_FALSE_POSITIVE_FACTOR = 1.0
-if PUNISH_FALSE_POSITIVE_FACTOR != 1.0:
-    print(f"HACK: PUNISH_FALSE_POSITIVE_FACTOR = {PUNISH_FALSE_POSITIVE_FACTOR}")
-    passed_simulation_class_weight[1] *= PUNISH_FALSE_POSITIVE_FACTOR
-    passed_penetration_threshold_class_weight[1] *= PUNISH_FALSE_POSITIVE_FACTOR
-    passed_eval_class_weight[1] *= PUNISH_FALSE_POSITIVE_FACTOR
+if cfg.training.extra_punish_false_positive_factor != 0.0:
     print(
-        f"After hack, passed_simulation_class_weight: {passed_simulation_class_weight}"
+        f"cfg.training.extra_punish_false_positive_factor = {cfg.training.extra_punish_false_positive_factor}"
     )
-    print(
-        f"After hack, passed_penetration_threshold_class_weight: {passed_penetration_threshold_class_weight}"
-    )
-    print(f"After hack, passed_eval_class_weight: {passed_eval_class_weight}")
+    passed_simulation_class_weight[1] *= 1 + cfg.training.extra_punish_false_positive_factor
+    passed_penetration_threshold_class_weight[1] *= 1 + cfg.training.extra_punish_false_positive_factor
+    passed_eval_class_weight[1] *= 1 + cfg.training.extra_punish_false_positive_factor
+    print(f"After adjustment, passed_simulation_class_weight: {passed_simulation_class_weight}")
+    print(f"After adjustment, passed_simulation_class_weight: {passed_penetration_threshold_class_weight}")
+    print(f"After adjustment, passed_simulation_class_weight: {passed_eval_class_weight}")
 
 passed_simulation_ce_loss_fn = nn.CrossEntropyLoss(
     weight=passed_simulation_class_weight, label_smoothing=cfg.training.label_smoothing

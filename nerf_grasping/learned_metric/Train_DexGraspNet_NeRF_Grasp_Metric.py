@@ -23,7 +23,6 @@ import pathlib
 import trimesh
 import time
 from collections import defaultdict
-import functools
 from localscope import localscope
 import nerf_grasping
 from dataclasses import asdict
@@ -32,6 +31,7 @@ from torchviz import make_dot
 from nerf_grasping.learned_metric.DexGraspNet_batch_data import (
     BatchData,
     BatchDataInput,
+    BatchDataOutput,
 )
 from nerf_grasping.dataset.DexGraspNet_NeRF_Grasps_utils import (
     get_object_code,
@@ -43,13 +43,15 @@ from nerf_grasping.dataset.timers import LoopTimer
 from nerf_grasping.config.classifier_config import (
     UnionClassifierConfig,
     ClassifierConfig,
+    ClassifierTrainingConfig,
+    TaskType,
 )
 from nerf_grasping.config.fingertip_config import BaseFingertipConfig
 from nerf_grasping.config.nerfdata_config import GraspConditionedGridDataConfig
 import os
 import pypose as pp
 import h5py
-from typing import Optional, Tuple, List
+from typing import Optional, Tuple, List, Dict, Any, Union
 from sklearn.metrics import (
     ConfusionMatrixDisplay,
     confusion_matrix,
@@ -126,13 +128,21 @@ tqdm = partial(std_tqdm, dynamic_ncols=True)
 
 # %%
 if is_notebook():
-    arguments = []
+    arguments = [
+        "cnn-2d-1d",
+        "--task-type",
+        "PASSED_SIMULATION_AND_PENETRATION_THRESHOLD",
+        "--nerfdata-config.output-filepath",
+        "data/2023-10-13_13-12-28/learned_metric_dataset/2023-10-13_13-22-59_learned_metric_dataset.h5",
+        "nerfdata-config.fingertip-config:big-even",
+    ]
 else:
     arguments = sys.argv[1:]
     print(f"arguments = {arguments}")
 
 # %%
 cfg: ClassifierConfig = tyro.cli(UnionClassifierConfig, args=arguments)
+assert cfg.nerfdata_config.fingertip_config is not None
 
 # A relatively dirty hack: create script globals from the config vars.
 NUM_FINGERS = cfg.nerfdata_config.fingertip_config.n_fingers
@@ -255,6 +265,27 @@ run = wandb.init(
 
 
 # %%
+BatchDataTempType = Union[
+    Tuple[
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        str,
+    ],
+    Tuple[
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        str,
+        torch.Tensor,
+    ],
+]
+
+
 class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
     # @localscope.mfc  # ValueError: Cell is empty
     def __init__(
@@ -262,7 +293,7 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
         input_hdf5_filepath: str,
         max_num_data_points: Optional[int] = None,
         load_nerf_densities_in_ram: bool = False,
-        load_grasp_successes_in_ram: bool = True,
+        load_grasp_labels_in_ram: bool = True,
         load_grasp_transforms_in_ram: bool = True,
         load_nerf_configs_in_ram: bool = True,
         use_conditioning_var: bool = False,
@@ -282,8 +313,14 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
 
             # Check that the data is in the expected format
             assert (
-                len(hdf5_file["/grasp_success"].shape) == 1
-            ), f"{hdf5_file['/grasp_success'].shape}"
+                len(hdf5_file["/passed_simulation"].shape) == 1
+            ), f"{hdf5_file['/passed_simulation'].shape}"
+            assert (
+                len(hdf5_file["/passed_penetration_threshold"].shape) == 1
+            ), f"{hdf5_file['/passed_penetration_threshold'].shape}"
+            assert (
+                len(hdf5_file["/passed_eval"].shape) == 1
+            ), f"{hdf5_file['/passed_eval'].shape}"
             assert hdf5_file["/nerf_densities"].shape[1:] == (
                 NUM_FINGERS,
                 NUM_PTS_X,
@@ -304,9 +341,19 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
             )
 
             # This is small enough to fit in RAM
-            self.grasp_successes = (
-                torch.from_numpy(hdf5_file["/grasp_success"][()]).long()
-                if load_grasp_successes_in_ram
+            self.passed_simulations = (
+                torch.from_numpy(hdf5_file["/passed_simulation"][()]).long()
+                if load_grasp_labels_in_ram
+                else None
+            )
+            self.passed_penetration_thresholds = (
+                torch.from_numpy(hdf5_file["/passed_penetration_threshold"][()]).long()
+                if load_grasp_labels_in_ram
+                else None
+            )
+            self.passed_evals = (
+                torch.from_numpy(hdf5_file["/passed_eval"][()]).long()
+                if load_grasp_labels_in_ram
                 else None
             )
 
@@ -326,6 +373,9 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
             )
 
             if use_conditioning_var:
+                assert (
+                    len(hdf5_file["/conditioning_var"].shape) == 2
+                ), f"{hdf5_file['/conditioning_var'].shape}"
                 self.conditioning_var = (
                     hdf5_file["/conditioning_var"][()]
                     if load_conditioning_var_in_ram
@@ -339,11 +389,11 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
         length = (
             hdf5_file.attrs["num_data_points"]
             if "num_data_points" in hdf5_file.attrs
-            else hdf5_file["/grasp_success"].shape[0]
+            else hdf5_file["/passed_simulation"].shape[0]
         )
-        if length != hdf5_file["/grasp_success"].shape[0]:
+        if length != hdf5_file["/passed_simulation"].shape[0]:
             print(
-                f"WARNING: num_data_points = {length} != grasp_success.shape[0] = {hdf5_file['/grasp_success'].shape[0]}"
+                f"WARNING: num_data_points = {length} != passed_simulation.shape[0] = {hdf5_file['/passed_simulation'].shape[0]}"
             )
 
         # Constrain length of dataset if max_num_data_points is set
@@ -365,9 +415,7 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
             "NUM_PTS_Z",
         ]
     )
-    def __getitem__(
-        self, idx: int
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, str]:
+    def __getitem__(self, idx: int) -> BatchDataTempType:
         if self.hdf5_file is None:
             # Hope to speed up with rdcc params
             self.hdf5_file = h5py.File(
@@ -384,10 +432,22 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
             else self.nerf_densities[idx]
         )
 
-        grasp_success = (
-            torch.from_numpy(np.array(self.hdf5_file["/grasp_success"][idx])).long()
-            if self.grasp_successes is None
-            else self.grasp_successes[idx]
+        passed_simulation = (
+            torch.from_numpy(np.array(self.hdf5_file["/passed_simulation"][idx])).long()
+            if self.passed_simulations is None
+            else self.passed_simulations[idx]
+        )
+        passed_penetration_threshold = (
+            torch.from_numpy(
+                np.array(self.hdf5_file["/passed_penetration_threshold"][idx])
+            ).long()
+            if self.passed_penetration_thresholds is None
+            else self.passed_penetration_thresholds[idx]
+        )
+        passed_eval = (
+            torch.from_numpy(np.array(self.hdf5_file["/passed_eval"][idx])).long()
+            if self.passed_evals is None
+            else self.passed_evals[idx]
         )
 
         grasp_transforms = (
@@ -403,7 +463,9 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
         ).decode("utf-8")
 
         assert nerf_densities.shape == (NUM_FINGERS, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
-        assert grasp_success.shape == ()
+        assert passed_simulation.shape == ()
+        assert passed_penetration_threshold.shape == ()
+        assert passed_eval.shape == ()
         assert grasp_transforms.shape == (NUM_FINGERS, 4, 4)
 
         if self.use_conditioning_var:
@@ -414,13 +476,22 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
             )
             return (
                 nerf_densities,
-                grasp_success,
+                passed_simulation,
+                passed_penetration_threshold,
+                passed_eval,
                 grasp_transforms,
                 nerf_config,
                 conditioning_var,
             )
-
-        return nerf_densities, grasp_success, grasp_transforms, nerf_config
+        else:
+            return (
+                nerf_densities,
+                passed_simulation,
+                passed_penetration_threshold,
+                passed_eval,
+                grasp_transforms,
+                nerf_config,
+            )
 
 
 # %%
@@ -430,7 +501,7 @@ full_dataset = NeRFGrid_To_GraspSuccess_HDF5_Dataset(
     input_hdf5_filepath=input_dataset_full_path,
     max_num_data_points=cfg.data.max_num_data_points,
     load_nerf_densities_in_ram=cfg.dataloader.load_nerf_grid_inputs_in_ram,
-    load_grasp_successes_in_ram=cfg.dataloader.load_grasp_successes_in_ram,
+    load_grasp_labels_in_ram=cfg.dataloader.load_grasp_labels_in_ram,
     load_grasp_transforms_in_ram=cfg.dataloader.load_grasp_transforms_in_ram,
     load_nerf_configs_in_ram=cfg.dataloader.load_nerf_configs_in_ram,
     use_conditioning_var=isinstance(
@@ -477,7 +548,7 @@ def sample_random_rotate_transforms(N: int) -> pp.LieTensor:
 
 @localscope.mfc
 def custom_collate_fn(
-    batch: List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor, str]],
+    batch: List[BatchDataTempType],
     fingertip_config: BaseFingertipConfig,
     use_random_rotations: bool = True,
     debug_shuffle_labels: bool = False,
@@ -488,19 +559,28 @@ def custom_collate_fn(
     if use_conditioning_var:
         (
             nerf_densities,
-            grasp_successes,
+            passed_simulation,
+            passed_penetration_threshold,
+            passed_eval,
             grasp_transforms,
             nerf_configs,
             conditioning_var,
         ) = batch
-
     else:
-        nerf_densities, grasp_successes, grasp_transforms, nerf_configs = batch
-        conditioning_var = None
+        (
+            nerf_densities,
+            passed_simulation,
+            passed_penetration_threshold,
+            passed_eval,
+            grasp_transforms,
+            nerf_configs,
+        ) = batch
 
     if debug_shuffle_labels:
-        shuffle_inds = torch.randperm(grasp_successes.shape[0])
-        grasp_successes = grasp_successes[shuffle_inds]
+        shuffle_inds = torch.randperm(passed_simulation.shape[0])
+        passed_simulation = passed_simulation[shuffle_inds]
+        passed_penetration_threshold = passed_penetration_threshold[shuffle_inds]
+        passed_eval = passed_eval[shuffle_inds]
 
     grasp_transforms = pp.from_matrix(grasp_transforms, pp.SE3_type)
 
@@ -532,10 +612,14 @@ def custom_collate_fn(
             grasp_transforms=grasp_transforms,
             random_rotate_transform=random_rotate_transform,
             fingertip_config=fingertip_config,
-            conditioning_var=conditioning_var,
             nerf_density_threshold_value=nerf_density_threshold_value,
+            conditioning_var=conditioning_var if use_conditioning_var else None,
         ),
-        grasp_success=grasp_successes,
+        output=BatchDataOutput(
+            passed_simulation=passed_simulation,
+            passed_penetration_threshold=passed_penetration_threshold,
+            passed_eval=passed_eval,
+        ),
         nerf_config=nerf_configs,
     )
 
@@ -601,7 +685,11 @@ else:
 @localscope.mfc
 def print_shapes(batch_data: BatchData) -> None:
     print(f"nerf_alphas.shape: {batch_data.input.nerf_alphas.shape}")
-    print(f"grasp_success.shape: {batch_data.grasp_success.shape}")
+    print(f"passed_simulation.shape: {batch_data.output.passed_simulation.shape}")
+    print(
+        f"passed_penetration_threshold.shape: {batch_data.output.passed_penetration_threshold.shape}"
+    )
+    print(f"passed_eval.shape: {batch_data.output.passed_eval.shape}")
     print(f"grasp_transforms.shape: {batch_data.input.grasp_transforms.shape}")
     print(f"len(nerf_config): {len(batch_data.nerf_config)}")
     print(f"coords.shape = {batch_data.input.coords.shape}")
@@ -613,7 +701,7 @@ def print_shapes(batch_data: BatchData) -> None:
     )
 
 
-EXAMPLE_BATCH_DATA = next(iter(val_loader))
+EXAMPLE_BATCH_DATA: BatchData = next(iter(val_loader))
 print_shapes(batch_data=EXAMPLE_BATCH_DATA)
 
 # %% [markdown]
@@ -645,10 +733,16 @@ def plot_example(
 
     # Extract data
     colors = batch_data.input.nerf_alphas[idx_to_visualize]
-    grasp_success = batch_data.grasp_success[idx_to_visualize].item()
+    passed_simulation = batch_data.output.passed_simulation[idx_to_visualize].item()
+    passed_penetration_threshold = batch_data.output.passed_penetration_threshold[
+        idx_to_visualize
+    ].item()
+    passed_eval = batch_data.output.passed_eval[idx_to_visualize].item()
 
     assert colors.shape == (NUM_FINGERS, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
-    assert grasp_success in [0, 1]
+    assert passed_simulation in [0, 1]
+    assert passed_penetration_threshold in [0, 1]
+    assert passed_eval in [0, 1]
 
     nerf_config_path = pathlib.Path(batch_data.nerf_config[idx_to_visualize])
     object_code = get_object_code(nerf_config_path)
@@ -701,8 +795,10 @@ def plot_example(
         query_points_colors_list=query_point_colors_list,
         num_fingers=NUM_FINGERS,
     )
-    # Set title to grasp_success
-    fig.update_layout(title_text=f"grasp_success = {grasp_success}")
+    # Set title to label
+    fig.update_layout(
+        title_text=f"passed_simulation = {passed_simulation}, passed_penetration_threshold = {passed_penetration_threshold}, passed_eval = {passed_eval}"
+    )
     return fig
 
 
@@ -716,7 +812,7 @@ def plot_example(
 # fig.show()
 
 # %%
-EXAMPLE_BATCH_DATA.grasp_success
+EXAMPLE_BATCH_DATA.output.passed_simulation, EXAMPLE_BATCH_DATA.output.passed_penetration_threshold, EXAMPLE_BATCH_DATA.output.passed_eval
 
 # # %%
 # fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=14)
@@ -762,16 +858,15 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Pull out just the CNN (without wrapping for LieTorch) for training.
 assert cfg.model_config is not None
-nerf_to_grasp_success_model: Classifier = (
-    cfg.model_config.get_classifier_from_fingertip_config(
-        cfg.nerfdata_config.fingertip_config
-    ).to(device)
-)
+classifier: Classifier = cfg.model_config.get_classifier_from_fingertip_config(
+    fingertip_config=cfg.nerfdata_config.fingertip_config,
+    n_tasks=cfg.task_type.n_tasks,
+).to(device)
 
 # %%
 start_epoch = 0
 optimizer = torch.optim.AdamW(
-    params=nerf_to_grasp_success_model.parameters(),
+    params=classifier.parameters(),
     lr=cfg.training.lr,
     betas=cfg.training.betas,
     weight_decay=cfg.training.weight_decay,
@@ -791,9 +886,7 @@ lr_scheduler = get_scheduler(
 checkpoint = load_checkpoint(checkpoint_workspace_dir_path)
 if checkpoint is not None:
     print("Loading checkpoint...")
-    nerf_to_grasp_success_model.load_state_dict(
-        checkpoint["nerf_to_grasp_success_model"]
-    )
+    classifier.load_state_dict(checkpoint["classifier"])
     optimizer.load_state_dict(checkpoint["optimizer"])
     start_epoch = checkpoint["epoch"]
     if lr_scheduler is not None and "lr_scheduler" in checkpoint:
@@ -804,18 +897,20 @@ if checkpoint is not None:
 # # Visualize Model
 
 # %%
-print(f"nerf_to_grasp_success_model = {nerf_to_grasp_success_model}")
+print(f"classifier = {classifier}")
 print(f"optimizer = {optimizer}")
 print(f"lr_scheduler = {lr_scheduler}")
 
 # %%
 try:
     summary(
-        model=nerf_to_grasp_success_model,
+        model=classifier,
         input_size=(
             cfg.dataloader.batch_size,
-            cfg.model_config.n_fingers,
-            *cfg.model_config.input_shape,
+            NUM_FINGERS,
+            NUM_PTS_X,
+            NUM_PTS_Y,
+            NUM_PTS_Z,
         ),
         device=device,
     )
@@ -829,20 +924,22 @@ try:
         torch.zeros(
             (
                 cfg.dataloader.batch_size,
-                cfg.model_config.n_fingers,
-                *cfg.model_config.input_shape,
+                NUM_FINGERS,
+                NUM_PTS_X,
+                NUM_PTS_Y,
+                NUM_PTS_Z,
             )
         )
         .to(device)
         .requires_grad_(True)
     )
-    example_output = nerf_to_grasp_success_model(example_input)
+    example_output = classifier(example_input)
     dot = make_dot(
         example_output,
         params={
-            **dict(nerf_to_grasp_success_model.named_parameters()),
+            **dict(classifier.named_parameters()),
             **{"NERF_INPUT": example_input},
-            **{"GRASP_SUCCESS": example_output},
+            **{"GRASP_LABELS": example_output},
         },
     )
     model_graph_filename = "model_graph.png"
@@ -867,7 +964,7 @@ if SHOW_DOT:
 def save_checkpoint(
     checkpoint_workspace_dir_path: str,
     epoch: int,
-    nerf_to_grasp_success_model: Classifier,
+    classifier: Classifier,
     optimizer: torch.optim.Optimizer,
     lr_scheduler: Optional[torch.optim.lr_scheduler.LRScheduler] = None,
 ) -> None:
@@ -878,7 +975,7 @@ def save_checkpoint(
     torch.save(
         {
             "epoch": epoch,
-            "nerf_to_grasp_success_model": nerf_to_grasp_success_model.state_dict(),
+            "classifier": classifier.state_dict(),
             "optimizer": optimizer.state_dict(),
             "lr_scheduler": lr_scheduler.state_dict()
             if lr_scheduler is not None
@@ -891,30 +988,35 @@ def save_checkpoint(
 
 # %%
 @localscope.mfc(allowed=["tqdm"])
-def iterate_through_dataloader(
+def _iterate_through_dataloader(
+    loop_timer: LoopTimer,
     phase: Phase,
     dataloader: DataLoader,
-    nerf_to_grasp_success_model: Classifier,
+    classifier: Classifier,
     device: torch.device,
-    ce_loss_fn: nn.CrossEntropyLoss,
-    wandb_log_dict: dict,
-    training_cfg: Optional[TrainingConfig] = None,
+    ce_loss_fns: List[nn.CrossEntropyLoss],
+    task_type: TaskType,
+    training_cfg: Optional[ClassifierTrainingConfig] = None,
     optimizer: Optional[torch.optim.Optimizer] = None,
     lr_scheduler: Optional[torch.optim.lr_scheduler.LRScheduler] = None,
-) -> None:
+) -> Tuple[Dict[str, List[float]], Dict[str, List[float]], Dict[str, List[float]]]:
+    losses_dict = defaultdict(list)  # loss name => list of losses (one loss per batch)
+    predictions_dict, ground_truths_dict = defaultdict(list), defaultdict(
+        list
+    )  # task name => list of predictions / ground truths (one per datapoint)
+
     assert phase in [Phase.TRAIN, Phase.VAL, Phase.TEST]
     if phase == Phase.TRAIN:
-        nerf_to_grasp_success_model.train()
+        classifier.train()
         assert training_cfg is not None and optimizer is not None
     else:
-        nerf_to_grasp_success_model.eval()
+        classifier.eval()
         assert training_cfg is None and optimizer is None
 
-    loop_timer = LoopTimer()
-    with torch.set_grad_enabled(phase == Phase.TRAIN):
-        losses_dict = defaultdict(list)
-        all_predictions, all_ground_truths = [], []
+    assert len(ce_loss_fns) == classifier.n_tasks
+    assert len(task_type.task_names) == classifier.n_tasks
 
+    with torch.set_grad_enabled(phase == Phase.TRAIN):
         dataload_section_timer = loop_timer.add_section_timer("Data").start()
         for batch_idx, batch_data in (
             pbar := tqdm(enumerate(dataloader), total=len(dataloader))
@@ -935,13 +1037,46 @@ def iterate_through_dataloader(
 
             # Forward pass
             with loop_timer.add_section_timer("Fwd"):
-                grasp_success_logits = nerf_to_grasp_success_model.get_success_logits(
-                    batch_data.input
+                all_logits = classifier.get_all_logits(batch_data.input)
+                assert all_logits.shape == (
+                    batch_data.batch_size,
+                    classifier.n_tasks,
+                    classifier.n_classes,
                 )
-                ce_loss = ce_loss_fn(
-                    input=grasp_success_logits, target=batch_data.grasp_success
-                )
-                total_loss = ce_loss
+
+                if task_type == TaskType.PASSED_SIMULATION:
+                    task_targets = [batch_data.output.passed_simulation]
+                elif task_type == TaskType.PASSED_PENETRATION_THRESHOLD:
+                    task_targets = [batch_data.output.passed_penetration_threshold]
+                elif task_type == TaskType.PASSED_EVAL:
+                    task_targets = [batch_data.output.passed_eval]
+                elif (
+                    task_type
+                    == TaskType.PASSED_SIMULATION_AND_PENETRATION_THRESHOLD
+                ):
+                    task_targets = [
+                        batch_data.output.passed_simulation,
+                        batch_data.output.passed_penetration_threshold,
+                    ]
+                else:
+                    raise ValueError(f"Unknown task_type: {task_type}")
+
+                assert len(task_targets) == classifier.n_tasks
+
+                task_losses = []
+                for task_i, (ce_loss_fn, task_target, task_name) in enumerate(
+                    zip(ce_loss_fns, task_targets, task_type.task_names)
+                ):
+                    task_logits = all_logits[:, task_i, :]
+                    task_loss = ce_loss_fn(
+                        input=task_logits,
+                        target=task_target,
+                    )
+                    losses_dict[f"{task_name}_loss"].append(task_loss.item())
+                    task_losses.append(task_loss)
+                total_loss = torch.sum(
+                    torch.stack(task_losses)
+                )  # TODO: Consider weighting losses.
 
             # Gradient step
             with loop_timer.add_section_timer("Bwd"):
@@ -954,7 +1089,7 @@ def iterate_through_dataloader(
                         and training_cfg.grad_clip_val is not None
                     ):
                         torch.nn.utils.clip_grad_value_(
-                            nerf_to_grasp_success_model.parameters(),
+                            classifier.parameters(),
                             training_cfg.grad_clip_val,
                         )
 
@@ -968,10 +1103,14 @@ def iterate_through_dataloader(
 
             # Gather predictions
             with loop_timer.add_section_timer("Gather"):
-                predictions = grasp_success_logits.argmax(dim=-1).tolist()
-                ground_truths = batch_data.grasp_success.tolist()
-                all_predictions += predictions
-                all_ground_truths += ground_truths
+                for task_i, (task_target, task_name) in enumerate(
+                    zip(task_targets, task_type.task_names)
+                ):
+                    task_logits = all_logits[:, task_i, :]
+                    predictions = task_logits.argmax(dim=-1).tolist()
+                    ground_truths = task_target.tolist()
+                    predictions_dict[f"{task_name}"] += predictions
+                    ground_truths_dict[f"{task_name}"] += ground_truths
 
             # Set description
             loss_log_str = (
@@ -991,56 +1130,129 @@ def iterate_through_dataloader(
                 # Avoid starting timer at end of last batch
                 dataload_section_timer = loop_timer.add_section_timer("Data").start()
 
+    return losses_dict, predictions_dict, ground_truths_dict
+
+
+def create_log_dict(
+    phase: Phase,
+    loop_timer: LoopTimer,
+    task_type: TaskType,
+    losses_dict: Dict[str, List[float]],
+    predictions_dict: Dict[str, List[float]],
+    ground_truths_dict: Dict[str, List[float]],
+    optimizer: Optional[torch.optim.Optimizer] = None,
+) -> Dict[str, Any]:
+    temp_log_dict = {}  # Make code cleaner by excluding phase name until the end
     if optimizer is not None:
-        wandb_log_dict[f"{phase.name.lower()}_lr"] = optimizer.param_groups[0]["lr"]
+        temp_log_dict["lr"] = optimizer.param_groups[0]["lr"]
 
     with loop_timer.add_section_timer("Agg Loss"):
         for loss_name, losses in losses_dict.items():
-            wandb_log_dict[f"{phase.name.lower()}_{loss_name}"] = np.mean(losses)
+            temp_log_dict[f"{loss_name}"] = np.mean(losses)
 
     with loop_timer.add_section_timer("Metrics"):
-        if len(all_ground_truths) > 0 and len(all_predictions) > 0:
-            for name, function in [
+        assert (
+            set(predictions_dict.keys())
+            == set(ground_truths_dict.keys())
+            == set(task_type.task_names)
+        )
+        for task_name in task_type.task_names:
+            predictions = predictions_dict[task_name]
+            ground_truths = ground_truths_dict[task_name]
+            for metric_name, function in [
                 ("accuracy", accuracy_score),
                 ("precision", precision_score),
                 ("recall", recall_score),
                 ("f1", f1_score),
             ]:
-                wandb_log_dict[f"{phase.name.lower()}_{name}"] = function(
-                    y_true=all_ground_truths, y_pred=all_predictions
+                temp_log_dict[f"{task_name}_{metric_name}"] = function(
+                    y_true=ground_truths, y_pred=predictions
                 )
+
     with loop_timer.add_section_timer("Confusion Matrix"):
-        if (
-            len(all_ground_truths) > 0
-            and len(all_predictions) > 0
-            and wandb.run is not None
-        ):
-            wandb_log_dict[
-                f"{phase.name.lower()}_confusion_matrix"
+        assert (
+            set(predictions_dict.keys())
+            == set(ground_truths_dict.keys())
+            == set(task_type.task_names)
+        )
+        for task_name in task_type.task_names:
+            predictions = predictions_dict[task_name]
+            ground_truths = ground_truths_dict[task_name]
+            temp_log_dict[
+                f"{task_name}_confusion_matrix"
             ] = wandb.plot.confusion_matrix(
-                preds=all_predictions,
-                y_true=all_ground_truths,
+                preds=predictions,
+                y_true=ground_truths,
                 class_names=["failure", "success"],
-                title=f"{phase.name.title()} Confusion Matrix",
+                title=f"{phase.name.title()} {task_name} Confusion Matrix",
             )
+
+    log_dict = {}
+    for key, value in temp_log_dict.items():
+        log_dict[f"{phase.name.lower()}_{key}"] = value
+    return log_dict
+
+
+@localscope.mfc(allowed=["tqdm"])
+def iterate_through_dataloader(
+    phase: Phase,
+    dataloader: DataLoader,
+    classifier: Classifier,
+    device: torch.device,
+    ce_loss_fns: List[nn.CrossEntropyLoss],
+    task_type: TaskType,
+    training_cfg: Optional[ClassifierTrainingConfig] = None,
+    optimizer: Optional[torch.optim.Optimizer] = None,
+    lr_scheduler: Optional[torch.optim.lr_scheduler.LRScheduler] = None,
+) -> Dict[str, Any]:
+    assert len(ce_loss_fns) == classifier.n_tasks
+    assert len(task_type.task_names) == classifier.n_tasks
+
+    loop_timer = LoopTimer()
+
+    # Iterate through dataloader and get logged results
+    losses_dict, predictions_dict, ground_truths_dict = _iterate_through_dataloader(
+        loop_timer=loop_timer,
+        phase=phase,
+        dataloader=dataloader,
+        classifier=classifier,
+        device=device,
+        ce_loss_fns=ce_loss_fns,
+        task_type=task_type,
+        training_cfg=training_cfg,
+        optimizer=optimizer,
+        lr_scheduler=lr_scheduler,
+    )
+
+    # Log
+    log_dict = create_log_dict(
+        loop_timer=loop_timer,
+        phase=phase,
+        task_type=task_type,
+        losses_dict=losses_dict,
+        predictions_dict=predictions_dict,
+        ground_truths_dict=ground_truths_dict,
+        optimizer=optimizer,
+    )
 
     loop_timer.pretty_print_section_times()
     print()
     print()
 
-    return
+    return log_dict
 
 
 @localscope.mfc(allowed=["tqdm"])
 def run_training_loop(
-    training_cfg: TrainingConfig,
+    training_cfg: ClassifierTrainingConfig,
     train_loader: DataLoader,
     val_loader: DataLoader,
-    nerf_to_grasp_success_model: Classifier,
+    classifier: Classifier,
     device: torch.device,
-    ce_loss_fn: nn.CrossEntropyLoss,
+    ce_loss_fns: List[nn.CrossEntropyLoss],
     optimizer: torch.optim.Optimizer,
     checkpoint_workspace_dir_path: str,
+    task_type: TaskType,
     lr_scheduler: Optional[torch.optim.lr_scheduler.LRScheduler] = None,
     start_epoch: int = 0,
 ) -> None:
@@ -1063,7 +1275,7 @@ def run_training_loop(
             save_checkpoint(
                 checkpoint_workspace_dir_path=checkpoint_workspace_dir_path,
                 epoch=epoch,
-                nerf_to_grasp_success_model=nerf_to_grasp_success_model,
+                classifier=classifier,
                 optimizer=optimizer,
                 lr_scheduler=lr_scheduler,
             )
@@ -1071,17 +1283,18 @@ def run_training_loop(
 
         # Train
         start_train_time = time.time()
-        iterate_through_dataloader(
+        train_log_dict = iterate_through_dataloader(
             phase=Phase.TRAIN,
             dataloader=train_loader,
-            nerf_to_grasp_success_model=nerf_to_grasp_success_model,
+            classifier=classifier,
             device=device,
-            ce_loss_fn=ce_loss_fn,
-            wandb_log_dict=wandb_log_dict,
+            ce_loss_fns=ce_loss_fns,
+            task_type=task_type,
             training_cfg=training_cfg,
             optimizer=optimizer,
             lr_scheduler=lr_scheduler,
         )
+        wandb_log_dict.update(train_log_dict)
         train_time_taken = time.time() - start_train_time
 
         # Val
@@ -1090,18 +1303,19 @@ def run_training_loop(
         if epoch % training_cfg.val_freq == 0 and (
             epoch != 0 or training_cfg.val_on_epoch_0
         ):
-            nerf_to_grasp_success_model.eval()
-            iterate_through_dataloader(
+            classifier.eval()
+            val_log_dict = iterate_through_dataloader(
                 phase=Phase.VAL,
                 dataloader=val_loader,
-                nerf_to_grasp_success_model=nerf_to_grasp_success_model,
+                classifier=classifier,
                 device=device,
-                ce_loss_fn=ce_loss_fn,
-                wandb_log_dict=wandb_log_dict,
+                ce_loss_fns=ce_loss_fns,
+                task_type=task_type,
             )
+            wandb_log_dict.update(val_log_dict)
         val_time_taken = time.time() - start_val_time
 
-        nerf_to_grasp_success_model.train()
+        classifier.train()
 
         if wandb.run is not None:
             wandb.log(wandb_log_dict)
@@ -1119,34 +1333,52 @@ def run_training_loop(
 
 
 # %%
-wandb.watch(nerf_to_grasp_success_model, log="gradients", log_freq=100)
+wandb.watch(classifier, log="gradients", log_freq=100)
 
 
 # %%
 @localscope.mfc
 def compute_class_weight_np(
     train_dataset: Subset, input_dataset_full_path: str
-) -> np.ndarray:
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     try:
         print("Loading grasp success data for class weighting...")
         t1 = time.time()
         with h5py.File(input_dataset_full_path, "r") as hdf5_file:
-            grasp_successes_np = np.array(hdf5_file["/grasp_success"][()])
+            passed_simulations_np = np.array(hdf5_file["/passed_simulation"][()])
+            passed_penetration_threshold_np = np.array(
+                hdf5_file["/passed_penetration_threshold"][()]
+            )
+            passed_eval_np = np.array(hdf5_file["/passed_eval"][()])
         t2 = time.time()
         print(f"Loaded grasp success data in {t2 - t1:.2f} s")
 
         print("Extracting training indices...")
         t3 = time.time()
-        grasp_successes_np = grasp_successes_np[train_dataset.indices]
+        passed_simulations_np = passed_simulations_np[train_dataset.indices]
+        passed_penetration_threshold_np = passed_penetration_threshold_np[
+            train_dataset.indices
+        ]
+        passed_eval_np = passed_eval_np[train_dataset.indices]
         t4 = time.time()
         print(f"Extracted training indices in {t4 - t3:.2f} s")
 
         print("Computing class weight with this data...")
         t5 = time.time()
-        class_weight_np = compute_class_weight(
+        passed_simulation_class_weight_np = compute_class_weight(
             class_weight="balanced",
-            classes=np.unique(grasp_successes_np),
-            y=grasp_successes_np,
+            classes=np.unique(passed_simulations_np),
+            y=passed_simulations_np,
+        )
+        passed_penetration_threshold_class_weight_np = compute_class_weight(
+            class_weight="balanced",
+            classes=np.unique(passed_penetration_threshold_np),
+            y=passed_penetration_threshold_np,
+        )
+        passed_eval_class_weight_np = compute_class_weight(
+            class_weight="balanced",
+            classes=np.unique(passed_eval_np),
+            y=passed_eval_np,
         )
         t6 = time.time()
         print(f"Computed class weight in {t6 - t5:.2f} s")
@@ -1154,32 +1386,71 @@ def compute_class_weight_np(
     except Exception as e:
         print(f"Failed to compute class weight: {e}")
         print("Using default class weight")
-        class_weight_np = np.array([1.0, 1.0])
-    return class_weight_np
-
-
-class_weight = (
-    torch.from_numpy(
-        compute_class_weight_np(
-            train_dataset=train_dataset, input_dataset_full_path=input_dataset_full_path
-        )
+        passed_simulation_class_weight_np = np.array([1.0, 1.0])
+        passed_penetration_threshold_class_weight_np = np.array([1.0, 1.0])
+        passed_eval_class_weight_np = np.array([1.0, 1.0])
+    return (
+        passed_simulation_class_weight_np,
+        passed_penetration_threshold_class_weight_np,
+        passed_eval_class_weight_np,
     )
-    .float()
-    .to(device)
+
+
+(
+    passed_simulation_class_weight,
+    passed_penetration_threshold_class_weight,
+    passed_eval_class_weight,
+) = compute_class_weight_np(
+    train_dataset=train_dataset, input_dataset_full_path=input_dataset_full_path
 )
-print(f"Class weight: {class_weight}")
+passed_simulation_class_weight = (
+    torch.from_numpy(passed_simulation_class_weight).float().to(device)
+)
+passed_penetration_threshold_class_weight = (
+    torch.from_numpy(passed_penetration_threshold_class_weight).float().to(device)
+)
+passed_eval_class_weight = torch.from_numpy(passed_eval_class_weight).float().to(device)
+print(f"passed_simulation_class_weight = {passed_simulation_class_weight}")
+print(
+    f"passed_penetration_threshold_class_weight = {passed_penetration_threshold_class_weight}"
+)
+print(f"passed_eval_class_weight = {passed_eval_class_weight}")
 
 if cfg.training.extra_punish_false_positive_factor != 0.0:
     print(
         f"cfg.training.extra_punish_false_positive_factor = {cfg.training.extra_punish_false_positive_factor}"
     )
-    class_weight[1] *= 1 + cfg.training.extra_punish_false_positive_factor
-    print(f"After adjustment, class weight: {class_weight}")
+    passed_simulation_class_weight[1] *= 1 + cfg.training.extra_punish_false_positive_factor
+    passed_penetration_threshold_class_weight[1] *= 1 + cfg.training.extra_punish_false_positive_factor
+    passed_eval_class_weight[1] *= 1 + cfg.training.extra_punish_false_positive_factor
+    print(f"After adjustment, passed_simulation_class_weight: {passed_simulation_class_weight}")
+    print(f"After adjustment, passed_simulation_class_weight: {passed_penetration_threshold_class_weight}")
+    print(f"After adjustment, passed_simulation_class_weight: {passed_eval_class_weight}")
 
-ce_loss_fn = nn.CrossEntropyLoss(
-    weight=class_weight, label_smoothing=cfg.training.label_smoothing
+passed_simulation_ce_loss_fn = nn.CrossEntropyLoss(
+    weight=passed_simulation_class_weight, label_smoothing=cfg.training.label_smoothing
+)
+passed_penetration_threshold_ce_loss_fn = nn.CrossEntropyLoss(
+    weight=passed_penetration_threshold_class_weight,
+    label_smoothing=cfg.training.label_smoothing,
+)
+passed_eval_ce_loss_fn = nn.CrossEntropyLoss(
+    weight=passed_eval_class_weight, label_smoothing=cfg.training.label_smoothing
 )
 
+if cfg.task_type == TaskType.PASSED_SIMULATION:
+    ce_loss_fns = [passed_simulation_ce_loss_fn]
+elif cfg.task_type == TaskType.PASSED_PENETRATION_THRESHOLD:
+    ce_loss_fns = [passed_penetration_threshold_ce_loss_fn]
+elif cfg.task_type == TaskType.PASSED_EVAL:
+    ce_loss_fns = [passed_eval_ce_loss_fn]
+elif cfg.task_type == TaskType.PASSED_SIMULATION_AND_PENETRATION_THRESHOLD:
+    ce_loss_fns = [
+        passed_simulation_ce_loss_fn,
+        passed_penetration_threshold_ce_loss_fn,
+    ]
+else:
+    raise ValueError(f"Unknown task_type: {cfg.task_type}")
 
 # Save out config to file if we haven't yet.
 cfg_path = pathlib.Path(checkpoint_workspace_dir_path) / "config.yaml"
@@ -1201,11 +1472,12 @@ run_training_loop(
     training_cfg=cfg.training,
     train_loader=train_loader,
     val_loader=val_loader,
-    nerf_to_grasp_success_model=nerf_to_grasp_success_model,
+    classifier=classifier,
     device=device,
-    ce_loss_fn=ce_loss_fn,
+    ce_loss_fns=ce_loss_fns,
     optimizer=optimizer,
     checkpoint_workspace_dir_path=checkpoint_workspace_dir_path,
+    task_type=cfg.task_type,
     lr_scheduler=lr_scheduler,
     start_epoch=start_epoch,
 )
@@ -1214,18 +1486,19 @@ run_training_loop(
 # # Test
 
 # %%
-nerf_to_grasp_success_model.eval()
+classifier.eval()
 wandb_log_dict = {}
 print(f"Running test metrics on epoch {cfg.training.n_epochs}")
 wandb_log_dict["epoch"] = cfg.training.n_epochs
-iterate_through_dataloader(
+test_log_dict = iterate_through_dataloader(
     phase=Phase.TEST,
     dataloader=test_loader,
-    nerf_to_grasp_success_model=nerf_to_grasp_success_model,
+    classifier=classifier,
     device=device,
-    ce_loss_fn=ce_loss_fn,
-    wandb_log_dict=wandb_log_dict,
+    ce_loss_fns=ce_loss_fns,
+    task_type=cfg.task_type,
 )
+wandb_log_dict.update(test_log_dict)
 wandb.log(wandb_log_dict)
 
 # %% [markdown]
@@ -1235,7 +1508,7 @@ wandb.log(wandb_log_dict)
 save_checkpoint(
     checkpoint_workspace_dir_path=checkpoint_workspace_dir_path,
     epoch=cfg.training.n_epochs,
-    nerf_to_grasp_success_model=nerf_to_grasp_success_model,
+    classifier=classifier,
     optimizer=optimizer,
     lr_scheduler=lr_scheduler,
 )

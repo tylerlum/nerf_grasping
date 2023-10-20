@@ -22,6 +22,35 @@ import tyro
 import pathlib
 
 
+class TaskType(Enum):
+    """Enum for task type."""
+
+    PASSED_SIMULATION = auto()
+    PASSED_PENETRATION_THRESHOLD = auto()
+    PASSED_EVAL = auto()
+    PASSED_SIMULATION_AND_PENETRATION_THRESHOLD = auto()
+
+    @property
+    def n_tasks(self) -> int:
+        return len(self.task_names)
+
+    @property
+    def task_names(self) -> List[str]:
+        if self == TaskType.PASSED_SIMULATION:
+            return ["passed_simulation"]
+        elif self == TaskType.PASSED_PENETRATION_THRESHOLD:
+            return ["passed_penetration_threshold"]
+        elif self == TaskType.PASSED_EVAL:
+            return ["passed_eval"]
+        elif self == TaskType.PASSED_SIMULATION_AND_PENETRATION_THRESHOLD:
+            return [
+                "passed_simulation",
+                "passed_penetration_threshold",
+            ]
+        else:
+            raise ValueError(f"Unknown task_type: {self}")
+
+
 class ConditioningType(Enum):
     """Enum for conditioning type."""
 
@@ -66,7 +95,7 @@ class ClassifierDataLoaderConfig:
     load_nerf_grid_inputs_in_ram: bool = False
     """Flag to load the nerf grid inputs in RAM -- otherwise load on the fly."""
 
-    load_grasp_successes_in_ram: bool = False
+    load_grasp_labels_in_ram: bool = False
     """Flag to load the grasp successes in RAM -- otherwise load on the fly."""
 
     load_grasp_transforms_in_ram: bool = False
@@ -145,7 +174,7 @@ class ClassifierModelConfig:
     """Default (abstract) parameters for the classifier."""
 
     def get_classifier_from_fingertip_config(
-        self, fingertip_config: UnionFingertipConfig
+        self, fingertip_config: UnionFingertipConfig, n_tasks: int,
     ) -> Classifier:
         """Helper method to return the correct classifier from config."""
         raise NotImplementedError("Implement in subclass.")
@@ -173,7 +202,7 @@ class CNN_3D_XYZ_ModelConfig(ClassifierModelConfig):
         ]
 
     def get_classifier_from_fingertip_config(
-        self, fingertip_config: UnionFingertipConfig
+        self, fingertip_config: UnionFingertipConfig, n_tasks: int,
     ) -> Classifier:
         """Helper method to return the correct classifier from config."""
 
@@ -181,6 +210,7 @@ class CNN_3D_XYZ_ModelConfig(ClassifierModelConfig):
         return CNN_3D_XYZ_Classifier(
             input_shape=input_shape,
             n_fingers=fingertip_config.n_fingers,
+            n_tasks=n_tasks,
             conv_channels=self.conv_channels,
             mlp_hidden_layers=self.mlp_hidden_layers,
         )
@@ -206,13 +236,14 @@ class CNN_2D_1D_ModelConfig(ClassifierModelConfig):
         ]
 
     def get_classifier_from_fingertip_config(
-        self, fingertip_config: UnionFingertipConfig
+        self, fingertip_config: UnionFingertipConfig, n_tasks: int,
     ) -> Classifier:
         """Helper method to return the correct classifier from config."""
 
         return CNN_2D_1D_Classifier(
             grid_shape=self.grid_shape_from_fingertip_config(fingertip_config),
             n_fingers=self.n_fingers,
+            n_tasks=n_tasks,
             conditioning_dim=self.conditioning_dim,
             conv_2d_film_hidden_layers=self.conv_2d_film_hidden_layers,
             mlp_hidden_layers=self.mlp_hidden_layers,
@@ -241,13 +272,14 @@ class Simple_CNN_2D_1D_ModelConfig(ClassifierModelConfig):
         ]
 
     def get_classifier_from_fingertip_config(
-        self, fingertip_config: UnionFingertipConfig
+        self, fingertip_config: UnionFingertipConfig, n_tasks: int,
     ) -> Classifier:
         """Helper method to return the correct classifier from config."""
 
         return Simple_CNN_2D_1D_Classifier(
             grid_shape=self.grid_shape_from_fingertip_config(fingertip_config),
             n_fingers=self.n_fingers,
+            n_tasks=n_tasks,
             conditioning_dim=self.conditioning_dim,
             mlp_hidden_layers=self.mlp_hidden_layers,
             conv_2d_channels=self.conv_2d_channels,
@@ -279,13 +311,14 @@ class Simple_CNN_1D_2D_ModelConfig(ClassifierModelConfig):
         ]
 
     def get_classifier_from_fingertip_config(
-        self, fingertip_config: UnionFingertipConfig
+        self, fingertip_config: UnionFingertipConfig, n_tasks: int,
     ) -> Classifier:
         """Helper method to return the correct classifier from config."""
 
         return Simple_CNN_1D_2D_Classifier(
             grid_shape=self.grid_shape_from_fingertip_config(fingertip_config),
             n_fingers=self.n_fingers,
+            n_tasks=n_tasks,
             conditioning_dim=self.conditioning_dim,
             mlp_hidden_layers=self.mlp_hidden_layers,
             conv_2d_channels=self.conv_2d_channels,
@@ -316,13 +349,14 @@ class Simple_CNN_LSTM_ModelConfig(ClassifierModelConfig):
         ]
 
     def get_classifier_from_fingertip_config(
-        self, fingertip_config: UnionFingertipConfig
+        self, fingertip_config: UnionFingertipConfig, n_tasks: int,
     ) -> Classifier:
         """Helper method to return the correct classifier from config."""
 
         return Simple_CNN_LSTM_Classifier(
             grid_shape=self.grid_shape_from_fingertip_config(fingertip_config),
             n_fingers=self.n_fingers,
+            n_tasks=n_tasks,
             conditioning_dim=self.conditioning_dim,
             mlp_hidden_layers=self.mlp_hidden_layers,
             conv_2d_channels=self.conv_2d_channels,
@@ -342,6 +376,7 @@ class ClassifierConfig:
     training: ClassifierTrainingConfig = ClassifierTrainingConfig()
     checkpoint_workspace: CheckpointWorkspaceConfig = CheckpointWorkspaceConfig()
     conditioning_type: ConditioningType = ConditioningType.FINGERTIP_TRANSFORMS
+    task_type: TaskType = TaskType.PASSED_EVAL
 
     wandb: WandbConfig = field(
         default_factory=lambda: WandbConfig(

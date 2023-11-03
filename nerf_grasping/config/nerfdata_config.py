@@ -21,13 +21,13 @@ class BaseNerfDataConfig:
         pathlib.Path(nerf_grasping.get_repo_root()) / "data"
     )
     dexgraspnet_meshdata_root: pathlib.Path = (
-        dexgraspnet_data_root / "2023-09-01_meshdata_trial"
+        dexgraspnet_data_root / "2023-10-13_meshdata_trial"
     )
     evaled_grasp_config_dicts_path: pathlib.Path = (
-        dexgraspnet_data_root / "2023-09-05_evaled_grasp_config_dicts_trial_testset_ws1"
+        dexgraspnet_data_root / "2023-10-13_13-12-28" / "evaled_grasp_config_dicts"
     )
     nerf_checkpoints_path: pathlib.Path = (
-        dexgraspnet_data_root / "2023-09-04_nerfcheckpoints_trial"
+        dexgraspnet_data_root / "2023-10-13_13-12-28" / "nerfcheckpoints"
     )
     output_filepath: Optional[pathlib.Path] = None
     plot_only_one: bool = False

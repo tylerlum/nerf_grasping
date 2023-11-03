@@ -151,6 +151,7 @@ if __name__ == "__main__" and "get_ipython" not in dir():
 else:
     cfg: UnionNerfDataConfig = tyro.cli(UnionNerfDataConfig, args=[])
 
+print(f"Config:\n{tyro.extras.to_yaml(cfg)}")
 
 if cfg.output_filepath is None:
     cfg.output_filepath = (
@@ -235,8 +236,18 @@ def create_grid_dataset(
             cfg.fingertip_config.num_pts_z,
         ),
     )
-    grasp_success_dataset = hdf5_file.create_dataset(
-        "/grasp_success", shape=(max_num_datapoints,), dtype="i"
+    passed_eval_dataset = hdf5_file.create_dataset(
+        "/passed_eval", shape=(max_num_datapoints,), dtype="i"
+    )
+    passed_simulation_dataset = hdf5_file.create_dataset(
+        "/passed_simulation",
+        shape=(max_num_datapoints,),
+        dtype="i",
+    )
+    passed_penetration_threshold_dataset = hdf5_file.create_dataset(
+        "/passed_penetration_threshold",
+        shape=(max_num_datapoints,),
+        dtype="i",
     )
     nerf_config_dataset = hdf5_file.create_dataset(
         "/nerf_config", shape=(max_num_datapoints,), dtype=h5py.string_dtype()
@@ -258,7 +269,9 @@ def create_grid_dataset(
 
     return (
         nerf_densities_dataset,
-        grasp_success_dataset,
+        passed_eval_dataset,
+        passed_simulation_dataset,
+        passed_penetration_threshold_dataset,
         nerf_config_dataset,
         object_code_dataset,
         object_scale_dataset,
@@ -303,8 +316,18 @@ def create_depth_image_dataset(
             cfg.fingertip_camera_config.W,
         ),
     )
-    grasp_success_dataset = hdf5_file.create_dataset(
-        "/grasp_success", shape=(max_num_datapoints,), dtype="i"
+    passed_eval_dataset = hdf5_file.create_dataset(
+        "/passed_eval", shape=(max_num_datapoints,), dtype="i"
+    )
+    passed_simulation_dataset = hdf5_file.create_dataset(
+        "/passed_simulation",
+        shape=(max_num_datapoints,),
+        dtype="i",
+    )
+    passed_penetration_threshold_dataset = hdf5_file.create_dataset(
+        "/passed_penetration_threshold",
+        shape=(max_num_datapoints,),
+        dtype="i",
     )
     nerf_config_dataset = hdf5_file.create_dataset(
         "/nerf_config", shape=(max_num_datapoints,), dtype=h5py.string_dtype()
@@ -327,7 +350,9 @@ def create_depth_image_dataset(
     return (
         depth_images_dataset,
         uncertainty_images_dataset,
-        grasp_success_dataset,
+        passed_eval_dataset,
+        passed_simulation_dataset,
+        passed_penetration_threshold_dataset,
         nerf_config_dataset,
         object_code_dataset,
         object_scale_dataset,
@@ -436,7 +461,9 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
         # Create dataset with extra field for full grasp config.
         (
             nerf_densities_dataset,
-            grasp_success_dataset,
+            passed_eval_dataset,
+            passed_simulation_dataset,
+            passed_penetration_threshold_dataset,
             nerf_config_dataset,
             object_code_dataset,
             object_scale_dataset,
@@ -455,7 +482,9 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
     elif isinstance(cfg, GridNerfDataConfig):
         (
             nerf_densities_dataset,
-            grasp_success_dataset,
+            passed_eval_dataset,
+            passed_simulation_dataset,
+            passed_penetration_threshold_dataset,
             nerf_config_dataset,
             object_code_dataset,
             object_scale_dataset,
@@ -466,7 +495,9 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
         (
             depth_images_dataset,
             uncertainty_images_dataset,
-            grasp_success_dataset,
+            passed_eval_dataset,
+            passed_simulation_dataset,
+            passed_penetration_threshold_dataset,
             nerf_config_dataset,
             object_code_dataset,
             object_scale_dataset,
@@ -540,7 +571,11 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
             grasp_configs = AllegroGraspConfig.from_grasp_config_dict(
                 evaled_grasp_config_dict
             )
-            grasp_successes = evaled_grasp_config_dict["passed_eval"]
+            passed_evals = evaled_grasp_config_dict["passed_eval"]
+            passed_simulations = evaled_grasp_config_dict["passed_simulation"]
+            passed_penetration_thresholds = evaled_grasp_config_dict[
+                "passed_penetration_threshold"
+            ]
 
             # If plot_only_one is True, slice out the grasp index we want to visualize.
             if cfg.plot_only_one:
@@ -551,7 +586,14 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                 grasp_configs = grasp_configs[
                     cfg.grasp_visualize_index : cfg.grasp_visualize_index + 1
                 ]
-                grasp_successes = grasp_successes[
+                passed_evals = passed_evals[
+                    cfg.grasp_visualize_index : cfg.grasp_visualize_index + 1
+                ]
+
+                passed_simulations = passed_simulations[
+                    cfg.grasp_visualize_index : cfg.grasp_visualize_index + 1
+                ]
+                passed_penetration_thresholds = passed_penetration_thresholds[
                     cfg.grasp_visualize_index : cfg.grasp_visualize_index + 1
                 ]
 
@@ -567,11 +609,16 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                 )
 
             grasp_configs = grasp_configs[:max_num_datapoints]
-            grasp_successes = grasp_successes[:max_num_datapoints]
-            grasp_frame_transforms = grasp_configs.grasp_frame_transforms
 
-            assert grasp_successes.shape == (grasp_configs.batch_size,)
-            assert grasp_frame_transforms.lshape == (
+            passed_evals = passed_evals[:max_num_datapoints]
+            passed_simulations = passed_simulations[:max_num_datapoints]
+            passed_penetration_thresholds = passed_penetration_thresholds[
+                :max_num_datapoints
+            ]
+            grasp_frame_transforms_arr = grasp_configs.grasp_frame_transforms
+
+            assert passed_evals.shape == (grasp_configs.batch_size,)
+            assert grasp_frame_transforms_arr.lshape == (
                 grasp_configs.batch_size,
                 cfg.fingertip_config.n_fingers,
             )
@@ -618,7 +665,9 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
             with loop_timer.add_section_timer("save values"):
                 prev_idx = current_idx
                 current_idx += grasp_configs.batch_size
-                grasp_success_dataset[prev_idx:current_idx] = grasp_successes
+                passed_eval_dataset[prev_idx:current_idx] = passed_evals
+                passed_simulation_dataset[prev_idx:current_idx] = passed_simulations
+                passed_penetration_threshold_dataset[prev_idx:current_idx] = passed_penetration_thresholds
                 nerf_config_dataset[prev_idx:current_idx] = [str(config)] * (
                     current_idx - prev_idx
                 )
@@ -693,7 +742,7 @@ fig = plot_mesh_and_query_points(
     query_points_list=[qq.reshape(-1, 3) for qq in query_points_list],
     query_points_colors_list=[x.reshape(-1) for x in nerf_alphas],
     num_fingers=cfg.fingertip_config.n_fingers,
-    title=f"Mesh and Query Points, Success: {grasp_success}",
+    title=f"Mesh and Query Points, Success: {passed_eval}",
 )
 fig.show()
 fig2 = plot_mesh_and_transforms(
@@ -702,7 +751,7 @@ fig2 = plot_mesh_and_transforms(
         grasp_frame_transforms[i] for i in range(cfg.fingertip_config.n_fingers)
     ],
     num_fingers=cfg.fingertip_config.n_fingers,
-    title=f"Mesh and Transforms, Success: {grasp_success}",
+    title=f"Mesh and Transforms, Success: {passed_eval}",
 )
 fig2.show()
 

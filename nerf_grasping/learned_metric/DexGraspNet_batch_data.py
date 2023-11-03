@@ -34,6 +34,7 @@ class BatchDataInput:
     conditioning_var: Optional[
         torch.Tensor
     ] = None  # Optional conditioning var for the classifier. This will get passed if not None, otherwise pass grasp_transforms.
+    nerf_density_threshold_value: Optional[float] = None
 
     def to(self, device) -> BatchDataInput:
         self.nerf_densities = self.nerf_densities.to(device)
@@ -58,7 +59,16 @@ class BatchDataInput:
         )
         if isinstance(self.fingertip_config, EvenlySpacedFingertipConfig):
             assert delta == self.fingertip_config.distance_between_pts_mm / 1000
-        return 1.0 - torch.exp(-delta * self.nerf_densities)
+        alphas = 1.0 - torch.exp(-delta * self.nerf_densities)
+
+        if self.nerf_density_threshold_value is not None:
+            alphas = torch.where(
+                self.nerf_densities > self.nerf_density_threshold_value,
+                torch.ones_like(alphas),
+                torch.zeros_like(alphas),
+            )
+
+        return alphas
 
     @property
     def coords(self) -> torch.Tensor:
@@ -172,20 +182,41 @@ class BatchDataInput:
 
 
 @dataclass
-class BatchData:
-    input: BatchDataInput
-    grasp_success: torch.Tensor
-    nerf_config: List[str]
+class BatchDataOutput:
+    passed_simulation: torch.Tensor
+    passed_penetration_threshold: torch.Tensor
+    passed_eval: torch.Tensor
 
-    def to(self, device) -> BatchData:
-        self.input = self.input.to(device)
-        self.grasp_success = self.grasp_success.to(device)
+    def to(self, device) -> BatchDataOutput:
+        self.passed_simulation = self.passed_simulation.to(device)
+        self.passed_penetration_threshold = self.passed_penetration_threshold.to(device)
+        self.passed_eval = self.passed_eval.to(device)
         return self
 
     @property
     def batch_size(self) -> int:
-        return self.grasp_success.shape[0]
+        return self.passed_eval.shape[0]
 
     @property
     def device(self) -> torch.device:
-        return self.grasp_success.device
+        return self.passed_eval.device
+
+
+@dataclass
+class BatchData:
+    input: BatchDataInput
+    output: BatchDataOutput
+    nerf_config: List[str]
+
+    def to(self, device) -> BatchData:
+        self.input = self.input.to(device)
+        self.output = self.output.to(device)
+        return self
+
+    @property
+    def batch_size(self) -> int:
+        return self.output.batch_size
+
+    @property
+    def device(self) -> torch.device:
+        return self.output.device

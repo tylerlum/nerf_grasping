@@ -47,7 +47,10 @@ from nerf_grasping.config.classifier_config import (
     TaskType,
 )
 from nerf_grasping.config.fingertip_config import BaseFingertipConfig
-from nerf_grasping.config.nerfdata_config import GraspConditionedGridDataConfig
+from nerf_grasping.config.nerfdata_config import (
+    GraspConditionedGridDataConfig,
+    DepthImageNerfDataConfig,
+)
 import os
 import pypose as pp
 import h5py
@@ -90,6 +93,10 @@ os.chdir(nerf_grasping.get_repo_root())
 
 
 # %%
+def assert_equals(a, b):
+    assert a == b, f"{a} != {b}"
+
+
 def is_notebook() -> bool:
     try:
         shell = get_ipython().__class__.__name__
@@ -145,6 +152,19 @@ else:
 # %%
 cfg: ClassifierConfig = tyro.cli(UnionClassifierConfig, args=arguments)
 assert cfg.nerfdata_config.fingertip_config is not None
+
+USE_CONDITIONING_VAR = isinstance(
+    cfg.nerfdata_config, GraspConditionedGridDataConfig
+) or isinstance(cfg.nerfdata_config, DepthImageNerfDataConfig)
+USE_DEPTH_IMAGES = isinstance(cfg.nerfdata_config, DepthImageNerfDataConfig)
+if USE_DEPTH_IMAGES:
+    DEPTH_IMAGE_N_CHANNELS = 2
+    DEPTH_IMAGE_HEIGHT = cfg.nerfdata_config.fingertip_camera_config.H
+    DEPTH_IMAGE_WIDTH = cfg.nerfdata_config.fingertip_camera_config.W
+else:
+    DEPTH_IMAGE_N_CHANNELS = None
+    DEPTH_IMAGE_HEIGHT = None
+    DEPTH_IMAGE_WIDTH = None
 
 # A relatively dirty hack: create script globals from the config vars.
 NUM_FINGERS = cfg.nerfdata_config.fingertip_config.n_fingers
@@ -314,26 +334,26 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
             )
 
             # Check that the data is in the expected format
-            assert (
-                len(hdf5_file["/passed_simulation"].shape) == 1
-            ), f"{hdf5_file['/passed_simulation'].shape}"
-            assert (
-                len(hdf5_file["/passed_penetration_threshold"].shape) == 1
-            ), f"{hdf5_file['/passed_penetration_threshold'].shape}"
-            assert (
-                len(hdf5_file["/passed_eval"].shape) == 1
-            ), f"{hdf5_file['/passed_eval'].shape}"
-            assert hdf5_file["/nerf_densities"].shape[1:] == (
-                NUM_FINGERS,
-                NUM_PTS_X,
-                NUM_PTS_Y,
-                NUM_PTS_Z,
-            ), f"{hdf5_file['/nerf_densities'].shape}"
-            assert hdf5_file["/grasp_transforms"].shape[1:] == (
-                NUM_FINGERS,
-                4,
-                4,
-            ), f"{hdf5_file['/grasp_transforms'].shape}"
+            assert_equals(len(hdf5_file["/passed_simulation"].shape), 1)
+            assert_equals(len(hdf5_file["/passed_penetration_threshold"].shape), 1)
+            assert_equals(len(hdf5_file["/passed_eval"].shape), 1)
+            assert_equals(
+                hdf5_file["/nerf_densities"].shape[1:],
+                (
+                    NUM_FINGERS,
+                    NUM_PTS_X,
+                    NUM_PTS_Y,
+                    NUM_PTS_Z,
+                ),
+            )
+            assert_equals(
+                hdf5_file["/grasp_transforms"].shape[1:],
+                (
+                    NUM_FINGERS,
+                    4,
+                    4,
+                ),
+            )
 
             # This is usually too big for RAM
             self.nerf_densities = (
@@ -375,9 +395,7 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
             )
 
             if use_conditioning_var:
-                assert (
-                    len(hdf5_file["/conditioning_var"].shape) == 2
-                ), f"{hdf5_file['/conditioning_var'].shape}"
+                assert_equals(len(hdf5_file["/conditioning_var"].shape), 2)
                 self.conditioning_var = (
                     hdf5_file["/conditioning_var"][()]
                     if load_conditioning_var_in_ram
@@ -464,11 +482,13 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
             else self.nerf_configs[idx]
         ).decode("utf-8")
 
-        assert nerf_densities.shape == (NUM_FINGERS, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
-        assert passed_simulation.shape == ()
-        assert passed_penetration_threshold.shape == ()
-        assert passed_eval.shape == ()
-        assert grasp_transforms.shape == (NUM_FINGERS, 4, 4)
+        assert_equals(
+            nerf_densities.shape, (NUM_FINGERS, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
+        )
+        assert_equals(passed_simulation.shape, ())
+        assert_equals(passed_penetration_threshold.shape, ())
+        assert_equals(passed_eval.shape, ())
+        assert_equals(grasp_transforms.shape, (NUM_FINGERS, 4, 4))
 
         if self.use_conditioning_var:
             conditioning_var = (
@@ -497,19 +517,256 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
 
 
 # %%
+class DepthImage_To_GraspSuccess_HDF5_Dataset(Dataset):
+    # @localscope.mfc  # ValueError: Cell is empty
+    def __init__(
+        self,
+        input_hdf5_filepath: str,
+        max_num_data_points: Optional[int] = None,
+        load_depth_images_in_ram: bool = False,
+        load_grasp_labels_in_ram: bool = True,
+        load_grasp_transforms_in_ram: bool = True,
+        load_nerf_configs_in_ram: bool = True,
+        use_conditioning_var: bool = False,
+        load_conditioning_var_in_ram: bool = True,
+    ) -> None:
+        super().__init__()
+        self.input_hdf5_filepath = input_hdf5_filepath
+
+        # Recommended in https://discuss.pytorch.org/t/dataloader-when-num-worker-0-there-is-bug/25643/13
+        self.hdf5_file = None
+        self.use_conditioning_var = use_conditioning_var
+
+        with h5py.File(self.input_hdf5_filepath, "r") as hdf5_file:
+            self.len = self._set_length(
+                hdf5_file=hdf5_file, max_num_data_points=max_num_data_points
+            )
+
+            # Check that the data is in the expected format
+            assert_equals(len(hdf5_file["/passed_simulation"].shape), 1)
+            assert_equals(len(hdf5_file["/passed_penetration_threshold"].shape), 1)
+            assert_equals(len(hdf5_file["/passed_eval"].shape), 1)
+            assert_equals(
+                hdf5_file["/depth_images"].shape[1:],
+                (
+                    NUM_FINGERS,
+                    DEPTH_IMAGE_HEIGHT,
+                    DEPTH_IMAGE_WIDTH,
+                ),
+            )
+            assert_equals(
+                hdf5_file["/uncertainty_images"].shape[1:],
+                (
+                    NUM_FINGERS,
+                    DEPTH_IMAGE_HEIGHT,
+                    DEPTH_IMAGE_WIDTH,
+                )
+            )
+            assert_equals(
+                hdf5_file["/grasp_transforms"].shape[1:],
+                (
+                    NUM_FINGERS,
+                    4,
+                    4,
+                ),
+            )
+
+            # This is usually too big for RAM
+            self.depth_uncertainty_images = (
+                torch.stack(
+                    [
+                        torch.from_numpy(hdf5_file["/depth_images"][()]).float(),
+                        torch.from_numpy(hdf5_file["/uncertainty_images"][()]).float(),
+                    ],
+                    dim=-3,
+                )
+                if load_depth_images_in_ram
+                else None
+            )
+
+            # This is small enough to fit in RAM
+            self.passed_simulations = (
+                torch.from_numpy(hdf5_file["/passed_simulation"][()]).long()
+                if load_grasp_labels_in_ram
+                else None
+            )
+            self.passed_penetration_thresholds = (
+                torch.from_numpy(hdf5_file["/passed_penetration_threshold"][()]).long()
+                if load_grasp_labels_in_ram
+                else None
+            )
+            self.passed_evals = (
+                torch.from_numpy(hdf5_file["/passed_eval"][()]).long()
+                if load_grasp_labels_in_ram
+                else None
+            )
+
+            # This is small enough to fit in RAM
+            self.grasp_transforms = (
+                pp.from_matrix(
+                    torch.from_numpy(hdf5_file["/grasp_transforms"][()]).float(),
+                    pp.SE3_type,
+                )
+                if load_grasp_transforms_in_ram
+                else None
+            )
+
+            # This is small enough to fit in RAM
+            self.nerf_configs = (
+                hdf5_file["/nerf_config"][()] if load_nerf_configs_in_ram else None
+            )
+
+            if use_conditioning_var:
+                assert_equals(len(hdf5_file["/conditioning_var"].shape), 2)
+                self.conditioning_var = (
+                    hdf5_file["/conditioning_var"][()]
+                    if load_conditioning_var_in_ram
+                    else None
+                )
+
+    @localscope.mfc
+    def _set_length(
+        self, hdf5_file: h5py.File, max_num_data_points: Optional[int]
+    ) -> int:
+        length = (
+            hdf5_file.attrs["num_data_points"]
+            if "num_data_points" in hdf5_file.attrs
+            else hdf5_file["/passed_simulation"].shape[0]
+        )
+        if length != hdf5_file["/passed_simulation"].shape[0]:
+            print(
+                f"WARNING: num_data_points = {length} != passed_simulation.shape[0] = {hdf5_file['/passed_simulation'].shape[0]}"
+            )
+
+        # Constrain length of dataset if max_num_data_points is set
+        if max_num_data_points is not None:
+            print(f"Constraining dataset length to {max_num_data_points}")
+            length = max_num_data_points
+
+        return length
+
+    @localscope.mfc
+    def __len__(self) -> int:
+        return self.len
+
+    @localscope.mfc(
+        allowed=[
+            "NUM_FINGERS",
+            "DEPTH_IMAGE_N_CHANNELS",
+            "DEPTH_IMAGE_HEIGHT",
+            "DEPTH_IMAGE_WIDTH",
+        ]
+    )
+    def __getitem__(self, idx: int) -> BatchDataTempType:
+        if self.hdf5_file is None:
+            # Hope to speed up with rdcc params
+            self.hdf5_file = h5py.File(
+                self.input_hdf5_filepath,
+                "r",
+                rdcc_nbytes=1024**2 * 4_000,
+                rdcc_w0=0.75,
+                rdcc_nslots=4_000,
+            )
+
+        depth_uncertainty_images = (
+            torch.stack(
+                [
+                    torch.from_numpy(self.hdf5_file["/depth_images"][idx]).float(),
+                    torch.from_numpy(self.hdf5_file["/uncertainty_images"][idx]).float(),
+                ],
+                dim=-3,
+            )
+            if self.depth_uncertainty_images is None
+            else self.depth_uncertainty_images[idx]
+        )
+
+        passed_simulation = (
+            torch.from_numpy(np.array(self.hdf5_file["/passed_simulation"][idx])).long()
+            if self.passed_simulations is None
+            else self.passed_simulations[idx]
+        )
+        passed_penetration_threshold = (
+            torch.from_numpy(
+                np.array(self.hdf5_file["/passed_penetration_threshold"][idx])
+            ).long()
+            if self.passed_penetration_thresholds is None
+            else self.passed_penetration_thresholds[idx]
+        )
+        passed_eval = (
+            torch.from_numpy(np.array(self.hdf5_file["/passed_eval"][idx])).long()
+            if self.passed_evals is None
+            else self.passed_evals[idx]
+        )
+
+        grasp_transforms = (
+            torch.from_numpy(np.array(self.hdf5_file["/grasp_transforms"][idx])).float()
+            if self.grasp_transforms is None
+            else self.grasp_transforms[idx]
+        )
+
+        nerf_config = (
+            self.hdf5_file["/nerf_config"][idx]
+            if self.nerf_configs is None
+            else self.nerf_configs[idx]
+        ).decode("utf-8")
+
+        assert_equals(
+            depth_uncertainty_images.shape, (NUM_FINGERS, DEPTH_IMAGE_N_CHANNELS, DEPTH_IMAGE_HEIGHT, DEPTH_IMAGE_WIDTH)
+        )
+        assert_equals(passed_simulation.shape, ())
+        assert_equals(passed_penetration_threshold.shape, ())
+        assert_equals(passed_eval.shape, ())
+        assert_equals(grasp_transforms.shape, (NUM_FINGERS, 4, 4))
+
+        if self.use_conditioning_var:
+            conditioning_var = (
+                self.hdf5_file["/conditioning_var"][idx]
+                if self.conditioning_var is None
+                else self.conditioning_var[idx]
+            )
+            return (
+                depth_uncertainty_images,
+                passed_simulation,
+                passed_penetration_threshold,
+                passed_eval,
+                grasp_transforms,
+                nerf_config,
+                conditioning_var,
+            )
+        else:
+            return (
+                depth_uncertainty_images,
+                passed_simulation,
+                passed_penetration_threshold,
+                passed_eval,
+                grasp_transforms,
+                nerf_config,
+            )
+
+
+# %%
 
 input_dataset_full_path = str(cfg.nerfdata_config.output_filepath)
-full_dataset = NeRFGrid_To_GraspSuccess_HDF5_Dataset(
-    input_hdf5_filepath=input_dataset_full_path,
-    max_num_data_points=cfg.data.max_num_data_points,
-    load_nerf_densities_in_ram=cfg.dataloader.load_nerf_grid_inputs_in_ram,
-    load_grasp_labels_in_ram=cfg.dataloader.load_grasp_labels_in_ram,
-    load_grasp_transforms_in_ram=cfg.dataloader.load_grasp_transforms_in_ram,
-    load_nerf_configs_in_ram=cfg.dataloader.load_nerf_configs_in_ram,
-    use_conditioning_var=isinstance(
-        cfg.nerfdata_config, GraspConditionedGridDataConfig
-    ),
-)
+if USE_DEPTH_IMAGES:
+    full_dataset = DepthImage_To_GraspSuccess_HDF5_Dataset(
+        input_hdf5_filepath=input_dataset_full_path,
+        max_num_data_points=cfg.data.max_num_data_points,
+        load_depth_images_in_ram=cfg.dataloader.load_nerf_grid_inputs_in_ram,
+        load_grasp_labels_in_ram=cfg.dataloader.load_grasp_labels_in_ram,
+        load_grasp_transforms_in_ram=cfg.dataloader.load_grasp_transforms_in_ram,
+        load_nerf_configs_in_ram=cfg.dataloader.load_nerf_configs_in_ram,
+        use_conditioning_var=USE_CONDITIONING_VAR,
+    )
+else:
+    full_dataset = NeRFGrid_To_GraspSuccess_HDF5_Dataset(
+        input_hdf5_filepath=input_dataset_full_path,
+        max_num_data_points=cfg.data.max_num_data_points,
+        load_nerf_densities_in_ram=cfg.dataloader.load_nerf_grid_inputs_in_ram,
+        load_grasp_labels_in_ram=cfg.dataloader.load_grasp_labels_in_ram,
+        load_grasp_transforms_in_ram=cfg.dataloader.load_grasp_transforms_in_ram,
+        load_nerf_configs_in_ram=cfg.dataloader.load_nerf_configs_in_ram,
+        use_conditioning_var=USE_CONDITIONING_VAR,
+    )
 
 train_dataset, val_dataset, test_dataset = random_split(
     full_dataset,
@@ -523,9 +780,15 @@ print(f"Val dataset size: {len(val_dataset)}")
 print(f"Test dataset size: {len(test_dataset)}")
 
 # %%
-assert len(set.intersection(set(train_dataset.indices), set(val_dataset.indices))) == 0
-assert len(set.intersection(set(train_dataset.indices), set(test_dataset.indices))) == 0
-assert len(set.intersection(set(val_dataset.indices), set(test_dataset.indices))) == 0
+assert_equals(
+    len(set.intersection(set(train_dataset.indices), set(val_dataset.indices))), 0
+)
+assert_equals(
+    len(set.intersection(set(train_dataset.indices), set(test_dataset.indices))), 0
+)
+assert_equals(
+    len(set.intersection(set(val_dataset.indices), set(test_dataset.indices))), 0
+)
 
 
 # %%
@@ -638,9 +901,7 @@ train_loader = DataLoader(
         fingertip_config=cfg.nerfdata_config.fingertip_config,
         use_random_rotations=cfg.data.use_random_rotations,
         debug_shuffle_labels=cfg.data.debug_shuffle_labels,
-        use_conditioning_var=isinstance(
-            cfg.nerfdata_config, GraspConditionedGridDataConfig
-        ),
+        use_conditioning_var=USE_CONDITIONING_VAR,
         nerf_density_threshold_value=cfg.data.nerf_density_threshold_value,
     ),
 )
@@ -654,9 +915,7 @@ val_loader = DataLoader(
         custom_collate_fn,
         fingertip_config=cfg.nerfdata_config.fingertip_config,
         use_random_rotations=False,
-        use_conditioning_var=isinstance(
-            cfg.nerfdata_config, GraspConditionedGridDataConfig
-        ),
+        use_conditioning_var=USE_CONDITIONING_VAR,
         nerf_density_threshold_value=cfg.data.nerf_density_threshold_value,
     ),  # Run val over actual grasp transforms (no random rotations)
 )
@@ -670,9 +929,7 @@ test_loader = DataLoader(
         custom_collate_fn,
         use_random_rotations=False,
         fingertip_config=cfg.nerfdata_config.fingertip_config,
-        use_conditioning_var=isinstance(
-            cfg.nerfdata_config, GraspConditionedGridDataConfig
-        ),
+        use_conditioning_var=USE_CONDITIONING_VAR,
         nerf_density_threshold_value=cfg.data.nerf_density_threshold_value,
     ),  # Run test over actual test transforms.
 )
@@ -741,7 +998,7 @@ def plot_example(
     ].item()
     passed_eval = batch_data.output.passed_eval[idx_to_visualize].item()
 
-    assert colors.shape == (NUM_FINGERS, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
+    assert_equals(colors.shape, (NUM_FINGERS, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z))
     assert passed_simulation in [0, 1]
     assert passed_penetration_threshold in [0, 1]
     assert passed_eval in [0, 1]
@@ -768,20 +1025,26 @@ def plot_example(
         mesh.apply_transform(additional_mesh_transform)
 
     # Get query points from grasp_transforms
-    assert query_points_list.shape == (
-        NUM_FINGERS,
-        NUM_XYZ,
-        NUM_PTS_X,
-        NUM_PTS_Y,
-        NUM_PTS_Z,
+    assert_equals(
+        query_points_list.shape,
+        (
+            NUM_FINGERS,
+            NUM_XYZ,
+            NUM_PTS_X,
+            NUM_PTS_Y,
+            NUM_PTS_Z,
+        ),
     )
     query_points_list = query_points_list.permute((0, 2, 3, 4, 1))
-    assert query_points_list.shape == (
-        NUM_FINGERS,
-        NUM_PTS_X,
-        NUM_PTS_Y,
-        NUM_PTS_Z,
-        NUM_XYZ,
+    assert_equals(
+        query_points_list.shape,
+        (
+            NUM_FINGERS,
+            NUM_PTS_X,
+            NUM_PTS_Y,
+            NUM_PTS_Z,
+            NUM_XYZ,
+        ),
     )
     query_points_list = [
         query_points_list[finger_idx].reshape(-1, NUM_XYZ).cpu().numpy()
@@ -1015,8 +1278,8 @@ def _iterate_through_dataloader(
         classifier.eval()
         assert training_cfg is None and optimizer is None
 
-    assert len(ce_loss_fns) == classifier.n_tasks
-    assert len(task_type.task_names) == classifier.n_tasks
+    assert_equals(len(ce_loss_fns), classifier.n_tasks)
+    assert_equals(len(task_type.task_names), classifier.n_tasks)
 
     with torch.set_grad_enabled(phase == Phase.TRAIN):
         dataload_section_timer = loop_timer.add_section_timer("Data").start()
@@ -1040,10 +1303,13 @@ def _iterate_through_dataloader(
             # Forward pass
             with loop_timer.add_section_timer("Fwd"):
                 all_logits = classifier.get_all_logits(batch_data.input)
-                assert all_logits.shape == (
-                    batch_data.batch_size,
-                    classifier.n_tasks,
-                    classifier.n_classes,
+                assert_equals(
+                    all_logits.shape,
+                    (
+                        batch_data.batch_size,
+                        classifier.n_tasks,
+                        classifier.n_classes,
+                    ),
                 )
 
                 if task_type == TaskType.PASSED_SIMULATION:
@@ -1052,10 +1318,7 @@ def _iterate_through_dataloader(
                     task_targets = [batch_data.output.passed_penetration_threshold]
                 elif task_type == TaskType.PASSED_EVAL:
                     task_targets = [batch_data.output.passed_eval]
-                elif (
-                    task_type
-                    == TaskType.PASSED_SIMULATION_AND_PENETRATION_THRESHOLD
-                ):
+                elif task_type == TaskType.PASSED_SIMULATION_AND_PENETRATION_THRESHOLD:
                     task_targets = [
                         batch_data.output.passed_simulation,
                         batch_data.output.passed_penetration_threshold,
@@ -1063,7 +1326,7 @@ def _iterate_through_dataloader(
                 else:
                     raise ValueError(f"Unknown task_type: {task_type}")
 
-                assert len(task_targets) == classifier.n_tasks
+                assert_equals(len(task_targets), classifier.n_tasks)
 
                 task_losses = []
                 for task_i, (ce_loss_fn, task_target, task_name) in enumerate(
@@ -1153,11 +1416,8 @@ def create_log_dict(
             temp_log_dict[f"{loss_name}"] = np.mean(losses)
 
     with loop_timer.add_section_timer("Metrics"):
-        assert (
-            set(predictions_dict.keys())
-            == set(ground_truths_dict.keys())
-            == set(task_type.task_names)
-        )
+        assert_equals(set(predictions_dict.keys()), set(ground_truths_dict.keys()))
+        assert_equals(set(predictions_dict.keys()), set(task_type.task_names))
         for task_name in task_type.task_names:
             predictions = predictions_dict[task_name]
             ground_truths = ground_truths_dict[task_name]
@@ -1172,11 +1432,8 @@ def create_log_dict(
                 )
 
     with loop_timer.add_section_timer("Confusion Matrix"):
-        assert (
-            set(predictions_dict.keys())
-            == set(ground_truths_dict.keys())
-            == set(task_type.task_names)
-        )
+        assert_equals(set(predictions_dict.keys()), set(ground_truths_dict.keys()))
+        assert_equals(set(predictions_dict.keys()), set(task_type.task_names))
         for task_name in task_type.task_names:
             predictions = predictions_dict[task_name]
             ground_truths = ground_truths_dict[task_name]
@@ -1207,8 +1464,8 @@ def iterate_through_dataloader(
     optimizer: Optional[torch.optim.Optimizer] = None,
     lr_scheduler: Optional[torch.optim.lr_scheduler.LRScheduler] = None,
 ) -> Dict[str, Any]:
-    assert len(ce_loss_fns) == classifier.n_tasks
-    assert len(task_type.task_names) == classifier.n_tasks
+    assert_equals(len(ce_loss_fns), classifier.n_tasks)
+    assert_equals(len(task_type.task_names), classifier.n_tasks)
 
     loop_timer = LoopTimer()
 
@@ -1422,12 +1679,22 @@ if cfg.training.extra_punish_false_positive_factor != 0.0:
     print(
         f"cfg.training.extra_punish_false_positive_factor = {cfg.training.extra_punish_false_positive_factor}"
     )
-    passed_simulation_class_weight[1] *= 1 + cfg.training.extra_punish_false_positive_factor
-    passed_penetration_threshold_class_weight[1] *= 1 + cfg.training.extra_punish_false_positive_factor
+    passed_simulation_class_weight[1] *= (
+        1 + cfg.training.extra_punish_false_positive_factor
+    )
+    passed_penetration_threshold_class_weight[1] *= (
+        1 + cfg.training.extra_punish_false_positive_factor
+    )
     passed_eval_class_weight[1] *= 1 + cfg.training.extra_punish_false_positive_factor
-    print(f"After adjustment, passed_simulation_class_weight: {passed_simulation_class_weight}")
-    print(f"After adjustment, passed_simulation_class_weight: {passed_penetration_threshold_class_weight}")
-    print(f"After adjustment, passed_simulation_class_weight: {passed_eval_class_weight}")
+    print(
+        f"After adjustment, passed_simulation_class_weight: {passed_simulation_class_weight}"
+    )
+    print(
+        f"After adjustment, passed_simulation_class_weight: {passed_penetration_threshold_class_weight}"
+    )
+    print(
+        f"After adjustment, passed_simulation_class_weight: {passed_eval_class_weight}"
+    )
 
 passed_simulation_ce_loss_fn = nn.CrossEntropyLoss(
     weight=passed_simulation_class_weight, label_smoothing=cfg.training.label_smoothing

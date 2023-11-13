@@ -59,6 +59,7 @@ from nerf_grasping.config.nerfdata_config import (
     DepthImageNerfDataConfig,
     GridNerfDataConfig,
     GraspConditionedGridDataConfig,
+    BaseNerfDataConfig,
 )
 import tyro
 from localscope import localscope
@@ -144,9 +145,9 @@ def count_total_num_grasps(
 # WEIRD HACK SO YOU CAN STILL RUN VSC JUPYTER CELLS.
 # %%
 if __name__ == "__main__" and "get_ipython" not in dir():
-    cfg: UnionNerfDataConfig = tyro.cli(UnionNerfDataConfig)
+    cfg: BaseNerfDataConfig = tyro.cli(UnionNerfDataConfig)
 else:
-    cfg: UnionNerfDataConfig = tyro.cli(UnionNerfDataConfig, args=["depth-image"])
+    cfg: BaseNerfDataConfig = tyro.cli(UnionNerfDataConfig, args=["depth-image"])
 
 print(f"Config:\n{tyro.extras.to_yaml(cfg)}")
 assert cfg.fingertip_config is not None
@@ -366,7 +367,7 @@ def create_depth_image_dataset(
 @torch.no_grad()
 def get_depth_and_uncertainty_images(
     loop_timer: LoopTimer,
-    cfg: UnionNerfDataConfig,
+    cfg: BaseNerfDataConfig,
     grasp_frame_transforms: pp.LieTensor,
     nerf_model: Model,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -399,7 +400,7 @@ def get_depth_and_uncertainty_images(
 @localscope.mfc
 def get_nerf_densities(
     loop_timer: LoopTimer,
-    cfg: UnionNerfDataConfig,
+    cfg: BaseNerfDataConfig,
     grasp_frame_transforms: pp.LieTensor,
     ray_origins_finger_frame: torch.Tensor,
     nerf_field: Field,

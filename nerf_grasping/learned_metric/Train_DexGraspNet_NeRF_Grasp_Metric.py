@@ -1327,10 +1327,16 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Pull out just the CNN (without wrapping for LieTorch) for training.
 assert cfg.model_config is not None
-classifier: Classifier = cfg.model_config.get_classifier_from_fingertip_config(
-    fingertip_config=cfg.nerfdata_config.fingertip_config,
-    n_tasks=cfg.task_type.n_tasks,
-).to(device)
+if USE_DEPTH_IMAGES:
+    classifier: DepthImageClassifier = cfg.model_config.get_classifier_from_camera_config(
+        camera_config=cfg.nerfdata_config.fingertip_camera_config,
+        n_tasks=cfg.task_type.n_tasks,
+    ).to(device)
+else:
+    classifier: Classifier = cfg.model_config.get_classifier_from_fingertip_config(
+        fingertip_config=cfg.nerfdata_config.fingertip_config,
+        n_tasks=cfg.task_type.n_tasks,
+    ).to(device)
 
 # %%
 start_epoch = 0

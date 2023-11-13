@@ -77,9 +77,12 @@ UnionNerfDataConfig = tyro.extras.subcommand_type_from_defaults(
         "grid": GridNerfDataConfig(),
         "depth-image": DepthImageNerfDataConfig(
             fingertip_config=EvenlySpacedFingertipConfig(
-                finger_width_mm=20.0, finger_height_mm=20.0
+                finger_width_mm=50,
+                finger_height_mm=50,
+                grasp_depth_mm=20,
+                distance_between_pts_mm=0.5,
             ),
-            fingertip_camera_config=CameraConfig(H=40, W=40),
+            fingertip_camera_config=CameraConfig(H=60, W=60),
         ),
         "grasp-conditioned-grid": GraspConditionedGridDataConfig(),
     }

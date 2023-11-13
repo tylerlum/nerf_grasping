@@ -369,7 +369,6 @@ def get_depth_and_uncertainty_images(
     grasp_frame_transforms: pp.LieTensor,
     nerf_model: nerfstudio.models.base_model.Model,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
-    breakpoint()
     assert cfg.fingertip_config is not None
     assert isinstance(cfg, DepthImageNerfDataConfig)
 
@@ -658,7 +657,6 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                     grasp_frame_transforms=grasp_frame_transforms,
                     nerf_model=nerf_model,
                 )
-                breakpoint()
                 if depth_images.isnan().any():
                     print("\n" + "-" * 80)
                     print(
@@ -739,8 +737,7 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
 
                 # May not be max_num_data_points if nan grasps
                 hdf5_file.attrs["num_data_points"] = current_idx
-        except Exception as e:
-            breakpoint()
+        except:
             print("\n" + "-" * 80)
             print(f"WARNING: Failed to process {config}")
             print("Skipping this one...")

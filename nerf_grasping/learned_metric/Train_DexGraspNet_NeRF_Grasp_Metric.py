@@ -86,6 +86,8 @@ from nerf_grasping.models.tyler_new_models import get_scheduler
 
 import tyro
 
+os.chdir(nerf_grasping.get_repo_root())
+
 
 # %%
 def is_notebook() -> bool:

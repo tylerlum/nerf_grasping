@@ -375,7 +375,7 @@ def get_depth_and_uncertainty_images(
 
     with loop_timer.add_section_timer("get_cameras"):
         # TODO: Check if this is correct
-        cameras = get_cameras(grasp_frame_transforms, cfg.fingertip_camera_config).to(nerf_model.device)
+        cameras = get_cameras(grasp_frame_transforms.Inv(), cfg.fingertip_camera_config).to(nerf_model.device)
 
     with loop_timer.add_section_timer("render"):
         depth, uncertainty = render(cameras, nerf_model)

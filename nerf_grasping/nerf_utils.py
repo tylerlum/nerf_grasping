@@ -50,7 +50,7 @@ def render(
     near_plane: float = 1e-3,
     far_plane: float = 1e-1,
 ):
-    # TODO: Use this original_shape
+    # TODO: Use this original_shape?
     original_shape = cameras.shape
     cameras = cameras.reshape(-1)
     assert len(cameras.shape) == 1

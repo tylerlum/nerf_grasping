@@ -68,6 +68,10 @@ from nerfstudio.models.base_model import Model
 
 
 # %%
+def assert_equals(a, b):
+    assert a == b, f"{a} != {b}"
+
+
 def is_notebook() -> bool:
     try:
         shell = get_ipython().__class__.__name__
@@ -126,9 +130,12 @@ def count_total_num_grasps(
         ).item()
 
         num_grasps = evaled_grasp_config_dict["trans"].shape[0]
-        assert evaled_grasp_config_dict["trans"].shape == (
-            num_grasps,
-            3,
+        assert_equals(
+            evaled_grasp_config_dict["trans"].shape,
+            (
+                num_grasps,
+                3,
+            ),
         )  # Sanity check
 
         # Count num_grasps
@@ -375,7 +382,9 @@ def get_depth_and_uncertainty_images(
     assert isinstance(cfg, DepthImageNerfDataConfig)
 
     with loop_timer.add_section_timer("get_cameras"):
-        cameras = get_cameras(grasp_frame_transforms, cfg.fingertip_camera_config).to(nerf_model.device)
+        cameras = get_cameras(grasp_frame_transforms, cfg.fingertip_camera_config).to(
+            nerf_model.device
+        )
 
     with loop_timer.add_section_timer("render"):
         depth, uncertainty = render(cameras, nerf_model, "median", far_plane=0.15)
@@ -409,9 +418,12 @@ def get_nerf_densities(
 
     # Shape check grasp_frame_transforms
     batch_size = grasp_frame_transforms.shape[0]
-    assert grasp_frame_transforms.lshape == (
-        batch_size,
-        cfg.fingertip_config.n_fingers,
+    assert_equals(
+        grasp_frame_transforms.lshape,
+        (
+            batch_size,
+            cfg.fingertip_config.n_fingers,
+        ),
     )
 
     # Create density grid for grid dataset.
@@ -627,10 +639,13 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
             ]
             grasp_frame_transforms = grasp_configs.grasp_frame_transforms
 
-            assert passed_evals.shape == (grasp_configs.batch_size,)
-            assert grasp_frame_transforms.lshape == (
-                grasp_configs.batch_size,
-                cfg.fingertip_config.n_fingers,
+            assert_equals(passed_evals.shape, (grasp_configs.batch_size,))
+            assert_equals(
+                grasp_frame_transforms.lshape,
+                (
+                    grasp_configs.batch_size,
+                    cfg.fingertip_config.n_fingers,
+                ),
             )
 
             if isinstance(cfg, GridNerfDataConfig) or isinstance(
@@ -726,13 +741,18 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                 if isinstance(cfg, GraspConditionedGridDataConfig) or isinstance(
                     cfg, DepthImageNerfDataConfig
                 ):
-                    grasp_config_tensors = grasp_configs.as_tensor().detach().cpu().numpy()
-                    assert grasp_config_tensors.shape == (
-                        grasp_configs.batch_size,
-                        cfg.fingertip_config.n_fingers,
-                        7
-                        + 16
-                        + 4,  # wrist pose, joint angles, grasp orientations (as quats)
+                    grasp_config_tensors = (
+                        grasp_configs.as_tensor().detach().cpu().numpy()
+                    )
+                    assert_equals(
+                        grasp_config_tensors.shape,
+                        (
+                            grasp_configs.batch_size,
+                            cfg.fingertip_config.n_fingers,
+                            7
+                            + 16
+                            + 4,  # wrist pose, joint angles, grasp orientations (as quats)
+                        ),
                     )
                     conditioning_var_dataset[
                         prev_idx:current_idx
@@ -757,17 +777,23 @@ if not cfg.plot_only_one:
     print("Done!")
     sys.exit()
 
-grasp_frame_transforms = grasp_frame_transforms.matrix().cpu().detach().numpy()[cfg.grasp_visualize_index]
+grasp_frame_transforms = (
+    grasp_frame_transforms.matrix().cpu().detach().numpy()[cfg.grasp_visualize_index]
+)
 # Plot
 delta = (
     cfg.fingertip_config.grasp_depth_mm / 1000 / (cfg.fingertip_config.num_pts_z - 1)
 )
 
 if "nerf_densities" in globals():
-    nerf_alphas = [1 - np.exp(-delta * dd) for dd in nerf_densities[cfg.grasp_visualize_index]]
+    nerf_alphas = [
+        1 - np.exp(-delta * dd) for dd in nerf_densities[cfg.grasp_visualize_index]
+    ]
     fig = plot_mesh_and_query_points(
         mesh=mesh,
-        query_points_list=[qq.reshape(-1, 3) for qq in query_points[cfg.grasp_visualize_index]],
+        query_points_list=[
+            qq.reshape(-1, 3) for qq in query_points[cfg.grasp_visualize_index]
+        ],
         query_points_colors_list=[x.reshape(-1) for x in nerf_alphas],
         num_fingers=cfg.fingertip_config.n_fingers,
         title=f"Mesh and Query Points, Success: {passed_evals[cfg.grasp_visualize_index]}",
@@ -826,7 +852,9 @@ if cfg.plot_all_high_density_points:
     fig3.show()
 
 if cfg.plot_alphas_each_finger_1D and "nerf_densities" in globals():
-    nerf_alphas = [1 - np.exp(-delta * dd) for dd in nerf_densities[cfg.grasp_visualize_index]]
+    nerf_alphas = [
+        1 - np.exp(-delta * dd) for dd in nerf_densities[cfg.grasp_visualize_index]
+    ]
     nrows, ncols = cfg.fingertip_config.n_fingers, 1
     fig4, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=(10, 10))
     axes = axes.flatten()
@@ -850,7 +878,9 @@ if cfg.plot_alphas_each_finger_1D and "nerf_densities" in globals():
     fig4.show()
 
 if cfg.plot_alpha_images_each_finger and "nerf_densities" in globals():
-    nerf_alphas = [1 - np.exp(-delta * dd) for dd in nerf_densities[cfg.grasp_visualize_index]]
+    nerf_alphas = [
+        1 - np.exp(-delta * dd) for dd in nerf_densities[cfg.grasp_visualize_index]
+    ]
 
     num_images = 5
     nrows, ncols = cfg.fingertip_config.n_fingers, num_images
@@ -884,7 +914,10 @@ if cfg.plot_alpha_images_each_finger and "nerf_densities" in globals():
 
 if "depth_images" in globals():
     # plot depth and uncertainty side-by-side
-    min_depth, max_depth = torch.min(depth_images).item(), torch.max(depth_images).item()
+    min_depth, max_depth = (
+        torch.min(depth_images).item(),
+        torch.max(depth_images).item(),
+    )
     min_uncertainty, max_uncertainty = (
         torch.min(uncertainty_images).item(),
         torch.max(uncertainty_images).item(),
@@ -893,11 +926,19 @@ if "depth_images" in globals():
     for finger_idx in range(cfg.fingertip_config.n_fingers):
         plot_idx = 2 * finger_idx + 1
         plt.subplot(cfg.fingertip_config.n_fingers, 2, plot_idx)
-        plt.imshow(depth_images[cfg.grasp_visualize_index, finger_idx].detach().cpu(), vmin=min_depth, vmax=max_depth)
+        plt.imshow(
+            depth_images[cfg.grasp_visualize_index, finger_idx].detach().cpu(),
+            vmin=min_depth,
+            vmax=max_depth,
+        )
         plt.title(f"Depth {finger_idx}")
         plt.colorbar()
         plt.subplot(cfg.fingertip_config.n_fingers, 2, plot_idx + 1)
-        plt.imshow(uncertainty_images[cfg.grasp_visualize_index, finger_idx].detach().cpu(), vmin=min_uncertainty, vmax=max_uncertainty)
+        plt.imshow(
+            uncertainty_images[cfg.grasp_visualize_index, finger_idx].detach().cpu(),
+            vmin=min_uncertainty,
+            vmax=max_uncertainty,
+        )
         plt.title(f"Uncertainty {finger_idx}")
         plt.colorbar()
     plt.tight_layout()

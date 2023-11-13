@@ -51,6 +51,10 @@ from nerf_grasping.grasp_utils import (
     get_nerf_configs,
     load_nerf,
 )
+from nerf_grasping.nerf_utils import (
+    get_cameras,
+    render,
+)
 from nerf_grasping.config.base import CONFIG_DATETIME_STR
 from functools import partial
 from nerf_grasping.config.nerfdata_config import (
@@ -148,9 +152,6 @@ else:
     cfg: UnionNerfDataConfig = tyro.cli(UnionNerfDataConfig, args=[])
 
 print(f"Config:\n{tyro.extras.to_yaml(cfg)}")
-
-if isinstance(cfg, DepthImageNerfDataConfig):
-    raise NotImplementedError("DepthImageNerfDataConfig not implemented yet")
 
 if cfg.output_filepath is None:
     cfg.output_filepath = (
@@ -283,8 +284,24 @@ def create_grid_dataset(
 def create_depth_image_dataset(
     cfg: DepthImageNerfDataConfig, hdf5_file: h5py.File, max_num_datapoints: int
 ):
-    nerf_densities_dataset = hdf5_file.create_dataset(
+    depth_images_dataset = hdf5_file.create_dataset(
         "/depth_images",
+        shape=(
+            max_num_datapoints,
+            cfg.fingertip_config.n_fingers,
+            cfg.fingertip_camera_config.H,
+            cfg.fingertip_camera_config.W,
+        ),
+        dtype="f",
+        chunks=(
+            1,
+            cfg.fingertip_config.n_fingers,
+            cfg.fingertip_camera_config.H,
+            cfg.fingertip_camera_config.W,
+        ),
+    )
+    uncertainty_images_dataset = hdf5_file.create_dataset(
+        "/uncertainty_images",
         shape=(
             max_num_datapoints,
             cfg.fingertip_config.n_fingers,
@@ -331,7 +348,8 @@ def create_depth_image_dataset(
     )
 
     return (
-        nerf_densities_dataset,
+        depth_images_dataset,
+        uncertainty_images_dataset,
         passed_eval_dataset,
         passed_simulation_dataset,
         passed_penetration_threshold_dataset,
@@ -343,6 +361,36 @@ def create_depth_image_dataset(
     )
 
 
+@torch.no_grad()
+def get_depth_and_uncertainty_images(
+    loop_timer: LoopTimer,
+    cfg: UnionNerfDataConfig,
+    grasp_frame_transforms: pp.LieTensor,
+    nerf_model: nerfstudio.models.base_model.Model,
+) -> [torch.tensor]:
+    with loop_timer.add_section_timer("get_cameras"):
+        cameras = get_cameras(grasp_frame_transforms, cfg.fingertip_camera_config)
+
+    with loop_timer.add_section_timer("render"):
+        depth, uncertainty = render(cameras, nerf_model)
+
+        return (
+            depth.permute(2, 0, 1).view(
+                grasp_frame_transforms.shape[0],
+                cfg.fingertip_config.n_fingers,
+                cfg.fingertip_camera_config.H,
+                cfg.fingertip_camera_config.W,
+            ),
+            uncertainty.permute(2, 0, 1).view(
+                grasp_frame_transforms.shape[0],
+                cfg.fingertip_config.n_fingers,
+                cfg.fingertip_camera_config.H,
+                cfg.fingertip_camera_config.W,
+            ),
+        )
+
+
+@torch.no_grad()
 @localscope.mfc
 def get_nerf_densities(
     loop_timer: LoopTimer,
@@ -350,13 +398,13 @@ def get_nerf_densities(
     grasp_frame_transforms: pp.LieTensor,
     ray_origins_finger_frame: torch.Tensor,
     nerf_model: nerfstudio.models.base_model.Model,
-) -> Tuple[np.ndarray, np.ndarray]:
-    assert grasp_frame_transforms.lshape == (cfg.fingertip_config.n_fingers,)
-
-    transform_list = [
-        grasp_frame_transforms[i].detach().clone()
-        for i in range(cfg.fingertip_config.n_fingers)
-    ]
+) -> Tuple[torch.tensor, torch.tensor]:
+    # Shape check grasp_frame_transforms
+    batch_size = grasp_frame_transforms.shape[0]
+    assert grasp_frame_transforms.lshape == (
+        batch_size,
+        cfg.fingertip_config.n_fingers,
+    )
 
     # Create density grid for grid dataset.
     if isinstance(cfg, GridNerfDataConfig) or isinstance(
@@ -364,59 +412,46 @@ def get_nerf_densities(
     ):
         # Transform query points
         with loop_timer.add_section_timer("get_ray_samples"):
-            ray_samples_list = [
-                get_ray_samples(
-                    ray_origins_finger_frame, transform, cfg.fingertip_config
-                )
-                for transform in transform_list
-            ]
+            ray_samples = get_ray_samples(
+                ray_origins_finger_frame,
+                grasp_frame_transforms,
+                cfg.fingertip_config,
+            )
 
         with loop_timer.add_section_timer("frustums.get_positions"):
-            query_points_list = [
-                np.copy(
-                    rr.frustums.get_positions()
-                    .cpu()
-                    .numpy()
+            query_points = ray_samples.frustums.get_positions().reshape(
+                batch_size,
+                cfg.fingertip_config.n_fingers,
+                cfg.fingertip_config.num_pts_x,
+                cfg.fingertip_config.num_pts_y,
+                cfg.fingertip_config.num_pts_z,
+                3,
+            )
+
+        with loop_timer.add_section_timer("get_density"):
+            # Split ray_samples into chunks so everything fits on the gpu
+            split_inds = torch.arange(0, batch_size, cfg.ray_samples_chunk_size)
+            split_inds = torch.cat(
+                [split_inds, torch.tensor([batch_size]).to(split_inds.device)]
+            )
+            nerf_density_list = []
+            for curr_ind, next_ind in zip(split_inds[:-1], split_inds[1:]):
+                curr_ray_samples = ray_samples[curr_ind:next_ind].to("cuda")
+                nerf_density_list.append(
+                    nerf_model.get_density(curr_ray_samples)[0]
                     .reshape(
+                        -1,
                         cfg.fingertip_config.num_pts_x,
                         cfg.fingertip_config.num_pts_y,
                         cfg.fingertip_config.num_pts_z,
-                        3,
                     )
-                )  # Shape [n_x, n_y, n_z, 3]
-                for rr in ray_samples_list
-            ]
-
-        # Get densities
-        with loop_timer.add_section_timer("get_density"):
-            nerf_densities = [
-                nerf_model.get_density(ray_samples.to("cuda"))[0]
-                .detach()
-                .cpu()
-                .numpy()
-                .reshape(
-                    cfg.fingertip_config.num_pts_x,
-                    cfg.fingertip_config.num_pts_y,
-                    cfg.fingertip_config.num_pts_z,
+                    .cpu()
                 )
-                for ray_samples in ray_samples_list  # Shape [n_x, n_y, n_z].
-            ]
+                curr_ray_samples.to("cpu")
 
-        query_points_list = np.stack(query_points_list, axis=0).reshape(
-            cfg.fingertip_config.n_fingers,
-            cfg.fingertip_config.num_pts_x,
-            cfg.fingertip_config.num_pts_y,
-            cfg.fingertip_config.num_pts_z,
-            3,
-        )
-        nerf_densities = np.stack(nerf_densities, axis=0).reshape(
-            cfg.fingertip_config.n_fingers,
-            cfg.fingertip_config.num_pts_x,
-            cfg.fingertip_config.num_pts_y,
-            cfg.fingertip_config.num_pts_z,
-        )
+        nerf_densities = torch.cat(nerf_density_list, dim=0)
 
-        return nerf_densities, query_points_list
+        return nerf_densities, query_points
 
 
 with h5py.File(cfg.output_filepath, "w") as hdf5_file:
@@ -458,7 +493,8 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
         ) = create_grid_dataset(cfg, hdf5_file, max_num_datapoints)
     elif isinstance(cfg, DepthImageNerfDataConfig):
         (
-            nerf_densities_dataset,
+            depth_images_dataset,
+            uncertainty_images_dataset,
             passed_eval_dataset,
             passed_simulation_dataset,
             passed_penetration_threshold_dataset,
@@ -468,6 +504,15 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
             grasp_idx_dataset,
             grasp_transforms_dataset,
         ) = create_depth_image_dataset(cfg, hdf5_file, max_num_datapoints)
+        conditioning_var_dataset = hdf5_file.create_dataset(
+            "/conditioning_var",
+            shape=(
+                max_num_datapoints,
+                cfg.fingertip_config.n_fingers,
+                7 + 16 + 4,
+            ),  # 7 for pose, 16 for rotation matrix, 4 for grasp orientation, for each finger
+            dtype="f",
+        )
     else:
         raise NotImplementedError(f"Unknown config type {cfg}")
 
@@ -564,6 +609,7 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                 )
 
             grasp_configs = grasp_configs[:max_num_datapoints]
+
             passed_evals = passed_evals[:max_num_datapoints]
             passed_simulations = passed_simulations[:max_num_datapoints]
             passed_penetration_thresholds = passed_penetration_thresholds[
@@ -580,84 +626,94 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
             if isinstance(cfg, GraspConditionedGridDataConfig):
                 grasp_config_tensors = grasp_configs.as_tensor()
 
-            # TODO: Batch this instead of looping through each grasp.
-            for grasp_idx, (
-                passed_eval,
-                passed_simulation,
-                passed_penetration_threshold,
-                grasp_frame_transforms,
-            ) in (
-                pbar := tqdm(
-                    enumerate(
-                        zip(
-                            passed_evals,
-                            passed_simulations,
-                            passed_penetration_thresholds,
-                            grasp_frame_transforms_arr,
-                        )
-                    ),
-                    total=grasp_configs.batch_size,
-                    dynamic_ncols=True,
-                )
+            if isinstance(cfg, GridNerfDataConfig) or isinstance(
+                cfg, GraspConditionedGridDataConfig
             ):
-                pbar.set_description(f"grasp data, current_idx: {current_idx}")
-                nerf_densities, query_points_list = get_nerf_densities(
+                # Process batch of grasp data.
+                nerf_densities, query_points = get_nerf_densities(
                     loop_timer=loop_timer,
                     cfg=cfg,
                     grasp_frame_transforms=grasp_frame_transforms,
                     ray_origins_finger_frame=ray_origins_finger_frame,
                     nerf_model=nerf_model,
                 )
-                if cfg.plot_only_one:
-                    break
 
-                # Ensure no nans (most likely come from weird grasp transforms)
-                if (
-                    np.isnan(nerf_densities).any()
-                    or torch.isnan(grasp_frame_transforms).any()
+            elif isinstance(cfg, DepthImageNerfDataConfig):
+                depth_images, uncertainty_images = get_depth_and_uncertainty_images(
+                    loop_timer=loop_timer,
+                    cfg=cfg,
+                    grasp_frame_transforms=grasp_frame_transforms,
+                    nerf_model=nerf_model,
+                )
+
+            if cfg.plot_only_one:
+                break
+
+            # Ensure no nans (most likely come from weird grasp transforms)
+            if nerf_densities.isnan().any() or grasp_frame_transforms.isnan().any():
+                print("\n" + "-" * 80)
+                print(
+                    f"WARNING: Found {nerf_densities.isnan().sum()} nerf density nans and {grasp_frame_transforms.isnan().sum()} transform nans in {config}"
+                )
+                print("Skipping this one...")
+                print("-" * 80 + "\n")
+                continue
+
+            # Save values
+            if not cfg.save_dataset:
+                continue
+            with loop_timer.add_section_timer("save values"):
+                prev_idx = current_idx
+                current_idx += grasp_configs.batch_size
+                passed_eval_dataset[prev_idx:current_idx] = passed_evals
+                passed_simulation_dataset[prev_idx:current_idx] = passed_simulations
+                passed_penetration_threshold_dataset[prev_idx:current_idx] = passed_penetration_thresholds
+                nerf_config_dataset[prev_idx:current_idx] = [str(config)] * (
+                    current_idx - prev_idx
+                )
+                object_code_dataset[prev_idx:current_idx] = [object_code] * (
+                    current_idx - prev_idx
+                )
+                object_scale_dataset[prev_idx:current_idx] = object_scale
+                grasp_idx_dataset[prev_idx:current_idx] = np.arange(
+                    prev_idx, current_idx
+                )
+                grasp_transforms_dataset[prev_idx:current_idx] = (
+                    grasp_frame_transforms.matrix().cpu().detach().numpy()
+                )
+
+                if isinstance(cfg, GridNerfDataConfig) or isinstance(
+                    cfg, GraspConditionedGridDataConfig
                 ):
-                    print("\n" + "-" * 80)
-                    print(
-                        f"WARNING: Found {np.isnan(nerf_densities).sum()} nerf density nans and {torch.isnan(grasp_frame_transforms).sum()} transform nans in grasp {grasp_idx} of {config}"
-                    )
-                    print("Skipping this one...")
-                    print("-" * 80 + "\n")
-                    continue
-
-                # Save values
-                if not cfg.save_dataset:
-                    continue
-                with loop_timer.add_section_timer("save values"):
-                    nerf_densities_dataset[current_idx] = nerf_densities
-                    passed_eval_dataset[current_idx] = passed_eval
-                    passed_simulation_dataset[current_idx] = passed_simulation
-                    passed_penetration_threshold_dataset[
-                        current_idx
-                    ] = passed_penetration_threshold
-                    nerf_config_dataset[current_idx] = str(config)
-                    object_code_dataset[current_idx] = object_code
-                    object_scale_dataset[current_idx] = object_scale
-                    grasp_idx_dataset[current_idx] = grasp_idx
-                    grasp_transforms_dataset[current_idx] = (
-                        grasp_frame_transforms.matrix().cpu().detach().numpy()
+                    nerf_densities_dataset[prev_idx:current_idx] = (
+                        nerf_densities.detach().cpu().numpy()
                     )
 
-                    if isinstance(cfg, GraspConditionedGridDataConfig):
-                        grasp_config_tensor = (
-                            grasp_config_tensors[grasp_idx].detach().cpu().numpy()
-                        )
-                        assert grasp_config_tensor.shape == (
-                            cfg.fingertip_config.n_fingers,
-                            7
-                            + 16
-                            + 4,  # wrist pose, joint angles, grasp orientations (as quats)
-                        )
-                        conditioning_var_dataset[current_idx] = grasp_config_tensor
+                if isinstance(cfg, DepthImageNerfDataConfig):
+                    depth_images_dataset[prev_idx:current_idx] = (
+                        depth_images.detach().cpu().numpy()
+                    )
+                    uncertainty_images_dataset[prev_idx:current_idx] = (
+                        uncertainty_images.detach().cpu().numpy()
+                    )
 
-                    current_idx += 1
+                if isinstance(cfg, GraspConditionedGridDataConfig) or isinstance(
+                    cfg, DepthImageNerfDataConfig
+                ):
+                    grasp_config_tensors = grasp_config_tensors.detach().cpu().numpy()
+                    assert grasp_config_tensors.shape == (
+                        grasp_configs.batch_size,
+                        cfg.fingertip_config.n_fingers,
+                        7
+                        + 16
+                        + 4,  # wrist pose, joint angles, grasp orientations (as quats)
+                    )
+                    conditioning_var_dataset[
+                        prev_idx:current_idx
+                    ] = grasp_config_tensors
 
-                    # May not be max_num_data_points if nan grasps
-                    hdf5_file.attrs["num_data_points"] = current_idx
+                # May not be max_num_data_points if nan grasps
+                hdf5_file.attrs["num_data_points"] = current_idx
         except:
             print("\n" + "-" * 80)
             print(f"WARNING: Failed to process {config}")

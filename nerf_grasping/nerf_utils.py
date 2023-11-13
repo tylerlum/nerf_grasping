@@ -50,6 +50,7 @@ def render(
     near_plane: float = 1e-3,
     far_plane: float = 1e-1,
 ):
+    # TODO: Use this original_shape
     original_shape = cameras.shape
     cameras = cameras.reshape(-1)
     assert len(cameras.shape) == 1
@@ -63,9 +64,10 @@ def render(
     ray_bundle.nears = torch.ones_like(ray_bundle.pixel_area) * near_plane
     ray_bundle.fars = torch.ones_like(ray_bundle.pixel_area) * far_plane
 
-    return _render_depth_and_uncertainty_for_camera_ray_bundle(
+    depth, uncertainty = _render_depth_and_uncertainty_for_camera_ray_bundle(
         nerf_model, ray_bundle, depth_mode
     )
+    return depth, uncertainty
 
 
 def get_ray_samples(

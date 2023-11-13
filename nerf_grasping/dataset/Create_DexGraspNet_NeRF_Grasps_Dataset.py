@@ -374,7 +374,8 @@ def get_depth_and_uncertainty_images(
     assert isinstance(cfg, DepthImageNerfDataConfig)
 
     with loop_timer.add_section_timer("get_cameras"):
-        cameras = get_cameras(grasp_frame_transforms, cfg.fingertip_camera_config)
+        # TODO: Check if this is correct
+        cameras = get_cameras(grasp_frame_transforms, cfg.fingertip_camera_config).to(nerf_model.device)
 
     with loop_timer.add_section_timer("render"):
         depth, uncertainty = render(cameras, nerf_model)
@@ -882,16 +883,20 @@ if cfg.plot_alpha_images_each_finger and "nerf_densities" in globals():
 
 if "depth_images" in globals():
     # plot depth and uncertainty side-by-side
-    far_plane = 2e-1
+    min_depth, max_depth = torch.min(depth_images).item(), torch.max(depth_images).item()
+    min_uncertainty, max_uncertainty = (
+        torch.min(uncertainty_images).item(),
+        torch.max(uncertainty_images).item(),
+    )
     plt.figure(figsize=(20, 10))
-    for finger_idx in cfg.fingertip_config.n_fingers:
+    for finger_idx in range(cfg.fingertip_config.n_fingers):
         plot_idx = 2 * finger_idx + 1
         plt.subplot(cfg.fingertip_config.n_fingers, 2, plot_idx)
-        plt.imshow(depth_images[cfg.grasp_visualize_index, finger_idx].detach().cpu(), vmin=0, vmax=far_plane)
+        plt.imshow(depth_images[cfg.grasp_visualize_index, finger_idx].detach().cpu(), vmin=min_depth, vmax=max_depth)
         plt.title(f"Depth {finger_idx}")
         plt.colorbar()
         plt.subplot(cfg.fingertip_config.n_fingers, 2, plot_idx + 1)
-        plt.imshow(uncertainty_images[cfg.grasp_visualize_index, finger_idx].detach().cpu(), vmin=0, vmax=far_plane ** 2)
+        plt.imshow(uncertainty_images[cfg.grasp_visualize_index, finger_idx].detach().cpu(), vmin=min_uncertainty, vmax=max_uncertainty)
         plt.title(f"Uncertainty {finger_idx}")
         plt.colorbar()
     plt.show(block=True)

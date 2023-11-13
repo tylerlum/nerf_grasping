@@ -32,11 +32,13 @@ from nerf_grasping.learned_metric.DexGraspNet_batch_data import (
     BatchData,
     BatchDataInput,
     BatchDataOutput,
+    DepthImageBatchDataInput,
 )
 from nerf_grasping.dataset.DexGraspNet_NeRF_Grasps_utils import (
     get_object_code,
     get_object_scale,
     plot_mesh_and_query_points,
+    plot_mesh_and_transforms,
 )
 from nerf_grasping.classifier import Classifier
 from nerf_grasping.dataset.timers import LoopTimer
@@ -76,6 +78,7 @@ from torch.utils.data import (
 )
 from sklearn.utils.class_weight import compute_class_weight
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 import wandb
 from functools import partial
 from datetime import datetime
@@ -137,12 +140,20 @@ tqdm = partial(std_tqdm, dynamic_ncols=True)
 
 # %%
 if is_notebook():
+    # arguments = [
+    #     "cnn-2d-1d",
+    #     "--task-type",
+    #     "PASSED_SIMULATION_AND_PENETRATION_THRESHOLD",
+    #     "--nerfdata-config.output-filepath",
+    #     "data/2023-10-13_13-12-28/learned_metric_dataset/2023-11-13_12-19-14_learned_metric_dataset.h5",
+    #     "nerfdata-config.fingertip-config:big-even",
+    # ]
     arguments = [
-        "cnn-2d-1d",
+        "depth-cnn-2d",
         "--task-type",
         "PASSED_SIMULATION_AND_PENETRATION_THRESHOLD",
         "--nerfdata-config.output-filepath",
-        "data/2023-10-13_13-12-28/learned_metric_dataset/2023-10-13_13-22-59_learned_metric_dataset.h5",
+        "data/2023-10-13_13-12-28/learned_metric_dataset/2023-11-13_12-19-14_learned_metric_dataset.h5",
         "nerfdata-config.fingertip-config:big-even",
     ]
 else:
@@ -617,7 +628,7 @@ class DepthImage_To_GraspSuccess_HDF5_Dataset(Dataset):
             )
 
             if use_conditioning_var:
-                assert_equals(len(hdf5_file["/conditioning_var"].shape), 2)
+                assert_equals(len(hdf5_file["/conditioning_var"].shape), 3)
                 self.conditioning_var = (
                     hdf5_file["/conditioning_var"][()]
                     if load_conditioning_var_in_ram
@@ -889,21 +900,125 @@ def custom_collate_fn(
     )
 
 
+def depth_image_custom_collate_fn(
+    batch: List[BatchDataTempType],
+    fingertip_config: BaseFingertipConfig,
+    use_random_rotations: bool = True,
+    debug_shuffle_labels: bool = False,
+    use_conditioning_var: bool = False,
+    nerf_density_threshold_value: Optional[float] = None,
+) -> BatchData:
+    batch = torch.utils.data.dataloader.default_collate(batch)
+    if use_conditioning_var:
+        (
+            depth_uncertainty_images,
+            passed_simulation,
+            passed_penetration_threshold,
+            passed_eval,
+            grasp_transforms,
+            nerf_configs,
+            conditioning_var,
+        ) = batch
+    else:
+        (
+            depth_uncertainty_images,
+            passed_simulation,
+            passed_penetration_threshold,
+            passed_eval,
+            grasp_transforms,
+            nerf_configs,
+        ) = batch
+
+    if debug_shuffle_labels:
+        shuffle_inds = torch.randperm(passed_simulation.shape[0])
+        passed_simulation = passed_simulation[shuffle_inds]
+        passed_penetration_threshold = passed_penetration_threshold[shuffle_inds]
+        passed_eval = passed_eval[shuffle_inds]
+
+    grasp_transforms = pp.from_matrix(grasp_transforms, pp.SE3_type)
+
+    batch_size = depth_uncertainty_images.shape[0]
+    if use_random_rotations:
+        random_rotate_transform = sample_random_rotate_transforms(N=batch_size)
+
+        if use_conditioning_var:
+            # Apply random rotation to grasp config.
+            # NOTE: hardcodes that conditioning is a grasp conditioning.
+            wrist_pose = pp.SE3(conditioning_var[..., :7])
+            joint_angles = conditioning_var[..., 7:23]
+            grasp_orientations = pp.SO3(conditioning_var[..., 23:])
+
+            wrist_pose = random_rotate_transform.unsqueeze(1) @ wrist_pose
+            grasp_orientations = (
+                random_rotate_transform.rotation().unsqueeze(1) @ grasp_orientations
+            )
+
+            conditioning_var = torch.cat(
+                (wrist_pose.data, joint_angles, grasp_orientations.data), axis=-1
+            )
+    else:
+        random_rotate_transform = None
+
+    return BatchData(
+        input=DepthImageBatchDataInput(
+            depth_uncertainty_images=depth_uncertainty_images,
+            grasp_transforms=grasp_transforms,
+            random_rotate_transform=random_rotate_transform,
+            fingertip_config=fingertip_config,
+            nerf_density_threshold_value=nerf_density_threshold_value,
+            conditioning_var=conditioning_var if use_conditioning_var else None,
+        ),
+        output=BatchDataOutput(
+            passed_simulation=passed_simulation,
+            passed_penetration_threshold=passed_penetration_threshold,
+            passed_eval=passed_eval,
+        ),
+        nerf_config=nerf_configs,
+    )
+
+
 # %%
-train_loader = DataLoader(
-    train_dataset,
-    batch_size=cfg.dataloader.batch_size,
-    shuffle=True,
-    pin_memory=cfg.dataloader.pin_memory,
-    num_workers=cfg.dataloader.num_workers,
-    collate_fn=partial(
+if USE_DEPTH_IMAGES:
+    train_collate_fn = partial(
+        depth_image_custom_collate_fn,
+        fingertip_config=cfg.nerfdata_config.fingertip_config,
+        use_random_rotations=cfg.data.use_random_rotations,
+        debug_shuffle_labels=cfg.data.debug_shuffle_labels,
+        use_conditioning_var=USE_CONDITIONING_VAR,
+        nerf_density_threshold_value=cfg.data.nerf_density_threshold_value,
+    )
+    val_test_collate_fn = partial(
+        depth_image_custom_collate_fn,
+        fingertip_config=cfg.nerfdata_config.fingertip_config,
+        use_random_rotations=True,
+        debug_shuffle_labels=cfg.data.debug_shuffle_labels,
+        use_conditioning_var=USE_CONDITIONING_VAR,
+        nerf_density_threshold_value=cfg.data.nerf_density_threshold_value,
+    )
+else:
+    train_collate_fn = partial(
         custom_collate_fn,
         fingertip_config=cfg.nerfdata_config.fingertip_config,
         use_random_rotations=cfg.data.use_random_rotations,
         debug_shuffle_labels=cfg.data.debug_shuffle_labels,
         use_conditioning_var=USE_CONDITIONING_VAR,
         nerf_density_threshold_value=cfg.data.nerf_density_threshold_value,
-    ),
+    )
+    val_test_collate_fn = partial(
+        custom_collate_fn,
+        use_random_rotations=False,
+        fingertip_config=cfg.nerfdata_config.fingertip_config,
+        use_conditioning_var=USE_CONDITIONING_VAR,
+        nerf_density_threshold_value=cfg.data.nerf_density_threshold_value,
+    )  # Run test over actual test transforms.
+
+train_loader = DataLoader(
+    train_dataset,
+    batch_size=cfg.dataloader.batch_size,
+    shuffle=True,
+    pin_memory=cfg.dataloader.pin_memory,
+    num_workers=cfg.dataloader.num_workers,
+    collate_fn=train_collate_fn,
 )
 val_loader = DataLoader(
     val_dataset,
@@ -911,13 +1026,7 @@ val_loader = DataLoader(
     shuffle=False,
     pin_memory=cfg.dataloader.pin_memory,
     num_workers=cfg.dataloader.num_workers,
-    collate_fn=partial(
-        custom_collate_fn,
-        fingertip_config=cfg.nerfdata_config.fingertip_config,
-        use_random_rotations=False,
-        use_conditioning_var=USE_CONDITIONING_VAR,
-        nerf_density_threshold_value=cfg.data.nerf_density_threshold_value,
-    ),  # Run val over actual grasp transforms (no random rotations)
+    collate_fn=val_test_collate_fn,
 )
 test_loader = DataLoader(
     test_dataset,
@@ -925,13 +1034,7 @@ test_loader = DataLoader(
     shuffle=False,
     pin_memory=cfg.dataloader.pin_memory,
     num_workers=cfg.dataloader.num_workers,
-    collate_fn=partial(
-        custom_collate_fn,
-        use_random_rotations=False,
-        fingertip_config=cfg.nerfdata_config.fingertip_config,
-        use_conditioning_var=USE_CONDITIONING_VAR,
-        nerf_density_threshold_value=cfg.data.nerf_density_threshold_value,
-    ),  # Run test over actual test transforms.
+    collate_fn=val_test_collate_fn,
 )
 
 if cfg.data.use_random_rotations:
@@ -943,21 +1046,27 @@ else:
 # %%
 @localscope.mfc
 def print_shapes(batch_data: BatchData) -> None:
-    print(f"nerf_alphas.shape: {batch_data.input.nerf_alphas.shape}")
+    if isinstance(batch_data.input, BatchDataInput):
+        print(f"nerf_alphas.shape: {batch_data.input.nerf_alphas.shape}")
+        print(f"coords.shape = {batch_data.input.coords.shape}")
+        print(
+            f"nerf_alphas_with_coords.shape = {batch_data.input.nerf_alphas_with_coords.shape}"
+        )
+    elif isinstance(batch_data.input, DepthImageBatchDataInput):
+        print(f"depth_uncertainty_images.shape: {batch_data.input.depth_uncertainty_images.shape}")
+    else:
+        raise ValueError(f"Unknown batch_data.input type: {type(batch_data.input)}")
+
+    print(
+        f"augmented_grasp_transforms.shape = {batch_data.input.augmented_grasp_transforms.shape}"
+    )
+    print(f"grasp_transforms.shape: {batch_data.input.grasp_transforms.shape}")
     print(f"passed_simulation.shape: {batch_data.output.passed_simulation.shape}")
     print(
         f"passed_penetration_threshold.shape: {batch_data.output.passed_penetration_threshold.shape}"
     )
     print(f"passed_eval.shape: {batch_data.output.passed_eval.shape}")
-    print(f"grasp_transforms.shape: {batch_data.input.grasp_transforms.shape}")
     print(f"len(nerf_config): {len(batch_data.nerf_config)}")
-    print(f"coords.shape = {batch_data.input.coords.shape}")
-    print(
-        f"nerf_alphas_with_coords.shape = {batch_data.input.nerf_alphas_with_coords.shape}"
-    )
-    print(
-        f"augmented_grasp_transforms.shape = {batch_data.input.augmented_grasp_transforms.shape}"
-    )
 
 
 EXAMPLE_BATCH_DATA: BatchData = next(iter(val_loader))
@@ -968,14 +1077,14 @@ print_shapes(batch_data=EXAMPLE_BATCH_DATA)
 
 
 # %%
-
-
 @localscope.mfc(
     allowed=["NUM_FINGERS", "NUM_PTS_X", "NUM_PTS_Y", "NUM_PTS_Z", "NUM_XYZ"]
 )
 def plot_example(
     batch_data: BatchData, idx_to_visualize: int = 0, augmented: bool = False
 ) -> go.Figure:
+    assert isinstance(batch_data.input, BatchDataInput)
+
     if augmented:
         query_points_list = batch_data.input.augmented_coords[idx_to_visualize]
         additional_mesh_transform = (
@@ -1067,49 +1176,144 @@ def plot_example(
     return fig
 
 
+@localscope.mfc(
+    allowed=["NUM_FINGERS", "DEPTH_IMAGE_N_CHANNELS", "DEPTH_IMAGE_HEIGHT", "DEPTH_IMAGE_WIDTH"]
+)
+def depth_image_plot_example(
+    batch_data: BatchData, idx_to_visualize: int = 0, augmented: bool = False
+) -> Tuple[go.Figure, go.Figure]:
+    assert isinstance(batch_data.input, DepthImageBatchDataInput)
+
+    if augmented:
+        grasp_transforms = [
+            batch_data.input.augmented_grasp_transforms[idx_to_visualize][finger_idx].matrix().cpu().numpy()
+            for finger_idx in range(NUM_FINGERS)
+        ]
+        additional_mesh_transform = (
+            batch_data.input.random_rotate_transform[idx_to_visualize]
+            .matrix()
+            .cpu()
+            .numpy()
+            if batch_data.input.random_rotate_transform is not None
+            else None
+        )
+    else:
+        grasp_transforms = [
+            batch_data.input.grasp_transforms[idx_to_visualize][finger_idx].matrix().cpu().numpy()
+            for finger_idx in range(NUM_FINGERS)
+        ]
+        additional_mesh_transform = None
+
+    # Extract data
+    depth_uncertainty_images = batch_data.input.depth_uncertainty_images[idx_to_visualize]
+    assert_equals(depth_uncertainty_images.shape, (NUM_FINGERS, DEPTH_IMAGE_N_CHANNELS, DEPTH_IMAGE_HEIGHT, DEPTH_IMAGE_WIDTH))
+    depth_images, uncertainty_images = depth_uncertainty_images[:, 0], depth_uncertainty_images[:, 1]
+    max_depth, max_uncertainty = depth_images.max().item(), uncertainty_images.max().item()
+
+    passed_simulation = batch_data.output.passed_simulation[idx_to_visualize].item()
+    passed_penetration_threshold = batch_data.output.passed_penetration_threshold[
+        idx_to_visualize
+    ].item()
+    passed_eval = batch_data.output.passed_eval[idx_to_visualize].item()
+
+    assert passed_simulation in [0, 1]
+    assert passed_penetration_threshold in [0, 1]
+    assert passed_eval in [0, 1]
+
+    nerf_config_path = pathlib.Path(batch_data.nerf_config[idx_to_visualize])
+    object_code = get_object_code(nerf_config_path)
+    object_scale = get_object_scale(nerf_config_path)
+
+    # Path to meshes
+    DEXGRASPNET_DATA_ROOT = str(pathlib.Path(nerf_grasping.get_repo_root()) / "data")
+    # TODO: add to cfg.
+    DEXGRASPNET_MESHDATA_ROOT = os.path.join(DEXGRASPNET_DATA_ROOT, "meshdata")
+    mesh_path = os.path.join(
+        DEXGRASPNET_MESHDATA_ROOT,
+        object_code,
+        "coacd",
+        "decomposed.obj",
+    )
+
+    print(f"Loading mesh from {mesh_path}...")
+    mesh = trimesh.load(mesh_path, force="mesh")
+    mesh.apply_transform(trimesh.transformations.scale_matrix(object_scale))
+    if additional_mesh_transform is not None:
+        mesh.apply_transform(additional_mesh_transform)
+
+    fig = plot_mesh_and_transforms(
+        mesh=mesh,
+        transforms=grasp_transforms,
+        num_fingers=NUM_FINGERS,
+    )
+    # Set title to label
+    fig.update_layout(
+        title_text=f"passed_simulation = {passed_simulation}, passed_penetration_threshold = {passed_penetration_threshold}, passed_eval = {passed_eval}"
+    )
+
+    titles = [
+        f"Depth {i//2}" if i % 2 == 0 else f"Uncertainty {i//2}"
+        for i in range(2 * NUM_FINGERS)
+    ]
+    fig2 = make_subplots(rows=NUM_FINGERS, cols=2, subplot_titles=titles)
+    for finger_idx in range(NUM_FINGERS):
+        row = finger_idx + 1
+        depth_image = depth_images[finger_idx].cpu().numpy()
+        uncertainty_image = uncertainty_images[finger_idx].cpu().numpy()
+
+        # Add 3 channels of this
+        N_CHANNELS = 3
+        depth_image = np.stack([depth_image] * N_CHANNELS, axis=-1)
+        uncertainty_image = np.stack([uncertainty_image] * N_CHANNELS, axis=-1)
+        assert_equals(depth_image.shape, (DEPTH_IMAGE_HEIGHT, DEPTH_IMAGE_WIDTH, N_CHANNELS))
+        assert_equals(uncertainty_image.shape, (DEPTH_IMAGE_HEIGHT, DEPTH_IMAGE_WIDTH, N_CHANNELS))
+
+        # Rescale
+        depth_image = (depth_image * 255 / max_depth).astype(int)
+        uncertainty_image = (uncertainty_image * 255 / max_uncertainty).astype(int)
+
+        fig2.add_trace(go.Image(z=depth_image), row=row, col=1)
+        fig2.add_trace(go.Image(z=uncertainty_image), row=row, col=2)
+
+    return fig, fig2
+
+
 # Add config var to enable / disable plotting.
 # %%
-# fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=15)
-# fig.show()
+PLOT_EXAMPLES = True
+if PLOT_EXAMPLES:
+    if USE_DEPTH_IMAGES:
+        fig, fig2 = depth_image_plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=1)
+        fig.show()
+        fig2.show()
+    else:
+        fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=1)
+        fig.show()
 
 # %%
-# fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=15, augmented=True)
-# fig.show()
+if PLOT_EXAMPLES:
+    if USE_DEPTH_IMAGES:
+        fig, fig2 = depth_image_plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=15, augmented=True)
+        fig.show()
+        fig2.show()
+    else:
+        fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=15, augmented=True)
+        fig.show()
 
 # %%
-EXAMPLE_BATCH_DATA.output.passed_simulation, EXAMPLE_BATCH_DATA.output.passed_penetration_threshold, EXAMPLE_BATCH_DATA.output.passed_eval
+if PLOT_EXAMPLES:
+    if USE_DEPTH_IMAGES:
+        fig, fig2 = depth_image_plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=14)
+        fig.show()
+        fig2.show()
+    else:
+        fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=14)
+        fig.show()
 
-# # %%
-# fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=14)
-# fig.show()
-#
-# # %%
-# fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=14, augmented=True)
-# fig.show()
-#
-# # %%
-# fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=17)
-# fig.show()
-#
-# # %%
-# fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=17, augmented=True)
-# fig.show()
-#
-# # %%
-# fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=18)
-# fig.show()
-#
-# # %%
-# fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=18, augmented=True)
-# fig.show()
-#
-# # %%
-# fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=19)
-# fig.show()
-#
-# # %%
-# fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=19, augmented=True)
-# fig.show()
+# %%
+print(f"passed_simulation = {EXAMPLE_BATCH_DATA.output.passed_simulation}")
+print(f"passed_penetration_threshold = {EXAMPLE_BATCH_DATA.output.passed_penetration_threshold}")
+
 
 # %% [markdown]
 # # Create Neural Network Model

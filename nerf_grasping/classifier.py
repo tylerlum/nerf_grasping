@@ -244,6 +244,15 @@ class Simple_CNN_LSTM_Classifier(Classifier):
         return all_logits
 
 
+class CNN_2D_Classifier(Classifier):
+    def __init__(self) -> None:
+        super().__init__()
+
+    def forward(self, batch_data_input: BatchDataInput) -> torch.Tensor:
+        # TODO
+        raise NotImplementedError()
+
+
 def main() -> None:
     from nerf_grasping.config.fingertip_config import (
         EvenlySpacedFingertipConfig,

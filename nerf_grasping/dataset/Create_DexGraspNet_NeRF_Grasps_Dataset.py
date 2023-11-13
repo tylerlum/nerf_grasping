@@ -899,6 +899,7 @@ if "depth_images" in globals():
         plt.imshow(uncertainty_images[cfg.grasp_visualize_index, finger_idx].detach().cpu(), vmin=min_uncertainty, vmax=max_uncertainty)
         plt.title(f"Uncertainty {finger_idx}")
         plt.colorbar()
+    plt.tight_layout()
     plt.show(block=True)
 
 assert False, "cfg.plot_only_one is True"

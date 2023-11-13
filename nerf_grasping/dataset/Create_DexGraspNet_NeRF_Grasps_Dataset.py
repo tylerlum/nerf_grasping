@@ -21,7 +21,6 @@
 # The purpose of this script is to iterate through each NeRF object and evaled grasp config, sample densities in the grasp trajectory, and store the data
 
 # %%
-import nerfstudio
 import sys
 import pathlib
 import h5py
@@ -47,7 +46,7 @@ from nerf_grasping.grasp_utils import (
     get_ray_samples,
     get_ray_origins_finger_frame,
     get_nerf_configs,
-    load_nerf,
+    load_nerf_model,
 )
 from nerf_grasping.nerf_utils import (
     get_cameras,
@@ -63,6 +62,8 @@ from nerf_grasping.config.nerfdata_config import (
 )
 import tyro
 from localscope import localscope
+from nerfstudio.fields.base_field import Field
+from nerfstudio.models.base_model import Model
 
 
 # %%
@@ -367,7 +368,7 @@ def get_depth_and_uncertainty_images(
     loop_timer: LoopTimer,
     cfg: UnionNerfDataConfig,
     grasp_frame_transforms: pp.LieTensor,
-    nerf_model: nerfstudio.models.base_model.Model,
+    nerf_model: Model,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     assert cfg.fingertip_config is not None
     assert isinstance(cfg, DepthImageNerfDataConfig)
@@ -401,7 +402,7 @@ def get_nerf_densities(
     cfg: UnionNerfDataConfig,
     grasp_frame_transforms: pp.LieTensor,
     ray_origins_finger_frame: torch.Tensor,
-    nerf_model: nerfstudio.models.base_model.Model,
+    nerf_field: Field,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     assert cfg.fingertip_config is not None
 
@@ -445,7 +446,7 @@ def get_nerf_densities(
         for curr_ind, next_ind in zip(split_inds[:-1], split_inds[1:]):
             curr_ray_samples = ray_samples[curr_ind:next_ind].to("cuda")
             nerf_density_list.append(
-                nerf_model.get_density(curr_ray_samples)[0]
+                nerf_field.get_density(curr_ray_samples)[0]
                 .reshape(
                     -1,
                     cfg.fingertip_config.num_pts_x,
@@ -563,7 +564,8 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
 
             # Read in data
             with loop_timer.add_section_timer("load_nerf"):
-                nerf_model = load_nerf(config)
+                nerf_model = load_nerf_model(config)
+                nerf_field: Field = nerf_model.field
 
             with loop_timer.add_section_timer("load mesh"):
                 mesh = trimesh.load(mesh_path, force="mesh")
@@ -639,7 +641,7 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                     cfg=cfg,
                     grasp_frame_transforms=grasp_frame_transforms,
                     ray_origins_finger_frame=ray_origins_finger_frame,
-                    nerf_model=nerf_model,
+                    nerf_field=nerf_field,
                 )
                 if nerf_densities.isnan().any():
                     print("\n" + "-" * 80)
@@ -800,7 +802,7 @@ if cfg.plot_all_high_density_points:
         )
     )
     nerf_densities_in_mesh_region = (
-        nerf_model.get_density(ray_samples_in_mesh_region.to("cuda"))[0]
+        nerf_field.get_density(ray_samples_in_mesh_region.to("cuda"))[0]
         .detach()
         .cpu()
         .numpy()

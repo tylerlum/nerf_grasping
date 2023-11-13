@@ -73,7 +73,7 @@ class Optimizer:
         """
         Factory method for creating an Optimizer from configs.
         """
-        nerf = grasp_utils.load_nerf(nerf_config)
+        nerf = grasp_utils.load_nerf_field(nerf_config)
         classifier = Classifier(classifier_config)
         grasp_metric = GraspMetric(nerf, classifier)
         return cls(init_grasp_config, grasp_metric)
@@ -146,7 +146,7 @@ class SGDOptimizer(Optimizer):
             console=console,
         ) as progress:
             task = progress.add_task("Loading NeRF", total=1)
-            nerf = grasp_utils.load_nerf(nerf_config)
+            nerf = grasp_utils.load_nerf_field(nerf_config)
             progress.update(task, advance=1)
 
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -260,7 +260,7 @@ class CEMOptimizer(Optimizer):
             console=console,
         ) as progress:
             task = progress.add_task("Loading NeRF", total=1)
-            nerf = grasp_utils.load_nerf(nerf_config)
+            nerf = grasp_utils.load_nerf_field(nerf_config)
             progress.update(task, advance=1)
 
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")

@@ -50,6 +50,8 @@ def render(
     near_plane: float = 1e-3,
     far_plane: float = 1e-1,
 ):
+    original_shape = cameras.shape
+    cameras = cameras.reshape(-1)
     assert len(cameras.shape) == 1
     # TODO: make sure we have enough VRAM to render all the cameras at once.
 
@@ -97,7 +99,7 @@ def get_ray_samples(
 
 
 def _render_depth_and_uncertainty_for_camera_ray_bundle(
-    nerf_model, camera_ray_bundle: RayBundle, depth_mode: Literal["median", "expected"]
+    nerf_model: Model, camera_ray_bundle: RayBundle, depth_mode: Literal["median", "expected"]
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """Takes in camera parameters and computes the output of the model.
 

@@ -375,9 +375,11 @@ def get_depth_and_uncertainty_images(
 
     with loop_timer.add_section_timer("get_cameras"):
         # TODO: Check if this is correct
+        # cameras = get_cameras(grasp_frame_transforms, cfg.fingertip_camera_config).to(nerf_model.device)
         cameras = get_cameras(grasp_frame_transforms.Inv(), cfg.fingertip_camera_config).to(nerf_model.device)
 
     with loop_timer.add_section_timer("render"):
+        # depth, uncertainty = render(cameras, nerf_model, depth_mode="median")
         depth, uncertainty = render(cameras, nerf_model)
 
     return (
@@ -740,9 +742,10 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
 
                 # May not be max_num_data_points if nan grasps
                 hdf5_file.attrs["num_data_points"] = current_idx
-        except:
+        except Exception as e:
             print("\n" + "-" * 80)
             print(f"WARNING: Failed to process {config}")
+            print(f"Exception: {e}")
             print("Skipping this one...")
             print("-" * 80 + "\n")
             continue
@@ -900,6 +903,8 @@ if "depth_images" in globals():
         plt.title(f"Uncertainty {finger_idx}")
         plt.colorbar()
     plt.tight_layout()
+    print(f"depth_images.min(): {depth_images.min()}")
+    print(f"depth_images.max(): {depth_images.max()}")
     plt.show(block=True)
 
 assert False, "cfg.plot_only_one is True"

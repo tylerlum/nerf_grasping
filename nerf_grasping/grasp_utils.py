@@ -13,6 +13,9 @@ import transforms3d
 from typing import List, Tuple, Literal
 from nerfstudio.cameras.rays import RayBundle, RaySamples
 from nerfstudio.utils import eval_utils
+from nerfstudio.models.base_model import Model
+from nerfstudio.fields.base_field import Field
+from nerfstudio.pipelines.base_pipeline import Pipeline
 from nerf_grasping.config.fingertip_config import BaseFingertipConfig
 
 
@@ -163,19 +166,17 @@ def get_nerf_configs(nerf_checkpoints_path: str) -> List[pathlib.Path]:
     return list(pathlib.Path(nerf_checkpoints_path).rglob("nerfacto/*/config.yml"))
 
 
-def load_nerf(
-    cfg_path: pathlib.Path, return_type: Literal["pipeline", "model", "field"] = "field"
-) -> nerfstudio.models.base_model.Model:
-    _, pipeline, _, _ = eval_utils.eval_setup(cfg_path, test_mode="inference")
+def load_nerf_model(cfg_path: pathlib.Path) -> Model:
+    return load_nerf_pipeline(cfg_path).model
 
-    if return_type == "pipeline":
-        return pipeline
-    elif return_type == "model":
-        return pipeline.model
-    elif return_type == "field":
-        return pipeline.model.field
-    else:
-        raise ValueError(f"Invalid return_type {return_type}")
+
+def load_nerf_field(cfg_path: pathlib.Path) -> Field:
+    return load_nerf_model(cfg_path).field
+
+
+def load_nerf_pipeline(cfg_path: pathlib.Path) -> Pipeline:
+    _, pipeline, _, _ = eval_utils.eval_setup(cfg_path, test_mode="inference")
+    return pipeline
 
 
 def normalize(x: np.ndarray) -> np.ndarray:

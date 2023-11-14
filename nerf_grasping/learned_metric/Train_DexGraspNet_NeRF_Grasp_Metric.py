@@ -32,11 +32,13 @@ from nerf_grasping.learned_metric.DexGraspNet_batch_data import (
     BatchData,
     BatchDataInput,
     BatchDataOutput,
+    DepthImageBatchDataInput,
 )
 from nerf_grasping.dataset.DexGraspNet_NeRF_Grasps_utils import (
     get_object_code,
     get_object_scale,
     plot_mesh_and_query_points,
+    plot_mesh_and_transforms,
 )
 from nerf_grasping.classifier import Classifier
 from nerf_grasping.dataset.timers import LoopTimer
@@ -47,7 +49,10 @@ from nerf_grasping.config.classifier_config import (
     TaskType,
 )
 from nerf_grasping.config.fingertip_config import BaseFingertipConfig
-from nerf_grasping.config.nerfdata_config import GraspConditionedGridDataConfig
+from nerf_grasping.config.nerfdata_config import (
+    GraspConditionedGridDataConfig,
+    DepthImageNerfDataConfig,
+)
 import os
 import pypose as pp
 import h5py
@@ -73,6 +78,7 @@ from torch.utils.data import (
 )
 from sklearn.utils.class_weight import compute_class_weight
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 import wandb
 from functools import partial
 from datetime import datetime
@@ -86,8 +92,14 @@ from nerf_grasping.models.tyler_new_models import get_scheduler
 
 import tyro
 
+os.chdir(nerf_grasping.get_repo_root())
+
 
 # %%
+def assert_equals(a, b):
+    assert a == b, f"{a} != {b}"
+
+
 def is_notebook() -> bool:
     try:
         shell = get_ipython().__class__.__name__
@@ -128,12 +140,20 @@ tqdm = partial(std_tqdm, dynamic_ncols=True)
 
 # %%
 if is_notebook():
+    # arguments = [
+    #     "cnn-2d-1d",
+    #     "--task-type",
+    #     "PASSED_SIMULATION_AND_PENETRATION_THRESHOLD",
+    #     "--nerfdata-config.output-filepath",
+    #     "data/2023-10-13_13-12-28/learned_metric_dataset/2023-11-13_12-19-14_learned_metric_dataset.h5",
+    #     "nerfdata-config.fingertip-config:big-even",
+    # ]
     arguments = [
-        "cnn-2d-1d",
+        "depth-cnn-2d",
         "--task-type",
         "PASSED_SIMULATION_AND_PENETRATION_THRESHOLD",
         "--nerfdata-config.output-filepath",
-        "data/2023-10-13_13-12-28/learned_metric_dataset/2023-10-13_13-22-59_learned_metric_dataset.h5",
+        "data/2023-10-13_13-12-28/learned_metric_dataset/2023-11-13_12-19-14_learned_metric_dataset.h5",
         "nerfdata-config.fingertip-config:big-even",
     ]
 else:
@@ -143,6 +163,19 @@ else:
 # %%
 cfg: ClassifierConfig = tyro.cli(UnionClassifierConfig, args=arguments)
 assert cfg.nerfdata_config.fingertip_config is not None
+
+USE_CONDITIONING_VAR = isinstance(
+    cfg.nerfdata_config, GraspConditionedGridDataConfig
+) or isinstance(cfg.nerfdata_config, DepthImageNerfDataConfig)
+USE_DEPTH_IMAGES = isinstance(cfg.nerfdata_config, DepthImageNerfDataConfig)
+if USE_DEPTH_IMAGES:
+    DEPTH_IMAGE_N_CHANNELS = 2
+    DEPTH_IMAGE_HEIGHT = cfg.nerfdata_config.fingertip_camera_config.H
+    DEPTH_IMAGE_WIDTH = cfg.nerfdata_config.fingertip_camera_config.W
+else:
+    DEPTH_IMAGE_N_CHANNELS = None
+    DEPTH_IMAGE_HEIGHT = None
+    DEPTH_IMAGE_WIDTH = None
 
 # A relatively dirty hack: create script globals from the config vars.
 NUM_FINGERS = cfg.nerfdata_config.fingertip_config.n_fingers
@@ -312,26 +345,26 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
             )
 
             # Check that the data is in the expected format
-            assert (
-                len(hdf5_file["/passed_simulation"].shape) == 1
-            ), f"{hdf5_file['/passed_simulation'].shape}"
-            assert (
-                len(hdf5_file["/passed_penetration_threshold"].shape) == 1
-            ), f"{hdf5_file['/passed_penetration_threshold'].shape}"
-            assert (
-                len(hdf5_file["/passed_eval"].shape) == 1
-            ), f"{hdf5_file['/passed_eval'].shape}"
-            assert hdf5_file["/nerf_densities"].shape[1:] == (
-                NUM_FINGERS,
-                NUM_PTS_X,
-                NUM_PTS_Y,
-                NUM_PTS_Z,
-            ), f"{hdf5_file['/nerf_densities'].shape}"
-            assert hdf5_file["/grasp_transforms"].shape[1:] == (
-                NUM_FINGERS,
-                4,
-                4,
-            ), f"{hdf5_file['/grasp_transforms'].shape}"
+            assert_equals(len(hdf5_file["/passed_simulation"].shape), 1)
+            assert_equals(len(hdf5_file["/passed_penetration_threshold"].shape), 1)
+            assert_equals(len(hdf5_file["/passed_eval"].shape), 1)
+            assert_equals(
+                hdf5_file["/nerf_densities"].shape[1:],
+                (
+                    NUM_FINGERS,
+                    NUM_PTS_X,
+                    NUM_PTS_Y,
+                    NUM_PTS_Z,
+                ),
+            )
+            assert_equals(
+                hdf5_file["/grasp_transforms"].shape[1:],
+                (
+                    NUM_FINGERS,
+                    4,
+                    4,
+                ),
+            )
 
             # This is usually too big for RAM
             self.nerf_densities = (
@@ -373,9 +406,7 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
             )
 
             if use_conditioning_var:
-                assert (
-                    len(hdf5_file["/conditioning_var"].shape) == 2
-                ), f"{hdf5_file['/conditioning_var'].shape}"
+                assert_equals(len(hdf5_file["/conditioning_var"].shape), 2)
                 self.conditioning_var = (
                     hdf5_file["/conditioning_var"][()]
                     if load_conditioning_var_in_ram
@@ -462,11 +493,13 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
             else self.nerf_configs[idx]
         ).decode("utf-8")
 
-        assert nerf_densities.shape == (NUM_FINGERS, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
-        assert passed_simulation.shape == ()
-        assert passed_penetration_threshold.shape == ()
-        assert passed_eval.shape == ()
-        assert grasp_transforms.shape == (NUM_FINGERS, 4, 4)
+        assert_equals(
+            nerf_densities.shape, (NUM_FINGERS, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
+        )
+        assert_equals(passed_simulation.shape, ())
+        assert_equals(passed_penetration_threshold.shape, ())
+        assert_equals(passed_eval.shape, ())
+        assert_equals(grasp_transforms.shape, (NUM_FINGERS, 4, 4))
 
         if self.use_conditioning_var:
             conditioning_var = (
@@ -495,19 +528,256 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
 
 
 # %%
+class DepthImage_To_GraspSuccess_HDF5_Dataset(Dataset):
+    # @localscope.mfc  # ValueError: Cell is empty
+    def __init__(
+        self,
+        input_hdf5_filepath: str,
+        max_num_data_points: Optional[int] = None,
+        load_depth_images_in_ram: bool = False,
+        load_grasp_labels_in_ram: bool = True,
+        load_grasp_transforms_in_ram: bool = True,
+        load_nerf_configs_in_ram: bool = True,
+        use_conditioning_var: bool = False,
+        load_conditioning_var_in_ram: bool = True,
+    ) -> None:
+        super().__init__()
+        self.input_hdf5_filepath = input_hdf5_filepath
+
+        # Recommended in https://discuss.pytorch.org/t/dataloader-when-num-worker-0-there-is-bug/25643/13
+        self.hdf5_file = None
+        self.use_conditioning_var = use_conditioning_var
+
+        with h5py.File(self.input_hdf5_filepath, "r") as hdf5_file:
+            self.len = self._set_length(
+                hdf5_file=hdf5_file, max_num_data_points=max_num_data_points
+            )
+
+            # Check that the data is in the expected format
+            assert_equals(len(hdf5_file["/passed_simulation"].shape), 1)
+            assert_equals(len(hdf5_file["/passed_penetration_threshold"].shape), 1)
+            assert_equals(len(hdf5_file["/passed_eval"].shape), 1)
+            assert_equals(
+                hdf5_file["/depth_images"].shape[1:],
+                (
+                    NUM_FINGERS,
+                    DEPTH_IMAGE_HEIGHT,
+                    DEPTH_IMAGE_WIDTH,
+                ),
+            )
+            assert_equals(
+                hdf5_file["/uncertainty_images"].shape[1:],
+                (
+                    NUM_FINGERS,
+                    DEPTH_IMAGE_HEIGHT,
+                    DEPTH_IMAGE_WIDTH,
+                )
+            )
+            assert_equals(
+                hdf5_file["/grasp_transforms"].shape[1:],
+                (
+                    NUM_FINGERS,
+                    4,
+                    4,
+                ),
+            )
+
+            # This is usually too big for RAM
+            self.depth_uncertainty_images = (
+                torch.stack(
+                    [
+                        torch.from_numpy(hdf5_file["/depth_images"][()]).float(),
+                        torch.from_numpy(hdf5_file["/uncertainty_images"][()]).float(),
+                    ],
+                    dim=-3,
+                )
+                if load_depth_images_in_ram
+                else None
+            )
+
+            # This is small enough to fit in RAM
+            self.passed_simulations = (
+                torch.from_numpy(hdf5_file["/passed_simulation"][()]).long()
+                if load_grasp_labels_in_ram
+                else None
+            )
+            self.passed_penetration_thresholds = (
+                torch.from_numpy(hdf5_file["/passed_penetration_threshold"][()]).long()
+                if load_grasp_labels_in_ram
+                else None
+            )
+            self.passed_evals = (
+                torch.from_numpy(hdf5_file["/passed_eval"][()]).long()
+                if load_grasp_labels_in_ram
+                else None
+            )
+
+            # This is small enough to fit in RAM
+            self.grasp_transforms = (
+                pp.from_matrix(
+                    torch.from_numpy(hdf5_file["/grasp_transforms"][()]).float(),
+                    pp.SE3_type,
+                )
+                if load_grasp_transforms_in_ram
+                else None
+            )
+
+            # This is small enough to fit in RAM
+            self.nerf_configs = (
+                hdf5_file["/nerf_config"][()] if load_nerf_configs_in_ram else None
+            )
+
+            if use_conditioning_var:
+                assert_equals(len(hdf5_file["/conditioning_var"].shape), 3)
+                self.conditioning_var = (
+                    hdf5_file["/conditioning_var"][()]
+                    if load_conditioning_var_in_ram
+                    else None
+                )
+
+    @localscope.mfc
+    def _set_length(
+        self, hdf5_file: h5py.File, max_num_data_points: Optional[int]
+    ) -> int:
+        length = (
+            hdf5_file.attrs["num_data_points"]
+            if "num_data_points" in hdf5_file.attrs
+            else hdf5_file["/passed_simulation"].shape[0]
+        )
+        if length != hdf5_file["/passed_simulation"].shape[0]:
+            print(
+                f"WARNING: num_data_points = {length} != passed_simulation.shape[0] = {hdf5_file['/passed_simulation'].shape[0]}"
+            )
+
+        # Constrain length of dataset if max_num_data_points is set
+        if max_num_data_points is not None:
+            print(f"Constraining dataset length to {max_num_data_points}")
+            length = max_num_data_points
+
+        return length
+
+    @localscope.mfc
+    def __len__(self) -> int:
+        return self.len
+
+    @localscope.mfc(
+        allowed=[
+            "NUM_FINGERS",
+            "DEPTH_IMAGE_N_CHANNELS",
+            "DEPTH_IMAGE_HEIGHT",
+            "DEPTH_IMAGE_WIDTH",
+        ]
+    )
+    def __getitem__(self, idx: int) -> BatchDataTempType:
+        if self.hdf5_file is None:
+            # Hope to speed up with rdcc params
+            self.hdf5_file = h5py.File(
+                self.input_hdf5_filepath,
+                "r",
+                rdcc_nbytes=1024**2 * 4_000,
+                rdcc_w0=0.75,
+                rdcc_nslots=4_000,
+            )
+
+        depth_uncertainty_images = (
+            torch.stack(
+                [
+                    torch.from_numpy(self.hdf5_file["/depth_images"][idx]).float(),
+                    torch.from_numpy(self.hdf5_file["/uncertainty_images"][idx]).float(),
+                ],
+                dim=-3,
+            )
+            if self.depth_uncertainty_images is None
+            else self.depth_uncertainty_images[idx]
+        )
+
+        passed_simulation = (
+            torch.from_numpy(np.array(self.hdf5_file["/passed_simulation"][idx])).long()
+            if self.passed_simulations is None
+            else self.passed_simulations[idx]
+        )
+        passed_penetration_threshold = (
+            torch.from_numpy(
+                np.array(self.hdf5_file["/passed_penetration_threshold"][idx])
+            ).long()
+            if self.passed_penetration_thresholds is None
+            else self.passed_penetration_thresholds[idx]
+        )
+        passed_eval = (
+            torch.from_numpy(np.array(self.hdf5_file["/passed_eval"][idx])).long()
+            if self.passed_evals is None
+            else self.passed_evals[idx]
+        )
+
+        grasp_transforms = (
+            torch.from_numpy(np.array(self.hdf5_file["/grasp_transforms"][idx])).float()
+            if self.grasp_transforms is None
+            else self.grasp_transforms[idx]
+        )
+
+        nerf_config = (
+            self.hdf5_file["/nerf_config"][idx]
+            if self.nerf_configs is None
+            else self.nerf_configs[idx]
+        ).decode("utf-8")
+
+        assert_equals(
+            depth_uncertainty_images.shape, (NUM_FINGERS, DEPTH_IMAGE_N_CHANNELS, DEPTH_IMAGE_HEIGHT, DEPTH_IMAGE_WIDTH)
+        )
+        assert_equals(passed_simulation.shape, ())
+        assert_equals(passed_penetration_threshold.shape, ())
+        assert_equals(passed_eval.shape, ())
+        assert_equals(grasp_transforms.shape, (NUM_FINGERS, 4, 4))
+
+        if self.use_conditioning_var:
+            conditioning_var = (
+                self.hdf5_file["/conditioning_var"][idx]
+                if self.conditioning_var is None
+                else self.conditioning_var[idx]
+            )
+            return (
+                depth_uncertainty_images,
+                passed_simulation,
+                passed_penetration_threshold,
+                passed_eval,
+                grasp_transforms,
+                nerf_config,
+                conditioning_var,
+            )
+        else:
+            return (
+                depth_uncertainty_images,
+                passed_simulation,
+                passed_penetration_threshold,
+                passed_eval,
+                grasp_transforms,
+                nerf_config,
+            )
+
+
+# %%
 
 input_dataset_full_path = str(cfg.nerfdata_config.output_filepath)
-full_dataset = NeRFGrid_To_GraspSuccess_HDF5_Dataset(
-    input_hdf5_filepath=input_dataset_full_path,
-    max_num_data_points=cfg.data.max_num_data_points,
-    load_nerf_densities_in_ram=cfg.dataloader.load_nerf_grid_inputs_in_ram,
-    load_grasp_labels_in_ram=cfg.dataloader.load_grasp_labels_in_ram,
-    load_grasp_transforms_in_ram=cfg.dataloader.load_grasp_transforms_in_ram,
-    load_nerf_configs_in_ram=cfg.dataloader.load_nerf_configs_in_ram,
-    use_conditioning_var=isinstance(
-        cfg.nerfdata_config, GraspConditionedGridDataConfig
-    ),
-)
+if USE_DEPTH_IMAGES:
+    full_dataset = DepthImage_To_GraspSuccess_HDF5_Dataset(
+        input_hdf5_filepath=input_dataset_full_path,
+        max_num_data_points=cfg.data.max_num_data_points,
+        load_depth_images_in_ram=cfg.dataloader.load_nerf_grid_inputs_in_ram,
+        load_grasp_labels_in_ram=cfg.dataloader.load_grasp_labels_in_ram,
+        load_grasp_transforms_in_ram=cfg.dataloader.load_grasp_transforms_in_ram,
+        load_nerf_configs_in_ram=cfg.dataloader.load_nerf_configs_in_ram,
+        use_conditioning_var=USE_CONDITIONING_VAR,
+    )
+else:
+    full_dataset = NeRFGrid_To_GraspSuccess_HDF5_Dataset(
+        input_hdf5_filepath=input_dataset_full_path,
+        max_num_data_points=cfg.data.max_num_data_points,
+        load_nerf_densities_in_ram=cfg.dataloader.load_nerf_grid_inputs_in_ram,
+        load_grasp_labels_in_ram=cfg.dataloader.load_grasp_labels_in_ram,
+        load_grasp_transforms_in_ram=cfg.dataloader.load_grasp_transforms_in_ram,
+        load_nerf_configs_in_ram=cfg.dataloader.load_nerf_configs_in_ram,
+        use_conditioning_var=USE_CONDITIONING_VAR,
+    )
 
 train_dataset, val_dataset, test_dataset = random_split(
     full_dataset,
@@ -521,9 +791,15 @@ print(f"Val dataset size: {len(val_dataset)}")
 print(f"Test dataset size: {len(test_dataset)}")
 
 # %%
-assert len(set.intersection(set(train_dataset.indices), set(val_dataset.indices))) == 0
-assert len(set.intersection(set(train_dataset.indices), set(test_dataset.indices))) == 0
-assert len(set.intersection(set(val_dataset.indices), set(test_dataset.indices))) == 0
+assert_equals(
+    len(set.intersection(set(train_dataset.indices), set(val_dataset.indices))), 0
+)
+assert_equals(
+    len(set.intersection(set(train_dataset.indices), set(test_dataset.indices))), 0
+)
+assert_equals(
+    len(set.intersection(set(val_dataset.indices), set(test_dataset.indices))), 0
+)
 
 
 # %%
@@ -624,23 +900,125 @@ def custom_collate_fn(
     )
 
 
+def depth_image_custom_collate_fn(
+    batch: List[BatchDataTempType],
+    fingertip_config: BaseFingertipConfig,
+    use_random_rotations: bool = True,
+    debug_shuffle_labels: bool = False,
+    use_conditioning_var: bool = False,
+    nerf_density_threshold_value: Optional[float] = None,
+) -> BatchData:
+    batch = torch.utils.data.dataloader.default_collate(batch)
+    if use_conditioning_var:
+        (
+            depth_uncertainty_images,
+            passed_simulation,
+            passed_penetration_threshold,
+            passed_eval,
+            grasp_transforms,
+            nerf_configs,
+            conditioning_var,
+        ) = batch
+    else:
+        (
+            depth_uncertainty_images,
+            passed_simulation,
+            passed_penetration_threshold,
+            passed_eval,
+            grasp_transforms,
+            nerf_configs,
+        ) = batch
+
+    if debug_shuffle_labels:
+        shuffle_inds = torch.randperm(passed_simulation.shape[0])
+        passed_simulation = passed_simulation[shuffle_inds]
+        passed_penetration_threshold = passed_penetration_threshold[shuffle_inds]
+        passed_eval = passed_eval[shuffle_inds]
+
+    grasp_transforms = pp.from_matrix(grasp_transforms, pp.SE3_type)
+
+    batch_size = depth_uncertainty_images.shape[0]
+    if use_random_rotations:
+        random_rotate_transform = sample_random_rotate_transforms(N=batch_size)
+
+        if use_conditioning_var:
+            # Apply random rotation to grasp config.
+            # NOTE: hardcodes that conditioning is a grasp conditioning.
+            wrist_pose = pp.SE3(conditioning_var[..., :7])
+            joint_angles = conditioning_var[..., 7:23]
+            grasp_orientations = pp.SO3(conditioning_var[..., 23:])
+
+            wrist_pose = random_rotate_transform.unsqueeze(1) @ wrist_pose
+            grasp_orientations = (
+                random_rotate_transform.rotation().unsqueeze(1) @ grasp_orientations
+            )
+
+            conditioning_var = torch.cat(
+                (wrist_pose.data, joint_angles, grasp_orientations.data), axis=-1
+            )
+    else:
+        random_rotate_transform = None
+
+    return BatchData(
+        input=DepthImageBatchDataInput(
+            depth_uncertainty_images=depth_uncertainty_images,
+            grasp_transforms=grasp_transforms,
+            random_rotate_transform=random_rotate_transform,
+            fingertip_config=fingertip_config,
+            nerf_density_threshold_value=nerf_density_threshold_value,
+            conditioning_var=conditioning_var if use_conditioning_var else None,
+        ),
+        output=BatchDataOutput(
+            passed_simulation=passed_simulation,
+            passed_penetration_threshold=passed_penetration_threshold,
+            passed_eval=passed_eval,
+        ),
+        nerf_config=nerf_configs,
+    )
+
+
 # %%
+if USE_DEPTH_IMAGES:
+    train_collate_fn = partial(
+        depth_image_custom_collate_fn,
+        fingertip_config=cfg.nerfdata_config.fingertip_config,
+        use_random_rotations=cfg.data.use_random_rotations,
+        debug_shuffle_labels=cfg.data.debug_shuffle_labels,
+        use_conditioning_var=USE_CONDITIONING_VAR,
+        nerf_density_threshold_value=cfg.data.nerf_density_threshold_value,
+    )
+    val_test_collate_fn = partial(
+        depth_image_custom_collate_fn,
+        fingertip_config=cfg.nerfdata_config.fingertip_config,
+        use_random_rotations=True,
+        debug_shuffle_labels=cfg.data.debug_shuffle_labels,
+        use_conditioning_var=USE_CONDITIONING_VAR,
+        nerf_density_threshold_value=cfg.data.nerf_density_threshold_value,
+    )
+else:
+    train_collate_fn = partial(
+        custom_collate_fn,
+        fingertip_config=cfg.nerfdata_config.fingertip_config,
+        use_random_rotations=cfg.data.use_random_rotations,
+        debug_shuffle_labels=cfg.data.debug_shuffle_labels,
+        use_conditioning_var=USE_CONDITIONING_VAR,
+        nerf_density_threshold_value=cfg.data.nerf_density_threshold_value,
+    )
+    val_test_collate_fn = partial(
+        custom_collate_fn,
+        use_random_rotations=False,
+        fingertip_config=cfg.nerfdata_config.fingertip_config,
+        use_conditioning_var=USE_CONDITIONING_VAR,
+        nerf_density_threshold_value=cfg.data.nerf_density_threshold_value,
+    )  # Run test over actual test transforms.
+
 train_loader = DataLoader(
     train_dataset,
     batch_size=cfg.dataloader.batch_size,
     shuffle=True,
     pin_memory=cfg.dataloader.pin_memory,
     num_workers=cfg.dataloader.num_workers,
-    collate_fn=partial(
-        custom_collate_fn,
-        fingertip_config=cfg.nerfdata_config.fingertip_config,
-        use_random_rotations=cfg.data.use_random_rotations,
-        debug_shuffle_labels=cfg.data.debug_shuffle_labels,
-        use_conditioning_var=isinstance(
-            cfg.nerfdata_config, GraspConditionedGridDataConfig
-        ),
-        nerf_density_threshold_value=cfg.data.nerf_density_threshold_value,
-    ),
+    collate_fn=train_collate_fn,
 )
 val_loader = DataLoader(
     val_dataset,
@@ -648,15 +1026,7 @@ val_loader = DataLoader(
     shuffle=False,
     pin_memory=cfg.dataloader.pin_memory,
     num_workers=cfg.dataloader.num_workers,
-    collate_fn=partial(
-        custom_collate_fn,
-        fingertip_config=cfg.nerfdata_config.fingertip_config,
-        use_random_rotations=False,
-        use_conditioning_var=isinstance(
-            cfg.nerfdata_config, GraspConditionedGridDataConfig
-        ),
-        nerf_density_threshold_value=cfg.data.nerf_density_threshold_value,
-    ),  # Run val over actual grasp transforms (no random rotations)
+    collate_fn=val_test_collate_fn,
 )
 test_loader = DataLoader(
     test_dataset,
@@ -664,15 +1034,7 @@ test_loader = DataLoader(
     shuffle=False,
     pin_memory=cfg.dataloader.pin_memory,
     num_workers=cfg.dataloader.num_workers,
-    collate_fn=partial(
-        custom_collate_fn,
-        use_random_rotations=False,
-        fingertip_config=cfg.nerfdata_config.fingertip_config,
-        use_conditioning_var=isinstance(
-            cfg.nerfdata_config, GraspConditionedGridDataConfig
-        ),
-        nerf_density_threshold_value=cfg.data.nerf_density_threshold_value,
-    ),  # Run test over actual test transforms.
+    collate_fn=val_test_collate_fn,
 )
 
 if cfg.data.use_random_rotations:
@@ -684,21 +1046,27 @@ else:
 # %%
 @localscope.mfc
 def print_shapes(batch_data: BatchData) -> None:
-    print(f"nerf_alphas.shape: {batch_data.input.nerf_alphas.shape}")
+    if isinstance(batch_data.input, BatchDataInput):
+        print(f"nerf_alphas.shape: {batch_data.input.nerf_alphas.shape}")
+        print(f"coords.shape = {batch_data.input.coords.shape}")
+        print(
+            f"nerf_alphas_with_coords.shape = {batch_data.input.nerf_alphas_with_coords.shape}"
+        )
+    elif isinstance(batch_data.input, DepthImageBatchDataInput):
+        print(f"depth_uncertainty_images.shape: {batch_data.input.depth_uncertainty_images.shape}")
+    else:
+        raise ValueError(f"Unknown batch_data.input type: {type(batch_data.input)}")
+
+    print(
+        f"augmented_grasp_transforms.shape = {batch_data.input.augmented_grasp_transforms.shape}"
+    )
+    print(f"grasp_transforms.shape: {batch_data.input.grasp_transforms.shape}")
     print(f"passed_simulation.shape: {batch_data.output.passed_simulation.shape}")
     print(
         f"passed_penetration_threshold.shape: {batch_data.output.passed_penetration_threshold.shape}"
     )
     print(f"passed_eval.shape: {batch_data.output.passed_eval.shape}")
-    print(f"grasp_transforms.shape: {batch_data.input.grasp_transforms.shape}")
     print(f"len(nerf_config): {len(batch_data.nerf_config)}")
-    print(f"coords.shape = {batch_data.input.coords.shape}")
-    print(
-        f"nerf_alphas_with_coords.shape = {batch_data.input.nerf_alphas_with_coords.shape}"
-    )
-    print(
-        f"augmented_grasp_transforms.shape = {batch_data.input.augmented_grasp_transforms.shape}"
-    )
 
 
 EXAMPLE_BATCH_DATA: BatchData = next(iter(val_loader))
@@ -709,14 +1077,14 @@ print_shapes(batch_data=EXAMPLE_BATCH_DATA)
 
 
 # %%
-
-
 @localscope.mfc(
     allowed=["NUM_FINGERS", "NUM_PTS_X", "NUM_PTS_Y", "NUM_PTS_Z", "NUM_XYZ"]
 )
 def plot_example(
     batch_data: BatchData, idx_to_visualize: int = 0, augmented: bool = False
 ) -> go.Figure:
+    assert isinstance(batch_data.input, BatchDataInput)
+
     if augmented:
         query_points_list = batch_data.input.augmented_coords[idx_to_visualize]
         additional_mesh_transform = (
@@ -739,7 +1107,7 @@ def plot_example(
     ].item()
     passed_eval = batch_data.output.passed_eval[idx_to_visualize].item()
 
-    assert colors.shape == (NUM_FINGERS, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
+    assert_equals(colors.shape, (NUM_FINGERS, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z))
     assert passed_simulation in [0, 1]
     assert passed_penetration_threshold in [0, 1]
     assert passed_eval in [0, 1]
@@ -766,20 +1134,26 @@ def plot_example(
         mesh.apply_transform(additional_mesh_transform)
 
     # Get query points from grasp_transforms
-    assert query_points_list.shape == (
-        NUM_FINGERS,
-        NUM_XYZ,
-        NUM_PTS_X,
-        NUM_PTS_Y,
-        NUM_PTS_Z,
+    assert_equals(
+        query_points_list.shape,
+        (
+            NUM_FINGERS,
+            NUM_XYZ,
+            NUM_PTS_X,
+            NUM_PTS_Y,
+            NUM_PTS_Z,
+        ),
     )
     query_points_list = query_points_list.permute((0, 2, 3, 4, 1))
-    assert query_points_list.shape == (
-        NUM_FINGERS,
-        NUM_PTS_X,
-        NUM_PTS_Y,
-        NUM_PTS_Z,
-        NUM_XYZ,
+    assert_equals(
+        query_points_list.shape,
+        (
+            NUM_FINGERS,
+            NUM_PTS_X,
+            NUM_PTS_Y,
+            NUM_PTS_Z,
+            NUM_XYZ,
+        ),
     )
     query_points_list = [
         query_points_list[finger_idx].reshape(-1, NUM_XYZ).cpu().numpy()
@@ -802,49 +1176,144 @@ def plot_example(
     return fig
 
 
+@localscope.mfc(
+    allowed=["NUM_FINGERS", "DEPTH_IMAGE_N_CHANNELS", "DEPTH_IMAGE_HEIGHT", "DEPTH_IMAGE_WIDTH"]
+)
+def depth_image_plot_example(
+    batch_data: BatchData, idx_to_visualize: int = 0, augmented: bool = False
+) -> Tuple[go.Figure, go.Figure]:
+    assert isinstance(batch_data.input, DepthImageBatchDataInput)
+
+    if augmented:
+        grasp_transforms = [
+            batch_data.input.augmented_grasp_transforms[idx_to_visualize][finger_idx].matrix().cpu().numpy()
+            for finger_idx in range(NUM_FINGERS)
+        ]
+        additional_mesh_transform = (
+            batch_data.input.random_rotate_transform[idx_to_visualize]
+            .matrix()
+            .cpu()
+            .numpy()
+            if batch_data.input.random_rotate_transform is not None
+            else None
+        )
+    else:
+        grasp_transforms = [
+            batch_data.input.grasp_transforms[idx_to_visualize][finger_idx].matrix().cpu().numpy()
+            for finger_idx in range(NUM_FINGERS)
+        ]
+        additional_mesh_transform = None
+
+    # Extract data
+    depth_uncertainty_images = batch_data.input.depth_uncertainty_images[idx_to_visualize]
+    assert_equals(depth_uncertainty_images.shape, (NUM_FINGERS, DEPTH_IMAGE_N_CHANNELS, DEPTH_IMAGE_HEIGHT, DEPTH_IMAGE_WIDTH))
+    depth_images, uncertainty_images = depth_uncertainty_images[:, 0], depth_uncertainty_images[:, 1]
+    max_depth, max_uncertainty = depth_images.max().item(), uncertainty_images.max().item()
+
+    passed_simulation = batch_data.output.passed_simulation[idx_to_visualize].item()
+    passed_penetration_threshold = batch_data.output.passed_penetration_threshold[
+        idx_to_visualize
+    ].item()
+    passed_eval = batch_data.output.passed_eval[idx_to_visualize].item()
+
+    assert passed_simulation in [0, 1]
+    assert passed_penetration_threshold in [0, 1]
+    assert passed_eval in [0, 1]
+
+    nerf_config_path = pathlib.Path(batch_data.nerf_config[idx_to_visualize])
+    object_code = get_object_code(nerf_config_path)
+    object_scale = get_object_scale(nerf_config_path)
+
+    # Path to meshes
+    DEXGRASPNET_DATA_ROOT = str(pathlib.Path(nerf_grasping.get_repo_root()) / "data")
+    # TODO: add to cfg.
+    DEXGRASPNET_MESHDATA_ROOT = os.path.join(DEXGRASPNET_DATA_ROOT, "meshdata")
+    mesh_path = os.path.join(
+        DEXGRASPNET_MESHDATA_ROOT,
+        object_code,
+        "coacd",
+        "decomposed.obj",
+    )
+
+    print(f"Loading mesh from {mesh_path}...")
+    mesh = trimesh.load(mesh_path, force="mesh")
+    mesh.apply_transform(trimesh.transformations.scale_matrix(object_scale))
+    if additional_mesh_transform is not None:
+        mesh.apply_transform(additional_mesh_transform)
+
+    fig = plot_mesh_and_transforms(
+        mesh=mesh,
+        transforms=grasp_transforms,
+        num_fingers=NUM_FINGERS,
+    )
+    # Set title to label
+    fig.update_layout(
+        title_text=f"passed_simulation = {passed_simulation}, passed_penetration_threshold = {passed_penetration_threshold}, passed_eval = {passed_eval}"
+    )
+
+    titles = [
+        f"Depth {i//2}" if i % 2 == 0 else f"Uncertainty {i//2}"
+        for i in range(2 * NUM_FINGERS)
+    ]
+    fig2 = make_subplots(rows=NUM_FINGERS, cols=2, subplot_titles=titles)
+    for finger_idx in range(NUM_FINGERS):
+        row = finger_idx + 1
+        depth_image = depth_images[finger_idx].cpu().numpy()
+        uncertainty_image = uncertainty_images[finger_idx].cpu().numpy()
+
+        # Add 3 channels of this
+        N_CHANNELS = 3
+        depth_image = np.stack([depth_image] * N_CHANNELS, axis=-1)
+        uncertainty_image = np.stack([uncertainty_image] * N_CHANNELS, axis=-1)
+        assert_equals(depth_image.shape, (DEPTH_IMAGE_HEIGHT, DEPTH_IMAGE_WIDTH, N_CHANNELS))
+        assert_equals(uncertainty_image.shape, (DEPTH_IMAGE_HEIGHT, DEPTH_IMAGE_WIDTH, N_CHANNELS))
+
+        # Rescale
+        depth_image = (depth_image * 255 / max_depth).astype(int)
+        uncertainty_image = (uncertainty_image * 255 / max_uncertainty).astype(int)
+
+        fig2.add_trace(go.Image(z=depth_image), row=row, col=1)
+        fig2.add_trace(go.Image(z=uncertainty_image), row=row, col=2)
+
+    return fig, fig2
+
+
 # Add config var to enable / disable plotting.
 # %%
-# fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=15)
-# fig.show()
+PLOT_EXAMPLES = True
+if PLOT_EXAMPLES:
+    if USE_DEPTH_IMAGES:
+        fig, fig2 = depth_image_plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=1)
+        fig.show()
+        fig2.show()
+    else:
+        fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=1)
+        fig.show()
 
 # %%
-# fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=15, augmented=True)
-# fig.show()
+if PLOT_EXAMPLES:
+    if USE_DEPTH_IMAGES:
+        fig, fig2 = depth_image_plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=15, augmented=True)
+        fig.show()
+        fig2.show()
+    else:
+        fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=15, augmented=True)
+        fig.show()
 
 # %%
-EXAMPLE_BATCH_DATA.output.passed_simulation, EXAMPLE_BATCH_DATA.output.passed_penetration_threshold, EXAMPLE_BATCH_DATA.output.passed_eval
+if PLOT_EXAMPLES:
+    if USE_DEPTH_IMAGES:
+        fig, fig2 = depth_image_plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=14)
+        fig.show()
+        fig2.show()
+    else:
+        fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=14)
+        fig.show()
 
-# # %%
-# fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=14)
-# fig.show()
-#
-# # %%
-# fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=14, augmented=True)
-# fig.show()
-#
-# # %%
-# fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=17)
-# fig.show()
-#
-# # %%
-# fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=17, augmented=True)
-# fig.show()
-#
-# # %%
-# fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=18)
-# fig.show()
-#
-# # %%
-# fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=18, augmented=True)
-# fig.show()
-#
-# # %%
-# fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=19)
-# fig.show()
-#
-# # %%
-# fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=19, augmented=True)
-# fig.show()
+# %%
+print(f"passed_simulation = {EXAMPLE_BATCH_DATA.output.passed_simulation}")
+print(f"passed_penetration_threshold = {EXAMPLE_BATCH_DATA.output.passed_penetration_threshold}")
+
 
 # %% [markdown]
 # # Create Neural Network Model
@@ -858,10 +1327,16 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Pull out just the CNN (without wrapping for LieTorch) for training.
 assert cfg.model_config is not None
-classifier: Classifier = cfg.model_config.get_classifier_from_fingertip_config(
-    fingertip_config=cfg.nerfdata_config.fingertip_config,
-    n_tasks=cfg.task_type.n_tasks,
-).to(device)
+if USE_DEPTH_IMAGES:
+    classifier: DepthImageClassifier = cfg.model_config.get_classifier_from_camera_config(
+        camera_config=cfg.nerfdata_config.fingertip_camera_config,
+        n_tasks=cfg.task_type.n_tasks,
+    ).to(device)
+else:
+    classifier: Classifier = cfg.model_config.get_classifier_from_fingertip_config(
+        fingertip_config=cfg.nerfdata_config.fingertip_config,
+        n_tasks=cfg.task_type.n_tasks,
+    ).to(device)
 
 # %%
 start_epoch = 0
@@ -987,7 +1462,7 @@ def save_checkpoint(
 
 
 # %%
-@localscope.mfc(allowed=["tqdm"])
+@localscope.mfc(allowed=["tqdm", "USE_DEPTH_IMAGES"])
 def _iterate_through_dataloader(
     loop_timer: LoopTimer,
     phase: Phase,
@@ -1013,8 +1488,8 @@ def _iterate_through_dataloader(
         classifier.eval()
         assert training_cfg is None and optimizer is None
 
-    assert len(ce_loss_fns) == classifier.n_tasks
-    assert len(task_type.task_names) == classifier.n_tasks
+    assert_equals(len(ce_loss_fns), classifier.n_tasks)
+    assert_equals(len(task_type.task_names), classifier.n_tasks)
 
     with torch.set_grad_enabled(phase == Phase.TRAIN):
         dataload_section_timer = loop_timer.add_section_timer("Data").start()
@@ -1025,7 +1500,17 @@ def _iterate_through_dataloader(
 
             batch_idx = int(batch_idx)
             batch_data: BatchData = batch_data.to(device)
-            if torch.isnan(batch_data.input.nerf_alphas_with_augmented_coords).any():
+            if USE_DEPTH_IMAGES and torch.isnan(batch_data.input.depth_uncertainty_images).any():
+                print("!" * 80)
+                print(
+                    f"Found {torch.isnan(batch_data.input.depth_uncertainty_images).sum()} NANs in batch_data.input.depth_uncertainty_images"
+                )
+                print("Skipping batch...")
+                print("!" * 80)
+                print()
+                continue
+
+            if not USE_DEPTH_IMAGES and torch.isnan(batch_data.input.nerf_alphas_with_augmented_coords).any():
                 print("!" * 80)
                 print(
                     f"Found {torch.isnan(batch_data.input.nerf_alphas_with_augmented_coords).sum()} NANs in batch_data.input.nerf_alphas_with_augmented_coords"
@@ -1038,10 +1523,13 @@ def _iterate_through_dataloader(
             # Forward pass
             with loop_timer.add_section_timer("Fwd"):
                 all_logits = classifier.get_all_logits(batch_data.input)
-                assert all_logits.shape == (
-                    batch_data.batch_size,
-                    classifier.n_tasks,
-                    classifier.n_classes,
+                assert_equals(
+                    all_logits.shape,
+                    (
+                        batch_data.batch_size,
+                        classifier.n_tasks,
+                        classifier.n_classes,
+                    ),
                 )
 
                 if task_type == TaskType.PASSED_SIMULATION:
@@ -1050,10 +1538,7 @@ def _iterate_through_dataloader(
                     task_targets = [batch_data.output.passed_penetration_threshold]
                 elif task_type == TaskType.PASSED_EVAL:
                     task_targets = [batch_data.output.passed_eval]
-                elif (
-                    task_type
-                    == TaskType.PASSED_SIMULATION_AND_PENETRATION_THRESHOLD
-                ):
+                elif task_type == TaskType.PASSED_SIMULATION_AND_PENETRATION_THRESHOLD:
                     task_targets = [
                         batch_data.output.passed_simulation,
                         batch_data.output.passed_penetration_threshold,
@@ -1061,7 +1546,7 @@ def _iterate_through_dataloader(
                 else:
                     raise ValueError(f"Unknown task_type: {task_type}")
 
-                assert len(task_targets) == classifier.n_tasks
+                assert_equals(len(task_targets), classifier.n_tasks)
 
                 task_losses = []
                 for task_i, (ce_loss_fn, task_target, task_name) in enumerate(
@@ -1151,11 +1636,8 @@ def create_log_dict(
             temp_log_dict[f"{loss_name}"] = np.mean(losses)
 
     with loop_timer.add_section_timer("Metrics"):
-        assert (
-            set(predictions_dict.keys())
-            == set(ground_truths_dict.keys())
-            == set(task_type.task_names)
-        )
+        assert_equals(set(predictions_dict.keys()), set(ground_truths_dict.keys()))
+        assert_equals(set(predictions_dict.keys()), set(task_type.task_names))
         for task_name in task_type.task_names:
             predictions = predictions_dict[task_name]
             ground_truths = ground_truths_dict[task_name]
@@ -1170,11 +1652,8 @@ def create_log_dict(
                 )
 
     with loop_timer.add_section_timer("Confusion Matrix"):
-        assert (
-            set(predictions_dict.keys())
-            == set(ground_truths_dict.keys())
-            == set(task_type.task_names)
-        )
+        assert_equals(set(predictions_dict.keys()), set(ground_truths_dict.keys()))
+        assert_equals(set(predictions_dict.keys()), set(task_type.task_names))
         for task_name in task_type.task_names:
             predictions = predictions_dict[task_name]
             ground_truths = ground_truths_dict[task_name]
@@ -1205,8 +1684,8 @@ def iterate_through_dataloader(
     optimizer: Optional[torch.optim.Optimizer] = None,
     lr_scheduler: Optional[torch.optim.lr_scheduler.LRScheduler] = None,
 ) -> Dict[str, Any]:
-    assert len(ce_loss_fns) == classifier.n_tasks
-    assert len(task_type.task_names) == classifier.n_tasks
+    assert_equals(len(ce_loss_fns), classifier.n_tasks)
+    assert_equals(len(task_type.task_names), classifier.n_tasks)
 
     loop_timer = LoopTimer()
 
@@ -1420,12 +1899,22 @@ if cfg.training.extra_punish_false_positive_factor != 0.0:
     print(
         f"cfg.training.extra_punish_false_positive_factor = {cfg.training.extra_punish_false_positive_factor}"
     )
-    passed_simulation_class_weight[1] *= 1 + cfg.training.extra_punish_false_positive_factor
-    passed_penetration_threshold_class_weight[1] *= 1 + cfg.training.extra_punish_false_positive_factor
+    passed_simulation_class_weight[1] *= (
+        1 + cfg.training.extra_punish_false_positive_factor
+    )
+    passed_penetration_threshold_class_weight[1] *= (
+        1 + cfg.training.extra_punish_false_positive_factor
+    )
     passed_eval_class_weight[1] *= 1 + cfg.training.extra_punish_false_positive_factor
-    print(f"After adjustment, passed_simulation_class_weight: {passed_simulation_class_weight}")
-    print(f"After adjustment, passed_simulation_class_weight: {passed_penetration_threshold_class_weight}")
-    print(f"After adjustment, passed_simulation_class_weight: {passed_eval_class_weight}")
+    print(
+        f"After adjustment, passed_simulation_class_weight: {passed_simulation_class_weight}"
+    )
+    print(
+        f"After adjustment, passed_simulation_class_weight: {passed_penetration_threshold_class_weight}"
+    )
+    print(
+        f"After adjustment, passed_simulation_class_weight: {passed_eval_class_weight}"
+    )
 
 passed_simulation_ce_loss_fn = nn.CrossEntropyLoss(
     weight=passed_simulation_class_weight, label_smoothing=cfg.training.label_smoothing

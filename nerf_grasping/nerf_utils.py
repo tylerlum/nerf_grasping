@@ -10,7 +10,7 @@ from collections import defaultdict
 import numpy as np
 import pypose as pp
 import torch
-from typing import Literal, Dict
+from typing import Literal, Dict, Tuple
 
 GRASP_TO_OPENCV = pp.euler2SO3([np.pi, 0, 0]).unsqueeze(0)
 
@@ -50,6 +50,9 @@ def render(
     near_plane: float = 1e-3,
     far_plane: float = 1e-1,
 ):
+    # TODO: Use this original_shape?
+    original_shape = cameras.shape
+    cameras = cameras.reshape(-1)
     assert len(cameras.shape) == 1
     # TODO: make sure we have enough VRAM to render all the cameras at once.
 
@@ -61,9 +64,10 @@ def render(
     ray_bundle.nears = torch.ones_like(ray_bundle.pixel_area) * near_plane
     ray_bundle.fars = torch.ones_like(ray_bundle.pixel_area) * far_plane
 
-    return _render_depth_and_uncertainty_for_camera_ray_bundle(
+    depth, uncertainty = _render_depth_and_uncertainty_for_camera_ray_bundle(
         nerf_model, ray_bundle, depth_mode
     )
+    return depth, uncertainty
 
 
 def get_ray_samples(
@@ -97,8 +101,8 @@ def get_ray_samples(
 
 
 def _render_depth_and_uncertainty_for_camera_ray_bundle(
-    nerf_model, camera_ray_bundle: RayBundle, depth_mode: Literal["median", "expected"]
-) -> Dict[str, torch.Tensor]:
+    nerf_model: Model, camera_ray_bundle: RayBundle, depth_mode: Literal["median", "expected"]
+) -> Tuple[torch.Tensor, torch.Tensor]:
     """Takes in camera parameters and computes the output of the model.
 
     Args:
@@ -127,7 +131,7 @@ def _render_depth_and_uncertainty_for_camera_ray_bundle(
 
 def _render_depth_and_uncertainty_for_single_ray_bundle(
     nerf_model: Model, ray_bundle: RayBundle, depth_mode: Literal["median", "expected"]
-):
+) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Slight variation on typical nerf rendering that doesn't render RGB but *does*
     compute the uncertainty along the ray.
@@ -144,11 +148,6 @@ def _render_depth_and_uncertainty_for_single_ray_bundle(
     weights = ray_samples.get_weights(density)
 
     # Compute the depth image.
-    if depth_mode == "median":
-        # raise ValueError("median doesn't support gradients")
-        median_depth = nerf_model.renderer_depth(
-            weights=weights, ray_samples=ray_samples
-        )
 
     # Idea: compute IQR of depth values, and use that as the uncertainty.
 
@@ -169,6 +168,14 @@ def _render_depth_and_uncertainty_for_single_ray_bundle(
         normalized_weights * torch.square(steps - expected_depth.unsqueeze(-2))
     ).sum(-2)
 
-    depth = median_depth if depth_mode == "median" else expected_depth
+    if depth_mode == "median":
+        median_depth = nerf_model.renderer_depth(
+            weights=weights, ray_samples=ray_samples
+        )
+        depth = median_depth
+    elif depth_mode == "expected":
+        depth = expected_depth
+    else:
+        raise ValueError(f"Invalid depth mode {depth_mode}")
 
     return depth, depth_variance

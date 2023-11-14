@@ -618,6 +618,93 @@ class Simple_CNN_LSTM_Model(nn.Module):
         return self(x, conditioning=conditioning)
 
 
+class DepthImage_CNN_2D_Model(nn.Module):
+    def __init__(
+        self,
+        img_shape: Tuple[int, int, int],
+        n_fingers: int,
+        conditioning_dim: int,
+        conv_2d_film_hidden_layers: Tuple[int, ...],
+        mlp_hidden_layers: Tuple[int, ...],
+        n_tasks: int = 1,
+        n_classes: int = 2,
+    ) -> None:
+        super().__init__()
+        self.img_shape = img_shape
+        self.n_fingers = n_fingers
+        self.n_tasks = n_tasks
+        self.n_classes = n_classes
+        self.conditioning_dim = conditioning_dim
+
+        C, H, W = self.img_shape
+
+        self.conv_2d = ConvEncoder2D(
+            input_shape=(1, H, W),
+            conditioning_dim=conditioning_dim,
+            use_pretrained=False,
+            pooling_method=ConvOutputTo1D.AVG_POOL_SPATIAL,
+            film_hidden_layers=conv_2d_film_hidden_layers,
+            # resnet_type="resnet18", # TODO: Config this
+            resnet_type="resnet_smaller",  # TODO: Config this
+        )
+
+        self.mlp = mlp(
+            num_inputs=n_fingers * self.conv_2d.output_dim() * C
+            + n_fingers * conditioning_dim,
+            num_outputs=self.n_classes * self.n_tasks,
+            hidden_layers=mlp_hidden_layers,
+        )
+
+    def forward(self, x: torch.Tensor, conditioning: torch.Tensor) -> torch.Tensor:
+        batch_size = x.shape[0]
+        n_fingers = self.n_fingers
+        C, H, W = self.img_shape
+        conditioning_dim = self.conditioning_dim
+
+        # Check shapes
+        assert_equals(x.shape, (batch_size, n_fingers, C, H, W))
+        assert_equals(conditioning.shape, (batch_size, n_fingers, conditioning_dim))
+
+        # Batch n_fingers with batch_size
+        # TODO: Shouldn't need to do this reshaping
+        # but currently have asserts in ConvEncoder2D to sanity check
+        x = x.reshape(batch_size * n_fingers * C, 1, H, W)
+        conditioning = conditioning.reshape(batch_size * n_fingers, conditioning_dim)
+        conditioning_repeated = conditioning.repeat_interleave(C, dim=0)
+        assert_equals(conditioning_repeated.shape, (batch_size * n_fingers * C, conditioning_dim))
+
+        # Conv 2D
+        x = self.conv_2d(x, conditioning=conditioning_repeated)
+        assert_equals(
+            x.shape, (batch_size * n_fingers * C, self.conv_2d.output_dim())
+        )
+
+        # Aggregate into one feature dimension
+        x = x.reshape(batch_size, n_fingers * C * self.conv_2d.output_dim())
+
+        # Concatenate with conditioning
+        conditioning = conditioning.reshape(batch_size, n_fingers * conditioning_dim)
+        x = torch.cat([x, conditioning], dim=1)
+        assert_equals(
+            x.shape,
+            (
+                batch_size,
+                n_fingers * self.conv_2d.output_dim() * C + n_fingers * conditioning_dim,
+            ),
+        )
+
+        # MLP
+        all_logits = self.mlp(x)
+        assert_equals(all_logits.shape, (batch_size, self.n_classes * self.n_tasks))
+        all_logits = all_logits.reshape(batch_size, self.n_tasks, self.n_classes)
+        return all_logits
+
+    def get_all_logits(
+        self, x: torch.Tensor, conditioning: torch.Tensor
+    ) -> torch.Tensor:
+        return self(x, conditioning=conditioning)
+
+
 if __name__ == "__main__":
     batch_size = 2
     n_fingers = 2

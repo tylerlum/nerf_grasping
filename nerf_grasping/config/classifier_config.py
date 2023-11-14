@@ -8,7 +8,9 @@ from nerf_grasping.classifier import (
     Simple_CNN_2D_1D_Classifier,
     Simple_CNN_1D_2D_Classifier,
     Simple_CNN_LSTM_Classifier,
+    DepthImage_CNN_2D_Classifier,
     Classifier,
+    DepthImageClassifier,
 )
 from nerf_grasping.config.base import WandbConfig, CONFIG_DATETIME_STR
 from nerf_grasping.config.nerfdata_config import (
@@ -16,6 +18,8 @@ from nerf_grasping.config.nerfdata_config import (
     GridNerfDataConfig,
     DepthImageNerfDataConfig,
     GraspConditionedGridDataConfig,
+    EvenlySpacedFingertipConfig,
+    CameraConfig,
 )
 from enum import Enum, auto
 import tyro
@@ -174,7 +178,9 @@ class ClassifierModelConfig:
     """Default (abstract) parameters for the classifier."""
 
     def get_classifier_from_fingertip_config(
-        self, fingertip_config: UnionFingertipConfig, n_tasks: int,
+        self,
+        fingertip_config: UnionFingertipConfig,
+        n_tasks: int,
     ) -> Classifier:
         """Helper method to return the correct classifier from config."""
         raise NotImplementedError("Implement in subclass.")
@@ -202,7 +208,9 @@ class CNN_3D_XYZ_ModelConfig(ClassifierModelConfig):
         ]
 
     def get_classifier_from_fingertip_config(
-        self, fingertip_config: UnionFingertipConfig, n_tasks: int,
+        self,
+        fingertip_config: UnionFingertipConfig,
+        n_tasks: int,
     ) -> Classifier:
         """Helper method to return the correct classifier from config."""
 
@@ -236,7 +244,9 @@ class CNN_2D_1D_ModelConfig(ClassifierModelConfig):
         ]
 
     def get_classifier_from_fingertip_config(
-        self, fingertip_config: UnionFingertipConfig, n_tasks: int,
+        self,
+        fingertip_config: UnionFingertipConfig,
+        n_tasks: int,
     ) -> Classifier:
         """Helper method to return the correct classifier from config."""
 
@@ -272,7 +282,9 @@ class Simple_CNN_2D_1D_ModelConfig(ClassifierModelConfig):
         ]
 
     def get_classifier_from_fingertip_config(
-        self, fingertip_config: UnionFingertipConfig, n_tasks: int,
+        self,
+        fingertip_config: UnionFingertipConfig,
+        n_tasks: int,
     ) -> Classifier:
         """Helper method to return the correct classifier from config."""
 
@@ -311,7 +323,9 @@ class Simple_CNN_1D_2D_ModelConfig(ClassifierModelConfig):
         ]
 
     def get_classifier_from_fingertip_config(
-        self, fingertip_config: UnionFingertipConfig, n_tasks: int,
+        self,
+        fingertip_config: UnionFingertipConfig,
+        n_tasks: int,
     ) -> Classifier:
         """Helper method to return the correct classifier from config."""
 
@@ -349,7 +363,9 @@ class Simple_CNN_LSTM_ModelConfig(ClassifierModelConfig):
         ]
 
     def get_classifier_from_fingertip_config(
-        self, fingertip_config: UnionFingertipConfig, n_tasks: int,
+        self,
+        fingertip_config: UnionFingertipConfig,
+        n_tasks: int,
     ) -> Classifier:
         """Helper method to return the correct classifier from config."""
 
@@ -363,6 +379,37 @@ class Simple_CNN_LSTM_ModelConfig(ClassifierModelConfig):
             film_2d_hidden_layers=self.film_2d_hidden_layers,
             lstm_hidden_size=self.lstm_hidden_size,
             num_lstm_layers=self.num_lstm_layers,
+        )
+
+
+@dataclass(frozen=True)
+class DepthImage_CNN_2D_ModelConfig(ClassifierModelConfig):
+    # TODO: should we make a new base ClassifierModelConfig for depth images?
+
+    conv_2d_film_hidden_layers: List[int]
+    mlp_hidden_layers: List[int]
+    conditioning_dim: int = 7
+    n_fingers: int = 4
+
+    def get_classifier_from_camera_config(
+        self,
+        camera_config: CameraConfig,
+        n_tasks: int,
+    ) -> DepthImageClassifier:
+        """Helper method to return the correct classifier from config."""
+        NUM_CHANNELS_DEPTH_UNCERTAINTY = 2
+
+        return DepthImage_CNN_2D_Classifier(
+            img_shape=(
+                NUM_CHANNELS_DEPTH_UNCERTAINTY,
+                camera_config.H,
+                camera_config.W,
+            ),
+            n_fingers=self.n_fingers,
+            n_tasks=n_tasks,
+            conditioning_dim=self.conditioning_dim,
+            conv_2d_film_hidden_layers=self.conv_2d_film_hidden_layers,
+            mlp_hidden_layers=self.mlp_hidden_layers,
         )
 
 
@@ -473,6 +520,21 @@ DEFAULTS_DICT = {
         ),
         nerfdata_config=GraspConditionedGridDataConfig(),
         conditioning_type=ConditioningType.GRASP_TRANSFORM,
+    ),
+    "depth-cnn-2d": ClassifierConfig(
+        model_config=DepthImage_CNN_2D_ModelConfig(
+            conv_2d_film_hidden_layers=[256, 256], mlp_hidden_layers=[256, 256]
+        ),
+        nerfdata_config=DepthImageNerfDataConfig(
+            fingertip_config=EvenlySpacedFingertipConfig(
+                finger_width_mm=50,
+                finger_height_mm=50,
+                grasp_depth_mm=20,
+                distance_between_pts_mm=0.5,
+            ),
+            fingertip_camera_config=CameraConfig(H=60, W=60),
+        ),
+        conditioning_type=ConditioningType.FINGERTIP_TRANSFORMS,
     ),
 }
 

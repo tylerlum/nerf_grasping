@@ -9,8 +9,12 @@ from nerf_grasping.models.dexgraspnet_models import (
     Simple_CNN_2D_1D_Model,
     Simple_CNN_1D_2D_Model,
     Simple_CNN_LSTM_Model,
+    DepthImage_CNN_2D_Model,
 )
-from nerf_grasping.learned_metric.DexGraspNet_batch_data import BatchDataInput
+from nerf_grasping.learned_metric.DexGraspNet_batch_data import (
+    BatchDataInput,
+    DepthImageBatchDataInput,
+)
 from typing import Iterable, Tuple, List
 
 
@@ -241,6 +245,95 @@ class Simple_CNN_LSTM_Classifier(Classifier):
         all_logits = self.model.get_all_logits(
             batch_data_input.nerf_alphas, conditioning
         )
+        return all_logits
+
+
+class DepthImageClassifier(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+
+    def forward(self, batch_data_input: DepthImageBatchDataInput) -> torch.Tensor:
+        raise NotImplementedError
+
+    def get_failure_probability(
+        self, batch_data_input: DepthImageBatchDataInput
+    ) -> torch.Tensor:
+        all_logits = self.get_all_logits(batch_data_input)
+        assert_equals(len(all_logits.shape), 3)
+
+        n_tasks = all_logits.shape[1]
+        assert_equals(
+            all_logits.shape, (batch_data_input.batch_size, n_tasks, self.n_classes)
+        )
+
+        # REMOVE, using to ensure gradients are non-zero
+        # for overfit classifier.
+        PROB_SCALING = 1e0
+
+        # TODO: Consider scaling differently for each task
+        passed_task_probs = nn.functional.softmax(PROB_SCALING * all_logits, dim=-1)[
+            :, 0
+        ]
+        assert_equals(passed_task_probs.shape, (batch_data_input.batch_size, n_tasks))
+        passed_all_probs = torch.prod(passed_task_probs, dim=-1)
+        assert_equals(passed_all_probs.shape, (batch_data_input.batch_size,))
+
+        # Return failure probabilities (as loss).
+        return 1.0 - passed_all_probs
+
+    def get_all_logits(
+        self, batch_data_input: DepthImageBatchDataInput
+    ) -> torch.Tensor:
+        all_logits = self(batch_data_input)
+        assert_equals(len(all_logits.shape), 3)
+
+        n_tasks = all_logits.shape[1]
+        assert_equals(
+            all_logits.shape, (batch_data_input.batch_size, n_tasks, self.n_classes)
+        )
+        return all_logits
+
+    @property
+    def n_tasks(self) -> int:
+        if not hasattr(self, "model"):
+            raise NotImplementedError
+        if not hasattr(self.model, "n_tasks"):
+            raise NotImplementedError
+        return self.model.n_tasks
+
+    @property
+    def n_classes(self) -> int:
+        return 2
+
+
+class DepthImage_CNN_2D_Classifier(DepthImageClassifier):
+    def __init__(
+        self,
+        img_shape: Tuple[int, int, int],
+        n_fingers: int,
+        n_tasks: int,
+        conditioning_dim: int,
+        conv_2d_film_hidden_layers: Tuple[int, ...],
+        mlp_hidden_layers: Tuple[int, ...],
+    ) -> None:
+        super().__init__()
+
+        self.model = DepthImage_CNN_2D_Model(
+            img_shape=img_shape,
+            n_fingers=n_fingers,
+            n_tasks=n_tasks,
+            conditioning_dim=conditioning_dim,
+            conv_2d_film_hidden_layers=conv_2d_film_hidden_layers,
+            mlp_hidden_layers=mlp_hidden_layers,
+        )
+
+    def forward(self, batch_data_input: DepthImageBatchDataInput) -> torch.Tensor:
+        # Run model
+        all_logits = self.model.get_all_logits(
+            batch_data_input.depth_uncertainty_images,
+            batch_data_input.augmented_grasp_transforms,
+        )
+
         return all_logits
 
 

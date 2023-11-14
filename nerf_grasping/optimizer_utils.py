@@ -9,7 +9,7 @@ import nerf_grasping
 from nerf_grasping import grasp_utils
 
 from typing import List, Tuple, Dict, Any, Iterable, Union, Optional
-import nerfstudio
+from nerfstudio.fields.base_field import Field
 from nerf_grasping.classifier import Classifier
 from nerf_grasping.learned_metric.DexGraspNet_batch_data import BatchDataInput
 from nerf_grasping.config.fingertip_config import UnionFingertipConfig
@@ -449,13 +449,13 @@ class GraspMetric(torch.nn.Module):
 
     def __init__(
         self,
-        nerf_model: nerfstudio.models.base_model.Model,
+        nerf_field: Field,
         classifier_model: Classifier,
         fingertip_config: UnionFingertipConfig,
         return_type: str = "failure_probability",
     ):
         super().__init__()
-        self.nerf_model = nerf_model
+        self.nerf_field = nerf_field
         self.classifier_model = classifier_model
         self.fingertip_config = fingertip_config
         self.ray_origins_finger_frame = grasp_utils.get_ray_origins_finger_frame(
@@ -476,7 +476,7 @@ class GraspMetric(torch.nn.Module):
         )
 
         # Query NeRF at RaySamples.
-        densities = self.nerf_model.get_density(ray_samples.to("cuda"))[0][
+        densities = self.nerf_field.get_density(ray_samples.to("cuda"))[0][
             ..., 0
         ]  # Shape [B, 4, n_x, n_y, n_z]
 

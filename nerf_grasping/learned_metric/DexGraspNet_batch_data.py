@@ -3,7 +3,7 @@ import functools
 from dataclasses import dataclass
 import pypose as pp
 import torch
-from typing import List, Optional
+from typing import List, Optional, Union
 import numpy as np
 from nerf_grasping.grasp_utils import (
     get_ray_samples,
@@ -180,6 +180,53 @@ class BatchDataInput:
         )
         return return_value
 
+@dataclass
+class DepthImageBatchDataInput:
+    depth_uncertainty_images: torch.Tensor
+    grasp_transforms: pp.LieTensor
+    fingertip_config: BaseFingertipConfig  # have to take this because all these shape checks used to use hardcoded constants.
+    random_rotate_transform: Optional[pp.LieTensor] = None
+    conditioning_var: Optional[
+        torch.Tensor
+    ] = None  # Optional conditioning var for the classifier. This will get passed if not None, otherwise pass grasp_transforms.
+    nerf_density_threshold_value: Optional[float] = None
+
+    def to(self, device) -> BatchDataInput:
+        self.depth_uncertainty_images = self.depth_uncertainty_images.to(device)
+        self.grasp_transforms = self.grasp_transforms.to(device)
+        self.random_rotate_transform = (
+            self.random_rotate_transform.to(device=device)
+            if self.random_rotate_transform is not None
+            else None
+        )
+        if self.conditioning_var is not None:
+            self.conditioning_var = self.conditioning_var.to(device)
+        return self
+
+    @property
+    def augmented_grasp_transforms(self) -> torch.Tensor:
+        if self.random_rotate_transform is None:
+            return self.grasp_transforms
+
+        # Unsqueeze because we're applying the same (single) random rotation to all fingers.
+        return_value = (
+            self.random_rotate_transform.unsqueeze(dim=1) @ self.grasp_transforms
+        )
+        assert (
+            return_value.lshape
+            == self.grasp_transforms.lshape
+            == (self.batch_size, self.fingertip_config.n_fingers)
+        )
+        return return_value
+
+    @property
+    def batch_size(self) -> int:
+        return self.depth_uncertainty_images.shape[0]
+
+    @property
+    def device(self) -> torch.device:
+        return self.depth_uncertainty_images.device
+
 
 @dataclass
 class BatchDataOutput:
@@ -204,7 +251,7 @@ class BatchDataOutput:
 
 @dataclass
 class BatchData:
-    input: BatchDataInput
+    input: Union[BatchDataInput, DepthImageBatchDataInput]
     output: BatchDataOutput
     nerf_config: List[str]
 

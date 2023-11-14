@@ -1462,7 +1462,7 @@ def save_checkpoint(
 
 
 # %%
-@localscope.mfc(allowed=["tqdm"])
+@localscope.mfc(allowed=["tqdm", "USE_DEPTH_IMAGES"])
 def _iterate_through_dataloader(
     loop_timer: LoopTimer,
     phase: Phase,
@@ -1500,7 +1500,17 @@ def _iterate_through_dataloader(
 
             batch_idx = int(batch_idx)
             batch_data: BatchData = batch_data.to(device)
-            if torch.isnan(batch_data.input.nerf_alphas_with_augmented_coords).any():
+            if USE_DEPTH_IMAGES and torch.isnan(batch_data.input.depth_uncertainty_images).any():
+                print("!" * 80)
+                print(
+                    f"Found {torch.isnan(batch_data.input.depth_uncertainty_images).sum()} NANs in batch_data.input.depth_uncertainty_images"
+                )
+                print("Skipping batch...")
+                print("!" * 80)
+                print()
+                continue
+
+            if not USE_DEPTH_IMAGES and torch.isnan(batch_data.input.nerf_alphas_with_augmented_coords).any():
                 print("!" * 80)
                 print(
                     f"Found {torch.isnan(batch_data.input.nerf_alphas_with_augmented_coords).sum()} NANs in batch_data.input.nerf_alphas_with_augmented_coords"

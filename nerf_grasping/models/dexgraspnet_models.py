@@ -639,7 +639,7 @@ class DepthImage_CNN_2D_Model(nn.Module):
         C, H, W = self.img_shape
 
         self.conv_2d = ConvEncoder2D(
-            input_shape=(C, H, W),
+            input_shape=(1, H, W),
             conditioning_dim=conditioning_dim,
             use_pretrained=False,
             pooling_method=ConvOutputTo1D.AVG_POOL_SPATIAL,
@@ -649,7 +649,7 @@ class DepthImage_CNN_2D_Model(nn.Module):
         )
 
         self.mlp = mlp(
-            num_inputs=n_fingers * self.conv_2d.output_dim()
+            num_inputs=n_fingers * self.conv_2d.output_dim() * C
             + n_fingers * conditioning_dim,
             num_outputs=self.n_classes * self.n_tasks,
             hidden_layers=mlp_hidden_layers,
@@ -668,17 +668,19 @@ class DepthImage_CNN_2D_Model(nn.Module):
         # Batch n_fingers with batch_size
         # TODO: Shouldn't need to do this reshaping
         # but currently have asserts in ConvEncoder2D to sanity check
-        x = x.reshape(batch_size * n_fingers, C, H, W)
+        x = x.reshape(batch_size * n_fingers * C, 1, H, W)
         conditioning = conditioning.reshape(batch_size * n_fingers, conditioning_dim)
+        conditioning_repeated = conditioning.repeat_interleave(C, dim=0)
+        assert_equals(conditioning_repeated.shape, (batch_size * n_fingers * C, conditioning_dim))
 
         # Conv 2D
-        x = self.conv_2d(x, conditioning=conditioning)
+        x = self.conv_2d(x, conditioning=conditioning_repeated)
         assert_equals(
-            x.shape, (batch_size * n_fingers, self.conv_2d.output_dim())
+            x.shape, (batch_size * n_fingers * C, self.conv_2d.output_dim())
         )
 
         # Aggregate into one feature dimension
-        x = x.reshape(batch_size, n_fingers * self.conv_2d.output_dim())
+        x = x.reshape(batch_size, n_fingers * C * self.conv_2d.output_dim())
 
         # Concatenate with conditioning
         conditioning = conditioning.reshape(batch_size, n_fingers * conditioning_dim)
@@ -687,7 +689,7 @@ class DepthImage_CNN_2D_Model(nn.Module):
             x.shape,
             (
                 batch_size,
-                n_fingers * self.conv_2d.output_dim() + n_fingers * conditioning_dim,
+                n_fingers * self.conv_2d.output_dim() * C + n_fingers * conditioning_dim,
             ),
         )
 

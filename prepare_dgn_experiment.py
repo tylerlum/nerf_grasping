@@ -12,7 +12,7 @@ class Args:
         "~/github_repos/DexGraspNet/data"
     ).expanduser()  # TODO: change this per workstation
     nerf_grasping_data_path: pathlib.Path = (
-        pathlib.Path(nerf_grasping.get_repo_root()).resolve().parent / "data"
+        pathlib.Path(nerf_grasping.get_repo_root()).resolve() / "data"
     )
 
 

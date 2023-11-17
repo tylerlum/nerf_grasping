@@ -9,6 +9,7 @@ import tyro
 @dataclass
 class Args:
     obj_filepath: pathlib.Path
+    opacity: float = 1.0
 
 
 def main() -> None:
@@ -31,7 +32,7 @@ def main() -> None:
                 i=faces[:, 0],
                 j=faces[:, 1],
                 k=faces[:, 2],
-                opacity=0.5,
+                opacity=args.opacity,
             )
         ]
     )

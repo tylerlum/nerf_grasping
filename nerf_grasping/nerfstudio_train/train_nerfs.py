@@ -8,7 +8,7 @@ import nerf_grasping
 @dataclass
 class Args:
     experiment_name: str
-    max_num_iterations: int
+    max_num_iterations: int = 200
     nerfdata_name: str = "nerfdata"
     output_nerfcheckpoints_name: str = "nerfcheckpoints"
     nerf_grasping_data_path: pathlib.Path = (

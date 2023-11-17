@@ -69,7 +69,7 @@ def main() -> None:
     # Extract vertices and faces
     vertices = np.array(mesh.vertices)
     faces = np.array(mesh.faces)
-    original_vertices = np.array(original_mesh.vertices) * object_scale
+    original_vertices = np.array(original_mesh.vertices)
     original_faces = np.array(original_mesh.faces)
 
     # Create a 3D Plotly figure

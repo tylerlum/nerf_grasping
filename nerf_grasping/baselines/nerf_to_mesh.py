@@ -28,7 +28,7 @@ def sdf_to_mesh(
         Lower bound for marching cubes.
     ub : np.ndarray, default=np.ones(3)
         Upper bound for marching cubes.
-    
+
 
     Returns
     -------
@@ -40,7 +40,7 @@ def sdf_to_mesh(
         The surface normals associated with each face.
     """
     # running marching cubes to extract the isosurface
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     X, Y, Z = np.mgrid[
         lb[0] : ub[0] : npts * 1j,
         lb[1] : ub[1] : npts * 1j,
@@ -53,12 +53,14 @@ def sdf_to_mesh(
     verts = (ub - lb) * _verts / (np.array(X.shape) - 1) + lb  # scaling verts properly
     return verts, faces, normals
 
+
 def nerf_to_mesh(
     field,
     level: float,
     npts: int = 31,
     lb: np.ndarray = -np.ones(3),
     ub: np.ndarray = np.ones(3),
+    scale: float = 1.0,
     save_path: Optional[Path] = None,
 ) -> None:
     """Takes a nerfstudio pipeline field and plots or saves a mesh.
@@ -91,11 +93,12 @@ def nerf_to_mesh(
     mesh = trimesh.Trimesh(
         vertices=verts, faces=faces, vertex_normals=normals, process=False
     )
+    mesh.apply_transform(trimesh.transformations.scale_matrix(scale))
 
     # saving/visualizing
     if save_path is None:
         fig = plt.figure()
-        ax = fig.add_subplot(projection='3d')
+        ax = fig.add_subplot(projection="3d")
         _ = ax.plot_trisurf(
             verts[:, 0],
             verts[:, 1],
@@ -107,8 +110,9 @@ def nerf_to_mesh(
     else:
         mesh.export(save_path)
 
+
 if __name__ == "__main__":
-    NERF_CHECKPOINTS_PATH = Path('data/2023-09-11_20-52-40/nerfcheckpoints')
+    NERF_CHECKPOINTS_PATH = Path("data/2023-09-11_20-52-40/nerfcheckpoints")
     IDX = 0
     RADIUS = 0.1
     LEVEL = 10.0

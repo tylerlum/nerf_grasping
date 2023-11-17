@@ -6,6 +6,7 @@ import numpy as np
 from dataclasses import dataclass
 from nerf_grasping.baselines.nerf_to_mesh import nerf_to_mesh
 from nerf_grasping.grasp_utils import load_nerf_field
+from typing import Tuple
 
 
 @dataclass
@@ -14,6 +15,7 @@ class Args:
     bounding_cube_half_length: float = 0.2
     density_of_0_level_set: float = 15.0
     n_pts_each_dim_marching_cubes: int = 31
+    rescale: bool = True
     output_dir_path: pathlib.Path = pathlib.Path(__file__).parent / "nerf_meshdata"
 
 
@@ -67,6 +69,18 @@ def create_urdf(
     return output_urdf_path
 
 
+def parse_object_code_and_scale(object_code_and_scale_str: str) -> Tuple[str, float]:
+    keyword = "_0_"
+    idx = object_code_and_scale_str.rfind(keyword)
+    object_code = object_code_and_scale_str[:idx]
+
+    idx_offset_for_scale = keyword.index("0")
+    object_scale = float(
+        object_code_and_scale_str[idx + idx_offset_for_scale :].replace("_", ".")
+    )
+    return object_code, object_scale
+
+
 def main() -> None:
     args = tyro.cli(Args)
     print("=" * 80)
@@ -83,8 +97,9 @@ def main() -> None:
         args.nerfcheckpoint_filepath.parent.parent.name == "nerfacto"
     ), f"{args.nerfcheckpoint_filepath.parent.parent.name} should be nerfacto"
     # Eg. path=data/2023-10-13_13-12-28/nerfcheckpoints/sem-RubiksCube-1e3d89eb3b5427053bdd31f1cd9eec98_0_1076/nerfacto/2023-10-13_131849/config.yml
-    # name=sem-RubiksCube-1e3d89eb3b5427053bdd31f1cd9eec98_0_1076
-    object_and_scale = args.nerfcheckpoint_filepath.parent.parent.parent.name
+    # object_code_and_scale=sem-RubiksCube-1e3d89eb3b5427053bdd31f1cd9eec98_0_1076
+    object_code_and_scale = args.nerfcheckpoint_filepath.parent.parent.parent.name
+    object_code, object_scale = parse_object_code_and_scale(object_code_and_scale)
 
     nerf_field = load_nerf_field(args.nerfcheckpoint_filepath)
     lb = -args.bounding_cube_half_length * np.ones(3)
@@ -96,16 +111,18 @@ def main() -> None:
     #     └── coacd
     #         ├── coacd.urdf
     #         └── decomposed.obj
-    output_folder = args.output_dir_path / object_and_scale / "coacd"
+    output_folder = args.output_dir_path / object_code / "coacd"
     output_folder.mkdir(exist_ok=False, parents=True)
 
     obj_path = output_folder / "decomposed.obj"
+    scale = 1.0 / object_scale if args.rescale else 1.0
     nerf_to_mesh(
         nerf_field,
         level=args.density_of_0_level_set,
         npts=args.n_pts_each_dim_marching_cubes,
         lb=lb,
         ub=ub,
+        scale=scale,
         save_path=obj_path,
     )
 

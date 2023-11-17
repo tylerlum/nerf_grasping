@@ -14,7 +14,7 @@ class Args:
     frac_val: float = 0.1
     random_seed: Optional[int] = None
     nerf_grasping_data_path: pathlib.Path = (
-        pathlib.Path(nerf_grasping.get_repo_root()).resolve().parent / "data"
+        pathlib.Path(nerf_grasping.get_repo_root()).resolve() / "data"
     )
 
 
@@ -46,7 +46,7 @@ def main() -> None:
     experiment_path = args.nerf_grasping_data_path / args.experiment_name
     assert experiment_path.exists(), f"{experiment_path} does not exist"
 
-    nerfdata_path = args.nerf_grasping_data_path / "nerfdata"
+    nerfdata_path = experiment_path / "nerfdata"
     assert nerfdata_path.exists(), f"{nerfdata_path} does not exist"
 
     all_object_and_scale_folder_names = sorted(
@@ -66,9 +66,9 @@ def main() -> None:
     val_folder_names = all_object_and_scale_folder_names[n_train : n_train + n_val]
     test_folder_names = all_object_and_scale_folder_names[n_train + n_val :]
 
-    nerfdata_train_path = args.nerf_grasping_data_path / "nerfdata_train"
-    nerfdata_val_path = args.nerf_grasping_data_path / "nerfdata_val"
-    nerfdata_test_path = args.nerf_grasping_data_path / "nerfdata_test"
+    nerfdata_train_path = experiment_path / "nerfdata_train"
+    nerfdata_val_path = experiment_path / "nerfdata_val"
+    nerfdata_test_path = experiment_path / "nerfdata_test"
 
     for path in [nerfdata_train_path, nerfdata_val_path, nerfdata_test_path]:
         path.mkdir(exist_ok=True)

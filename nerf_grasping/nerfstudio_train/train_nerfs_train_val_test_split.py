@@ -35,7 +35,7 @@ def main() -> None:
     for phase in phases:
         command = " ".join(
             [
-                "python train_nerfs.py",
+                "python nerf_grasping/nerfstudio_train/train_nerfs.py",
                 f"--experiment_name={args.experiment_name}",
                 f"--max_num_iterations={args.max_num_iterations}",
                 f"--nerfdata_name=nerfdata_{phase}",

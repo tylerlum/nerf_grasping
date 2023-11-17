@@ -36,11 +36,11 @@ def main() -> None:
         command = " ".join(
             [
                 "python nerf_grasping/nerfstudio_train/train_nerfs.py",
-                f"--experiment_name={args.experiment_name}",
-                f"--max_num_iterations={args.max_num_iterations}",
-                f"--nerfdata_name=nerfdata_{phase}",
-                f"--output_nerfcheckpoints_name=nerfcheckpoints_{phase}"
-                f"--nerf_grasping_data_path={args.nerf_grasping_data_path}",
+                f"--experiment-name {args.experiment_name}",
+                f"--max-num-iterations {args.max_num_iterations}",
+                f"--nerfdata-name nerfdata_{phase}",
+                f"--output-nerfcheckpoints-name nerfcheckpoints_{phase}",
+                f"--nerf-grasping-data-path {str(args.nerf_grasping_data_path)}",
             ]
         )
         print_and_run(command)

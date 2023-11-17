@@ -11,8 +11,8 @@ from nerf_grasping.grasp_utils import load_nerf_field
 @dataclass
 class Args:
     nerfcheckpoint_filepath: pathlib.Path
-    bounding_cube_half_length: float
-    density_of_0_level_set: float
+    bounding_cube_half_length: float = 0.2
+    density_of_0_level_set: float = 15.0
     n_pts_each_dim_marching_cubes: int = 31
     output_dir_path: pathlib.Path = pathlib.Path(__file__).parent / "results"
 
@@ -82,7 +82,7 @@ def main() -> None:
     ub = args.bounding_cube_half_length * np.ones(3)
 
     output_folder = args.output_dir_path / object_and_scale
-    output_folder.parent.mkdir(exist_ok=True, parents=True)
+    output_folder.mkdir(exist_ok=False, parents=True)
 
     obj_path = output_folder / f"{object_and_scale}.obj"
     nerf_to_mesh(
@@ -98,6 +98,7 @@ def main() -> None:
 
     assert urdf_path.exists(), f"{urdf_path} does not exist"
     assert obj_path.exists(), f"{obj_path} does not exist"
+    print(f"Created {urdf_path} and {obj_path}")
 
 
 if __name__ == "__main__":

@@ -36,10 +36,18 @@ def main() -> None:
             )
         ]
     )
+
+    object_code_and_scale_str = (
+        args.obj_filepath.parent.parent.name
+        if "_0_" in args.obj_filepath.parent.parent.name
+        else args.obj_filepath.stem
+    )
+
     fig.update_layout(
-        title=f"{args.obj_filepath.stem}",
+        title=f"{object_code_and_scale_str}",
     )
     fig.show()
+
 
 if __name__ == "__main__":
     main()

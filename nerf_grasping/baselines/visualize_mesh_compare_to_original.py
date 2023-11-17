@@ -49,7 +49,14 @@ def main() -> None:
     assert (
         args.original_meshdata_dir_path.exists()
     ), f"{args.original_meshdata_dir_path} does not exist"
-    object_code, object_scale = parse_object_code_and_scale(args.obj_filepath.stem)
+
+    object_code_and_scale_str = (
+        args.obj_filepath.parent.parent.name
+        if "_0_" in args.obj_filepath.parent.parent.name
+        else args.obj_filepath.stem
+    )
+    object_code, object_scale = parse_object_code_and_scale(object_code_and_scale_str)
+
     original_mesh_filepath = (
         args.original_meshdata_dir_path / object_code / "coacd" / "decomposed.obj"
     ).resolve()

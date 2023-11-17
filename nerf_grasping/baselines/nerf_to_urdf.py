@@ -14,7 +14,7 @@ class Args:
     bounding_cube_half_length: float = 0.2
     density_of_0_level_set: float = 15.0
     n_pts_each_dim_marching_cubes: int = 31
-    output_dir_path: pathlib.Path = pathlib.Path(__file__).parent / "results"
+    output_dir_path: pathlib.Path = pathlib.Path(__file__).parent / "nerf_meshdata"
 
 
 def print_and_run(cmd: str) -> None:

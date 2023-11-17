@@ -36,16 +36,16 @@ def main() -> None:
     nerfdata_path = experiment_path / args.nerfdata_name
     assert nerfdata_path.exists(), f"{nerfdata_path} does not exist"
 
-    output_nerfcheckpoints_path = (
-        args.nerf_grasping_data_path / args.output_nerfcheckpoints_name
-    )
+    output_nerfcheckpoints_path = experiment_path / args.output_nerfcheckpoints_name
     output_nerfcheckpoints_path.mkdir(exist_ok=True)
 
     for object_and_scale_nerfdata_path in nerfdata_path.iterdir():
         if not object_and_scale_nerfdata_path.is_dir():
             continue
 
-        output_path_to_be_created = output_nerfcheckpoints_path / object_and_scale_nerfdata_path.name
+        output_path_to_be_created = (
+            output_nerfcheckpoints_path / object_and_scale_nerfdata_path.name
+        )
         if output_path_to_be_created.exists():
             print(f"Skipping {output_path_to_be_created} because it already exists")
             continue

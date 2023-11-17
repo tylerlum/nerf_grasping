@@ -12,7 +12,7 @@ class Args:
     nerfdata_name: str = "nerfdata"
     output_nerfcheckpoints_name: str = "nerfcheckpoints"
     nerf_grasping_data_path: pathlib.Path = (
-        pathlib.Path(nerf_grasping.get_repo_root()).resolve().parent / "data"
+        pathlib.Path(nerf_grasping.get_repo_root()).resolve() / "data"
     )
 
 
@@ -33,7 +33,7 @@ def main() -> None:
     experiment_path = args.nerf_grasping_data_path / args.experiment_name
     assert experiment_path.exists(), f"{experiment_path} does not exist"
 
-    nerfdata_path = args.nerf_grasping_data_path / args.nerfdata_name
+    nerfdata_path = experiment_path / args.nerfdata_name
     assert nerfdata_path.exists(), f"{nerfdata_path} does not exist"
 
     output_nerfcheckpoints_path = (
@@ -45,17 +45,17 @@ def main() -> None:
         if not object_and_scale_nerfdata_path.is_dir():
             continue
 
-        output_path = output_nerfcheckpoints_path / object_and_scale_nerfdata_path.name
-        if output_path.exists():
-            print(f"Skipping {output_path} because it already exists")
+        output_path_to_be_created = output_nerfcheckpoints_path / object_and_scale_nerfdata_path.name
+        if output_path_to_be_created.exists():
+            print(f"Skipping {output_path_to_be_created} because it already exists")
             continue
 
         command = " ".join(
             [
-                "ns-train nerfactor",
+                "ns-train nerfacto",
                 f"--data {str(object_and_scale_nerfdata_path)}",
-                f"--max-iterations {args.max_num_iterations}",
-                f"--output-dir {str(output_path)}",
+                f"--max-num-iterations {args.max_num_iterations}",
+                f"--output-dir {str(output_nerfcheckpoints_path)}",
                 "--vis wandb",
                 "--pipeline.model.disable-scene-contraction True",
                 "--pipeline.model.background-color black",

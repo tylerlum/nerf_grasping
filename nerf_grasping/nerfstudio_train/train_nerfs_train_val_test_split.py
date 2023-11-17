@@ -10,7 +10,7 @@ class Args:
     experiment_name: str
     max_num_iterations: int = 200
     nerf_grasping_data_path: pathlib.Path = (
-        pathlib.Path(nerf_grasping.get_repo_root()).resolve().parent / "data"
+        pathlib.Path(nerf_grasping.get_repo_root()).resolve() / "data"
     )
 
 

@@ -23,11 +23,19 @@ def print_and_run(cmd: str) -> None:
 
 
 def create_urdf(
-    obj_path: pathlib.Path, ixx: float = 0.1, iyy: float = 0.1, izz: float = 0.1
+    obj_path: pathlib.Path,
+    output_urdf_filename: str,
+    ixx: float = 0.1,
+    iyy: float = 0.1,
+    izz: float = 0.1,
 ) -> pathlib.Path:
     assert obj_path.exists(), f"{obj_path} does not exist"
+    assert output_urdf_filename.endswith(
+        ".urdf"
+    ), f"{output_urdf_filename} does not end with .urdf"
     output_folder = obj_path.parent
     obj_filename = obj_path.name
+
     urdf_content = f"""<robot name="root">
   <link name="base_link">
     <inertial>
@@ -52,10 +60,11 @@ def create_urdf(
   </link>
 </robot>"""
 
-    urdf_path = output_folder / (output_folder.name + ".urdf")
-    with open(urdf_path, "w") as urdf_file:
+    output_urdf_path = output_folder / output_urdf_filename
+    assert not output_urdf_path.exists(), f"{output_urdf_path} already exists"
+    with open(output_urdf_path, "w") as urdf_file:
         urdf_file.write(urdf_content)
-    return urdf_path
+    return output_urdf_path
 
 
 def main() -> None:
@@ -81,10 +90,16 @@ def main() -> None:
     lb = -args.bounding_cube_half_length * np.ones(3)
     ub = args.bounding_cube_half_length * np.ones(3)
 
-    output_folder = args.output_dir_path / object_and_scale
+    # Should match existing meshdata folder structure
+    # <output_dir_path>
+    # └── <object_code>
+    #     └── coacd
+    #         ├── coacd.urdf
+    #         └── decomposed.obj
+    output_folder = args.output_dir_path / object_and_scale / "coacd"
     output_folder.mkdir(exist_ok=False, parents=True)
 
-    obj_path = output_folder / f"{object_and_scale}.obj"
+    obj_path = output_folder / "decomposed.obj"
     nerf_to_mesh(
         nerf_field,
         level=args.density_of_0_level_set,
@@ -94,7 +109,7 @@ def main() -> None:
         save_path=obj_path,
     )
 
-    urdf_path = create_urdf(obj_path)
+    urdf_path = create_urdf(obj_path=obj_path, output_urdf_filename="coacd.urdf")
 
     assert urdf_path.exists(), f"{urdf_path} does not exist"
     assert obj_path.exists(), f"{obj_path} does not exist"

@@ -17,18 +17,6 @@ class Args:
     )  # TODO: change this per workstation
 
 
-def parse_object_code_and_scale(object_code_and_scale_str: str) -> Tuple[str, float]:
-    keyword = "_0_"
-    idx = object_code_and_scale_str.rfind(keyword)
-    object_code = object_code_and_scale_str[:idx]
-
-    idx_offset_for_scale = keyword.index("0")
-    object_scale = float(
-        object_code_and_scale_str[idx + idx_offset_for_scale :].replace("_", ".")
-    )
-    return object_code, object_scale
-
-
 def create_mesh_3d(
     vertices: np.ndarray, faces: np.ndarray, opacity: float = 1.0
 ) -> go.Mesh3d:
@@ -50,12 +38,13 @@ def main() -> None:
         args.original_meshdata_dir_path.exists()
     ), f"{args.original_meshdata_dir_path} does not exist"
 
-    object_code_and_scale_str = (
-        args.obj_filepath.parent.parent.name
-        if "_0_" in args.obj_filepath.parent.parent.name
-        else args.obj_filepath.stem
+    assert (
+        args.obj_filepath.name == "decomposed.obj"
     )
-    object_code, object_scale = parse_object_code_and_scale(object_code_and_scale_str)
+    assert (
+        args.obj_filepath.parent.name == "coacd"
+    )
+    object_code = args.obj_filepath.parent.parent.name
 
     original_mesh_filepath = (
         args.original_meshdata_dir_path / object_code / "coacd" / "decomposed.obj"
@@ -78,8 +67,8 @@ def main() -> None:
         cols=2,
         specs=[[{"type": "mesh3d"}, {"type": "mesh3d"}]],
         subplot_titles=(
-            f"{args.obj_filepath.stem}",
-            f"{args.obj_filepath.stem} (original)",
+            f"{object_code}",
+            f"{object_code} (original)",
         ),
     )
     fig.add_trace(

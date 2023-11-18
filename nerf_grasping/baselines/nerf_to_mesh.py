@@ -61,6 +61,7 @@ def nerf_to_mesh(
     lb: np.ndarray = -np.ones(3),
     ub: np.ndarray = np.ones(3),
     scale: float = 1.0,
+    min_len: Optional[float] = None,
     save_path: Optional[Path] = None,
 ) -> None:
     """Takes a nerfstudio pipeline field and plots or saves a mesh.
@@ -77,6 +78,10 @@ def nerf_to_mesh(
         Lower bound for marching cubes.
     ub : np.ndarray, default=np.ones(3)
         Upper bound for marching cubes.
+    scale : float, default=1.0
+        The scale to apply to the mesh.
+    min_len : Optional[float], default=None
+        Minimum number of edges to be considered a relevant component, used to remove floaters
     save_path : Optional[Path], default=None
         The save path. If None, shows a plot instead.
     """
@@ -94,6 +99,11 @@ def nerf_to_mesh(
         vertices=verts, faces=faces, vertex_normals=normals, process=False
     )
     mesh.apply_transform(trimesh.transformations.scale_matrix(scale))
+    if min_len is not None:
+        cc = trimesh.graph.connected_components(mesh.face_adjacency, min_len=min_len)
+        mask = np.zeros(len(mesh.faces), dtype=bool)
+        mask[np.concatenate(cc)] = True
+        mesh.update_faces(mask)
 
     # saving/visualizing
     if save_path is None:

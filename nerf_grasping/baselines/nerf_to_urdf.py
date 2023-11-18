@@ -2,6 +2,7 @@ import tyro
 import pathlib
 import subprocess
 import numpy as np
+from typing import Optional
 
 from dataclasses import dataclass
 from nerf_grasping.baselines.nerf_to_mesh import nerf_to_mesh
@@ -16,6 +17,7 @@ class Args:
     density_of_0_level_set: float = 15.0
     n_pts_each_dim_marching_cubes: int = 31
     rescale: bool = True
+    min_num_edges: Optional[int] = 100
     output_dir_path: pathlib.Path = pathlib.Path(__file__).parent / "nerf_meshdata"
 
 
@@ -123,6 +125,7 @@ def main() -> None:
         lb=lb,
         ub=ub,
         scale=scale,
+        min_len=args.min_num_edges,
         save_path=obj_path,
     )
 

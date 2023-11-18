@@ -37,14 +37,9 @@ def main() -> None:
         ]
     )
 
-    object_code_and_scale_str = (
-        args.obj_filepath.parent.parent.name
-        if "_0_" in args.obj_filepath.parent.parent.name
-        else args.obj_filepath.stem
-    )
-
+    # Often in format <object_code>/coacd/decomposed.obj, but not always
     fig.update_layout(
-        title=f"{object_code_and_scale_str}",
+        title=f"{'/'.join(args.obj_filepath.parts[-3:])}",
     )
     fig.show()
 

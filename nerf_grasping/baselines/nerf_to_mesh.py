@@ -62,6 +62,7 @@ def nerf_to_mesh(
     ub: np.ndarray = np.ones(3),
     scale: float = 1.0,
     min_len: Optional[float] = None,
+    flip_faces: bool = True,
     save_path: Optional[Path] = None,
 ) -> None:
     """Takes a nerfstudio pipeline field and plots or saves a mesh.
@@ -82,6 +83,9 @@ def nerf_to_mesh(
         The scale to apply to the mesh.
     min_len : Optional[float], default=None
         Minimum number of edges to be considered a relevant component, used to remove floaters
+    flip_faces : bool, default=True
+        Whether to flip the faces, helps get correct signed distance values
+        (it appears that the faces are flipped inside out by default)
     save_path : Optional[Path], default=None
         The save path. If None, shows a plot instead.
     """
@@ -93,6 +97,9 @@ def nerf_to_mesh(
         lb=lb,
         ub=ub,
     )
+
+    if flip_faces:
+        faces = np.fliplr(faces)
 
     # making a trimesh mesh
     mesh = trimesh.Trimesh(

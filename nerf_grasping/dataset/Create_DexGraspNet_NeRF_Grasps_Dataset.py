@@ -218,6 +218,20 @@ assert (
 evaled_grasp_config_dict_filepaths = list(
     cfg.evaled_grasp_config_dicts_path.glob("*.npy")
 )
+
+# from glob import glob
+# evaled_grasp_config_dict_filepaths = [
+#     pathlib.Path(x)
+#     for x in glob(
+#         str(
+#             cfg.evaled_grasp_config_dicts_path
+#             / "**"
+#             / "evaled_grasp_config_dicts"
+#             / "*.npy"
+#         ),
+#         recursive=True,
+#     )
+# ]
 assert (
     len(evaled_grasp_config_dict_filepaths) > 0
 ), f"Did not find any evaled grasp config dicts in {cfg.evaled_grasp_config_dicts_path}"
@@ -440,10 +454,14 @@ def get_depth_and_uncertainty_images(
             curr_depth, curr_uncertainty = render(
                 curr_cameras, nerf_model, "median", far_plane=0.15
             )
-            assert curr_depth.shape == curr_uncertainty.shape == (
-                cfg.fingertip_camera_config.H,
-                cfg.fingertip_camera_config.W,
-                curr_cameras.shape[0] * cfg.fingertip_config.n_fingers,
+            assert (
+                curr_depth.shape
+                == curr_uncertainty.shape
+                == (
+                    cfg.fingertip_camera_config.H,
+                    cfg.fingertip_camera_config.W,
+                    curr_cameras.shape[0] * cfg.fingertip_config.n_fingers,
+                )
             )
             depths.append(curr_depth.cpu())
             uncertainties.append(curr_uncertainty.cpu())
@@ -451,10 +469,14 @@ def get_depth_and_uncertainty_images(
 
         depths = torch.cat(depths, dim=-1)
         uncertainties = torch.cat(uncertainties, dim=-1)
-        assert depths.shape == uncertainties.shape == (
-            cfg.fingertip_camera_config.H,
-            cfg.fingertip_camera_config.W,
-            batch_size * cfg.fingertip_config.n_fingers,
+        assert (
+            depths.shape
+            == uncertainties.shape
+            == (
+                cfg.fingertip_camera_config.H,
+                cfg.fingertip_camera_config.W,
+                batch_size * cfg.fingertip_config.n_fingers,
+            )
         )
 
     return (
@@ -628,6 +650,7 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
         dynamic_ncols=True,
     ):
         try:
+
             with loop_timer.add_section_timer("prepare to read in data"):
                 object_code_and_scale_str = evaled_grasp_config_dict_filepath.stem
                 object_code, object_scale = parse_object_code_and_scale(
@@ -638,12 +661,6 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                 nerf_config = get_nerf_config(
                     object_code_and_scale_str=object_code_and_scale_str,
                     nerf_configs=nerf_configs,
-                )
-
-                # Prepare to read in data
-                evaled_grasp_config_dict_filepath = (
-                    cfg.evaled_grasp_config_dicts_path
-                    / f"{object_code_and_scale_str}.npy"
                 )
 
                 # Check that mesh and grasp dataset exist

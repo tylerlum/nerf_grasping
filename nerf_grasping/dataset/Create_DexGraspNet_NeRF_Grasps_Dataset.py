@@ -409,6 +409,7 @@ def create_depth_image_dataset(
 
 
 @torch.no_grad()
+@localscope.mfc(allowed=["tqdm"])
 def get_depth_and_uncertainty_images(
     loop_timer: LoopTimer,
     cfg: BaseNerfDataConfig,
@@ -462,7 +463,7 @@ def get_depth_and_uncertainty_images(
 
 
 @torch.no_grad()
-@localscope.mfc
+@localscope.mfc(allowed=["tqdm"])
 def get_nerf_densities(
     loop_timer: LoopTimer,
     cfg: BaseNerfDataConfig,

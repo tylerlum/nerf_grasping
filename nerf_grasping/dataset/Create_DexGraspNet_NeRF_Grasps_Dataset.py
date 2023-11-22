@@ -440,11 +440,22 @@ def get_depth_and_uncertainty_images(
             curr_depth, curr_uncertainty = render(
                 curr_cameras, nerf_model, "median", far_plane=0.15
             )
+            assert curr_depth.shape == curr_uncertainty.shape == (
+                cfg.fingertip_camera_config.H,
+                cfg.fingertip_camera_config.W,
+                curr_cameras.shape[0] * cfg.fingertip_config.n_fingers,
+            )
             depths.append(curr_depth.cpu())
             uncertainties.append(curr_uncertainty.cpu())
             curr_cameras.to("cpu")
-        depths = torch.cat(depths, dim=0)
-        uncertainties = torch.cat(uncertainties, dim=0)
+
+        depths = torch.cat(depths, dim=-1)
+        uncertainties = torch.cat(uncertainties, dim=-1)
+        assert depths.shape == uncertainties.shape == (
+            cfg.fingertip_camera_config.H,
+            cfg.fingertip_camera_config.W,
+            batch_size * cfg.fingertip_config.n_fingers,
+        )
 
     return (
         depths.permute(2, 0, 1).reshape(

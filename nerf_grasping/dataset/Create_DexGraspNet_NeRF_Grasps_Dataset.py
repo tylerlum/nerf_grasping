@@ -495,6 +495,7 @@ def get_nerf_densities(
                 nerf_field.get_density(curr_ray_samples)[0]
                 .reshape(
                     -1,
+                    cfg.fingertip_config.n_fingers,
                     cfg.fingertip_config.num_pts_x,
                     cfg.fingertip_config.num_pts_y,
                     cfg.fingertip_config.num_pts_z,

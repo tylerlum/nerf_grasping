@@ -651,7 +651,6 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
     for evaled_grasp_config_dict_filepath in pbar:
         pbar.set_description(f"Processing {evaled_grasp_config_dict_filepath}")
         try:
-
             with loop_timer.add_section_timer("prepare to read in data"):
                 object_code_and_scale_str = evaled_grasp_config_dict_filepath.stem
                 object_code, object_scale = parse_object_code_and_scale(

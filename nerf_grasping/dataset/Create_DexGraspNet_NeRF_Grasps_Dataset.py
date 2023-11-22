@@ -121,7 +121,7 @@ def get_nerf_config(
     matching_nerf_configs = [
         nerf_config
         for nerf_config in nerf_configs
-        if parse_nerf_config(nerf_config) == keyword
+        if keyword in str(nerf_config)
     ]
     if len(matching_nerf_configs) == 0:
         raise ValueError(f"Found no matching nerf configs for {keyword}")
@@ -723,7 +723,7 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
             if grasp_frame_transforms.isnan().any():
                 print("\n" + "-" * 80)
                 print(
-                    f"WARNING: Found {grasp_frame_transforms.isnan().sum()} transform nans in {nerf_config}"
+                    f"WARNING: Found {grasp_frame_transforms.isnan().sum()} transform nans in {evaled_grasp_config_dict_filepath}"
                 )
                 print("Skipping this one...")
                 print("-" * 80 + "\n")
@@ -794,7 +794,7 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                 hdf5_file.attrs["num_data_points"] = current_idx
         except Exception as e:
             print("\n" + "-" * 80)
-            print(f"WARNING: Failed to process {nerf_config}")
+            print(f"WARNING: Failed to process {evaled_grasp_config_dict_filepath}")
             print(f"Exception: {e}")
             print("Skipping this one...")
             print("-" * 80 + "\n")

@@ -324,6 +324,18 @@ def resnet_smaller(*, weights=None, progress: bool = True, **kwargs: Any):
     )
 
 
+def resnet_smallest(*, weights=None, progress: bool = True, **kwargs: Any):
+    planes_per_layer = [4, 8, 16, 32]
+    return _resnet(
+        block=BasicBlock,
+        layers=[1, 1, 1, 1],
+        weights=weights,
+        progress=progress,
+        planes_per_layer=planes_per_layer,
+        **kwargs,
+    )
+
+
 class ConvEncoder2D(nn.Module):
     def __init__(
         self,
@@ -377,6 +389,12 @@ class ConvEncoder2D(nn.Module):
             )
             assert not self.use_pretrained
             self.conv_2d = resnet_smaller(weights=None)
+        elif resnet_type == "resnet_smallest":
+            self.img_preprocess = Compose(
+                [Lambda(lambda x: x.repeat(1, 3, 1, 1))]
+            )
+            assert not self.use_pretrained
+            self.conv_2d = resnet_smallest(weights=None)
         else:
             raise ValueError(f"Invalid resnet_type = {resnet_type}")
 

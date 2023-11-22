@@ -13,24 +13,26 @@ from nerf_grasping.config.base import CONFIG_DATETIME_STR
 from enum import Enum, auto
 
 
+EXPERIMENT_NAME = "2023-11-17_rubikscube_0"
+
+
 @dataclass
 class BaseNerfDataConfig:
     """Top-level config for NeRF data generation."""
 
-    experiment_name: str = "2023-11-17_rubikscube_0"
     dexgraspnet_data_root: pathlib.Path = (
         pathlib.Path(nerf_grasping.get_repo_root()) / "data"
     )
     dexgraspnet_meshdata_root: pathlib.Path = dexgraspnet_data_root / "meshdata"
     evaled_grasp_config_dicts_path: pathlib.Path = (
-        dexgraspnet_data_root / experiment_name / "evaled_grasp_config_dicts"
+        dexgraspnet_data_root / EXPERIMENT_NAME / "evaled_grasp_config_dicts"
     )
     nerf_checkpoints_path: pathlib.Path = (
-        dexgraspnet_data_root / experiment_name / "nerfcheckpoints"
+        dexgraspnet_data_root / EXPERIMENT_NAME / "nerfcheckpoints"
     )
     output_filepath: Optional[pathlib.Path] = None
     plot_only_one: bool = False
-    nerf_visualize_index: Optional[int] = 0
+    config_dict_visualize_index: Optional[int] = 0
     grasp_visualize_index: Optional[int] = 0
     save_dataset: bool = True
     print_timing: bool = True

@@ -108,20 +108,17 @@ def parse_nerf_config(nerf_config: pathlib.Path) -> str:
 
 @localscope.mfc(allowed=["tqdm"])
 def count_total_num_grasps(
-    nerf_configs: List[pathlib.Path], evaled_grasp_config_dicts_path: pathlib.Path
+    evaled_grasp_config_dict_filepaths: List[pathlib.Path],
 ) -> int:
     ACTUALLY_COUNT_ALL = False
     total_num_grasps = 0
 
-    for config in tqdm(nerf_configs, desc="counting num grasps", dynamic_ncols=True):
+    for evaled_grasp_config_dict_filepath in tqdm(
+        evaled_grasp_config_dict_filepaths,
+        desc="counting num grasps",
+        dynamic_ncols=True,
+    ):
         # Read in grasp data
-        object_code_and_scale_str = parse_nerf_config(config)
-        object_code, object_scale = parse_object_code_and_scale(
-            object_code_and_scale_str
-        )
-        evaled_grasp_config_dict_filepath = (
-            evaled_grasp_config_dicts_path / f"{object_code_and_scale_str}.npy"
-        )
         assert (
             evaled_grasp_config_dict_filepath.exists()
         ), f"evaled_grasp_config_dict_filepath {evaled_grasp_config_dict_filepath} does not exist"
@@ -141,9 +138,9 @@ def count_total_num_grasps(
         # Count num_grasps
         if not ACTUALLY_COUNT_ALL:
             print(
-                f"assuming all {len(nerf_configs)} evaled grasp config dicts have {num_grasps} grasps"
+                f"assuming all {len(evaled_grasp_config_dict_filepaths)} evaled grasp config dicts have {num_grasps} grasps"
             )
-            return num_grasps * len(nerf_configs)
+            return num_grasps * len(evaled_grasp_config_dict_filepaths)
 
         total_num_grasps += num_grasps
     return total_num_grasps
@@ -183,6 +180,17 @@ assert (
 ), f"Did not find any nerf configs in {cfg.nerf_checkpoints_path}"
 print(f"Found {len(nerf_configs)} nerf configs")
 
+# %%
+assert (
+    cfg.evaled_grasp_config_dicts_path.exists()
+), f"{cfg.evaled_grasp_config_dicts_path} does not exist"
+evaled_grasp_config_dict_filepaths = list(
+    cfg.evaled_grasp_config_dicts_path.glob("*.npy")
+)
+assert (
+    len(evaled_grasp_config_dict_filepaths) > 0
+), f"Did not find any evaled grasp config dicts in {cfg.evaled_grasp_config_dicts_path}"
+print(f"Found {len(evaled_grasp_config_dict_filepaths)} evaled grasp config dicts")
 
 # %%
 ray_origins_finger_frame = get_ray_origins_finger_frame(cfg.fingertip_config)
@@ -190,14 +198,17 @@ ray_origins_finger_frame = get_ray_origins_finger_frame(cfg.fingertip_config)
 # %%
 if cfg.limit_num_configs is not None:
     print(f"Limiting number of configs to {cfg.limit_num_configs}")
-nerf_configs = nerf_configs[: cfg.limit_num_configs]
+evaled_grasp_config_dict_filepaths = evaled_grasp_config_dict_filepaths[
+    : cfg.limit_num_configs
+]
 
 if cfg.max_num_data_points_per_file is not None:
-    max_num_datapoints = len(nerf_configs) * cfg.max_num_data_points_per_file
+    max_num_datapoints = (
+        len(evaled_grasp_config_dict_filepaths) * cfg.max_num_data_points_per_file
+    )
 else:
     max_num_datapoints = count_total_num_grasps(
-        nerf_configs=nerf_configs,
-        evaled_grasp_config_dicts_path=cfg.evaled_grasp_config_dicts_path,
+        evaled_grasp_config_dict_filepaths=evaled_grasp_config_dict_filepaths,
     )
 
 print(f"max num datapoints: {max_num_datapoints}")
@@ -534,50 +545,57 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
 
     # Slice out the grasp index we want to visualize if plot_only_one is True.
     if cfg.plot_only_one:
-        assert cfg.nerf_visualize_index is not None
-        assert cfg.nerf_visualize_index < len(
-            nerf_configs
+        assert cfg.config_dict_visualize_index is not None
+        assert cfg.config_dict_visualize_index < len(
+            evaled_grasp_config_dict_filepaths
         ), f"Visualize index out of bounds"
-        nerf_configs = nerf_configs[
-            cfg.nerf_visualize_index : cfg.nerf_visualize_index + 1
+        evaled_grasp_config_dict_filepaths = evaled_grasp_config_dict_filepaths[
+            cfg.config_dict_visualize_index : cfg.config_dict_visualize_index + 1
         ]
 
     # Iterate through all
     loop_timer = LoopTimer()
-    for config in tqdm(nerf_configs, desc="nerf configs", dynamic_ncols=True):
+    for evaled_grasp_config_dict_filepath in tqdm(
+        evaled_grasp_config_dict_filepaths,
+        desc="evaled_grasp_config_dict_filepaths",
+        dynamic_ncols=True,
+    ):
         try:
             with loop_timer.add_section_timer("prepare to read in data"):
-                object_code_and_scale_str = parse_nerf_config(config)
+                object_code_and_scale_str = evaled_grasp_config_dict_filepath.stem
                 object_code, object_scale = parse_object_code_and_scale(
                     object_code_and_scale_str
                 )
 
+                # Get nerf config
+                matching_nerf_configs = [
+                    x for x in nerf_configs if parse_nerf_config(x) == object_code_and_scale_str
+                ]
+                if len(matching_nerf_configs) == 0:
+                    print(
+                        f"WARNING: Found no matching nerf configs for {object_code_and_scale_str}"
+                    )
+                    print("Skipping this one...")
+                    continue
+                elif len(matching_nerf_configs) > 1:
+                    print(f"WARNING: Found multiple matching nerf configs for {object_code_and_scale_str}, {matching_nerf_configs}")
+                nerf_config = matching_nerf_configs[0]
+
                 # Prepare to read in data
-                mesh_path = (
-                    cfg.dexgraspnet_meshdata_root
-                    / object_code
-                    / "coacd"
-                    / "decomposed.obj"
-                )
                 evaled_grasp_config_dict_filepath = (
                     cfg.evaled_grasp_config_dicts_path
                     / f"{object_code_and_scale_str}.npy"
                 )
 
                 # Check that mesh and grasp dataset exist
-                assert mesh_path.exists(), f"mesh_path {mesh_path} does not exist"
                 assert os.path.exists(
                     evaled_grasp_config_dict_filepath
                 ), f"evaled_grasp_config_dict_filepath {evaled_grasp_config_dict_filepath} does not exist"
 
             # Read in data
             with loop_timer.add_section_timer("load_nerf"):
-                nerf_model = load_nerf_model(config)
+                nerf_model = load_nerf_model(nerf_config)
                 nerf_field: Field = nerf_model.field
-
-            with loop_timer.add_section_timer("load mesh"):
-                mesh = trimesh.load(mesh_path, force="mesh")
-                mesh.apply_transform(trimesh.transformations.scale_matrix(object_scale))
 
             with loop_timer.add_section_timer("load grasp data"):
                 evaled_grasp_config_dict: Dict[str, Any] = np.load(
@@ -657,7 +675,7 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                 if nerf_densities.isnan().any():
                     print("\n" + "-" * 80)
                     print(
-                        f"WARNING: Found {nerf_densities.isnan().sum()} nerf density nans in {config}"
+                        f"WARNING: Found {nerf_densities.isnan().sum()} nerf density nans in {nerf_config}"
                     )
                     print("Skipping this one...")
                     print("-" * 80 + "\n")
@@ -673,7 +691,7 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                 if depth_images.isnan().any():
                     print("\n" + "-" * 80)
                     print(
-                        f"WARNING: Found {depth_images.isnan().sum()} depth image nans in {config}"
+                        f"WARNING: Found {depth_images.isnan().sum()} depth image nans in {nerf_config}"
                     )
                     print("Skipping this one...")
                     print("-" * 80 + "\n")
@@ -686,7 +704,7 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
             if grasp_frame_transforms.isnan().any():
                 print("\n" + "-" * 80)
                 print(
-                    f"WARNING: Found {grasp_frame_transforms.isnan().sum()} transform nans in {config}"
+                    f"WARNING: Found {grasp_frame_transforms.isnan().sum()} transform nans in {nerf_config}"
                 )
                 print("Skipping this one...")
                 print("-" * 80 + "\n")
@@ -704,7 +722,7 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                 passed_penetration_threshold_dataset[
                     prev_idx:current_idx
                 ] = passed_penetration_thresholds
-                nerf_config_dataset[prev_idx:current_idx] = [str(config)] * (
+                nerf_config_dataset[prev_idx:current_idx] = [str(nerf_config)] * (
                     current_idx - prev_idx
                 )
                 object_code_dataset[prev_idx:current_idx] = [object_code] * (
@@ -757,7 +775,7 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                 hdf5_file.attrs["num_data_points"] = current_idx
         except Exception as e:
             print("\n" + "-" * 80)
-            print(f"WARNING: Failed to process {config}")
+            print(f"WARNING: Failed to process {nerf_config}")
             print(f"Exception: {e}")
             print("Skipping this one...")
             print("-" * 80 + "\n")
@@ -779,6 +797,16 @@ grasp_frame_transforms = (
 delta = (
     cfg.fingertip_config.grasp_depth_mm / 1000 / (cfg.fingertip_config.num_pts_z - 1)
 )
+
+mesh_path = (
+    cfg.dexgraspnet_meshdata_root
+    / object_code
+    / "coacd"
+    / "decomposed.obj"
+)
+assert mesh_path.exists(), f"mesh_path {mesh_path} does not exist"
+mesh = trimesh.load(mesh_path, force="mesh")
+mesh.apply_transform(trimesh.transformations.scale_matrix(object_scale))
 
 if "nerf_densities" in globals():
     nerf_alphas = [

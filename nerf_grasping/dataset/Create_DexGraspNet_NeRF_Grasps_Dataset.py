@@ -644,11 +644,12 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
 
     # Iterate through all
     loop_timer = LoopTimer()
-    for evaled_grasp_config_dict_filepath in tqdm(
+    pbar = tqdm(
         evaled_grasp_config_dict_filepaths,
-        desc="evaled_grasp_config_dict_filepaths",
         dynamic_ncols=True,
-    ):
+    )
+    for evaled_grasp_config_dict_filepath in pbar:
+        pbar.set_description(f"Processing {evaled_grasp_config_dict_filepath}")
         try:
 
             with loop_timer.add_section_timer("prepare to read in data"):

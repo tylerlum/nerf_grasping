@@ -494,7 +494,7 @@ def main(cfg: GraspMetricConfig) -> None:
         wandb.init(
             entity=cfg.wandb.entity,
             project=cfg.wandb.project,
-            name=cfg.wandb.name,
+            name=cfg.wandb.name_with_date,
             config=asdict(cfg),
         )
 

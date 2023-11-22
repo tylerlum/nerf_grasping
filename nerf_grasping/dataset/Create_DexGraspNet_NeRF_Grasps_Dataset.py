@@ -106,6 +106,33 @@ def parse_nerf_config(nerf_config: pathlib.Path) -> str:
     return object_code_and_scale_str
 
 
+@localscope.mfc
+def get_nerf_config(
+    object_code_and_scale_str: str, nerf_configs: List[pathlib.Path]
+) -> pathlib.Path:
+    ANY_SCALE = True
+    if ANY_SCALE:
+        object_code, _ = parse_object_code_and_scale(object_code_and_scale_str)
+        keyword = object_code
+    else:
+        keyword = object_code_and_scale_str
+
+    # Get nerf config
+    matching_nerf_configs = [
+        nerf_config
+        for nerf_config in nerf_configs
+        if parse_nerf_config(nerf_config) == keyword
+    ]
+    if len(matching_nerf_configs) == 0:
+        raise ValueError(f"Found no matching nerf configs for {keyword}")
+
+    if len(matching_nerf_configs) > 1:
+        print(
+            f"WARNING: Found multiple matching nerf configs for {keyword}, {matching_nerf_configs}"
+        )
+    return matching_nerf_configs[0]
+
+
 @localscope.mfc(allowed=["tqdm"])
 def count_total_num_grasps(
     evaled_grasp_config_dict_filepaths: List[pathlib.Path],
@@ -568,18 +595,10 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                 )
 
                 # Get nerf config
-                matching_nerf_configs = [
-                    x for x in nerf_configs if parse_nerf_config(x) == object_code_and_scale_str
-                ]
-                if len(matching_nerf_configs) == 0:
-                    print(
-                        f"WARNING: Found no matching nerf configs for {object_code_and_scale_str}"
-                    )
-                    print("Skipping this one...")
-                    continue
-                elif len(matching_nerf_configs) > 1:
-                    print(f"WARNING: Found multiple matching nerf configs for {object_code_and_scale_str}, {matching_nerf_configs}")
-                nerf_config = matching_nerf_configs[0]
+                nerf_config = get_nerf_config(
+                    object_code_and_scale_str=object_code_and_scale_str,
+                    nerf_configs=nerf_configs,
+                )
 
                 # Prepare to read in data
                 evaled_grasp_config_dict_filepath = (
@@ -798,12 +817,7 @@ delta = (
     cfg.fingertip_config.grasp_depth_mm / 1000 / (cfg.fingertip_config.num_pts_z - 1)
 )
 
-mesh_path = (
-    cfg.dexgraspnet_meshdata_root
-    / object_code
-    / "coacd"
-    / "decomposed.obj"
-)
+mesh_path = cfg.dexgraspnet_meshdata_root / object_code / "coacd" / "decomposed.obj"
 assert mesh_path.exists(), f"mesh_path {mesh_path} does not exist"
 mesh = trimesh.load(mesh_path, force="mesh")
 mesh.apply_transform(trimesh.transformations.scale_matrix(object_scale))

@@ -13,6 +13,9 @@ from nerf_grasping.config.base import CONFIG_DATETIME_STR
 from enum import Enum, auto
 
 
+EXPERIMENT_NAME = "2023-11-17_rubikscube_0"
+
+
 @dataclass
 class BaseNerfDataConfig:
     """Top-level config for NeRF data generation."""
@@ -20,18 +23,16 @@ class BaseNerfDataConfig:
     dexgraspnet_data_root: pathlib.Path = (
         pathlib.Path(nerf_grasping.get_repo_root()) / "data"
     )
-    dexgraspnet_meshdata_root: pathlib.Path = (
-        dexgraspnet_data_root / "2023-10-13_meshdata_trial"
-    )
+    dexgraspnet_meshdata_root: pathlib.Path = dexgraspnet_data_root / "meshdata"
     evaled_grasp_config_dicts_path: pathlib.Path = (
-        dexgraspnet_data_root / "2023-10-13_13-12-28" / "evaled_grasp_config_dicts"
+        dexgraspnet_data_root / EXPERIMENT_NAME / "evaled_grasp_config_dicts"
     )
     nerf_checkpoints_path: pathlib.Path = (
-        dexgraspnet_data_root / "2023-10-13_13-12-28" / "nerfcheckpoints"
+        dexgraspnet_data_root / EXPERIMENT_NAME / "nerfcheckpoints"
     )
     output_filepath: Optional[pathlib.Path] = None
     plot_only_one: bool = False
-    nerf_visualize_index: Optional[int] = 0
+    config_dict_visualize_index: Optional[int] = 0
     grasp_visualize_index: Optional[int] = 0
     save_dataset: bool = True
     print_timing: bool = True
@@ -39,7 +40,8 @@ class BaseNerfDataConfig:
     max_num_data_points_per_file: Optional[
         int
     ] = None  # None for count actual num data points
-    ray_samples_chunk_size: int = 2500
+    ray_samples_chunk_size: int = 400  # ~23GB on GPU
+    cameras_samples_chunk_size: int = 2000  # ~14GB on GPU
     plot_all_high_density_points: bool = True
     plot_alphas_each_finger_1D: bool = True
     plot_alpha_images_each_finger: bool = True

@@ -136,6 +136,7 @@ def _render_depth_and_uncertainty_for_single_ray_bundle(
     Slight variation on typical nerf rendering that doesn't render RGB but *does*
     compute the uncertainty along the ray.
     """
+    EPS = 1e-7
 
     # Query proposal sampler.
     ray_samples, _, _ = nerf_model.proposal_sampler(
@@ -155,8 +156,8 @@ def _render_depth_and_uncertainty_for_single_ray_bundle(
     steps = (ray_samples.frustums.starts + ray_samples.frustums.ends) / 2
 
     # Render expected depth map (need regardless to compute variance).
-
-    normalized_weights = weights / weights.sum(dim=-2, keepdim=True)
+    # If all weights are 0, then normalize_weights will be 0, so expected_depth will be the min
+    normalized_weights = weights / (weights.sum(dim=-2, keepdim=True) + EPS)
     expected_depth = (normalized_weights * steps).sum(dim=-2)
     expected_depth = torch.clip(expected_depth, steps.min(), steps.max())
 

@@ -40,7 +40,7 @@ from nerf_grasping.dataset.DexGraspNet_NeRF_Grasps_utils import (
     plot_mesh_and_query_points,
     plot_mesh_and_transforms,
 )
-from nerf_grasping.classifier import Classifier
+from nerf_grasping.classifier import Classifier, DepthImageClassifier
 from nerf_grasping.dataset.timers import LoopTimer
 from nerf_grasping.config.classifier_config import (
     UnionClassifierConfig,
@@ -1118,8 +1118,7 @@ def plot_example(
 
     # Path to meshes
     DEXGRASPNET_DATA_ROOT = str(pathlib.Path(nerf_grasping.get_repo_root()) / "data")
-    # TODO: add to cfg.
-    DEXGRASPNET_MESHDATA_ROOT = os.path.join(DEXGRASPNET_DATA_ROOT, "meshdata_trial")
+    DEXGRASPNET_MESHDATA_ROOT = os.path.join(DEXGRASPNET_DATA_ROOT, "meshdata")
     mesh_path = os.path.join(
         DEXGRASPNET_MESHDATA_ROOT,
         object_code,
@@ -1226,7 +1225,6 @@ def depth_image_plot_example(
 
     # Path to meshes
     DEXGRASPNET_DATA_ROOT = str(pathlib.Path(nerf_grasping.get_repo_root()) / "data")
-    # TODO: add to cfg.
     DEXGRASPNET_MESHDATA_ROOT = os.path.join(DEXGRASPNET_DATA_ROOT, "meshdata")
     mesh_path = os.path.join(
         DEXGRASPNET_MESHDATA_ROOT,

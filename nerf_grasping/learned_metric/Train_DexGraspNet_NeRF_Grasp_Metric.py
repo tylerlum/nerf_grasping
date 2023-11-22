@@ -115,6 +115,10 @@ def is_notebook() -> bool:
 
 
 # %%
+# Make atol and rtol larger than default to avoid errors due to floating point precision.
+# Otherwise we get errors about invalid rotation matrices
+PP_MATRIX_ATOL, PP_MATRIX_RTOL = 1e-4, 1e-4
+
 NUM_XYZ = 3
 
 
@@ -396,6 +400,8 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
                 pp.from_matrix(
                     torch.from_numpy(hdf5_file["/grasp_transforms"][()]).float(),
                     pp.SE3_type,
+                    atol=PP_MATRIX_ATOL,
+                    rtol=PP_MATRIX_RTOL,
                 )
                 if load_grasp_transforms_in_ram
                 else None
@@ -618,6 +624,8 @@ class DepthImage_To_GraspSuccess_HDF5_Dataset(Dataset):
                 pp.from_matrix(
                     torch.from_numpy(hdf5_file["/grasp_transforms"][()]).float(),
                     pp.SE3_type,
+                    atol=PP_MATRIX_ATOL,
+                    rtol=PP_MATRIX_RTOL,
                 )
                 if load_grasp_transforms_in_ram
                 else None
@@ -825,7 +833,10 @@ def sample_random_rotate_transforms(N: int) -> pp.LieTensor:
 
     # A bit annoying -- need to cast SO(3) -> SE(3).
     random_rotate_transforms = pp.from_matrix(
-        random_SO3_rotations.matrix(), pp.SE3_type
+        random_SO3_rotations.matrix(),
+        pp.SE3_type,
+        atol=PP_MATRIX_ATOL,
+        rtol=PP_MATRIX_RTOL,
     )
 
     return random_rotate_transforms
@@ -867,7 +878,12 @@ def custom_collate_fn(
         passed_penetration_threshold = passed_penetration_threshold[shuffle_inds]
         passed_eval = passed_eval[shuffle_inds]
 
-    grasp_transforms = pp.from_matrix(grasp_transforms, pp.SE3_type)
+    grasp_transforms = pp.from_matrix(
+        grasp_transforms,
+        pp.SE3_type,
+        atol=PP_MATRIX_ATOL,
+        rtol=PP_MATRIX_RTOL,
+    )
 
     batch_size = nerf_densities.shape[0]
     if use_random_rotations:

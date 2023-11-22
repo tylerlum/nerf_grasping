@@ -40,7 +40,7 @@ from nerf_grasping.dataset.DexGraspNet_NeRF_Grasps_utils import (
     plot_mesh_and_query_points,
     plot_mesh_and_transforms,
 )
-from nerf_grasping.classifier import Classifier
+from nerf_grasping.classifier import Classifier, DepthImageClassifier
 from nerf_grasping.dataset.timers import LoopTimer
 from nerf_grasping.config.classifier_config import (
     UnionClassifierConfig,

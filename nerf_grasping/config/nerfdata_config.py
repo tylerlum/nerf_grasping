@@ -52,7 +52,7 @@ class BaseNerfDataConfig:
     def __post_init__(self):
         if self.output_filepath is None:
             self.output_filepath = (
-                cfg.evaled_grasp_config_dicts_path.parent
+                self.evaled_grasp_config_dicts_path.parent
                 / "learned_metric_dataset"
                 / f"{CONFIG_DATETIME_STR}_learned_metric_dataset.h5"
             )

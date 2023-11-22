@@ -17,17 +17,16 @@ from enum import Enum, auto
 class BaseNerfDataConfig:
     """Top-level config for NeRF data generation."""
 
+    experiment_name: str = "2023-11-17_rubikscube_0"
     dexgraspnet_data_root: pathlib.Path = (
         pathlib.Path(nerf_grasping.get_repo_root()) / "data"
     )
-    dexgraspnet_meshdata_root: pathlib.Path = (
-        dexgraspnet_data_root / "2023-10-13_meshdata_trial"
-    )
+    dexgraspnet_meshdata_root: pathlib.Path = dexgraspnet_data_root / "meshdata"
     evaled_grasp_config_dicts_path: pathlib.Path = (
-        dexgraspnet_data_root / "2023-10-13_13-12-28" / "evaled_grasp_config_dicts"
+        dexgraspnet_data_root / experiment_name / "evaled_grasp_config_dicts"
     )
     nerf_checkpoints_path: pathlib.Path = (
-        dexgraspnet_data_root / "2023-10-13_13-12-28" / "nerfcheckpoints"
+        dexgraspnet_data_root / experiment_name / "nerfcheckpoints"
     )
     output_filepath: Optional[pathlib.Path] = None
     plot_only_one: bool = False
@@ -49,6 +48,14 @@ class BaseNerfDataConfig:
     @property
     def config_filepath(self) -> pathlib.Path:
         return self.output_filepath.parent / "config.yml"
+
+    def __post_init__(self):
+        if self.output_filepath is None:
+            self.output_filepath = (
+                cfg.evaled_grasp_config_dicts_path.parent
+                / "learned_metric_dataset"
+                / f"{CONFIG_DATETIME_STR}_learned_metric_dataset.h5"
+            )
 
 
 @dataclass

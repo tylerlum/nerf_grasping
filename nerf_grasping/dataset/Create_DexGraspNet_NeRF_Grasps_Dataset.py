@@ -159,13 +159,8 @@ else:
 print(f"Config:\n{tyro.extras.to_yaml(cfg)}")
 assert cfg.fingertip_config is not None
 
-if cfg.output_filepath is None:
-    cfg.output_filepath = (
-        cfg.evaled_grasp_config_dicts_path.parent
-        / "learned_metric_dataset"
-        / f"{CONFIG_DATETIME_STR}_learned_metric_dataset.h5"
-    )
 # %%
+assert cfg.output_filepath is not None
 if not cfg.output_filepath.parent.exists():
     print(f"Creating output folder {cfg.output_filepath.parent}")
     cfg.output_filepath.parent.mkdir(parents=True)

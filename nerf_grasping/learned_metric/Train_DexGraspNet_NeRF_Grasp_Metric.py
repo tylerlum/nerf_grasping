@@ -1118,8 +1118,7 @@ def plot_example(
 
     # Path to meshes
     DEXGRASPNET_DATA_ROOT = str(pathlib.Path(nerf_grasping.get_repo_root()) / "data")
-    # TODO: add to cfg.
-    DEXGRASPNET_MESHDATA_ROOT = os.path.join(DEXGRASPNET_DATA_ROOT, "meshdata_trial")
+    DEXGRASPNET_MESHDATA_ROOT = os.path.join(DEXGRASPNET_DATA_ROOT, "meshdata")
     mesh_path = os.path.join(
         DEXGRASPNET_MESHDATA_ROOT,
         object_code,
@@ -1226,7 +1225,6 @@ def depth_image_plot_example(
 
     # Path to meshes
     DEXGRASPNET_DATA_ROOT = str(pathlib.Path(nerf_grasping.get_repo_root()) / "data")
-    # TODO: add to cfg.
     DEXGRASPNET_MESHDATA_ROOT = os.path.join(DEXGRASPNET_DATA_ROOT, "meshdata")
     mesh_path = os.path.join(
         DEXGRASPNET_MESHDATA_ROOT,

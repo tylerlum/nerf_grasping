@@ -119,9 +119,7 @@ def get_nerf_config(
 
     # Get nerf config
     matching_nerf_configs = [
-        nerf_config
-        for nerf_config in nerf_configs
-        if keyword in str(nerf_config)
+        nerf_config for nerf_config in nerf_configs if keyword in str(nerf_config)
     ]
     if len(matching_nerf_configs) == 0:
         raise ValueError(f"Found no matching nerf configs for {keyword}")
@@ -184,6 +182,12 @@ print(f"Config:\n{tyro.extras.to_yaml(cfg)}")
 assert cfg.fingertip_config is not None
 
 # %%
+if cfg.output_filepath is None:
+    cfg.output_filepath = (
+        cfg.evaled_grasp_config_dicts_path.parent
+        / "learned_metric_dataset"
+        / f"{CONFIG_DATETIME_STR}_learned_metric_dataset.h5"
+    )
 assert cfg.output_filepath is not None
 if not cfg.output_filepath.parent.exists():
     print(f"Creating output folder {cfg.output_filepath.parent}")
@@ -425,7 +429,12 @@ def get_depth_and_uncertainty_images(
             [split_inds, torch.tensor([batch_size]).to(split_inds.device)]
         )
         depths, uncertainties = [], []
-        for curr_ind, next_ind in zip(split_inds[:-1], split_inds[1:]):
+        for curr_ind, next_ind in tqdm(
+            zip(split_inds[:-1], split_inds[1:]),
+            total=len(split_inds) - 1,
+            desc="render",
+            dynamic_ncols=True,
+        ):
             curr_cameras = cameras[curr_ind:next_ind].to("cuda")
             curr_depth, curr_uncertainty = render(
                 curr_cameras, nerf_model, "median", far_plane=0.15
@@ -503,7 +512,12 @@ def get_nerf_densities(
             [split_inds, torch.tensor([batch_size]).to(split_inds.device)]
         )
         nerf_density_list = []
-        for curr_ind, next_ind in zip(split_inds[:-1], split_inds[1:]):
+        for curr_ind, next_ind in tqdm(
+            zip(split_inds[:-1], split_inds[1:]),
+            total=len(split_inds) - 1,
+            desc="get_density",
+            dynamic_ncols=True,
+        ):
             curr_ray_samples = ray_samples[curr_ind:next_ind].to("cuda")
             nerf_density_list.append(
                 nerf_field.get_density(curr_ray_samples)[0]

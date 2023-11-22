@@ -52,14 +52,6 @@ class BaseNerfDataConfig:
     def config_filepath(self) -> pathlib.Path:
         return self.output_filepath.parent / "config.yml"
 
-    def __post_init__(self):
-        if self.output_filepath is None:
-            self.output_filepath = (
-                self.evaled_grasp_config_dicts_path.parent
-                / "learned_metric_dataset"
-                / f"{CONFIG_DATETIME_STR}_learned_metric_dataset.h5"
-            )
-
 
 @dataclass
 class GridNerfDataConfig(BaseNerfDataConfig):
@@ -72,7 +64,6 @@ class DepthImageNerfDataConfig(BaseNerfDataConfig):
     fingertip_camera_config: CameraConfig = field(default_factory=CameraConfig)
 
     def __post_init__(self):
-        super().__post_init__()
         self.fingertip_camera_config.set_intrisics_from_fingertip_config(
             self.fingertip_config
         )

@@ -415,22 +415,36 @@ def get_depth_and_uncertainty_images(
     assert isinstance(cfg, DepthImageNerfDataConfig)
 
     with loop_timer.add_section_timer("get_cameras"):
-        cameras = get_cameras(grasp_frame_transforms, cfg.fingertip_camera_config).to(
-            nerf_model.device
-        )
+        cameras = get_cameras(grasp_frame_transforms, cfg.fingertip_camera_config)
 
+    batch_size = cameras.shape[0]
     with loop_timer.add_section_timer("render"):
-        depth, uncertainty = render(cameras, nerf_model, "median", far_plane=0.15)
+        # Split cameras into chunks so everything fits on the gpu
+        split_inds = torch.arange(0, batch_size, cfg.cameras_samples_chunk_size)
+        split_inds = torch.cat(
+            [split_inds, torch.tensor([batch_size]).to(split_inds.device)]
+        )
+        depths, uncertainties = [], []
+        for curr_ind, next_ind in zip(split_inds[:-1], split_inds[1:]):
+            curr_cameras = cameras[curr_ind:next_ind].to("cuda")
+            curr_depth, curr_uncertainty = render(
+                curr_cameras, nerf_model, "median", far_plane=0.15
+            )
+            depths.append(curr_depth.cpu())
+            uncertainties.append(curr_uncertainty.cpu())
+            curr_cameras.to("cpu")
+        depths = torch.cat(depths, dim=0)
+        uncertainties = torch.cat(uncertainties, dim=0)
 
     return (
-        depth.permute(2, 0, 1).view(
-            grasp_frame_transforms.shape[0],
+        depths.permute(2, 0, 1).reshape(
+            batch_size,
             cfg.fingertip_config.n_fingers,
             cfg.fingertip_camera_config.H,
             cfg.fingertip_camera_config.W,
         ),
-        uncertainty.permute(2, 0, 1).view(
-            grasp_frame_transforms.shape[0],
+        uncertainties.permute(2, 0, 1).reshape(
+            batch_size,
             cfg.fingertip_config.n_fingers,
             cfg.fingertip_camera_config.H,
             cfg.fingertip_camera_config.W,
@@ -503,8 +517,7 @@ def get_nerf_densities(
                 .cpu()
             )
             curr_ray_samples.to("cpu")
-
-    nerf_densities = torch.cat(nerf_density_list, dim=0)
+        nerf_densities = torch.cat(nerf_density_list, dim=0)
 
     return nerf_densities, query_points
 

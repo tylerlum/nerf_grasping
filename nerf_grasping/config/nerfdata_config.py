@@ -69,6 +69,7 @@ class DepthImageNerfDataConfig(BaseNerfDataConfig):
     fingertip_camera_config: CameraConfig = field(default_factory=CameraConfig)
 
     def __post_init__(self):
+        super().__post_init__()
         self.fingertip_camera_config.set_intrisics_from_fingertip_config(
             self.fingertip_config
         )

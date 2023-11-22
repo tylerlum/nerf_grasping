@@ -3,11 +3,17 @@ import tyro
 import pathlib
 from dataclasses import dataclass
 import nerf_grasping
+from typing import Optional, List
+import random
 
 
 @dataclass
 class Args:
     experiment_name: str
+    frac_train: float = 0.8
+    frac_val: float = 0.1
+    random_seed: Optional[int] = None
+
     dgn_data_path: pathlib.Path = pathlib.Path(
         "~/github_repos/DexGraspNet/data"
     ).expanduser()  # TODO: change this per workstation
@@ -21,12 +27,25 @@ def print_and_run(cmd: str) -> None:
     subprocess.run(cmd, shell=True, check=True)
 
 
+def create_symlinks(
+    src_folderpath: pathlib.Path, dest_folderpath: pathlib.Path, filenames: List[str]
+) -> None:
+    dest_folderpath.mkdir(exist_ok=True)
+    for filename in filenames:
+        src_filename = src_folderpath / filename
+        dest_filename = dest_folderpath / filename
+        assert src_filename.exists(), f"{src_filename} does not exist"
+        if not dest_filename.exists():
+            print_and_run(f"ln -s {str(src_filename)} {str(dest_filename)}")
+
+
 def main() -> None:
     args = tyro.cli(Args)
     print("=" * 80)
     print(f"{pathlib.Path(__file__).name} args: {args}")
     print("=" * 80 + "\n")
 
+    # Sanity check
     assert args.dgn_data_path.exists(), f"{args.dgn_data_path} does not exist"
     experiment_path = args.dgn_data_path / args.experiment_name
     assert experiment_path.exists(), f"{experiment_path} does not exist"
@@ -34,11 +53,57 @@ def main() -> None:
         args.nerf_grasping_data_path.exists()
     ), f"{args.nerf_grasping_data_path} does not exist"
 
+    # Create symlink to data
     new_experiment_path = args.nerf_grasping_data_path / args.experiment_name
     if new_experiment_path.exists():
         print(f"Skipping {new_experiment_path} because it already exists")
     else:
         print_and_run(f"ln -s {experiment_path} {new_experiment_path}")
+
+    # Create train/val/test split
+    evaled_grasp_config_dicts_path = experiment_path / "evaled_grasp_config_dicts"
+    assert (
+        evaled_grasp_config_dicts_path.exists()
+    ), f"{evaled_grasp_config_dicts_path} does not exist"
+
+    filenames = sorted(
+        [f.name for f in evaled_grasp_config_dicts_path.iterdir() if f.is_dir()]
+    )
+    random.Random(args.random_seed).shuffle(filenames)
+
+    n_train, n_val = (
+        int(args.frac_train * len(filenames)),
+        int(args.frac_val * len(filenames)),
+    )
+    n_test = len(filenames) - n_train - n_val
+    print(f"n_train: {n_train}, n_val: {n_val}, n_test: {n_test}")
+    print()
+
+    train_filenames = filenames[:n_train]
+    val_filenames = filenames[n_train : n_train + n_val]
+    test_filenames = filenames[n_train + n_val :]
+
+    # Create symlinks to train/val/test split
+    evaled_grasp_config_dicts_train_path = (
+        experiment_path / "evaled_grasp_config_dicts_train"
+    )
+    evaled_grasp_config_dicts_val_path = (
+        experiment_path / "evaled_grasp_config_dicts_val"
+    )
+    evaled_grasp_config_dicts_test_path = (
+        experiment_path / "evaled_grasp_config_dicts_test"
+    )
+
+    for new_path, filenames in [
+        (evaled_grasp_config_dicts_train_path, train_filenames),
+        (evaled_grasp_config_dicts_val_path, val_filenames),
+        (evaled_grasp_config_dicts_test_path, test_filenames),
+    ]:
+        create_symlinks(
+            src_folderpath=evaled_grasp_config_dicts_path,
+            dest_folderpath=new_path,
+            filenames=filenames,
+        )
 
 
 if __name__ == "__main__":

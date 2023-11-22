@@ -120,13 +120,13 @@ def main() -> None:
         f"python nerf_grasping/dataset/Create_DexGraspNet_NeRF_Grasps_Dataset.py grid"
         + f" --evaled-grasp-config-dicts-path {new_experiment_path / 'evaled_grasp_config_dicts_train'}"
         + f" --nerf-checkpoints-path {new_experiment_path / 'nerfcheckpoints'}"
-        + f" --output-filepath {new_experiment_path / 'grid_dataset.h5'}"
+        + f" --output-filepath {new_experiment_path / 'grid_dataset' / 'dataset.h5'}"
     )
     print_and_run(
         f"python nerf_grasping/dataset/Create_DexGraspNet_NeRF_Grasps_Dataset.py depth-image"
         + f" --evaled-grasp-config-dicts-path {new_experiment_path / 'evaled_grasp_config_dicts_train'}"
         + f" --nerf-checkpoints-path {new_experiment_path / 'nerfcheckpoints'}"
-        + f" --output-filepath {new_experiment_path / 'depth_image_dataset.h5'}"
+        + f" --output-filepath {new_experiment_path / 'depth_image_dataset' / 'dataset.h5'}"
     )
 
 

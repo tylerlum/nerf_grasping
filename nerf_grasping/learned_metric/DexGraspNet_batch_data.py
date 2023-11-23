@@ -15,6 +15,7 @@ from nerf_grasping.config.fingertip_config import (
     BaseFingertipConfig,
     EvenlySpacedFingertipConfig,
 )
+from enum import Enum, auto
 
 NUM_XYZ = 3
 
@@ -23,6 +24,25 @@ NUM_XYZ = 3
 def get_ray_origins_finger_frame_cached(cfg: BaseFingertipConfig) -> torch.Tensor:
     ray_origins_finger_frame = get_ray_origins_finger_frame(cfg)
     return ray_origins_finger_frame
+
+
+class ConditioningType(Enum):
+    """Enum for conditioning type."""
+
+    NONE = auto()
+    GRASP_TRANSFORM = auto()
+    GRASP_CONFIG = auto()
+
+    @property
+    def dim(self) -> int:
+        if self == ConditioningType.NONE:
+            return 0
+        elif self == ConditioningType.GRASP_TRANSFORM:
+            return 7
+        elif self == ConditioningType.GRASP_CONFIG:
+            return 7 + 16 + 4
+        else:
+            raise NotImplementedError()
 
 
 @dataclass
@@ -84,7 +104,7 @@ class BatchDataInput:
         return self._nerf_alphas_with_coords_helper(self.augmented_coords)
 
     @property
-    def augmented_grasp_transforms(self) -> torch.Tensor:
+    def augmented_grasp_transforms(self) -> pp.LieTensor:
         if self.random_rotate_transform is None:
             return self.grasp_transforms
 
@@ -177,6 +197,15 @@ class BatchDataInput:
         )
         return return_value
 
+    def get_conditioning(self, conditioning_type: ConditioningType) -> torch.Tensor:
+        if conditioning_type == ConditioningType.GRASP_TRANSFORM:
+            return self.augmented_grasp_transforms.tensor()
+        elif conditioning_type == ConditioningType.GRASP_CONFIG:
+            return self.grasp_configs
+        else:
+            raise NotImplementedError()
+
+
 @dataclass
 class DepthImageBatchDataInput:
     depth_uncertainty_images: torch.Tensor
@@ -186,7 +215,7 @@ class DepthImageBatchDataInput:
     random_rotate_transform: Optional[pp.LieTensor] = None
     nerf_density_threshold_value: Optional[float] = None
 
-    def to(self, device) -> BatchDataInput:
+    def to(self, device) -> DepthImageBatchDataInput:
         self.depth_uncertainty_images = self.depth_uncertainty_images.to(device)
         self.grasp_transforms = self.grasp_transforms.to(device)
         self.random_rotate_transform = (
@@ -198,7 +227,7 @@ class DepthImageBatchDataInput:
         return self
 
     @property
-    def augmented_grasp_transforms(self) -> torch.Tensor:
+    def augmented_grasp_transforms(self) -> pp.LieTensor:
         if self.random_rotate_transform is None:
             return self.grasp_transforms
 
@@ -220,6 +249,14 @@ class DepthImageBatchDataInput:
     @property
     def device(self) -> torch.device:
         return self.depth_uncertainty_images.device
+
+    def get_conditioning(self, conditioning_type: ConditioningType) -> torch.Tensor:
+        if conditioning_type == ConditioningType.GRASP_TRANSFORM:
+            return self.augmented_grasp_transforms.tensor()
+        elif conditioning_type == ConditioningType.GRASP_CONFIG:
+            return self.grasp_configs
+        else:
+            raise NotImplementedError()
 
 
 @dataclass

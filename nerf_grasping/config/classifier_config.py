@@ -11,6 +11,8 @@ from nerf_grasping.classifier import (
     DepthImage_CNN_2D_Classifier,
     Classifier,
     DepthImageClassifier,
+)
+from nerf_grasping.learned_metric.DexGraspNet_batch_data import (
     ConditioningType,
 )
 from nerf_grasping.config.base import WandbConfig, CONFIG_DATETIME_STR
@@ -222,7 +224,7 @@ class CNN_2D_1D_ModelConfig(ClassifierModelConfig):
 
     conv_2d_film_hidden_layers: List[int]
     mlp_hidden_layers: List[int]
-    conditioning_dim: int = 7
+    conditioning_type: ConditioningType
     n_fingers: int = 4
 
     @classmethod
@@ -243,10 +245,11 @@ class CNN_2D_1D_ModelConfig(ClassifierModelConfig):
         """Helper method to return the correct classifier from config."""
 
         return CNN_2D_1D_Classifier(
+            conditioning_type=self.conditioning_type,
             grid_shape=self.grid_shape_from_fingertip_config(fingertip_config),
             n_fingers=self.n_fingers,
             n_tasks=n_tasks,
-            conditioning_dim=self.conditioning_dim,
+            conditioning_dim=self.conditioning_type.dim,
             conv_2d_film_hidden_layers=self.conv_2d_film_hidden_layers,
             mlp_hidden_layers=self.mlp_hidden_layers,
         )
@@ -260,7 +263,7 @@ class Simple_CNN_2D_1D_ModelConfig(ClassifierModelConfig):
     film_2d_hidden_layers: List[int]
     film_1d_hidden_layers: List[int]
     mlp_hidden_layers: List[int]
-    conditioning_dim: int = 7
+    conditioning_type: ConditioningType
     n_fingers: int = 4
 
     @classmethod
@@ -281,10 +284,11 @@ class Simple_CNN_2D_1D_ModelConfig(ClassifierModelConfig):
         """Helper method to return the correct classifier from config."""
 
         return Simple_CNN_2D_1D_Classifier(
+            conditioning_type=self.conditioning_type,
             grid_shape=self.grid_shape_from_fingertip_config(fingertip_config),
             n_fingers=self.n_fingers,
             n_tasks=n_tasks,
-            conditioning_dim=self.conditioning_dim,
+            conditioning_dim=self.conditioning_type.dim,
             mlp_hidden_layers=self.mlp_hidden_layers,
             conv_2d_channels=self.conv_2d_channels,
             conv_1d_channels=self.conv_1d_channels,
@@ -301,7 +305,7 @@ class Simple_CNN_1D_2D_ModelConfig(ClassifierModelConfig):
     film_2d_hidden_layers: List[int]
     film_1d_hidden_layers: List[int]
     mlp_hidden_layers: List[int]
-    conditioning_dim: int = 7
+    conditioning_type: ConditioningType
     n_fingers: int = 4
 
     @classmethod
@@ -322,10 +326,11 @@ class Simple_CNN_1D_2D_ModelConfig(ClassifierModelConfig):
         """Helper method to return the correct classifier from config."""
 
         return Simple_CNN_1D_2D_Classifier(
+            conditioning_type=self.conditioning_type,
             grid_shape=self.grid_shape_from_fingertip_config(fingertip_config),
             n_fingers=self.n_fingers,
             n_tasks=n_tasks,
-            conditioning_dim=self.conditioning_dim,
+            conditioning_dim=self.conditioning_type.dim,
             mlp_hidden_layers=self.mlp_hidden_layers,
             conv_2d_channels=self.conv_2d_channels,
             conv_1d_channels=self.conv_1d_channels,
@@ -341,7 +346,7 @@ class Simple_CNN_LSTM_ModelConfig(ClassifierModelConfig):
     film_2d_hidden_layers: List[int]
     lstm_hidden_size: int
     num_lstm_layers: int
-    conditioning_dim: int = 7
+    conditioning_type: ConditioningType
     n_fingers: int = 4
 
     @classmethod
@@ -362,10 +367,11 @@ class Simple_CNN_LSTM_ModelConfig(ClassifierModelConfig):
         """Helper method to return the correct classifier from config."""
 
         return Simple_CNN_LSTM_Classifier(
+            conditioning_type=self.conditioning_type,
             grid_shape=self.grid_shape_from_fingertip_config(fingertip_config),
             n_fingers=self.n_fingers,
             n_tasks=n_tasks,
-            conditioning_dim=self.conditioning_dim,
+            conditioning_dim=self.conditioning_type.dim,
             mlp_hidden_layers=self.mlp_hidden_layers,
             conv_2d_channels=self.conv_2d_channels,
             film_2d_hidden_layers=self.film_2d_hidden_layers,
@@ -380,7 +386,7 @@ class DepthImage_CNN_2D_ModelConfig(ClassifierModelConfig):
 
     conv_2d_film_hidden_layers: List[int]
     mlp_hidden_layers: List[int]
-    conditioning_dim: int = 7
+    conditioning_type: ConditioningType
     n_fingers: int = 4
 
     def get_classifier_from_camera_config(
@@ -392,6 +398,7 @@ class DepthImage_CNN_2D_ModelConfig(ClassifierModelConfig):
         NUM_CHANNELS_DEPTH_UNCERTAINTY = 2
 
         return DepthImage_CNN_2D_Classifier(
+            conditioning_type=self.conditioning_type,
             img_shape=(
                 NUM_CHANNELS_DEPTH_UNCERTAINTY,
                 camera_config.H,
@@ -399,7 +406,7 @@ class DepthImage_CNN_2D_ModelConfig(ClassifierModelConfig):
             ),
             n_fingers=self.n_fingers,
             n_tasks=n_tasks,
-            conditioning_dim=self.conditioning_dim,
+            conditioning_dim=self.conditioning_type.dim,
             conv_2d_film_hidden_layers=self.conv_2d_film_hidden_layers,
             mlp_hidden_layers=self.mlp_hidden_layers,
         )
@@ -484,7 +491,6 @@ DEFAULTS_DICT = {
             conv_1d_channels=[128],
             film_2d_hidden_layers=[128, 128],
             film_1d_hidden_layers=[16, 16],
-            conditioning_dim=7 + 16 + 4,
         ),
         nerfdata_config=GridNerfDataConfig(),
         conditioning_type=ConditioningType.GRASP_CONFIG,
@@ -496,7 +502,6 @@ DEFAULTS_DICT = {
             conv_1d_channels=[128, 64, 32],
             film_2d_hidden_layers=[32, 32],
             film_1d_hidden_layers=[32, 32],
-            conditioning_dim=7 + 16 + 4,
         ),
         nerfdata_config=GridNerfDataConfig(),
         conditioning_type=ConditioningType.GRASP_CONFIG,
@@ -508,7 +513,6 @@ DEFAULTS_DICT = {
             film_2d_hidden_layers=[64, 64],
             lstm_hidden_size=64,
             num_lstm_layers=1,
-            conditioning_dim=7 + 16 + 4,
         ),
         nerfdata_config=GridNerfDataConfig(),
         conditioning_type=ConditioningType.GRASP_CONFIG,

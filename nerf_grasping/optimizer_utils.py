@@ -468,7 +468,6 @@ class GraspMetric(torch.nn.Module):
     def forward(
         self,
         grasp_config: AllegroGraspConfig,
-        conditioning_var: Optional[torch.Tensor] = None,
     ):
         # Generate RaySamples.
         ray_samples = grasp_utils.get_ray_samples(
@@ -494,7 +493,7 @@ class GraspMetric(torch.nn.Module):
             nerf_densities=densities,
             grasp_transforms=grasp_config.grasp_frame_transforms,
             fingertip_config=self.fingertip_config,
-            conditioning_var=conditioning_var,
+            grasp_configs=grasp_config.as_tensor(),
         )
 
         # Pass grasp transforms, densities into classifier.
@@ -506,9 +505,8 @@ class GraspMetric(torch.nn.Module):
     def get_failure_probability(
         self,
         grasp_config: AllegroGraspConfig,
-        conditioning_var: Optional[torch.Tensor] = None,
     ):
-        return self(grasp_config, conditioning_var)
+        return self(grasp_config)
 
 
 class IndexingDataset(torch.utils.data.Dataset):

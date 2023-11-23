@@ -30,10 +30,8 @@ class BatchDataInput:
     nerf_densities: torch.Tensor
     grasp_transforms: pp.LieTensor
     fingertip_config: BaseFingertipConfig  # have to take this because all these shape checks used to use hardcoded constants.
+    grasp_configs: torch.Tensor
     random_rotate_transform: Optional[pp.LieTensor] = None
-    conditioning_var: Optional[
-        torch.Tensor
-    ] = None  # Optional conditioning var for the classifier. This will get passed if not None, otherwise pass grasp_transforms.
     nerf_density_threshold_value: Optional[float] = None
 
     def to(self, device) -> BatchDataInput:
@@ -44,8 +42,7 @@ class BatchDataInput:
             if self.random_rotate_transform is not None
             else None
         )
-        if self.conditioning_var is not None:
-            self.conditioning_var = self.conditioning_var.to(device)
+        self.grasp_configs = self.grasp_configs.to(device)
         return self
 
     @property
@@ -185,10 +182,8 @@ class DepthImageBatchDataInput:
     depth_uncertainty_images: torch.Tensor
     grasp_transforms: pp.LieTensor
     fingertip_config: BaseFingertipConfig  # have to take this because all these shape checks used to use hardcoded constants.
+    grasp_configs: torch.Tensor
     random_rotate_transform: Optional[pp.LieTensor] = None
-    conditioning_var: Optional[
-        torch.Tensor
-    ] = None  # Optional conditioning var for the classifier. This will get passed if not None, otherwise pass grasp_transforms.
     nerf_density_threshold_value: Optional[float] = None
 
     def to(self, device) -> BatchDataInput:
@@ -199,8 +194,7 @@ class DepthImageBatchDataInput:
             if self.random_rotate_transform is not None
             else None
         )
-        if self.conditioning_var is not None:
-            self.conditioning_var = self.conditioning_var.to(device)
+        self.grasp_configs = self.grasp_configs.to(device)
         return self
 
     @property

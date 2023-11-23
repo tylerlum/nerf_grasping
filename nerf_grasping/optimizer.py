@@ -79,15 +79,7 @@ class Optimizer:
 
     @property
     def grasp_scores(self) -> torch.Tensor:
-        # TODO: HANDLE THIS
-        if isinstance(
-            self.classifier_config.nerfdata_config, GraspConditionedGridDataConfig
-        ):
-            return self.grasp_metric.get_failure_probability(
-                self.grasp_config, self.grasp_config.as_tensor()
-            )
-        else:
-            return self.grasp_metric(self.grasp_config)
+        return self.grasp_metric.get_failure_probability(self.grasp_config)
 
 
 class SGDOptimizer(Optimizer):
@@ -157,10 +149,12 @@ class SGDOptimizer(Optimizer):
             console=console,
         ) as progress:
             task = progress.add_task("Loading classifier", total=1)
-            classifier = classifier_config.model_config.get_classifier_from_fingertip_config(
-                fingertip_config=classifier_config.nerfdata_config.fingertip_config,
-                n_tasks=classifier_config.task_type.n_tasks,
-            ).to(device=device)
+            classifier = (
+                classifier_config.model_config.get_classifier_from_fingertip_config(
+                    fingertip_config=classifier_config.nerfdata_config.fingertip_config,
+                    n_tasks=classifier_config.task_type.n_tasks,
+                ).to(device=device)
+            )
 
             # Load checkpoint if specified.
             checkpoint_path = (
@@ -177,9 +171,7 @@ class SGDOptimizer(Optimizer):
                     checkpoint_path / f"checkpoint_{classifier_checkpoint:04}.pt"
                 )
 
-            classifier.load_state_dict(
-                torch.load(checkpoint_path)["classifier"]
-            )
+            classifier.load_state_dict(torch.load(checkpoint_path)["classifier"])
 
             progress.update(task, advance=1)
 
@@ -271,10 +263,12 @@ class CEMOptimizer(Optimizer):
             console=console,
         ) as progress:
             task = progress.add_task("Loading classifier", total=1)
-            classifier = classifier_config.model_config.get_classifier_from_fingertip_config(
-                fingertip_config=classifier_config.nerfdata_config.fingertip_config,
-                n_tasks=classifier_config.task_type.n_tasks,
-            ).to(device=device)
+            classifier = (
+                classifier_config.model_config.get_classifier_from_fingertip_config(
+                    fingertip_config=classifier_config.nerfdata_config.fingertip_config,
+                    n_tasks=classifier_config.task_type.n_tasks,
+                ).to(device=device)
+            )
 
             # Load checkpoint if specified.
             checkpoint_path = (
@@ -291,9 +285,7 @@ class CEMOptimizer(Optimizer):
                     checkpoint_path / f"checkpoint_{classifier_checkpoint:04}.pt"
                 )
 
-            classifier.load_state_dict(
-                torch.load(checkpoint_path)["classifier"]
-            )
+            classifier.load_state_dict(torch.load(checkpoint_path)["classifier"])
 
             progress.update(task, advance=1)
 
@@ -395,7 +387,7 @@ class CEMOptimizer(Optimizer):
 
 def run_optimizer_loop(
     optimizer: Optimizer, optimizer_config: UnionGraspOptimizerConfig, console=Console()
-) -> Tuple[torch.tensor, AllegroGraspConfig]:
+) -> Tuple[torch.Tensor, AllegroGraspConfig]:
     """
     Convenience function for running the optimizer loop.
     """

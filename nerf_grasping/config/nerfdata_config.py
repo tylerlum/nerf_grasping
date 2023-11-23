@@ -69,11 +69,6 @@ class DepthImageNerfDataConfig(BaseNerfDataConfig):
         )
 
 
-# Variant of GridNerfDataConfig that uses grasp-conditioned data
-class GraspConditionedGridDataConfig(GridNerfDataConfig):
-    pass
-
-
 UnionNerfDataConfig = tyro.extras.subcommand_type_from_defaults(
     {
         "grid": GridNerfDataConfig(),
@@ -86,7 +81,6 @@ UnionNerfDataConfig = tyro.extras.subcommand_type_from_defaults(
             ),
             fingertip_camera_config=CameraConfig(H=60, W=60),
         ),
-        "grasp-conditioned-grid": GraspConditionedGridDataConfig(),
     }
 )
 

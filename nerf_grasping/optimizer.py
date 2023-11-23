@@ -16,7 +16,6 @@ from nerf_grasping.config.optimizer_config import (
     SGDOptimizerConfig,
     CEMOptimizerConfig,
 )
-from nerf_grasping.config.nerfdata_config import GraspConditionedGridDataConfig
 from typing import Tuple
 import nerf_grasping
 from functools import partial
@@ -79,7 +78,8 @@ class Optimizer:
         return cls(init_grasp_config, grasp_metric)
 
     @property
-    def grasp_scores(self) -> torch.tensor:
+    def grasp_scores(self) -> torch.Tensor:
+        # TODO: HANDLE THIS
         if isinstance(
             self.classifier_config.nerfdata_config, GraspConditionedGridDataConfig
         ):

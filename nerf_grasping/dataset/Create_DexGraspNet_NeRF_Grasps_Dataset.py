@@ -58,7 +58,6 @@ from nerf_grasping.config.nerfdata_config import (
     UnionNerfDataConfig,
     DepthImageNerfDataConfig,
     GridNerfDataConfig,
-    GraspConditionedGridDataConfig,
     BaseNerfDataConfig,
 )
 import tyro
@@ -325,6 +324,15 @@ def create_grid_dataset(
         shape=(max_num_datapoints, cfg.fingertip_config.n_fingers, 4, 4),
         dtype="f",
     )
+    grasp_configs_dataset = hdf5_file.create_dataset(
+        "/grasp_configs",
+        shape=(
+            max_num_datapoints,
+            cfg.fingertip_config.n_fingers,
+            7 + 16 + 4,
+        ),  # 7 for pose, 16 for joint angles, 4 for grasp orientation, for each finger
+        dtype="f",
+    )
 
     return (
         nerf_densities_dataset,
@@ -336,6 +344,7 @@ def create_grid_dataset(
         object_scale_dataset,
         grasp_idx_dataset,
         grasp_transforms_dataset,
+        grasp_configs_dataset,
     )
 
 
@@ -407,6 +416,15 @@ def create_depth_image_dataset(
         shape=(max_num_datapoints, cfg.fingertip_config.n_fingers, 4, 4),
         dtype="f",
     )
+    grasp_configs_dataset = hdf5_file.create_dataset(
+        "/grasp_configs",
+        shape=(
+            max_num_datapoints,
+            cfg.fingertip_config.n_fingers,
+            7 + 16 + 4,
+        ),  # 7 for wrist pose, 16 for joint angles, 4 for grasp orientation, for each finger
+        dtype="f",
+    )
 
     return (
         depth_images_dataset,
@@ -419,6 +437,7 @@ def create_depth_image_dataset(
         object_scale_dataset,
         grasp_idx_dataset,
         grasp_transforms_dataset,
+        grasp_configs_dataset,
     )
 
 
@@ -517,9 +536,7 @@ def get_nerf_densities(
     )
 
     # Create density grid for grid dataset.
-    assert isinstance(cfg, GridNerfDataConfig) or isinstance(
-        cfg, GraspConditionedGridDataConfig
-    )
+    assert isinstance(cfg, GridNerfDataConfig)
 
     # Transform query points
     with loop_timer.add_section_timer("get_ray_samples"):
@@ -573,8 +590,7 @@ def get_nerf_densities(
 with h5py.File(cfg.output_filepath, "w") as hdf5_file:
     current_idx = 0
 
-    if isinstance(cfg, GraspConditionedGridDataConfig):
-        # Create dataset with extra field for full grasp config.
+    if isinstance(cfg, GridNerfDataConfig):
         (
             nerf_densities_dataset,
             passed_eval_dataset,
@@ -585,27 +601,7 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
             object_scale_dataset,
             grasp_idx_dataset,
             grasp_transforms_dataset,
-        ) = create_grid_dataset(cfg, hdf5_file, max_num_datapoints)
-        conditioning_var_dataset = hdf5_file.create_dataset(
-            "/conditioning_var",
-            shape=(
-                max_num_datapoints,
-                cfg.fingertip_config.n_fingers,
-                7 + 16 + 4,
-            ),  # 7 for pose, 16 for rotation matrix, 4 for grasp orientation, for each finger
-            dtype="f",
-        )
-    elif isinstance(cfg, GridNerfDataConfig):
-        (
-            nerf_densities_dataset,
-            passed_eval_dataset,
-            passed_simulation_dataset,
-            passed_penetration_threshold_dataset,
-            nerf_config_dataset,
-            object_code_dataset,
-            object_scale_dataset,
-            grasp_idx_dataset,
-            grasp_transforms_dataset,
+            grasp_configs_dataset,
         ) = create_grid_dataset(cfg, hdf5_file, max_num_datapoints)
     elif isinstance(cfg, DepthImageNerfDataConfig):
         (
@@ -619,16 +615,8 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
             object_scale_dataset,
             grasp_idx_dataset,
             grasp_transforms_dataset,
+            grasp_configs_dataset,
         ) = create_depth_image_dataset(cfg, hdf5_file, max_num_datapoints)
-        conditioning_var_dataset = hdf5_file.create_dataset(
-            "/conditioning_var",
-            shape=(
-                max_num_datapoints,
-                cfg.fingertip_config.n_fingers,
-                7 + 16 + 4,
-            ),  # 7 for pose, 16 for rotation matrix, 4 for grasp orientation, for each finger
-            dtype="f",
-        )
     else:
         raise NotImplementedError(f"Unknown config type {cfg}")
 
@@ -737,9 +725,7 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                 ),
             )
 
-            if isinstance(cfg, GridNerfDataConfig) or isinstance(
-                cfg, GraspConditionedGridDataConfig
-            ):
+            if isinstance(cfg, GridNerfDataConfig):
                 # Process batch of grasp data.
                 nerf_densities, query_points = get_nerf_densities(
                     loop_timer=loop_timer,
@@ -812,9 +798,7 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                     grasp_frame_transforms.matrix().cpu().detach().numpy()
                 )
 
-                if isinstance(cfg, GridNerfDataConfig) or isinstance(
-                    cfg, GraspConditionedGridDataConfig
-                ):
+                if isinstance(cfg, GridNerfDataConfig):
                     nerf_densities_dataset[prev_idx:current_idx] = (
                         nerf_densities.detach().cpu().numpy()
                     )
@@ -827,25 +811,18 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                         uncertainty_images.detach().cpu().numpy()
                     )
 
-                if isinstance(cfg, GraspConditionedGridDataConfig) or isinstance(
-                    cfg, DepthImageNerfDataConfig
-                ):
-                    grasp_config_tensors = (
-                        grasp_configs.as_tensor().detach().cpu().numpy()
-                    )
-                    assert_equals(
-                        grasp_config_tensors.shape,
-                        (
-                            grasp_configs.batch_size,
-                            cfg.fingertip_config.n_fingers,
-                            7
-                            + 16
-                            + 4,  # wrist pose, joint angles, grasp orientations (as quats)
-                        ),
-                    )
-                    conditioning_var_dataset[
-                        prev_idx:current_idx
-                    ] = grasp_config_tensors
+                grasp_config_tensors = grasp_configs.as_tensor().detach().cpu().numpy()
+                assert_equals(
+                    grasp_config_tensors.shape,
+                    (
+                        grasp_configs.batch_size,
+                        cfg.fingertip_config.n_fingers,
+                        7
+                        + 16
+                        + 4,  # wrist pose, joint angles, grasp orientations (as quats)
+                    ),
+                )
+                grasp_configs_dataset[prev_idx:current_idx] = grasp_config_tensors
 
                 # May not be max_num_data_points if nan grasps
                 hdf5_file.attrs["num_data_points"] = current_idx

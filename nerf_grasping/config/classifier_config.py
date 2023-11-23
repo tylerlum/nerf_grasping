@@ -17,7 +17,6 @@ from nerf_grasping.config.nerfdata_config import (
     BaseNerfDataConfig,
     GridNerfDataConfig,
     DepthImageNerfDataConfig,
-    GraspConditionedGridDataConfig,
     EvenlySpacedFingertipConfig,
     CameraConfig,
 )
@@ -494,7 +493,7 @@ DEFAULTS_DICT = {
             film_1d_hidden_layers=[16, 16],
             conditioning_dim=7 + 16 + 4,
         ),
-        nerfdata_config=GraspConditionedGridDataConfig(),
+        nerfdata_config=GridNerfDataConfig(),
         conditioning_type=ConditioningType.GRASP_TRANSFORM,
     ),
     "grasp-cond-cnn-1d-2d": ClassifierConfig(
@@ -506,7 +505,7 @@ DEFAULTS_DICT = {
             film_1d_hidden_layers=[32, 32],
             conditioning_dim=7 + 16 + 4,
         ),
-        nerfdata_config=GraspConditionedGridDataConfig(),
+        nerfdata_config=GridNerfDataConfig(),
         conditioning_type=ConditioningType.GRASP_TRANSFORM,
     ),
     "grasp-cond-cnn-lstm": ClassifierConfig(
@@ -518,7 +517,7 @@ DEFAULTS_DICT = {
             num_lstm_layers=1,
             conditioning_dim=7 + 16 + 4,
         ),
-        nerfdata_config=GraspConditionedGridDataConfig(),
+        nerfdata_config=GridNerfDataConfig(),
         conditioning_type=ConditioningType.GRASP_TRANSFORM,
     ),
     "depth-cnn-2d": ClassifierConfig(

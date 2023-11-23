@@ -50,7 +50,6 @@ from nerf_grasping.config.classifier_config import (
 )
 from nerf_grasping.config.fingertip_config import BaseFingertipConfig
 from nerf_grasping.config.nerfdata_config import (
-    GraspConditionedGridDataConfig,
     DepthImageNerfDataConfig,
 )
 import os
@@ -169,9 +168,6 @@ else:
 cfg: ClassifierConfig = tyro.cli(UnionClassifierConfig, args=arguments)
 assert cfg.nerfdata_config.fingertip_config is not None
 
-USE_CONDITIONING_VAR = isinstance(
-    cfg.nerfdata_config, GraspConditionedGridDataConfig
-) or isinstance(cfg.nerfdata_config, DepthImageNerfDataConfig)
 USE_DEPTH_IMAGES = isinstance(cfg.nerfdata_config, DepthImageNerfDataConfig)
 if USE_DEPTH_IMAGES:
     DEPTH_IMAGE_N_CHANNELS = 2
@@ -303,27 +299,6 @@ run = wandb.init(
 
 
 # %%
-BatchDataTempType = Union[
-    Tuple[
-        torch.Tensor,
-        torch.Tensor,
-        torch.Tensor,
-        torch.Tensor,
-        torch.Tensor,
-        str,
-    ],
-    Tuple[
-        torch.Tensor,
-        torch.Tensor,
-        torch.Tensor,
-        torch.Tensor,
-        torch.Tensor,
-        str,
-        torch.Tensor,
-    ],
-]
-
-
 class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
     # @localscope.mfc  # ValueError: Cell is empty
     def __init__(
@@ -334,15 +309,13 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
         load_grasp_labels_in_ram: bool = True,
         load_grasp_transforms_in_ram: bool = True,
         load_nerf_configs_in_ram: bool = True,
-        use_conditioning_var: bool = False,
-        load_conditioning_var_in_ram: bool = True,
+        load_grasp_configs_in_ram: bool = True,
     ) -> None:
         super().__init__()
         self.input_hdf5_filepath = input_hdf5_filepath
 
         # Recommended in https://discuss.pytorch.org/t/dataloader-when-num-worker-0-there-is-bug/25643/13
         self.hdf5_file = None
-        self.use_conditioning_var = use_conditioning_var
 
         with h5py.File(self.input_hdf5_filepath, "r") as hdf5_file:
             self.len = self._set_length(
@@ -369,6 +342,9 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
                     4,
                     4,
                 ),
+            )
+            assert_equals(
+                len(hdf5_file["/grasp_configs"].shape[1:]), (NUM_FINGERS, 7 + 16 + 4)
             )
 
             # This is usually too big for RAM
@@ -412,13 +388,11 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
                 hdf5_file["/nerf_config"][()] if load_nerf_configs_in_ram else None
             )
 
-            if use_conditioning_var:
-                assert_equals(len(hdf5_file["/conditioning_var"].shape), 2)
-                self.conditioning_var = (
-                    hdf5_file["/conditioning_var"][()]
-                    if load_conditioning_var_in_ram
-                    else None
-                )
+            self.grasp_configs = (
+                torch.from_numpy(hdf5_file["/grasp_configs"][()]).float()
+                if load_grasp_configs_in_ram
+                else None
+            )
 
     @localscope.mfc
     def _set_length(
@@ -453,7 +427,7 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
             "NUM_PTS_Z",
         ]
     )
-    def __getitem__(self, idx: int) -> BatchDataTempType:
+    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, str, torch.Tensor]:
         if self.hdf5_file is None:
             # Hope to speed up with rdcc params
             self.hdf5_file = h5py.File(
@@ -500,6 +474,12 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
             else self.nerf_configs[idx]
         ).decode("utf-8")
 
+        grasp_configs = (
+            torch.from_numpy(np.array(self.hdf5_file["/grasp_configs"][idx])).float()
+            if self.grasp_configs is None
+            else self.grasp_configs[idx]
+        )
+
         assert_equals(
             nerf_densities.shape, (NUM_FINGERS, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
         )
@@ -507,32 +487,17 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
         assert_equals(passed_penetration_threshold.shape, ())
         assert_equals(passed_eval.shape, ())
         assert_equals(grasp_transforms.shape, (NUM_FINGERS, 4, 4))
+        assert_equals(grasp_configs.shape, (NUM_FINGERS, 7 + 16 + 4))
 
-        if self.use_conditioning_var:
-            conditioning_var = (
-                self.hdf5_file["/conditioning_var"][idx]
-                if self.conditioning_var is None
-                else self.conditioning_var[idx]
-            )
-            return (
-                nerf_densities,
-                passed_simulation,
-                passed_penetration_threshold,
-                passed_eval,
-                grasp_transforms,
-                nerf_config,
-                conditioning_var,
-            )
-        else:
-            return (
-                nerf_densities,
-                passed_simulation,
-                passed_penetration_threshold,
-                passed_eval,
-                grasp_transforms,
-                nerf_config,
-            )
-
+        return (
+            nerf_densities,
+            passed_simulation,
+            passed_penetration_threshold,
+            passed_eval,
+            grasp_transforms,
+            nerf_config,
+            grasp_configs,
+        )
 
 # %%
 class DepthImage_To_GraspSuccess_HDF5_Dataset(Dataset):
@@ -545,15 +510,13 @@ class DepthImage_To_GraspSuccess_HDF5_Dataset(Dataset):
         load_grasp_labels_in_ram: bool = True,
         load_grasp_transforms_in_ram: bool = True,
         load_nerf_configs_in_ram: bool = True,
-        use_conditioning_var: bool = False,
-        load_conditioning_var_in_ram: bool = True,
+        load_grasp_configs_in_ram: bool = True,
     ) -> None:
         super().__init__()
         self.input_hdf5_filepath = input_hdf5_filepath
 
         # Recommended in https://discuss.pytorch.org/t/dataloader-when-num-worker-0-there-is-bug/25643/13
         self.hdf5_file = None
-        self.use_conditioning_var = use_conditioning_var
 
         with h5py.File(self.input_hdf5_filepath, "r") as hdf5_file:
             self.len = self._set_length(
@@ -587,6 +550,9 @@ class DepthImage_To_GraspSuccess_HDF5_Dataset(Dataset):
                     4,
                     4,
                 ),
+            )
+            assert_equals(
+                len(hdf5_file["/grasp_configs"].shape[1:]), (NUM_FINGERS, 7 + 16 + 4)
             )
 
             # This is usually too big for RAM
@@ -636,13 +602,11 @@ class DepthImage_To_GraspSuccess_HDF5_Dataset(Dataset):
                 hdf5_file["/nerf_config"][()] if load_nerf_configs_in_ram else None
             )
 
-            if use_conditioning_var:
-                assert_equals(len(hdf5_file["/conditioning_var"].shape), 3)
-                self.conditioning_var = (
-                    hdf5_file["/conditioning_var"][()]
-                    if load_conditioning_var_in_ram
-                    else None
-                )
+            self.grasp_configs = (
+                torch.from_numpy(hdf5_file["/grasp_configs"][()]).float()
+                if load_grasp_configs_in_ram
+                else None
+            )
 
     @localscope.mfc
     def _set_length(
@@ -732,6 +696,12 @@ class DepthImage_To_GraspSuccess_HDF5_Dataset(Dataset):
             else self.nerf_configs[idx]
         ).decode("utf-8")
 
+        grasp_configs = (
+            torch.from_numpy(np.array(self.hdf5_file["/grasp_configs"][idx])).float()
+            if self.grasp_configs is None
+            else self.grasp_configs[idx]
+        )
+
         assert_equals(
             depth_uncertainty_images.shape,
             (
@@ -745,31 +715,22 @@ class DepthImage_To_GraspSuccess_HDF5_Dataset(Dataset):
         assert_equals(passed_penetration_threshold.shape, ())
         assert_equals(passed_eval.shape, ())
         assert_equals(grasp_transforms.shape, (NUM_FINGERS, 4, 4))
+        assert_equals(grasp_configs.shape, (NUM_FINGERS, 7 + 16 + 4))
 
-        if self.use_conditioning_var:
-            conditioning_var = (
-                self.hdf5_file["/conditioning_var"][idx]
-                if self.conditioning_var is None
-                else self.conditioning_var[idx]
-            )
-            return (
-                depth_uncertainty_images,
-                passed_simulation,
-                passed_penetration_threshold,
-                passed_eval,
-                grasp_transforms,
-                nerf_config,
-                conditioning_var,
-            )
-        else:
-            return (
-                depth_uncertainty_images,
-                passed_simulation,
-                passed_penetration_threshold,
-                passed_eval,
-                grasp_transforms,
-                nerf_config,
-            )
+        grasp_configs = (
+            self.hdf5_file["/grasp_configs"][idx]
+            if self.grasp_configs is None
+            else self.grasp_configs[idx]
+        )
+        return (
+            depth_uncertainty_images,
+            passed_simulation,
+            passed_penetration_threshold,
+            passed_eval,
+            grasp_transforms,
+            nerf_config,
+            grasp_configs,
+        )
 
 
 # %%
@@ -783,7 +744,6 @@ if USE_DEPTH_IMAGES:
         load_grasp_labels_in_ram=cfg.dataloader.load_grasp_labels_in_ram,
         load_grasp_transforms_in_ram=cfg.dataloader.load_grasp_transforms_in_ram,
         load_nerf_configs_in_ram=cfg.dataloader.load_nerf_configs_in_ram,
-        use_conditioning_var=USE_CONDITIONING_VAR,
     )
 else:
     full_dataset = NeRFGrid_To_GraspSuccess_HDF5_Dataset(
@@ -793,7 +753,6 @@ else:
         load_grasp_labels_in_ram=cfg.dataloader.load_grasp_labels_in_ram,
         load_grasp_transforms_in_ram=cfg.dataloader.load_grasp_transforms_in_ram,
         load_nerf_configs_in_ram=cfg.dataloader.load_nerf_configs_in_ram,
-        use_conditioning_var=USE_CONDITIONING_VAR,
     )
 
 train_dataset, val_dataset, test_dataset = random_split(
@@ -844,33 +803,22 @@ def sample_random_rotate_transforms(N: int) -> pp.LieTensor:
 
 @localscope.mfc
 def custom_collate_fn(
-    batch: List[BatchDataTempType],
+    batch: List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, str, torch.Tensor]],
     fingertip_config: BaseFingertipConfig,
     use_random_rotations: bool = True,
     debug_shuffle_labels: bool = False,
-    use_conditioning_var: bool = False,
     nerf_density_threshold_value: Optional[float] = None,
 ) -> BatchData:
     batch = torch.utils.data.dataloader.default_collate(batch)
-    if use_conditioning_var:
-        (
-            nerf_densities,
-            passed_simulation,
-            passed_penetration_threshold,
-            passed_eval,
-            grasp_transforms,
-            nerf_configs,
-            conditioning_var,
-        ) = batch
-    else:
-        (
-            nerf_densities,
-            passed_simulation,
-            passed_penetration_threshold,
-            passed_eval,
-            grasp_transforms,
-            nerf_configs,
-        ) = batch
+    (
+        nerf_densities,
+        passed_simulation,
+        passed_penetration_threshold,
+        passed_eval,
+        grasp_transforms,
+        nerf_configs,
+        grasp_configs,
+    ) = batch
 
     if debug_shuffle_labels:
         shuffle_inds = torch.randperm(passed_simulation.shape[0])
@@ -889,21 +837,20 @@ def custom_collate_fn(
     if use_random_rotations:
         random_rotate_transform = sample_random_rotate_transforms(N=batch_size)
 
-        if use_conditioning_var:
-            # Apply random rotation to grasp config.
-            # NOTE: hardcodes that conditioning is a grasp conditioning.
-            wrist_pose = pp.SE3(conditioning_var[..., :7])
-            joint_angles = conditioning_var[..., 7:23]
-            grasp_orientations = pp.SO3(conditioning_var[..., 23:])
+        # Apply random rotation to grasp config.
+        # NOTE: hardcodes grasp_configs ordering
+        wrist_pose = pp.SE3(grasp_configs[..., :7])
+        joint_angles = grasp_configs[..., 7:23]
+        grasp_orientations = pp.SO3(grasp_configs[..., 23:])
 
-            wrist_pose = random_rotate_transform.unsqueeze(1) @ wrist_pose
-            grasp_orientations = (
-                random_rotate_transform.rotation().unsqueeze(1) @ grasp_orientations
-            )
+        wrist_pose = random_rotate_transform.unsqueeze(1) @ wrist_pose
+        grasp_orientations = (
+            random_rotate_transform.rotation().unsqueeze(1) @ grasp_orientations
+        )
 
-            conditioning_var = torch.cat(
-                (wrist_pose.data, joint_angles, grasp_orientations.data), axis=-1
-            )
+        grasp_configs = torch.cat(
+            (wrist_pose.data, joint_angles, grasp_orientations.data), axis=-1
+        )
     else:
         random_rotate_transform = None
 
@@ -914,7 +861,7 @@ def custom_collate_fn(
             random_rotate_transform=random_rotate_transform,
             fingertip_config=fingertip_config,
             nerf_density_threshold_value=nerf_density_threshold_value,
-            conditioning_var=conditioning_var if use_conditioning_var else None,
+            grasp_configs=grasp_configs,
         ),
         output=BatchDataOutput(
             passed_simulation=passed_simulation,
@@ -926,33 +873,22 @@ def custom_collate_fn(
 
 
 def depth_image_custom_collate_fn(
-    batch: List[BatchDataTempType],
+    batch: List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, str, torch.Tensor]],
     fingertip_config: BaseFingertipConfig,
     use_random_rotations: bool = True,
     debug_shuffle_labels: bool = False,
-    use_conditioning_var: bool = False,
     nerf_density_threshold_value: Optional[float] = None,
 ) -> BatchData:
     batch = torch.utils.data.dataloader.default_collate(batch)
-    if use_conditioning_var:
-        (
-            depth_uncertainty_images,
-            passed_simulation,
-            passed_penetration_threshold,
-            passed_eval,
-            grasp_transforms,
-            nerf_configs,
-            conditioning_var,
-        ) = batch
-    else:
-        (
-            depth_uncertainty_images,
-            passed_simulation,
-            passed_penetration_threshold,
-            passed_eval,
-            grasp_transforms,
-            nerf_configs,
-        ) = batch
+    (
+        depth_uncertainty_images,
+        passed_simulation,
+        passed_penetration_threshold,
+        passed_eval,
+        grasp_transforms,
+        nerf_configs,
+        grasp_configs,
+    ) = batch
 
     if debug_shuffle_labels:
         shuffle_inds = torch.randperm(passed_simulation.shape[0])
@@ -966,21 +902,20 @@ def depth_image_custom_collate_fn(
     if use_random_rotations:
         random_rotate_transform = sample_random_rotate_transforms(N=batch_size)
 
-        if use_conditioning_var:
-            # Apply random rotation to grasp config.
-            # NOTE: hardcodes that conditioning is a grasp conditioning.
-            wrist_pose = pp.SE3(conditioning_var[..., :7])
-            joint_angles = conditioning_var[..., 7:23]
-            grasp_orientations = pp.SO3(conditioning_var[..., 23:])
+        # Apply random rotation to grasp config.
+        # NOTE: hardcodes that conditioning is a grasp conditioning.
+        wrist_pose = pp.SE3(grasp_configs[..., :7])
+        joint_angles = grasp_configs[..., 7:23]
+        grasp_orientations = pp.SO3(grasp_configs[..., 23:])
 
-            wrist_pose = random_rotate_transform.unsqueeze(1) @ wrist_pose
-            grasp_orientations = (
-                random_rotate_transform.rotation().unsqueeze(1) @ grasp_orientations
-            )
+        wrist_pose = random_rotate_transform.unsqueeze(1) @ wrist_pose
+        grasp_orientations = (
+            random_rotate_transform.rotation().unsqueeze(1) @ grasp_orientations
+        )
 
-            conditioning_var = torch.cat(
-                (wrist_pose.data, joint_angles, grasp_orientations.data), axis=-1
-            )
+        grasp_configs = torch.cat(
+            (wrist_pose.data, joint_angles, grasp_orientations.data), axis=-1
+        )
     else:
         random_rotate_transform = None
 
@@ -991,7 +926,7 @@ def depth_image_custom_collate_fn(
             random_rotate_transform=random_rotate_transform,
             fingertip_config=fingertip_config,
             nerf_density_threshold_value=nerf_density_threshold_value,
-            conditioning_var=conditioning_var if use_conditioning_var else None,
+            grasp_configs=grasp_configs,
         ),
         output=BatchDataOutput(
             passed_simulation=passed_simulation,
@@ -1009,7 +944,6 @@ if USE_DEPTH_IMAGES:
         fingertip_config=cfg.nerfdata_config.fingertip_config,
         use_random_rotations=cfg.data.use_random_rotations,
         debug_shuffle_labels=cfg.data.debug_shuffle_labels,
-        use_conditioning_var=USE_CONDITIONING_VAR,
         nerf_density_threshold_value=cfg.data.nerf_density_threshold_value,
     )
     val_test_collate_fn = partial(
@@ -1017,7 +951,6 @@ if USE_DEPTH_IMAGES:
         fingertip_config=cfg.nerfdata_config.fingertip_config,
         use_random_rotations=True,
         debug_shuffle_labels=cfg.data.debug_shuffle_labels,
-        use_conditioning_var=USE_CONDITIONING_VAR,
         nerf_density_threshold_value=cfg.data.nerf_density_threshold_value,
     )
 else:
@@ -1026,14 +959,12 @@ else:
         fingertip_config=cfg.nerfdata_config.fingertip_config,
         use_random_rotations=cfg.data.use_random_rotations,
         debug_shuffle_labels=cfg.data.debug_shuffle_labels,
-        use_conditioning_var=USE_CONDITIONING_VAR,
         nerf_density_threshold_value=cfg.data.nerf_density_threshold_value,
     )
     val_test_collate_fn = partial(
         custom_collate_fn,
         use_random_rotations=False,
         fingertip_config=cfg.nerfdata_config.fingertip_config,
-        use_conditioning_var=USE_CONDITIONING_VAR,
         nerf_density_threshold_value=cfg.data.nerf_density_threshold_value,
     )  # Run test over actual test transforms.
 

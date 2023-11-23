@@ -427,7 +427,7 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
             "NUM_PTS_Z",
         ]
     )
-    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, str, torch.Tensor]:
+    def __getitem__(self, idx: int):
         if self.hdf5_file is None:
             # Hope to speed up with rdcc params
             self.hdf5_file = h5py.File(
@@ -498,6 +498,7 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
             nerf_config,
             grasp_configs,
         )
+
 
 # %%
 class DepthImage_To_GraspSuccess_HDF5_Dataset(Dataset):
@@ -641,7 +642,7 @@ class DepthImage_To_GraspSuccess_HDF5_Dataset(Dataset):
             "DEPTH_IMAGE_WIDTH",
         ]
     )
-    def __getitem__(self, idx: int) -> BatchDataTempType:
+    def __getitem__(self, idx: int):
         if self.hdf5_file is None:
             # Hope to speed up with rdcc params
             self.hdf5_file = h5py.File(
@@ -781,6 +782,7 @@ assert_equals(
 # %%
 
 
+@localscope.mfc(allowed=["PP_MATRIX_ATOL", "PP_MATRIX_RTOL"])
 def sample_random_rotate_transforms(N: int) -> pp.LieTensor:
     # Sample big rotations in tangent space of SO(3).
     # Choose 4 * \pi as a heuristic to get pretty evenly spaced rotations.
@@ -801,9 +803,9 @@ def sample_random_rotate_transforms(N: int) -> pp.LieTensor:
     return random_rotate_transforms
 
 
-@localscope.mfc
+@localscope.mfc(allowed=["PP_MATRIX_ATOL", "PP_MATRIX_RTOL"])
 def custom_collate_fn(
-    batch: List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, str, torch.Tensor]],
+    batch,
     fingertip_config: BaseFingertipConfig,
     use_random_rotations: bool = True,
     debug_shuffle_labels: bool = False,
@@ -872,8 +874,9 @@ def custom_collate_fn(
     )
 
 
+@localscope.mfc(allowed=["PP_MATRIX_ATOL", "PP_MATRIX_RTOL"])
 def depth_image_custom_collate_fn(
-    batch: List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, str, torch.Tensor]],
+    batch,
     fingertip_config: BaseFingertipConfig,
     use_random_rotations: bool = True,
     debug_shuffle_labels: bool = False,
@@ -896,7 +899,12 @@ def depth_image_custom_collate_fn(
         passed_penetration_threshold = passed_penetration_threshold[shuffle_inds]
         passed_eval = passed_eval[shuffle_inds]
 
-    grasp_transforms = pp.from_matrix(grasp_transforms, pp.SE3_type)
+    grasp_transforms = pp.from_matrix(
+        grasp_transforms,
+        pp.SE3_type,
+        atol=PP_MATRIX_ATOL,
+        rtol=PP_MATRIX_RTOL,
+    )
 
     batch_size = depth_uncertainty_images.shape[0]
     if use_random_rotations:

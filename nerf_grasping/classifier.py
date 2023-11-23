@@ -16,10 +16,19 @@ from nerf_grasping.learned_metric.DexGraspNet_batch_data import (
     DepthImageBatchDataInput,
 )
 from typing import Iterable, Tuple, List
+from enum import Enum, auto
 
 
 def assert_equals(a, b):
     assert a == b, f"{a} != {b}"
+
+
+class ConditioningType(Enum):
+    """Enum for conditioning type."""
+
+    NONE = auto()
+    GRASP_TRANSFORM = auto()
+    GRASP_CONFIG = auto()
 
 
 class Classifier(nn.Module):
@@ -159,9 +168,9 @@ class Simple_CNN_2D_1D_Classifier(Classifier):
 
     def forward(self, batch_data_input: BatchDataInput) -> torch.Tensor:
         # Run model
-        if self.conditioning_type == "grasp_transform":
+        if self.conditioning_type == ConditioningType.GRASP_TRANSFORM:
             conditioning = batch_data_input.grasp_transforms.tensor()
-        elif self.conditioning_type == "grasp_transform_and_alphas":
+        elif self.conditioning_type == ConditioningType.GRASP_CONFIG:
             conditioning = batch_data_input.grasp_configs
         else:
             raise NotImplementedError()
@@ -200,9 +209,9 @@ class Simple_CNN_1D_2D_Classifier(Classifier):
 
     def forward(self, batch_data_input: BatchDataInput) -> torch.Tensor:
         # Run model
-        if self.conditioning_type == "grasp_transform":
+        if self.conditioning_type == ConditioningType.GRASP_TRANSFORM:
             conditioning = batch_data_input.grasp_transforms.tensor()
-        elif self.conditioning_type == "grasp_transform_and_alphas":
+        elif self.conditioning_type == ConditioningType.GRASP_CONFIG:
             conditioning = batch_data_input.grasp_configs
         else:
             raise NotImplementedError()
@@ -241,9 +250,9 @@ class Simple_CNN_LSTM_Classifier(Classifier):
 
     def forward(self, batch_data_input: BatchDataInput) -> torch.Tensor:
         # Run model
-        if self.conditioning_type == "grasp_transform":
+        if self.conditioning_type == ConditioningType.GRASP_TRANSFORM:
             conditioning = batch_data_input.grasp_transforms.tensor()
-        elif self.conditioning_type == "grasp_transform_and_alphas":
+        elif self.conditioning_type == ConditioningType.GRASP_CONFIG:
             conditioning = batch_data_input.grasp_configs
         else:
             raise NotImplementedError()

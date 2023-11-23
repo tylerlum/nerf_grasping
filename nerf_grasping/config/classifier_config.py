@@ -421,7 +421,6 @@ class ClassifierConfig:
     dataloader: ClassifierDataLoaderConfig = ClassifierDataLoaderConfig()
     training: ClassifierTrainingConfig = ClassifierTrainingConfig()
     checkpoint_workspace: CheckpointWorkspaceConfig = CheckpointWorkspaceConfig()
-    conditioning_type: ConditioningType = ConditioningType.GRASP_TRANSFORM
     task_type: TaskType = TaskType.PASSED_EVAL
 
     wandb: WandbConfig = field(
@@ -453,17 +452,18 @@ DEFAULTS_DICT = {
             conv_channels=[32, 64, 128], mlp_hidden_layers=[256, 256]
         ),
         nerfdata_config=GridNerfDataConfig(),
-        conditioning_type=ConditioningType.GRASP_TRANSFORM,
     ),
     "cnn-2d-1d": ClassifierConfig(
         model_config=CNN_2D_1D_ModelConfig(
-            conv_2d_film_hidden_layers=[256, 256], mlp_hidden_layers=[256, 256]
+            conditioning_type=ConditioningType.GRASP_TRANSFORM,
+            conv_2d_film_hidden_layers=[256, 256],
+            mlp_hidden_layers=[256, 256],
         ),
         nerfdata_config=GridNerfDataConfig(),
-        conditioning_type=ConditioningType.GRASP_TRANSFORM,
     ),
     "simple-cnn-2d-1d": ClassifierConfig(
         model_config=Simple_CNN_2D_1D_ModelConfig(
+            conditioning_type=ConditioningType.GRASP_TRANSFORM,
             mlp_hidden_layers=[32, 32],
             conv_2d_channels=[32, 64, 128],
             conv_1d_channels=[32, 32],
@@ -471,10 +471,10 @@ DEFAULTS_DICT = {
             film_1d_hidden_layers=[32, 32],
         ),
         nerfdata_config=GridNerfDataConfig(),
-        conditioning_type=ConditioningType.GRASP_TRANSFORM,
     ),
     "small-simple-cnn-2d-1d": ClassifierConfig(
         model_config=Simple_CNN_2D_1D_ModelConfig(
+            conditioning_type=ConditioningType.GRASP_TRANSFORM,
             mlp_hidden_layers=[32, 32],
             conv_2d_channels=[8, 8, 16],
             conv_1d_channels=[8, 8],
@@ -482,10 +482,10 @@ DEFAULTS_DICT = {
             film_1d_hidden_layers=[8, 8],
         ),
         nerfdata_config=GridNerfDataConfig(),
-        conditioning_type=ConditioningType.GRASP_TRANSFORM,
     ),
     "grasp-cond-cnn-2d-1d": ClassifierConfig(
         model_config=Simple_CNN_2D_1D_ModelConfig(
+            conditioning_type=ConditioningType.GRASP_CONFIG,
             mlp_hidden_layers=[256, 256],
             conv_2d_channels=[16, 32, 128, 256],
             conv_1d_channels=[128],
@@ -493,10 +493,10 @@ DEFAULTS_DICT = {
             film_1d_hidden_layers=[16, 16],
         ),
         nerfdata_config=GridNerfDataConfig(),
-        conditioning_type=ConditioningType.GRASP_CONFIG,
     ),
     "grasp-cond-cnn-1d-2d": ClassifierConfig(
         model_config=Simple_CNN_1D_2D_ModelConfig(
+            conditioning_type=ConditioningType.GRASP_CONFIG,
             mlp_hidden_layers=[32, 32],
             conv_2d_channels=[32, 64, 128],
             conv_1d_channels=[128, 64, 32],
@@ -504,10 +504,10 @@ DEFAULTS_DICT = {
             film_1d_hidden_layers=[32, 32],
         ),
         nerfdata_config=GridNerfDataConfig(),
-        conditioning_type=ConditioningType.GRASP_CONFIG,
     ),
     "grasp-cond-cnn-lstm": ClassifierConfig(
         model_config=Simple_CNN_LSTM_ModelConfig(
+            conditioning_type=ConditioningType.GRASP_CONFIG,
             mlp_hidden_layers=[64, 64],
             conv_2d_channels=[32, 32, 32, 32],
             film_2d_hidden_layers=[64, 64],
@@ -515,11 +515,12 @@ DEFAULTS_DICT = {
             num_lstm_layers=1,
         ),
         nerfdata_config=GridNerfDataConfig(),
-        conditioning_type=ConditioningType.GRASP_CONFIG,
     ),
     "depth-cnn-2d": ClassifierConfig(
         model_config=DepthImage_CNN_2D_ModelConfig(
-            conv_2d_film_hidden_layers=[256, 256], mlp_hidden_layers=[256, 256]
+            conditioning_type=ConditioningType.GRASP_TRANSFORM,
+            conv_2d_film_hidden_layers=[256, 256],
+            mlp_hidden_layers=[256, 256],
         ),
         nerfdata_config=DepthImageNerfDataConfig(
             fingertip_config=EvenlySpacedFingertipConfig(
@@ -530,7 +531,6 @@ DEFAULTS_DICT = {
             ),
             fingertip_camera_config=CameraConfig(H=60, W=60),
         ),
-        conditioning_type=ConditioningType.GRASP_TRANSFORM,
     ),
 }
 

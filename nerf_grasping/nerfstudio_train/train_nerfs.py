@@ -40,7 +40,9 @@ def main() -> None:
     output_nerfcheckpoints_path = experiment_path / args.output_nerfcheckpoints_name
     output_nerfcheckpoints_path.mkdir(exist_ok=True)
 
-    for object_and_scale_nerfdata_path in tqdm(nerfdata_path.iterdir(), dynamic_ncols=True, desc="Training NERF")):
+    for object_and_scale_nerfdata_path in tqdm(
+        nerfdata_path.iterdir(), dynamic_ncols=True, desc="Training NERF"
+    ):
         if not object_and_scale_nerfdata_path.is_dir():
             continue
 

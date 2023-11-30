@@ -97,7 +97,7 @@ tqdm = partial(std_tqdm, dynamic_ncols=True)
 
 # %%
 @localscope.mfc
-def parse_nerf_config(nerf_config: pathlib.Path) -> str:
+def nerf_config_to_object_code_and_scale_str(nerf_config: pathlib.Path) -> str:
     # Input: PosixPath('2023-08-25_nerfcheckpoints/sem-Gun-4745991e7c0c7966a93f1ea6ebdeec6f_0_10/nerfacto/2023-08-25_132225/config.yml')
     # Return sem-Gun-4745991e7c0c7966a93f1ea6ebdeec6f_0_10
     parts = nerf_config.parts
@@ -109,63 +109,76 @@ def parse_nerf_config(nerf_config: pathlib.Path) -> str:
 def get_closest_matching_nerf_config(
     target_object_code_and_scale_str: str, nerf_configs: List[pathlib.Path]
 ) -> pathlib.Path:
-    # Check for exact match
-    nerf_config_object_code_and_scale_strs = [
-        parse_nerf_config(nerf_config) for nerf_config in nerf_configs
-    ]
-    exact_matching_nerf_configs = [
-        nerf_config
-        for nerf_config, nerf_config_object_code_and_scale_str in zip(
-            nerf_configs, nerf_config_object_code_and_scale_strs
-        )
-        if target_object_code_and_scale_str in nerf_config_object_code_and_scale_str
-    ]
-    if len(exact_matching_nerf_configs) >= 1:
-        if len(exact_matching_nerf_configs) > 1:
-            print(
-                f"WARNING: Found multiple exact matching nerf configs for {target_object_code_and_scale_str}, {exact_matching_nerf_configs}"
-            )
-        return exact_matching_nerf_configs[0]
-
-    print(
-        f"WARNING: Found no exact matching nerf configs for {target_object_code_and_scale_str}"
-    )
-
-    # Check for closest scale match
+    # Parse target object code and scale
     target_object_code, target_scale = parse_object_code_and_scale(
         target_object_code_and_scale_str
     )
-    nerf_config_object_codes = [
-        parse_object_code_and_scale(x)[0]
-        for x in nerf_config_object_code_and_scale_strs
+
+    # Prepare data for comparisons
+    nerf_object_code_and_scale_strs = [
+        nerf_config_to_object_code_and_scale_str(config) for config in nerf_configs
     ]
-    same_object_code_nerf_configs = [
+    nerf_object_codes = [
+        parse_object_code_and_scale(object_code_and_scale_str)[0]
+        for object_code_and_scale_str in nerf_object_code_and_scale_strs
+    ]
+    nerf_object_scales = [
+        parse_object_code_and_scale(object_code_and_scale_str)[1]
+        for object_code_and_scale_str in nerf_object_code_and_scale_strs
+    ]
+
+    # Check for exact match
+    exact_matches = [
         nerf_config
-        for object_code, nerf_config in zip(nerf_config_object_codes, nerf_configs)
-        if target_object_code == object_code
+        for object_code_and_scale_str, nerf_config in zip(
+            nerf_object_code_and_scale_strs, nerf_configs
+        )
+        if target_object_code_and_scale_str == object_code_and_scale_str
     ]
-    if len(same_object_code_nerf_configs) >= 1:
-        same_object_code_scales = [
-            abs(parse_object_code_and_scale(parse_nerf_config(x))[1] - target_scale)
-            for x in same_object_code_nerf_configs
+    if exact_matches:
+        if len(exact_matches) > 1:
+            print(
+                f"Multiple exact matches found for {target_object_code_and_scale_str}, {exact_matches}"
+            )
+        return exact_matches[0]
+
+    print(
+        f"No exact matches found for {target_object_code_and_scale_str}. Searching for closest matches..."
+    )
+
+    # Check for closest scale match
+    same_code_configs = [
+        config
+        for code, config in zip(nerf_object_codes, nerf_configs)
+        if code == target_object_code
+    ]
+    if same_code_configs:
+        scale_diffs = [
+            abs(scale - target_scale)
+            for code, scale in zip(nerf_object_codes, nerf_object_scales)
+            if code == target_object_code
         ]
-        min_index = np.argmin(same_object_code_scales)
-        nerf_config = same_object_code_nerf_configs[min_index]
-        return nerf_config
+        closest_scale_config = same_code_configs[np.argmin(scale_diffs)]
+        return closest_scale_config
+
+    print(f"No configs found with code {target_object_code}.")
 
     # Check for closest object code match
-    print(f"WARNING: Found no same object code nerf configs for {target_object_code}")
     import Levenshtein
-    # Compute Levenshtein distance between target_object_code and all nerf_config_object_codes
-    # Then find the nerf_config with the smallest Levenshtein distance and return it if distance is below 10
-    tuples = sorted([
-        (Levenshtein.distance(target_object_code, x), x)
-        for x in nerf_config_object_codes
-    ])
-    if tuples[0][0] < 10:
-        return nerf_configs[nerf_config_object_codes.index(tuples[0][1])]
 
-    raise ValueError(f"WARNING: Could not find any nerf configs for {target_object_code_and_scale_str}, {nerf_configs}")
+    levenshtein_distances = [
+        Levenshtein.distance(
+            target_object_code_and_scale_str, object_code_and_scale_str
+        )
+        for object_code_and_scale_str in nerf_object_code_and_scale_strs
+    ]
+    min_distance_index = np.argmin(levenshtein_distances)
+    if levenshtein_distances[min_distance_index] < 10:
+        return nerf_configs[min_distance_index]
+
+    raise ValueError(
+        f"No suitable NeRF config found for {target_object_code_and_scale_str}, min dist = {levenshtein_distances[min_distance_index]}"
+    )
 
 
 @localscope.mfc(allowed=["tqdm"])

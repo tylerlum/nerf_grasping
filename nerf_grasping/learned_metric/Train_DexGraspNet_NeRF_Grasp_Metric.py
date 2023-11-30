@@ -344,7 +344,7 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
                 ),
             )
             assert_equals(
-                len(hdf5_file["/grasp_configs"].shape[1:]), (NUM_FINGERS, 7 + 16 + 4)
+                hdf5_file["/grasp_configs"].shape[1:], (NUM_FINGERS, 7 + 16 + 4)
             )
 
             # This is usually too big for RAM
@@ -569,7 +569,7 @@ class DepthImage_To_GraspSuccess_HDF5_Dataset(Dataset):
                 ),
             )
             assert_equals(
-                len(hdf5_file["/grasp_configs"].shape[1:]), (NUM_FINGERS, 7 + 16 + 4)
+                hdf5_file["/grasp_configs"].shape[1:], (NUM_FINGERS, 7 + 16 + 4)
             )
 
             # This is usually too big for RAM

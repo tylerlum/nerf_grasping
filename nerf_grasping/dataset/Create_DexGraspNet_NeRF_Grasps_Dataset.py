@@ -682,7 +682,6 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
         ]
 
     # Iterate through all
-    prev_nerf_config = None
     loop_timer = LoopTimer()
     pbar = tqdm(
         evaled_grasp_config_dict_filepaths,
@@ -710,14 +709,8 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
 
             # Read in data
             with loop_timer.add_section_timer("load_nerf"):
-                if prev_nerf_config != nerf_config:
-                    print("Loading nerf model...")
-                    nerf_model = load_nerf_model(nerf_config)
-                    nerf_field: Field = nerf_model.field
-                else:
-                    print("Skipping nerf load since nerf_config is the same")
-
-                prev_nerf_config = nerf_config
+                nerf_model = load_nerf_model(nerf_config)
+                nerf_field: Field = nerf_model.field
 
             with loop_timer.add_section_timer("load grasp data"):
                 evaled_grasp_config_dict: Dict[str, Any] = np.load(

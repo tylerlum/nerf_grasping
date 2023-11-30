@@ -1627,7 +1627,7 @@ def _iterate_through_dataloader(
                 ):
                     task_logits = all_logits[:, task_i, :]
                     predictions = task_logits.argmax(dim=-1).tolist()
-                    ground_truths = task_target.tolist()
+                    ground_truths = task_target.argmax(dim=-1).tolist()
                     predictions_dict[f"{task_name}"] += predictions
                     ground_truths_dict[f"{task_name}"] += ground_truths
 

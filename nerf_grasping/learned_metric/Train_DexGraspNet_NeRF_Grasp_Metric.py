@@ -1878,20 +1878,23 @@ def compute_class_weight_np(
 
         print("Computing class weight with this data...")
         t5 = time.time()
+
+        # class_weight threshold required to make binary classes
+        CLASS_WEIGHT_THRESHOLD = 0.4
         passed_simulation_class_weight_np = compute_class_weight(
             class_weight="balanced",
-            classes=np.unique(passed_simulations_np),
-            y=passed_simulations_np,
+            classes=np.unique(passed_simulations_np < CLASS_WEIGHT_THRESHOLD),
+            y=passed_simulations_np < CLASS_WEIGHT_THRESHOLD,
         )
         passed_penetration_threshold_class_weight_np = compute_class_weight(
             class_weight="balanced",
-            classes=np.unique(passed_penetration_threshold_np),
-            y=passed_penetration_threshold_np,
+            classes=np.unique(passed_penetration_threshold_np < CLASS_WEIGHT_THRESHOLD),
+            y=passed_penetration_threshold_np < CLASS_WEIGHT_THRESHOLD,
         )
         passed_eval_class_weight_np = compute_class_weight(
             class_weight="balanced",
-            classes=np.unique(passed_eval_np),
-            y=passed_eval_np,
+            classes=np.unique(passed_eval_np < CLASS_WEIGHT_THRESHOLD),
+            y=passed_eval_np < CLASS_WEIGHT_THRESHOLD,
         )
         t6 = time.time()
         print(f"Computed class weight in {t6 - t5:.2f} s")

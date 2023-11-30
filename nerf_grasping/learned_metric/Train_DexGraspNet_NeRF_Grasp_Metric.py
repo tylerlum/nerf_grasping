@@ -356,17 +356,17 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
 
             # This is small enough to fit in RAM
             self.passed_simulations = (
-                torch.from_numpy(hdf5_file["/passed_simulation"][()]).long()
+                torch.from_numpy(hdf5_file["/passed_simulation"][()]).float()
                 if load_grasp_labels_in_ram
                 else None
             )
             self.passed_penetration_thresholds = (
-                torch.from_numpy(hdf5_file["/passed_penetration_threshold"][()]).long()
+                torch.from_numpy(hdf5_file["/passed_penetration_threshold"][()]).float()
                 if load_grasp_labels_in_ram
                 else None
             )
             self.passed_evals = (
-                torch.from_numpy(hdf5_file["/passed_eval"][()]).long()
+                torch.from_numpy(hdf5_file["/passed_eval"][()]).float()
                 if load_grasp_labels_in_ram
                 else None
             )
@@ -445,22 +445,37 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
         )
 
         passed_simulation = (
-            torch.from_numpy(np.array(self.hdf5_file["/passed_simulation"][idx])).long()
+            torch.from_numpy(
+                np.array(self.hdf5_file["/passed_simulation"][idx])
+            ).float()
             if self.passed_simulations is None
             else self.passed_simulations[idx]
         )
         passed_penetration_threshold = (
             torch.from_numpy(
                 np.array(self.hdf5_file["/passed_penetration_threshold"][idx])
-            ).long()
+            ).float()
             if self.passed_penetration_thresholds is None
             else self.passed_penetration_thresholds[idx]
         )
         passed_eval = (
-            torch.from_numpy(np.array(self.hdf5_file["/passed_eval"][idx])).long()
+            torch.from_numpy(np.array(self.hdf5_file["/passed_eval"][idx])).float()
             if self.passed_evals is None
             else self.passed_evals[idx]
         )
+        assert_equals(passed_simulation.shape, ())
+        assert_equals(passed_penetration_threshold.shape, ())
+        assert_equals(passed_eval.shape, ())
+
+        # TODO: Consider thresholding passed_X labels to be 0 or 1
+        # Convert to float classes (N,) -> (N, 2)
+        passed_simulation = torch.stack(
+            [1 - passed_simulation, passed_simulation], dim=-1
+        )
+        passed_penetration_threshold = torch.stack(
+            [1 - passed_penetration_threshold, passed_penetration_threshold], dim=-1
+        )
+        passed_eval = torch.stack([1 - passed_eval, passed_eval], dim=-1)
 
         grasp_transforms = (
             torch.from_numpy(np.array(self.hdf5_file["/grasp_transforms"][idx])).float()
@@ -483,9 +498,10 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
         assert_equals(
             nerf_densities.shape, (NUM_FINGERS, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
         )
-        assert_equals(passed_simulation.shape, ())
-        assert_equals(passed_penetration_threshold.shape, ())
-        assert_equals(passed_eval.shape, ())
+        NUM_CLASSES = 2
+        assert_equals(passed_simulation.shape, (NUM_CLASSES,))
+        assert_equals(passed_penetration_threshold.shape, (NUM_CLASSES,))
+        assert_equals(passed_eval.shape, (NUM_CLASSES,))
         assert_equals(grasp_transforms.shape, (NUM_FINGERS, 4, 4))
         assert_equals(grasp_configs.shape, (NUM_FINGERS, 7 + 16 + 4))
 
@@ -571,17 +587,17 @@ class DepthImage_To_GraspSuccess_HDF5_Dataset(Dataset):
 
             # This is small enough to fit in RAM
             self.passed_simulations = (
-                torch.from_numpy(hdf5_file["/passed_simulation"][()]).long()
+                torch.from_numpy(hdf5_file["/passed_simulation"][()]).float()
                 if load_grasp_labels_in_ram
                 else None
             )
             self.passed_penetration_thresholds = (
-                torch.from_numpy(hdf5_file["/passed_penetration_threshold"][()]).long()
+                torch.from_numpy(hdf5_file["/passed_penetration_threshold"][()]).float()
                 if load_grasp_labels_in_ram
                 else None
             )
             self.passed_evals = (
-                torch.from_numpy(hdf5_file["/passed_eval"][()]).long()
+                torch.from_numpy(hdf5_file["/passed_eval"][()]).float()
                 if load_grasp_labels_in_ram
                 else None
             )
@@ -668,22 +684,37 @@ class DepthImage_To_GraspSuccess_HDF5_Dataset(Dataset):
         )
 
         passed_simulation = (
-            torch.from_numpy(np.array(self.hdf5_file["/passed_simulation"][idx])).long()
+            torch.from_numpy(
+                np.array(self.hdf5_file["/passed_simulation"][idx])
+            ).float()
             if self.passed_simulations is None
             else self.passed_simulations[idx]
         )
         passed_penetration_threshold = (
             torch.from_numpy(
                 np.array(self.hdf5_file["/passed_penetration_threshold"][idx])
-            ).long()
+            ).float()
             if self.passed_penetration_thresholds is None
             else self.passed_penetration_thresholds[idx]
         )
         passed_eval = (
-            torch.from_numpy(np.array(self.hdf5_file["/passed_eval"][idx])).long()
+            torch.from_numpy(np.array(self.hdf5_file["/passed_eval"][idx])).float()
             if self.passed_evals is None
             else self.passed_evals[idx]
         )
+        assert_equals(passed_simulation.shape, ())
+        assert_equals(passed_penetration_threshold.shape, ())
+        assert_equals(passed_eval.shape, ())
+
+        # TODO: Consider thresholding passed_X labels to be 0 or 1
+        # Convert to float classes (N,) -> (N, 2)
+        passed_simulation = torch.stack(
+            [1 - passed_simulation, passed_simulation], dim=-1
+        )
+        passed_penetration_threshold = torch.stack(
+            [1 - passed_penetration_threshold, passed_penetration_threshold], dim=-1
+        )
+        passed_eval = torch.stack([1 - passed_eval, passed_eval], dim=-1)
 
         grasp_transforms = (
             torch.from_numpy(np.array(self.hdf5_file["/grasp_transforms"][idx])).float()
@@ -712,17 +743,13 @@ class DepthImage_To_GraspSuccess_HDF5_Dataset(Dataset):
                 DEPTH_IMAGE_WIDTH,
             ),
         )
-        assert_equals(passed_simulation.shape, ())
-        assert_equals(passed_penetration_threshold.shape, ())
-        assert_equals(passed_eval.shape, ())
+        NUM_CLASSES = 2
+        assert_equals(passed_simulation.shape, (NUM_CLASSES,))
+        assert_equals(passed_penetration_threshold.shape, (NUM_CLASSES,))
+        assert_equals(passed_eval.shape, (NUM_CLASSES,))
         assert_equals(grasp_transforms.shape, (NUM_FINGERS, 4, 4))
         assert_equals(grasp_configs.shape, (NUM_FINGERS, 7 + 16 + 4))
 
-        grasp_configs = (
-            self.hdf5_file["/grasp_configs"][idx]
-            if self.grasp_configs is None
-            else self.grasp_configs[idx]
-        )
         return (
             depth_uncertainty_images,
             passed_simulation,
@@ -911,7 +938,7 @@ def depth_image_custom_collate_fn(
         random_rotate_transform = sample_random_rotate_transforms(N=batch_size)
 
         # Apply random rotation to grasp config.
-        # NOTE: hardcodes that conditioning is a grasp conditioning.
+        # NOTE: hardcodes grasp_configs ordering
         wrist_pose = pp.SE3(grasp_configs[..., :7])
         joint_angles = grasp_configs[..., 7:23]
         grasp_orientations = pp.SO3(grasp_configs[..., 23:])
@@ -1046,7 +1073,7 @@ print_shapes(batch_data=EXAMPLE_BATCH_DATA)
 @localscope.mfc(
     allowed=["NUM_FINGERS", "NUM_PTS_X", "NUM_PTS_Y", "NUM_PTS_Z", "NUM_XYZ"]
 )
-def plot_example(
+def nerf_densities_plot_example(
     batch_data: BatchData, idx_to_visualize: int = 0, augmented: bool = False
 ) -> go.Figure:
     assert isinstance(batch_data.input, BatchDataInput)
@@ -1067,16 +1094,13 @@ def plot_example(
 
     # Extract data
     colors = batch_data.input.nerf_alphas[idx_to_visualize]
-    passed_simulation = batch_data.output.passed_simulation[idx_to_visualize].item()
+    passed_simulation = batch_data.output.passed_simulation[idx_to_visualize].tolist()
     passed_penetration_threshold = batch_data.output.passed_penetration_threshold[
         idx_to_visualize
-    ].item()
-    passed_eval = batch_data.output.passed_eval[idx_to_visualize].item()
+    ].tolist()
+    passed_eval = batch_data.output.passed_eval[idx_to_visualize].tolist()
 
     assert_equals(colors.shape, (NUM_FINGERS, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z))
-    assert passed_simulation in [0, 1]
-    assert passed_penetration_threshold in [0, 1]
-    assert passed_eval in [0, 1]
 
     nerf_config_path = pathlib.Path(batch_data.nerf_config[idx_to_visualize])
     object_code = get_object_code(nerf_config_path)
@@ -1197,15 +1221,11 @@ def depth_image_plot_example(
         uncertainty_images.max().item(),
     )
 
-    passed_simulation = batch_data.output.passed_simulation[idx_to_visualize].item()
+    passed_simulation = batch_data.output.passed_simulation[idx_to_visualize].tolist()
     passed_penetration_threshold = batch_data.output.passed_penetration_threshold[
         idx_to_visualize
-    ].item()
-    passed_eval = batch_data.output.passed_eval[idx_to_visualize].item()
-
-    assert passed_simulation in [0, 1]
-    assert passed_penetration_threshold in [0, 1]
-    assert passed_eval in [0, 1]
+    ].tolist()
+    passed_eval = batch_data.output.passed_eval[idx_to_visualize].tolist()
 
     nerf_config_path = pathlib.Path(batch_data.nerf_config[idx_to_visualize])
     object_code = get_object_code(nerf_config_path)
@@ -1279,7 +1299,9 @@ if PLOT_EXAMPLES:
         fig.show()
         fig2.show()
     else:
-        fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=1)
+        fig = nerf_densities_plot_example(
+            batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=1
+        )
         fig.show()
 
 # %%
@@ -1291,7 +1313,7 @@ if PLOT_EXAMPLES:
         fig.show()
         fig2.show()
     else:
-        fig = plot_example(
+        fig = nerf_densities_plot_example(
             batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=15, augmented=True
         )
         fig.show()
@@ -1305,7 +1327,9 @@ if PLOT_EXAMPLES:
         fig.show()
         fig2.show()
     else:
-        fig = plot_example(batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=14)
+        fig = nerf_densities_plot_example(
+            batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=14
+        )
         fig.show()
 
 # %%

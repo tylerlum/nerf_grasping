@@ -295,17 +295,17 @@ def create_grid_dataset(
         ),
     )
     passed_eval_dataset = hdf5_file.create_dataset(
-        "/passed_eval", shape=(max_num_datapoints,), dtype="i"
+        "/passed_eval", shape=(max_num_datapoints,), dtype="f"
     )
     passed_simulation_dataset = hdf5_file.create_dataset(
         "/passed_simulation",
         shape=(max_num_datapoints,),
-        dtype="i",
+        dtype="f",
     )
     passed_penetration_threshold_dataset = hdf5_file.create_dataset(
         "/passed_penetration_threshold",
         shape=(max_num_datapoints,),
-        dtype="i",
+        dtype="f",
     )
     nerf_config_dataset = hdf5_file.create_dataset(
         "/nerf_config", shape=(max_num_datapoints,), dtype=h5py.string_dtype()
@@ -387,17 +387,17 @@ def create_depth_image_dataset(
         ),
     )
     passed_eval_dataset = hdf5_file.create_dataset(
-        "/passed_eval", shape=(max_num_datapoints,), dtype="i"
+        "/passed_eval", shape=(max_num_datapoints,), dtype="f"
     )
     passed_simulation_dataset = hdf5_file.create_dataset(
         "/passed_simulation",
         shape=(max_num_datapoints,),
-        dtype="i",
+        dtype="f",
     )
     passed_penetration_threshold_dataset = hdf5_file.create_dataset(
         "/passed_penetration_threshold",
         shape=(max_num_datapoints,),
-        dtype="i",
+        dtype="f",
     )
     nerf_config_dataset = hdf5_file.create_dataset(
         "/nerf_config", shape=(max_num_datapoints,), dtype=h5py.string_dtype()

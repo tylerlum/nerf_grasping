@@ -877,6 +877,11 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
 
                 # May not be max_num_data_points if nan grasps
                 hdf5_file.attrs["num_data_points"] = current_idx
+
+            # Cleanup to avoid weird GPU memory leak
+            del nerf_model
+            del nerf_field
+
         except Exception as e:
             print("\n" + "-" * 80)
             print(f"WARNING: Failed to process {evaled_grasp_config_dict_filepath}")

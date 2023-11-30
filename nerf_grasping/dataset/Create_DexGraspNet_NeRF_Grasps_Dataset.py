@@ -709,8 +709,10 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
 
             # Read in data
             with loop_timer.add_section_timer("load_nerf"):
-                nerf_model = load_nerf_model(nerf_config)
-                nerf_field: Field = nerf_model.field
+                # if current_idx == 0:
+                if True:
+                    from nerfstudio.utils import eval_utils
+                    config, pipeline, checkpoint_path, step = eval_utils.eval_setup(nerf_config, test_mode="inference")
 
             with loop_timer.add_section_timer("load grasp data"):
                 evaled_grasp_config_dict: Dict[str, Any] = np.load(
@@ -783,7 +785,7 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                     cfg=cfg,
                     grasp_frame_transforms=grasp_frame_transforms,
                     ray_origins_finger_frame=ray_origins_finger_frame,
-                    nerf_field=nerf_field,
+                    nerf_field=pipeline.model.field,
                 )
                 if nerf_densities.isnan().any():
                     print("\n" + "-" * 80)
@@ -799,7 +801,7 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                     loop_timer=loop_timer,
                     cfg=cfg,
                     grasp_frame_transforms=grasp_frame_transforms,
-                    nerf_model=nerf_model,
+                    nerf_model=pipeline.model,
                 )
                 if depth_images.isnan().any():
                     print("\n" + "-" * 80)
@@ -877,11 +879,7 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
 
                 # May not be max_num_data_points if nan grasps
                 hdf5_file.attrs["num_data_points"] = current_idx
-
-            # Cleanup to avoid weird GPU memory leak
-            del nerf_model
-            del nerf_field
-
+            del config, pipeline, checkpoint_path, step 
         except Exception as e:
             print("\n" + "-" * 80)
             print(f"WARNING: Failed to process {evaled_grasp_config_dict_filepath}")
@@ -957,7 +955,7 @@ if cfg.plot_all_high_density_points:
         )
     )
     nerf_densities_in_mesh_region = (
-        nerf_field.get_density(ray_samples_in_mesh_region.to("cuda"))[0]
+        pipeline.model.field.get_density(ray_samples_in_mesh_region.to("cuda"))[0]
         .detach()
         .cpu()
         .numpy()

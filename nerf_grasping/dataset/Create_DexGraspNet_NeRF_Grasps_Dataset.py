@@ -709,9 +709,10 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
 
             # Read in data
             with loop_timer.add_section_timer("load_nerf"):
-                # if current_idx == 0:
-                if True:
-                    nerf_pipeline = load_nerf_pipeline(nerf_config)
+                # Load nerf pipeline
+                # Note: for some reason this helps avoid GPU memory leak
+                #       whereas loading nerf_model or nerf_field directly causes GPU memory leak
+                nerf_pipeline = load_nerf_pipeline(nerf_config)
 
             with loop_timer.add_section_timer("load grasp data"):
                 evaled_grasp_config_dict: Dict[str, Any] = np.load(

@@ -243,6 +243,38 @@ class DepthImageBatchDataInput:
         return return_value
 
     @property
+    def augmented_grasp_configs(self) -> torch.Tensor:
+        if self.random_rotate_transform is None:
+            return self.grasp_configs
+
+        # Apply random rotation to grasp config.
+        # NOTE: hardcodes grasp_configs ordering
+        wrist_pose = pp.SE3(self.grasp_configs[..., :7])
+        joint_angles = self.grasp_configs[..., 7:23]
+        grasp_orientations = pp.SO3(self.grasp_configs[..., 23:])
+
+        # Unsqueeze because we're applying the same (single) random rotation to all fingers.
+        wrist_pose = self.random_rotate_transform.unsqueeze(1) @ wrist_pose
+        grasp_orientations = (
+            self.random_rotate_transform.rotation().unsqueeze(1) @ grasp_orientations
+        )
+
+        return_value = torch.cat(
+            (wrist_pose.data, joint_angles, grasp_orientations.data), axis=-1
+        )
+        assert (
+            return_value.shape
+            == self.grasp_configs.shape
+            == (
+                self.batch_size,
+                self.fingertip_config.n_fingers,
+                7 + 16 + 4,
+            )
+        )
+
+        return return_value
+
+    @property
     def batch_size(self) -> int:
         return self.depth_uncertainty_images.shape[0]
 
@@ -254,7 +286,7 @@ class DepthImageBatchDataInput:
         if conditioning_type == ConditioningType.GRASP_TRANSFORM:
             return self.augmented_grasp_transforms.tensor()
         elif conditioning_type == ConditioningType.GRASP_CONFIG:
-            return self.grasp_configs
+            return self.augmented_grasp_configs
         else:
             raise NotImplementedError()
 

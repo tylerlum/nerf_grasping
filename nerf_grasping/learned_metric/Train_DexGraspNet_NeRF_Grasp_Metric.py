@@ -865,21 +865,6 @@ def custom_collate_fn(
     batch_size = nerf_densities.shape[0]
     if use_random_rotations:
         random_rotate_transform = sample_random_rotate_transforms(N=batch_size)
-
-        # Apply random rotation to grasp config.
-        # NOTE: hardcodes grasp_configs ordering
-        wrist_pose = pp.SE3(grasp_configs[..., :7])
-        joint_angles = grasp_configs[..., 7:23]
-        grasp_orientations = pp.SO3(grasp_configs[..., 23:])
-
-        wrist_pose = random_rotate_transform.unsqueeze(1) @ wrist_pose
-        grasp_orientations = (
-            random_rotate_transform.rotation().unsqueeze(1) @ grasp_orientations
-        )
-
-        grasp_configs = torch.cat(
-            (wrist_pose.data, joint_angles, grasp_orientations.data), axis=-1
-        )
     else:
         random_rotate_transform = None
 
@@ -936,21 +921,6 @@ def depth_image_custom_collate_fn(
     batch_size = depth_uncertainty_images.shape[0]
     if use_random_rotations:
         random_rotate_transform = sample_random_rotate_transforms(N=batch_size)
-
-        # Apply random rotation to grasp config.
-        # NOTE: hardcodes grasp_configs ordering
-        wrist_pose = pp.SE3(grasp_configs[..., :7])
-        joint_angles = grasp_configs[..., 7:23]
-        grasp_orientations = pp.SO3(grasp_configs[..., 23:])
-
-        wrist_pose = random_rotate_transform.unsqueeze(1) @ wrist_pose
-        grasp_orientations = (
-            random_rotate_transform.rotation().unsqueeze(1) @ grasp_orientations
-        )
-
-        grasp_configs = torch.cat(
-            (wrist_pose.data, joint_angles, grasp_orientations.data), axis=-1
-        )
     else:
         random_rotate_transform = None
 
@@ -984,10 +954,10 @@ if USE_DEPTH_IMAGES:
     val_test_collate_fn = partial(
         depth_image_custom_collate_fn,
         fingertip_config=cfg.nerfdata_config.fingertip_config,
-        use_random_rotations=True,
+        use_random_rotations=False,
         debug_shuffle_labels=cfg.data.debug_shuffle_labels,
         nerf_density_threshold_value=cfg.data.nerf_density_threshold_value,
-    )
+    )  # Run test over actual test transforms.
 else:
     train_collate_fn = partial(
         custom_collate_fn,

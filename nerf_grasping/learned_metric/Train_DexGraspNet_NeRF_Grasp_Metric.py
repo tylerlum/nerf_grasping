@@ -1099,6 +1099,18 @@ def nerf_densities_plot_example(
         idx_to_visualize
     ].tolist()
     passed_eval = batch_data.output.passed_eval[idx_to_visualize].tolist()
+    NUM_CLASSES = 2
+    assert_equals(len(passed_simulation), NUM_CLASSES)
+    assert_equals(len(passed_penetration_threshold), NUM_CLASSES)
+    assert_equals(len(passed_eval), NUM_CLASSES)
+
+    # Get probabilities of passing
+    passed_simulation = passed_simulation[1]
+    passed_penetration_threshold = passed_penetration_threshold[1]
+    passed_eval = passed_eval[1]
+    assert 0 <= passed_simulation <= 1, passed_simulation
+    assert 0 <= passed_penetration_threshold <= 1, passed_penetration_threshold
+    assert 0 <= passed_eval <= 1, passed_eval
 
     assert_equals(colors.shape, (NUM_FINGERS, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z))
 
@@ -1226,6 +1238,18 @@ def depth_image_plot_example(
         idx_to_visualize
     ].tolist()
     passed_eval = batch_data.output.passed_eval[idx_to_visualize].tolist()
+    NUM_CLASSES = 2
+    assert_equals(len(passed_simulation), NUM_CLASSES)
+    assert_equals(len(passed_penetration_threshold), NUM_CLASSES)
+    assert_equals(len(passed_eval), NUM_CLASSES)
+
+    # Get probabilities of passing
+    passed_simulation = passed_simulation[1]
+    passed_penetration_threshold = passed_penetration_threshold[1]
+    passed_eval = passed_eval[1]
+    assert 0 <= passed_simulation <= 1, passed_simulation
+    assert 0 <= passed_penetration_threshold <= 1, passed_penetration_threshold
+    assert 0 <= passed_eval <= 1, passed_eval
 
     nerf_config_path = pathlib.Path(batch_data.nerf_config[idx_to_visualize])
     object_code = get_object_code(nerf_config_path)

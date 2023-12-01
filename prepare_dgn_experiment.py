@@ -38,7 +38,7 @@ def create_symlinks(
         dest_filename = dest_folderpath / filename
         assert src_filename.exists(), f"{src_filename} does not exist"
         if not dest_filename.exists():
-            print_and_run(f"ln -s {str(src_filename)} {str(dest_filename)}")
+            print_and_run(f"ln -sr {str(src_filename)} {str(dest_filename)}")
 
 
 def main() -> None:
@@ -60,7 +60,7 @@ def main() -> None:
     if new_experiment_path.exists():
         print(f"Skipping {new_experiment_path} because it already exists")
     else:
-        print_and_run(f"ln -s {experiment_path} {new_experiment_path}")
+        print_and_run(f"ln -sr {experiment_path} {new_experiment_path}")
 
     # Create train/val/test split
     evaled_grasp_config_dicts_path = new_experiment_path / "evaled_grasp_config_dicts"

@@ -14,8 +14,10 @@ from nerf_grasping.models.dexgraspnet_models import (
 from nerf_grasping.learned_metric.DexGraspNet_batch_data import (
     BatchDataInput,
     DepthImageBatchDataInput,
+    ConditioningType,
 )
 from typing import Iterable, Tuple, List
+from enum import Enum, auto
 
 
 def assert_equals(a, b):
@@ -105,6 +107,7 @@ class CNN_3D_XYZ_Classifier(Classifier):
 class CNN_2D_1D_Classifier(Classifier):
     def __init__(
         self,
+        conditioning_type: ConditioningType,
         grid_shape: Tuple[int, int, int],
         n_fingers: int,
         n_tasks: int,
@@ -113,6 +116,7 @@ class CNN_2D_1D_Classifier(Classifier):
         mlp_hidden_layers: Tuple[int, ...],
     ) -> None:
         super().__init__()
+        self.conditioning_type = conditioning_type
         self.model = CNN_2D_1D_Model(
             grid_shape=grid_shape,
             n_fingers=n_fingers,
@@ -125,7 +129,8 @@ class CNN_2D_1D_Classifier(Classifier):
     def forward(self, batch_data_input: BatchDataInput) -> torch.Tensor:
         # Run model
         all_logits = self.model.get_all_logits(
-            batch_data_input.nerf_alphas, batch_data_input.augmented_grasp_transforms
+            batch_data_input.nerf_alphas,
+            batch_data_input.get_conditioning(conditioning_type=self.conditioning_type),
         )
 
         return all_logits
@@ -134,6 +139,7 @@ class CNN_2D_1D_Classifier(Classifier):
 class Simple_CNN_2D_1D_Classifier(Classifier):
     def __init__(
         self,
+        conditioning_type: ConditioningType,
         grid_shape: Tuple[int, int, int],
         n_fingers: int,
         n_tasks: int,
@@ -145,6 +151,7 @@ class Simple_CNN_2D_1D_Classifier(Classifier):
         film_1d_hidden_layers: List[int] = [8, 8],
     ) -> None:
         super().__init__()
+        self.conditioning_type = conditioning_type
         self.model = Simple_CNN_2D_1D_Model(
             grid_shape=grid_shape,
             n_fingers=n_fingers,
@@ -159,13 +166,9 @@ class Simple_CNN_2D_1D_Classifier(Classifier):
 
     def forward(self, batch_data_input: BatchDataInput) -> torch.Tensor:
         # Run model
-        if batch_data_input.conditioning_var is not None:
-            conditioning = batch_data_input.conditioning_var
-        else:
-            conditioning = batch_data_input.grasp_transforms.tensor()
-
         all_logits = self.model.get_all_logits(
-            batch_data_input.nerf_alphas, conditioning
+            batch_data_input.nerf_alphas,
+            batch_data_input.get_conditioning(conditioning_type=self.conditioning_type),
         )
         return all_logits
 
@@ -173,6 +176,7 @@ class Simple_CNN_2D_1D_Classifier(Classifier):
 class Simple_CNN_1D_2D_Classifier(Classifier):
     def __init__(
         self,
+        conditioning_type: ConditioningType,
         grid_shape: Tuple[int, int, int],
         n_fingers: int,
         n_tasks: int,
@@ -184,6 +188,7 @@ class Simple_CNN_1D_2D_Classifier(Classifier):
         film_1d_hidden_layers: List[int] = [8, 8],
     ) -> None:
         super().__init__()
+        self.conditioning_type = conditioning_type
         self.model = Simple_CNN_1D_2D_Model(
             grid_shape=grid_shape,
             n_fingers=n_fingers,
@@ -198,13 +203,9 @@ class Simple_CNN_1D_2D_Classifier(Classifier):
 
     def forward(self, batch_data_input: BatchDataInput) -> torch.Tensor:
         # Run model
-        if batch_data_input.conditioning_var is not None:
-            conditioning = batch_data_input.conditioning_var
-        else:
-            conditioning = batch_data_input.grasp_transforms.tensor()
-
         all_logits = self.model.get_all_logits(
-            batch_data_input.nerf_alphas, conditioning
+            batch_data_input.nerf_alphas,
+            batch_data_input.get_conditioning(conditioning_type=self.conditioning_type),
         )
         return all_logits
 
@@ -212,6 +213,7 @@ class Simple_CNN_1D_2D_Classifier(Classifier):
 class Simple_CNN_LSTM_Classifier(Classifier):
     def __init__(
         self,
+        conditioning_type: ConditioningType,
         grid_shape: Tuple[int, int, int],
         n_fingers: int,
         n_tasks: int,
@@ -223,6 +225,7 @@ class Simple_CNN_LSTM_Classifier(Classifier):
         num_lstm_layers: int = 1,
     ) -> None:
         super().__init__()
+        self.conditioning_type = conditioning_type
         self.model = Simple_CNN_LSTM_Model(
             grid_shape=grid_shape,
             n_fingers=n_fingers,
@@ -237,13 +240,9 @@ class Simple_CNN_LSTM_Classifier(Classifier):
 
     def forward(self, batch_data_input: BatchDataInput) -> torch.Tensor:
         # Run model
-        if batch_data_input.conditioning_var is not None:
-            conditioning = batch_data_input.conditioning_var
-        else:
-            conditioning = batch_data_input.grasp_transforms.tensor()
-
         all_logits = self.model.get_all_logits(
-            batch_data_input.nerf_alphas, conditioning
+            batch_data_input.nerf_alphas,
+            batch_data_input.get_conditioning(conditioning_type=self.conditioning_type),
         )
         return all_logits
 
@@ -309,6 +308,7 @@ class DepthImageClassifier(nn.Module):
 class DepthImage_CNN_2D_Classifier(DepthImageClassifier):
     def __init__(
         self,
+        conditioning_type: ConditioningType,
         img_shape: Tuple[int, int, int],
         n_fingers: int,
         n_tasks: int,
@@ -317,6 +317,7 @@ class DepthImage_CNN_2D_Classifier(DepthImageClassifier):
         mlp_hidden_layers: Tuple[int, ...],
     ) -> None:
         super().__init__()
+        self.conditioning_type = conditioning_type
 
         self.model = DepthImage_CNN_2D_Model(
             img_shape=img_shape,
@@ -331,7 +332,7 @@ class DepthImage_CNN_2D_Classifier(DepthImageClassifier):
         # Run model
         all_logits = self.model.get_all_logits(
             batch_data_input.depth_uncertainty_images,
-            batch_data_input.augmented_grasp_transforms,
+            batch_data_input.get_conditioning(conditioning_type=self.conditioning_type),
         )
 
         return all_logits

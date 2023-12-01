@@ -46,7 +46,7 @@ from nerf_grasping.grasp_utils import (
     get_ray_samples,
     get_ray_origins_finger_frame,
     get_nerf_configs,
-    load_nerf_model,
+    load_nerf_pipeline,
 )
 from nerf_grasping.nerf_utils import (
     get_cameras,
@@ -58,7 +58,6 @@ from nerf_grasping.config.nerfdata_config import (
     UnionNerfDataConfig,
     DepthImageNerfDataConfig,
     GridNerfDataConfig,
-    GraspConditionedGridDataConfig,
     BaseNerfDataConfig,
 )
 import tyro
@@ -98,7 +97,7 @@ tqdm = partial(std_tqdm, dynamic_ncols=True)
 
 # %%
 @localscope.mfc
-def parse_nerf_config(nerf_config: pathlib.Path) -> str:
+def nerf_config_to_object_code_and_scale_str(nerf_config: pathlib.Path) -> str:
     # Input: PosixPath('2023-08-25_nerfcheckpoints/sem-Gun-4745991e7c0c7966a93f1ea6ebdeec6f_0_10/nerfacto/2023-08-25_132225/config.yml')
     # Return sem-Gun-4745991e7c0c7966a93f1ea6ebdeec6f_0_10
     parts = nerf_config.parts
@@ -107,28 +106,79 @@ def parse_nerf_config(nerf_config: pathlib.Path) -> str:
 
 
 @localscope.mfc
-def get_nerf_config(
-    object_code_and_scale_str: str, nerf_configs: List[pathlib.Path]
+def get_closest_matching_nerf_config(
+    target_object_code_and_scale_str: str, nerf_configs: List[pathlib.Path]
 ) -> pathlib.Path:
-    ANY_SCALE = True
-    if ANY_SCALE:
-        object_code, _ = parse_object_code_and_scale(object_code_and_scale_str)
-        keyword = object_code
-    else:
-        keyword = object_code_and_scale_str
+    # Parse target object code and scale
+    target_object_code, target_scale = parse_object_code_and_scale(
+        target_object_code_and_scale_str
+    )
 
-    # Get nerf config
-    matching_nerf_configs = [
-        nerf_config for nerf_config in nerf_configs if keyword in str(nerf_config)
+    # Prepare data for comparisons
+    nerf_object_code_and_scale_strs = [
+        nerf_config_to_object_code_and_scale_str(config) for config in nerf_configs
     ]
-    if len(matching_nerf_configs) == 0:
-        raise ValueError(f"Found no matching nerf configs for {keyword}")
+    nerf_object_codes = [
+        parse_object_code_and_scale(object_code_and_scale_str)[0]
+        for object_code_and_scale_str in nerf_object_code_and_scale_strs
+    ]
+    nerf_object_scales = [
+        parse_object_code_and_scale(object_code_and_scale_str)[1]
+        for object_code_and_scale_str in nerf_object_code_and_scale_strs
+    ]
 
-    if len(matching_nerf_configs) > 1:
-        print(
-            f"WARNING: Found multiple matching nerf configs for {keyword}, {matching_nerf_configs}"
+    # Check for exact match
+    exact_matches = [
+        nerf_config
+        for object_code_and_scale_str, nerf_config in zip(
+            nerf_object_code_and_scale_strs, nerf_configs
         )
-    return matching_nerf_configs[0]
+        if target_object_code_and_scale_str == object_code_and_scale_str
+    ]
+    if exact_matches:
+        if len(exact_matches) > 1:
+            print(
+                f"Multiple exact matches found for {target_object_code_and_scale_str}, {exact_matches}"
+            )
+        return exact_matches[0]
+
+    print(
+        f"No exact matches found for {target_object_code_and_scale_str}. Searching for closest matches..."
+    )
+
+    # Check for closest scale match
+    same_code_configs = [
+        config
+        for code, config in zip(nerf_object_codes, nerf_configs)
+        if code == target_object_code
+    ]
+    if same_code_configs:
+        scale_diffs = [
+            abs(scale - target_scale)
+            for code, scale in zip(nerf_object_codes, nerf_object_scales)
+            if code == target_object_code
+        ]
+        closest_scale_config = same_code_configs[np.argmin(scale_diffs)]
+        return closest_scale_config
+
+    print(f"No configs found with code {target_object_code}.")
+
+    # Check for closest object code match
+    import Levenshtein
+
+    levenshtein_distances = [
+        Levenshtein.distance(
+            target_object_code_and_scale_str, object_code_and_scale_str
+        )
+        for object_code_and_scale_str in nerf_object_code_and_scale_strs
+    ]
+    min_distance_index = np.argmin(levenshtein_distances)
+    if levenshtein_distances[min_distance_index] < 10:
+        return nerf_configs[min_distance_index]
+
+    raise ValueError(
+        f"No suitable NeRF config found for {target_object_code_and_scale_str}, min dist = {levenshtein_distances[min_distance_index]}"
+    )
 
 
 @localscope.mfc(allowed=["tqdm"])
@@ -296,17 +346,17 @@ def create_grid_dataset(
         ),
     )
     passed_eval_dataset = hdf5_file.create_dataset(
-        "/passed_eval", shape=(max_num_datapoints,), dtype="i"
+        "/passed_eval", shape=(max_num_datapoints,), dtype="f"
     )
     passed_simulation_dataset = hdf5_file.create_dataset(
         "/passed_simulation",
         shape=(max_num_datapoints,),
-        dtype="i",
+        dtype="f",
     )
     passed_penetration_threshold_dataset = hdf5_file.create_dataset(
         "/passed_penetration_threshold",
         shape=(max_num_datapoints,),
-        dtype="i",
+        dtype="f",
     )
     nerf_config_dataset = hdf5_file.create_dataset(
         "/nerf_config", shape=(max_num_datapoints,), dtype=h5py.string_dtype()
@@ -325,6 +375,15 @@ def create_grid_dataset(
         shape=(max_num_datapoints, cfg.fingertip_config.n_fingers, 4, 4),
         dtype="f",
     )
+    grasp_configs_dataset = hdf5_file.create_dataset(
+        "/grasp_configs",
+        shape=(
+            max_num_datapoints,
+            cfg.fingertip_config.n_fingers,
+            7 + 16 + 4,
+        ),  # 7 for pose, 16 for joint angles, 4 for grasp orientation, for each finger
+        dtype="f",
+    )
 
     return (
         nerf_densities_dataset,
@@ -336,6 +395,7 @@ def create_grid_dataset(
         object_scale_dataset,
         grasp_idx_dataset,
         grasp_transforms_dataset,
+        grasp_configs_dataset,
     )
 
 
@@ -378,17 +438,17 @@ def create_depth_image_dataset(
         ),
     )
     passed_eval_dataset = hdf5_file.create_dataset(
-        "/passed_eval", shape=(max_num_datapoints,), dtype="i"
+        "/passed_eval", shape=(max_num_datapoints,), dtype="f"
     )
     passed_simulation_dataset = hdf5_file.create_dataset(
         "/passed_simulation",
         shape=(max_num_datapoints,),
-        dtype="i",
+        dtype="f",
     )
     passed_penetration_threshold_dataset = hdf5_file.create_dataset(
         "/passed_penetration_threshold",
         shape=(max_num_datapoints,),
-        dtype="i",
+        dtype="f",
     )
     nerf_config_dataset = hdf5_file.create_dataset(
         "/nerf_config", shape=(max_num_datapoints,), dtype=h5py.string_dtype()
@@ -407,6 +467,15 @@ def create_depth_image_dataset(
         shape=(max_num_datapoints, cfg.fingertip_config.n_fingers, 4, 4),
         dtype="f",
     )
+    grasp_configs_dataset = hdf5_file.create_dataset(
+        "/grasp_configs",
+        shape=(
+            max_num_datapoints,
+            cfg.fingertip_config.n_fingers,
+            7 + 16 + 4,
+        ),  # 7 for wrist pose, 16 for joint angles, 4 for grasp orientation, for each finger
+        dtype="f",
+    )
 
     return (
         depth_images_dataset,
@@ -419,6 +488,7 @@ def create_depth_image_dataset(
         object_scale_dataset,
         grasp_idx_dataset,
         grasp_transforms_dataset,
+        grasp_configs_dataset,
     )
 
 
@@ -517,9 +587,7 @@ def get_nerf_densities(
     )
 
     # Create density grid for grid dataset.
-    assert isinstance(cfg, GridNerfDataConfig) or isinstance(
-        cfg, GraspConditionedGridDataConfig
-    )
+    assert isinstance(cfg, GridNerfDataConfig)
 
     # Transform query points
     with loop_timer.add_section_timer("get_ray_samples"):
@@ -573,8 +641,7 @@ def get_nerf_densities(
 with h5py.File(cfg.output_filepath, "w") as hdf5_file:
     current_idx = 0
 
-    if isinstance(cfg, GraspConditionedGridDataConfig):
-        # Create dataset with extra field for full grasp config.
+    if isinstance(cfg, GridNerfDataConfig):
         (
             nerf_densities_dataset,
             passed_eval_dataset,
@@ -585,27 +652,7 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
             object_scale_dataset,
             grasp_idx_dataset,
             grasp_transforms_dataset,
-        ) = create_grid_dataset(cfg, hdf5_file, max_num_datapoints)
-        conditioning_var_dataset = hdf5_file.create_dataset(
-            "/conditioning_var",
-            shape=(
-                max_num_datapoints,
-                cfg.fingertip_config.n_fingers,
-                7 + 16 + 4,
-            ),  # 7 for pose, 16 for rotation matrix, 4 for grasp orientation, for each finger
-            dtype="f",
-        )
-    elif isinstance(cfg, GridNerfDataConfig):
-        (
-            nerf_densities_dataset,
-            passed_eval_dataset,
-            passed_simulation_dataset,
-            passed_penetration_threshold_dataset,
-            nerf_config_dataset,
-            object_code_dataset,
-            object_scale_dataset,
-            grasp_idx_dataset,
-            grasp_transforms_dataset,
+            grasp_configs_dataset,
         ) = create_grid_dataset(cfg, hdf5_file, max_num_datapoints)
     elif isinstance(cfg, DepthImageNerfDataConfig):
         (
@@ -619,16 +666,8 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
             object_scale_dataset,
             grasp_idx_dataset,
             grasp_transforms_dataset,
+            grasp_configs_dataset,
         ) = create_depth_image_dataset(cfg, hdf5_file, max_num_datapoints)
-        conditioning_var_dataset = hdf5_file.create_dataset(
-            "/conditioning_var",
-            shape=(
-                max_num_datapoints,
-                cfg.fingertip_config.n_fingers,
-                7 + 16 + 4,
-            ),  # 7 for pose, 16 for rotation matrix, 4 for grasp orientation, for each finger
-            dtype="f",
-        )
     else:
         raise NotImplementedError(f"Unknown config type {cfg}")
 
@@ -658,8 +697,8 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                 )
 
                 # Get nerf config
-                nerf_config = get_nerf_config(
-                    object_code_and_scale_str=object_code_and_scale_str,
+                nerf_config = get_closest_matching_nerf_config(
+                    target_object_code_and_scale_str=object_code_and_scale_str,
                     nerf_configs=nerf_configs,
                 )
 
@@ -670,8 +709,10 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
 
             # Read in data
             with loop_timer.add_section_timer("load_nerf"):
-                nerf_model = load_nerf_model(nerf_config)
-                nerf_field: Field = nerf_model.field
+                # Load nerf pipeline
+                # Note: for some reason this helps avoid GPU memory leak
+                #       whereas loading nerf_model or nerf_field directly causes GPU memory leak
+                nerf_pipeline = load_nerf_pipeline(nerf_config)
 
             with loop_timer.add_section_timer("load grasp data"):
                 evaled_grasp_config_dict: Dict[str, Any] = np.load(
@@ -737,16 +778,14 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                 ),
             )
 
-            if isinstance(cfg, GridNerfDataConfig) or isinstance(
-                cfg, GraspConditionedGridDataConfig
-            ):
+            if isinstance(cfg, GridNerfDataConfig):
                 # Process batch of grasp data.
                 nerf_densities, query_points = get_nerf_densities(
                     loop_timer=loop_timer,
                     cfg=cfg,
                     grasp_frame_transforms=grasp_frame_transforms,
                     ray_origins_finger_frame=ray_origins_finger_frame,
-                    nerf_field=nerf_field,
+                    nerf_field=nerf_pipeline.model.field,
                 )
                 if nerf_densities.isnan().any():
                     print("\n" + "-" * 80)
@@ -762,7 +801,7 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                     loop_timer=loop_timer,
                     cfg=cfg,
                     grasp_frame_transforms=grasp_frame_transforms,
-                    nerf_model=nerf_model,
+                    nerf_model=nerf_pipeline.model,
                 )
                 if depth_images.isnan().any():
                     print("\n" + "-" * 80)
@@ -812,9 +851,7 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                     grasp_frame_transforms.matrix().cpu().detach().numpy()
                 )
 
-                if isinstance(cfg, GridNerfDataConfig) or isinstance(
-                    cfg, GraspConditionedGridDataConfig
-                ):
+                if isinstance(cfg, GridNerfDataConfig):
                     nerf_densities_dataset[prev_idx:current_idx] = (
                         nerf_densities.detach().cpu().numpy()
                     )
@@ -827,28 +864,22 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                         uncertainty_images.detach().cpu().numpy()
                     )
 
-                if isinstance(cfg, GraspConditionedGridDataConfig) or isinstance(
-                    cfg, DepthImageNerfDataConfig
-                ):
-                    grasp_config_tensors = (
-                        grasp_configs.as_tensor().detach().cpu().numpy()
-                    )
-                    assert_equals(
-                        grasp_config_tensors.shape,
-                        (
-                            grasp_configs.batch_size,
-                            cfg.fingertip_config.n_fingers,
-                            7
-                            + 16
-                            + 4,  # wrist pose, joint angles, grasp orientations (as quats)
-                        ),
-                    )
-                    conditioning_var_dataset[
-                        prev_idx:current_idx
-                    ] = grasp_config_tensors
+                grasp_config_tensors = grasp_configs.as_tensor().detach().cpu().numpy()
+                assert_equals(
+                    grasp_config_tensors.shape,
+                    (
+                        grasp_configs.batch_size,
+                        cfg.fingertip_config.n_fingers,
+                        7
+                        + 16
+                        + 4,  # wrist pose, joint angles, grasp orientations (as quats)
+                    ),
+                )
+                grasp_configs_dataset[prev_idx:current_idx] = grasp_config_tensors
 
                 # May not be max_num_data_points if nan grasps
                 hdf5_file.attrs["num_data_points"] = current_idx
+            del nerf_pipeline
         except Exception as e:
             print("\n" + "-" * 80)
             print(f"WARNING: Failed to process {evaled_grasp_config_dict_filepath}")
@@ -924,7 +955,7 @@ if cfg.plot_all_high_density_points:
         )
     )
     nerf_densities_in_mesh_region = (
-        nerf_field.get_density(ray_samples_in_mesh_region.to("cuda"))[0]
+        nerf_pipeline.model.field.get_density(ray_samples_in_mesh_region.to("cuda"))[0]
         .detach()
         .cpu()
         .numpy()

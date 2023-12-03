@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from typing import Optional, Literal
 
 # A general date-time string for naming runs -- shared across all config modules.
-CONFIG_DATETIME_STR = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+CONFIG_DATETIME_STR = datetime.now().strftime("%Y-%m-%d_%H-%M-%S-%f")
 
 
 @dataclass(frozen=True)

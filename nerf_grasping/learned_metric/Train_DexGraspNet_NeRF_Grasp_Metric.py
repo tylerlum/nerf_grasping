@@ -84,10 +84,8 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import wandb
 from functools import partial
-from datetime import datetime
 import sys
 import random
-import shutil
 from wandb.util import generate_id
 
 from enum import Enum, auto
@@ -1493,6 +1491,22 @@ if cfg.data.debug_shuffle_labels:
     print(
         "WARNING: Shuffle labels is turned on! Random labels are being passed. Press 'c' to continue"
     )
+
+# %% [markdown]
+# # Analyze model
+loop_timer = LoopTimer()
+losses_dict, predictions_dict, ground_truths_dict = _iterate_through_dataloader(
+    loop_timer=loop_timer,
+    phase=Phase.VAL,
+    dataloader=val_loader,
+    classifier=classifier,
+    device=device,
+    ce_loss_fns=ce_loss_fns,
+    task_type=cfg.task_type,
+    training_cfg=cfg.training,
+    optimizer=optimizer,
+    lr_scheduler=lr_scheduler,
+)
 
 # %%
 

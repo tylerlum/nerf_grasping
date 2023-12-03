@@ -150,11 +150,11 @@ tqdm = partial(std_tqdm, dynamic_ncols=True)
 if is_notebook():
     arguments = [
         "cnn-2d-1d",
-        "--task-type PASSED_SIMULATION_AND_PENETRATION_THRESHOLD",
-        "--nerfdata-config.output-filepath data/2023-11-23_rubikscuberepeat_labelnoise_2/grid_dataset/dataset.h5",
-        "--dataloader.batch-size 128",
-        "--wandb.name debug_cluster_grid_noisy_large_investigate",
-        "--checkpoint-workspace.input_leaf_dir_name 2023-11-30_15-54-52",
+        "--task-type", "PASSED_SIMULATION_AND_PENETRATION_THRESHOLD",
+        "--nerfdata-config.output-filepath", "data/2023-11-23_rubikscuberepeat_labelnoise_2/grid_dataset/dataset.h5",
+        "--dataloader.batch-size", "128",
+        "--wandb.name", "debug_cluster_grid_noisy_large_investigate",
+        "--checkpoint-workspace.input_leaf_dir_name", "2023-11-30_15-54-52",
     ]
 
 else:
@@ -1493,7 +1493,6 @@ if cfg.data.debug_shuffle_labels:
     print(
         "WARNING: Shuffle labels is turned on! Random labels are being passed. Press 'c' to continue"
     )
-    breakpoint()
 
 # %%
 

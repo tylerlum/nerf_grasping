@@ -154,7 +154,7 @@ if is_notebook():
         "--nerfdata-config.output-filepath data/2023-11-23_rubikscuberepeat_labelnoise_2/grid_dataset/dataset.h5",
         "--dataloader.batch-size 128",
         "--wandb.name debug_cluster_grid_noisy_large_investigate",
-        "--checkpoint-workspace.leaf-dir 2023-11-30_15-54-52",
+        "--checkpoint-workspace.input_leaf_dir_name 2023-11-30_15-54-52",
     ]
 
 else:
@@ -604,14 +604,8 @@ def nerf_densities_plot_example(
     object_scale = get_object_scale(nerf_config_path)
 
     # Path to meshes
-    DEXGRASPNET_DATA_ROOT = str(pathlib.Path(nerf_grasping.get_repo_root()) / "data")
-    DEXGRASPNET_MESHDATA_ROOT = os.path.join(DEXGRASPNET_DATA_ROOT, "meshdata")
-    mesh_path = os.path.join(
-        DEXGRASPNET_MESHDATA_ROOT,
-        object_code,
-        "coacd",
-        "decomposed.obj",
-    )
+    DEXGRASPNET_MESHDATA_ROOT = pathlib.Path(nerf_grasping.get_repo_root()) / "data" / "meshdata"
+    mesh_path = DEXGRASPNET_MESHDATA_ROOT / object_code / "coacd" / "decomposed.obj"
 
     print(f"Loading mesh from {mesh_path}...")
     mesh = trimesh.load(mesh_path, force="mesh")
@@ -741,14 +735,8 @@ def depth_image_plot_example(
     object_scale = get_object_scale(nerf_config_path)
 
     # Path to meshes
-    DEXGRASPNET_DATA_ROOT = str(pathlib.Path(nerf_grasping.get_repo_root()) / "data")
-    DEXGRASPNET_MESHDATA_ROOT = os.path.join(DEXGRASPNET_DATA_ROOT, "meshdata")
-    mesh_path = os.path.join(
-        DEXGRASPNET_MESHDATA_ROOT,
-        object_code,
-        "coacd",
-        "decomposed.obj",
-    )
+    DEXGRASPNET_MESHDATA_ROOT = pathlib.Path(nerf_grasping.get_repo_root()) / "data" / "meshdata"
+    mesh_path = DEXGRASPNET_MESHDATA_ROOT / object_code / "coacd" / "decomposed.obj"
 
     print(f"Loading mesh from {mesh_path}...")
     mesh = trimesh.load(mesh_path, force="mesh")

@@ -31,8 +31,8 @@ from torchviz import make_dot
 from nerf_grasping.learned_metric.DexGraspNet_batch_data import (
     BatchData,
     BatchDataInput,
-    BatchDataOutput,
     DepthImageBatchDataInput,
+    BatchDataOutput,
 )
 from nerf_grasping.dataset.DexGraspNet_NeRF_Grasps_utils import (
     get_object_code,
@@ -52,13 +52,15 @@ from nerf_grasping.config.fingertip_config import BaseFingertipConfig
 from nerf_grasping.config.nerfdata_config import (
     DepthImageNerfDataConfig,
 )
+from nerf_grasping.learned_metric.train_dataset import (
+    NeRFGrid_To_GraspSuccess_HDF5_Dataset,
+    DepthImage_To_GraspSuccess_HDF5_Dataset,
+)
 import os
 import pypose as pp
 import h5py
 from typing import Optional, Tuple, List, Dict, Any, Union
 from sklearn.metrics import (
-    ConfusionMatrixDisplay,
-    confusion_matrix,
     accuracy_score,
     f1_score,
     precision_score,
@@ -72,7 +74,6 @@ import torch
 from torch.utils.data import (
     DataLoader,
     Subset,
-    Dataset,
     random_split,
 )
 from sklearn.utils.class_weight import compute_class_weight
@@ -80,15 +81,12 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import wandb
 from functools import partial
-from datetime import datetime
 import sys
 import random
-import shutil
 from wandb.util import generate_id
 
 from enum import Enum, auto
 from nerf_grasping.models.tyler_new_models import get_scheduler
-from nerf_grasping.config.base import CONFIG_DATETIME_STR
 
 import tyro
 
@@ -125,6 +123,7 @@ class Phase(Enum):
     TRAIN = auto()
     VAL = auto()
     TEST = auto()
+    EVAL_TRAIN = auto()
 
 
 # %%
@@ -146,20 +145,25 @@ tqdm = partial(std_tqdm, dynamic_ncols=True)
 if is_notebook():
     # arguments = [
     #     "cnn-2d-1d",
-    #     "--task-type",
-    #     "PASSED_SIMULATION_AND_PENETRATION_THRESHOLD",
-    #     "--nerfdata-config.output-filepath",
-    #     "data/2023-10-13_13-12-28/learned_metric_dataset/2023-11-13_12-19-14_learned_metric_dataset.h5",
-    #     "nerfdata-config.fingertip-config:big-even",
+    #     "--task-type", "PASSED_SIMULATION_AND_PENETRATION_THRESHOLD",
+    #     "--nerfdata-config.output-filepath", "data/2023-11-23_rubikscuberepeat_labelnoise_2/grid_dataset/dataset.h5",
+    #     "--dataloader.batch-size", "128",
+    #     "--wandb.name", "debug_cluster_grid_noisy_large_investigate",
+    #     "--checkpoint-workspace.input_leaf_dir_name", "2023-11-30_15-49-25",
     # ]
+
     arguments = [
         "depth-cnn-2d",
         "--task-type",
         "PASSED_SIMULATION_AND_PENETRATION_THRESHOLD",
         "--nerfdata-config.output-filepath",
-        "data/2023-10-13_13-12-28/learned_metric_dataset/2023-11-13_12-19-14_learned_metric_dataset.h5",
-        "nerfdata-config.fingertip-config:big-even",
+        "data/2023-11-23_rubikscuberepeat_labelnoise_2/depth_image_dataset/dataset.h5",
+        "--wandb.name",
+        "probe_debug_depth_noisy_large",
+        "--checkpoint-workspace.input_leaf_dir_name",
+        "2023-11-30_15-49-25",
     ]
+
 else:
     arguments = sys.argv[1:]
     print(f"arguments = {arguments}")
@@ -186,12 +190,9 @@ NUM_PTS_Z = cfg.nerfdata_config.fingertip_config.num_pts_z
 
 
 # %%
+print("=" * 80)
 print(f"Config:\n{tyro.extras.to_yaml(cfg)}")
-
-# %%
-if cfg.dry_run:
-    print("Dry run passed. Exiting.")
-    exit()
+print("=" * 80 + "\n")
 
 # %% [markdown]
 # # Set Random Seed
@@ -219,62 +220,44 @@ set_seed(cfg.random_seed)
 
 
 # %%
-@localscope.mfc
-def load_checkpoint(checkpoint_workspace_dir_path: str) -> Optional[Dict[str, Any]]:
-    checkpoint_filepaths = sorted(
-        [
-            os.path.join(checkpoint_workspace_dir_path, filename)
-            for filename in os.listdir(checkpoint_workspace_dir_path)
-            if filename.endswith(".pt")
-        ]
-    )
-    if len(checkpoint_filepaths) == 0:
-        print("No checkpoint found")
-        return None
-    return torch.load(checkpoint_filepaths[-1])
-
-
-# %%
 # Set up checkpoint_workspace
-if not os.path.exists(cfg.checkpoint_workspace.root_dir):
-    os.makedirs(cfg.checkpoint_workspace.root_dir)
+cfg.checkpoint_workspace.root_dir.mkdir(parents=True, exist_ok=True)
 
-checkpoint_workspace_dir_path = os.path.join(
-    cfg.checkpoint_workspace.root_dir, cfg.checkpoint_workspace.leaf_dir
-)
-
-# Remove checkpoint_workspace directory if force_no_resume is set
-if (
-    os.path.exists(checkpoint_workspace_dir_path)
-    and cfg.checkpoint_workspace.force_no_resume
-):
-    print(f"force_no_resume = {cfg.checkpoint_workspace.force_no_resume}")
-    print(f"Removing checkpoint_workspace directory at {checkpoint_workspace_dir_path}")
-    shutil.rmtree(checkpoint_workspace_dir_path)
-    print("Done removing checkpoint_workspace directory")
-
-# Read wandb_run_id from checkpoint_workspace if it exists
-wandb_run_id_filepath = os.path.join(checkpoint_workspace_dir_path, "wandb_run_id.txt")
-if os.path.exists(checkpoint_workspace_dir_path):
+# If input_dir != output_dir, then we create a new output_dir and wandb_run_id
+if cfg.checkpoint_workspace.input_dir != cfg.checkpoint_workspace.output_dir:
+    assert (
+        not cfg.checkpoint_workspace.output_dir.exists()
+    ), f"checkpoint_workspace.output_dir already exists at {cfg.checkpoint_workspace.output_dir}"
     print(
-        f"checkpoint_workspace directory already exists at {checkpoint_workspace_dir_path}"
+        f"input {cfg.checkpoint_workspace.input_dir} != output {cfg.checkpoint_workspace.output_dir}. Creating new wandb_run_id"
     )
 
-    print(f"Loading wandb_run_id from {wandb_run_id_filepath}")
-    with open(wandb_run_id_filepath, "r") as f:
-        wandb_run_id = f.read()
-    print(f"Done loading wandb_run_id = {wandb_run_id}")
-
-else:
-    print(f"Creating checkpoint_workspace directory at {checkpoint_workspace_dir_path}")
-    os.makedirs(checkpoint_workspace_dir_path)
-    print("Done creating checkpoint_workspace directory")
+    cfg.checkpoint_workspace.output_dir.mkdir()
+    print(
+        f"Done creating cfg.checkpoint_workspace.output_dir {cfg.checkpoint_workspace.output_dir}"
+    )
 
     wandb_run_id = generate_id()
+    wandb_run_id_filepath = cfg.checkpoint_workspace.output_dir / "wandb_run_id.txt"
     print(f"Saving wandb_run_id = {wandb_run_id} to {wandb_run_id_filepath}")
     with open(wandb_run_id_filepath, "w") as f:
         f.write(wandb_run_id)
     print("Done saving wandb_run_id")
+# If input_dir == output_dir, then we must resume from checkpoint (else weird behavior in checkpoint dir)
+else:
+    assert (
+        cfg.checkpoint_workspace.input_dir is not None
+        and cfg.checkpoint_workspace.input_dir.exists()
+    ), f"checkpoint_workspace.input_dir does not exist at {cfg.checkpoint_workspace.input_dir}"
+    assert (
+        cfg.wandb.resume != "never"
+    ), f"checkpoint_workspace.input_dir is {cfg.checkpoint_workspace.input_dir}, but cfg.wandb.resume is {cfg.wandb.resume}"
+
+    wandb_run_id_filepath = cfg.checkpoint_workspace.output_dir / "wandb_run_id.txt"
+    print(f"Loading wandb_run_id from {wandb_run_id_filepath}")
+    with open(wandb_run_id_filepath, "r") as f:
+        wandb_run_id = f.read()
+    print(f"Done loading wandb_run_id = {wandb_run_id}")
 
 # %% [markdown]
 # # Setup Wandb Logging
@@ -290,476 +273,12 @@ run = wandb.init(
     job_type=cfg.wandb.job_type,
     config=asdict(cfg),
     id=wandb_run_id,
-    resume="never" if cfg.checkpoint_workspace.force_no_resume else "allow",
+    resume=cfg.wandb.resume,
     reinit=True,
 )
 
 # %% [markdown]
 # # Dataset and Dataloader
-
-
-# %%
-class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
-    # @localscope.mfc  # ValueError: Cell is empty
-    def __init__(
-        self,
-        input_hdf5_filepath: str,
-        max_num_data_points: Optional[int] = None,
-        load_nerf_densities_in_ram: bool = False,
-        load_grasp_labels_in_ram: bool = True,
-        load_grasp_transforms_in_ram: bool = True,
-        load_nerf_configs_in_ram: bool = True,
-        load_grasp_configs_in_ram: bool = True,
-    ) -> None:
-        super().__init__()
-        self.input_hdf5_filepath = input_hdf5_filepath
-
-        # Recommended in https://discuss.pytorch.org/t/dataloader-when-num-worker-0-there-is-bug/25643/13
-        self.hdf5_file = None
-
-        with h5py.File(self.input_hdf5_filepath, "r") as hdf5_file:
-            self.len = self._set_length(
-                hdf5_file=hdf5_file, max_num_data_points=max_num_data_points
-            )
-
-            # Check that the data is in the expected format
-            assert_equals(len(hdf5_file["/passed_simulation"].shape), 1)
-            assert_equals(len(hdf5_file["/passed_penetration_threshold"].shape), 1)
-            assert_equals(len(hdf5_file["/passed_eval"].shape), 1)
-            assert_equals(
-                hdf5_file["/nerf_densities"].shape[1:],
-                (
-                    NUM_FINGERS,
-                    NUM_PTS_X,
-                    NUM_PTS_Y,
-                    NUM_PTS_Z,
-                ),
-            )
-            assert_equals(
-                hdf5_file["/grasp_transforms"].shape[1:],
-                (
-                    NUM_FINGERS,
-                    4,
-                    4,
-                ),
-            )
-            assert_equals(
-                hdf5_file["/grasp_configs"].shape[1:], (NUM_FINGERS, 7 + 16 + 4)
-            )
-
-            # This is usually too big for RAM
-            self.nerf_densities = (
-                torch.from_numpy(hdf5_file["/nerf_densities"][()]).float()
-                if load_nerf_densities_in_ram
-                else None
-            )
-
-            # This is small enough to fit in RAM
-            self.passed_simulations = (
-                torch.from_numpy(hdf5_file["/passed_simulation"][()]).float()
-                if load_grasp_labels_in_ram
-                else None
-            )
-            self.passed_penetration_thresholds = (
-                torch.from_numpy(hdf5_file["/passed_penetration_threshold"][()]).float()
-                if load_grasp_labels_in_ram
-                else None
-            )
-            self.passed_evals = (
-                torch.from_numpy(hdf5_file["/passed_eval"][()]).float()
-                if load_grasp_labels_in_ram
-                else None
-            )
-
-            # This is small enough to fit in RAM
-            self.grasp_transforms = (
-                pp.from_matrix(
-                    torch.from_numpy(hdf5_file["/grasp_transforms"][()]).float(),
-                    pp.SE3_type,
-                    atol=PP_MATRIX_ATOL,
-                    rtol=PP_MATRIX_RTOL,
-                )
-                if load_grasp_transforms_in_ram
-                else None
-            )
-
-            # This is small enough to fit in RAM
-            self.nerf_configs = (
-                hdf5_file["/nerf_config"][()] if load_nerf_configs_in_ram else None
-            )
-
-            self.grasp_configs = (
-                torch.from_numpy(hdf5_file["/grasp_configs"][()]).float()
-                if load_grasp_configs_in_ram
-                else None
-            )
-
-    @localscope.mfc
-    def _set_length(
-        self, hdf5_file: h5py.File, max_num_data_points: Optional[int]
-    ) -> int:
-        length = (
-            hdf5_file.attrs["num_data_points"]
-            if "num_data_points" in hdf5_file.attrs
-            else hdf5_file["/passed_simulation"].shape[0]
-        )
-        if length != hdf5_file["/passed_simulation"].shape[0]:
-            print(
-                f"WARNING: num_data_points = {length} != passed_simulation.shape[0] = {hdf5_file['/passed_simulation'].shape[0]}"
-            )
-
-        # Constrain length of dataset if max_num_data_points is set
-        if max_num_data_points is not None:
-            print(f"Constraining dataset length to {max_num_data_points}")
-            length = max_num_data_points
-
-        return length
-
-    @localscope.mfc
-    def __len__(self) -> int:
-        return self.len
-
-    @localscope.mfc(
-        allowed=[
-            "NUM_FINGERS",
-            "NUM_PTS_X",
-            "NUM_PTS_Y",
-            "NUM_PTS_Z",
-        ]
-    )
-    def __getitem__(self, idx: int):
-        if self.hdf5_file is None:
-            # Hope to speed up with rdcc params
-            self.hdf5_file = h5py.File(
-                self.input_hdf5_filepath,
-                "r",
-                rdcc_nbytes=1024**2 * 4_000,
-                rdcc_w0=0.75,
-                rdcc_nslots=4_000,
-            )
-
-        nerf_densities = (
-            torch.from_numpy(self.hdf5_file["/nerf_densities"][idx]).float()
-            if self.nerf_densities is None
-            else self.nerf_densities[idx]
-        )
-
-        passed_simulation = (
-            torch.from_numpy(
-                np.array(self.hdf5_file["/passed_simulation"][idx])
-            ).float()
-            if self.passed_simulations is None
-            else self.passed_simulations[idx]
-        )
-        passed_penetration_threshold = (
-            torch.from_numpy(
-                np.array(self.hdf5_file["/passed_penetration_threshold"][idx])
-            ).float()
-            if self.passed_penetration_thresholds is None
-            else self.passed_penetration_thresholds[idx]
-        )
-        passed_eval = (
-            torch.from_numpy(np.array(self.hdf5_file["/passed_eval"][idx])).float()
-            if self.passed_evals is None
-            else self.passed_evals[idx]
-        )
-        assert_equals(passed_simulation.shape, ())
-        assert_equals(passed_penetration_threshold.shape, ())
-        assert_equals(passed_eval.shape, ())
-
-        # TODO: Consider thresholding passed_X labels to be 0 or 1
-        # Convert to float classes (N,) -> (N, 2)
-        passed_simulation = torch.stack(
-            [1 - passed_simulation, passed_simulation], dim=-1
-        )
-        passed_penetration_threshold = torch.stack(
-            [1 - passed_penetration_threshold, passed_penetration_threshold], dim=-1
-        )
-        passed_eval = torch.stack([1 - passed_eval, passed_eval], dim=-1)
-
-        grasp_transforms = (
-            torch.from_numpy(np.array(self.hdf5_file["/grasp_transforms"][idx])).float()
-            if self.grasp_transforms is None
-            else self.grasp_transforms[idx]
-        )
-
-        nerf_config = (
-            self.hdf5_file["/nerf_config"][idx]
-            if self.nerf_configs is None
-            else self.nerf_configs[idx]
-        ).decode("utf-8")
-
-        grasp_configs = (
-            torch.from_numpy(np.array(self.hdf5_file["/grasp_configs"][idx])).float()
-            if self.grasp_configs is None
-            else self.grasp_configs[idx]
-        )
-
-        assert_equals(
-            nerf_densities.shape, (NUM_FINGERS, NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z)
-        )
-        NUM_CLASSES = 2
-        assert_equals(passed_simulation.shape, (NUM_CLASSES,))
-        assert_equals(passed_penetration_threshold.shape, (NUM_CLASSES,))
-        assert_equals(passed_eval.shape, (NUM_CLASSES,))
-        assert_equals(grasp_transforms.shape, (NUM_FINGERS, 4, 4))
-        assert_equals(grasp_configs.shape, (NUM_FINGERS, 7 + 16 + 4))
-
-        return (
-            nerf_densities,
-            passed_simulation,
-            passed_penetration_threshold,
-            passed_eval,
-            grasp_transforms,
-            nerf_config,
-            grasp_configs,
-        )
-
-
-# %%
-class DepthImage_To_GraspSuccess_HDF5_Dataset(Dataset):
-    # @localscope.mfc  # ValueError: Cell is empty
-    def __init__(
-        self,
-        input_hdf5_filepath: str,
-        max_num_data_points: Optional[int] = None,
-        load_depth_images_in_ram: bool = False,
-        load_grasp_labels_in_ram: bool = True,
-        load_grasp_transforms_in_ram: bool = True,
-        load_nerf_configs_in_ram: bool = True,
-        load_grasp_configs_in_ram: bool = True,
-    ) -> None:
-        super().__init__()
-        self.input_hdf5_filepath = input_hdf5_filepath
-
-        # Recommended in https://discuss.pytorch.org/t/dataloader-when-num-worker-0-there-is-bug/25643/13
-        self.hdf5_file = None
-
-        with h5py.File(self.input_hdf5_filepath, "r") as hdf5_file:
-            self.len = self._set_length(
-                hdf5_file=hdf5_file, max_num_data_points=max_num_data_points
-            )
-
-            # Check that the data is in the expected format
-            assert_equals(len(hdf5_file["/passed_simulation"].shape), 1)
-            assert_equals(len(hdf5_file["/passed_penetration_threshold"].shape), 1)
-            assert_equals(len(hdf5_file["/passed_eval"].shape), 1)
-            assert_equals(
-                hdf5_file["/depth_images"].shape[1:],
-                (
-                    NUM_FINGERS,
-                    DEPTH_IMAGE_HEIGHT,
-                    DEPTH_IMAGE_WIDTH,
-                ),
-            )
-            assert_equals(
-                hdf5_file["/uncertainty_images"].shape[1:],
-                (
-                    NUM_FINGERS,
-                    DEPTH_IMAGE_HEIGHT,
-                    DEPTH_IMAGE_WIDTH,
-                ),
-            )
-            assert_equals(
-                hdf5_file["/grasp_transforms"].shape[1:],
-                (
-                    NUM_FINGERS,
-                    4,
-                    4,
-                ),
-            )
-            assert_equals(
-                hdf5_file["/grasp_configs"].shape[1:], (NUM_FINGERS, 7 + 16 + 4)
-            )
-
-            # This is usually too big for RAM
-            self.depth_uncertainty_images = (
-                torch.stack(
-                    [
-                        torch.from_numpy(hdf5_file["/depth_images"][()]).float(),
-                        torch.from_numpy(hdf5_file["/uncertainty_images"][()]).float(),
-                    ],
-                    dim=-3,
-                )
-                if load_depth_images_in_ram
-                else None
-            )
-
-            # This is small enough to fit in RAM
-            self.passed_simulations = (
-                torch.from_numpy(hdf5_file["/passed_simulation"][()]).float()
-                if load_grasp_labels_in_ram
-                else None
-            )
-            self.passed_penetration_thresholds = (
-                torch.from_numpy(hdf5_file["/passed_penetration_threshold"][()]).float()
-                if load_grasp_labels_in_ram
-                else None
-            )
-            self.passed_evals = (
-                torch.from_numpy(hdf5_file["/passed_eval"][()]).float()
-                if load_grasp_labels_in_ram
-                else None
-            )
-
-            # This is small enough to fit in RAM
-            self.grasp_transforms = (
-                pp.from_matrix(
-                    torch.from_numpy(hdf5_file["/grasp_transforms"][()]).float(),
-                    pp.SE3_type,
-                    atol=PP_MATRIX_ATOL,
-                    rtol=PP_MATRIX_RTOL,
-                )
-                if load_grasp_transforms_in_ram
-                else None
-            )
-
-            # This is small enough to fit in RAM
-            self.nerf_configs = (
-                hdf5_file["/nerf_config"][()] if load_nerf_configs_in_ram else None
-            )
-
-            self.grasp_configs = (
-                torch.from_numpy(hdf5_file["/grasp_configs"][()]).float()
-                if load_grasp_configs_in_ram
-                else None
-            )
-
-    @localscope.mfc
-    def _set_length(
-        self, hdf5_file: h5py.File, max_num_data_points: Optional[int]
-    ) -> int:
-        length = (
-            hdf5_file.attrs["num_data_points"]
-            if "num_data_points" in hdf5_file.attrs
-            else hdf5_file["/passed_simulation"].shape[0]
-        )
-        if length != hdf5_file["/passed_simulation"].shape[0]:
-            print(
-                f"WARNING: num_data_points = {length} != passed_simulation.shape[0] = {hdf5_file['/passed_simulation'].shape[0]}"
-            )
-
-        # Constrain length of dataset if max_num_data_points is set
-        if max_num_data_points is not None:
-            print(f"Constraining dataset length to {max_num_data_points}")
-            length = max_num_data_points
-
-        return length
-
-    @localscope.mfc
-    def __len__(self) -> int:
-        return self.len
-
-    @localscope.mfc(
-        allowed=[
-            "NUM_FINGERS",
-            "DEPTH_IMAGE_N_CHANNELS",
-            "DEPTH_IMAGE_HEIGHT",
-            "DEPTH_IMAGE_WIDTH",
-        ]
-    )
-    def __getitem__(self, idx: int):
-        if self.hdf5_file is None:
-            # Hope to speed up with rdcc params
-            self.hdf5_file = h5py.File(
-                self.input_hdf5_filepath,
-                "r",
-                rdcc_nbytes=1024**2 * 4_000,
-                rdcc_w0=0.75,
-                rdcc_nslots=4_000,
-            )
-
-        depth_uncertainty_images = (
-            torch.stack(
-                [
-                    torch.from_numpy(self.hdf5_file["/depth_images"][idx]).float(),
-                    torch.from_numpy(
-                        self.hdf5_file["/uncertainty_images"][idx]
-                    ).float(),
-                ],
-                dim=-3,
-            )
-            if self.depth_uncertainty_images is None
-            else self.depth_uncertainty_images[idx]
-        )
-
-        passed_simulation = (
-            torch.from_numpy(
-                np.array(self.hdf5_file["/passed_simulation"][idx])
-            ).float()
-            if self.passed_simulations is None
-            else self.passed_simulations[idx]
-        )
-        passed_penetration_threshold = (
-            torch.from_numpy(
-                np.array(self.hdf5_file["/passed_penetration_threshold"][idx])
-            ).float()
-            if self.passed_penetration_thresholds is None
-            else self.passed_penetration_thresholds[idx]
-        )
-        passed_eval = (
-            torch.from_numpy(np.array(self.hdf5_file["/passed_eval"][idx])).float()
-            if self.passed_evals is None
-            else self.passed_evals[idx]
-        )
-        assert_equals(passed_simulation.shape, ())
-        assert_equals(passed_penetration_threshold.shape, ())
-        assert_equals(passed_eval.shape, ())
-
-        # TODO: Consider thresholding passed_X labels to be 0 or 1
-        # Convert to float classes (N,) -> (N, 2)
-        passed_simulation = torch.stack(
-            [1 - passed_simulation, passed_simulation], dim=-1
-        )
-        passed_penetration_threshold = torch.stack(
-            [1 - passed_penetration_threshold, passed_penetration_threshold], dim=-1
-        )
-        passed_eval = torch.stack([1 - passed_eval, passed_eval], dim=-1)
-
-        grasp_transforms = (
-            torch.from_numpy(np.array(self.hdf5_file["/grasp_transforms"][idx])).float()
-            if self.grasp_transforms is None
-            else self.grasp_transforms[idx]
-        )
-
-        nerf_config = (
-            self.hdf5_file["/nerf_config"][idx]
-            if self.nerf_configs is None
-            else self.nerf_configs[idx]
-        ).decode("utf-8")
-
-        grasp_configs = (
-            torch.from_numpy(np.array(self.hdf5_file["/grasp_configs"][idx])).float()
-            if self.grasp_configs is None
-            else self.grasp_configs[idx]
-        )
-
-        assert_equals(
-            depth_uncertainty_images.shape,
-            (
-                NUM_FINGERS,
-                DEPTH_IMAGE_N_CHANNELS,
-                DEPTH_IMAGE_HEIGHT,
-                DEPTH_IMAGE_WIDTH,
-            ),
-        )
-        NUM_CLASSES = 2
-        assert_equals(passed_simulation.shape, (NUM_CLASSES,))
-        assert_equals(passed_penetration_threshold.shape, (NUM_CLASSES,))
-        assert_equals(passed_eval.shape, (NUM_CLASSES,))
-        assert_equals(grasp_transforms.shape, (NUM_FINGERS, 4, 4))
-        assert_equals(grasp_configs.shape, (NUM_FINGERS, 7 + 16 + 4))
-
-        return (
-            depth_uncertainty_images,
-            passed_simulation,
-            passed_penetration_threshold,
-            passed_eval,
-            grasp_transforms,
-            nerf_config,
-            grasp_configs,
-        )
-
 
 # %%
 
@@ -767,6 +286,8 @@ input_dataset_full_path = str(cfg.nerfdata_config.output_filepath)
 if USE_DEPTH_IMAGES:
     full_dataset = DepthImage_To_GraspSuccess_HDF5_Dataset(
         input_hdf5_filepath=input_dataset_full_path,
+        fingertip_config=cfg.nerfdata_config.fingertip_config,
+        fingertip_camera_config=cfg.nerfdata_config.fingertip_camera_config,
         max_num_data_points=cfg.data.max_num_data_points,
         load_depth_images_in_ram=cfg.dataloader.load_nerf_grid_inputs_in_ram,
         load_grasp_labels_in_ram=cfg.dataloader.load_grasp_labels_in_ram,
@@ -776,6 +297,7 @@ if USE_DEPTH_IMAGES:
 else:
     full_dataset = NeRFGrid_To_GraspSuccess_HDF5_Dataset(
         input_hdf5_filepath=input_dataset_full_path,
+        fingertip_config=cfg.nerfdata_config.fingertip_config,
         max_num_data_points=cfg.data.max_num_data_points,
         load_nerf_densities_in_ram=cfg.dataloader.load_nerf_grid_inputs_in_ram,
         load_grasp_labels_in_ram=cfg.dataloader.load_grasp_labels_in_ram,
@@ -1089,14 +611,10 @@ def nerf_densities_plot_example(
     object_scale = get_object_scale(nerf_config_path)
 
     # Path to meshes
-    DEXGRASPNET_DATA_ROOT = str(pathlib.Path(nerf_grasping.get_repo_root()) / "data")
-    DEXGRASPNET_MESHDATA_ROOT = os.path.join(DEXGRASPNET_DATA_ROOT, "meshdata")
-    mesh_path = os.path.join(
-        DEXGRASPNET_MESHDATA_ROOT,
-        object_code,
-        "coacd",
-        "decomposed.obj",
+    DEXGRASPNET_MESHDATA_ROOT = (
+        pathlib.Path(nerf_grasping.get_repo_root()) / "data" / "meshdata"
     )
+    mesh_path = DEXGRASPNET_MESHDATA_ROOT / object_code / "coacd" / "decomposed.obj"
 
     print(f"Loading mesh from {mesh_path}...")
     mesh = trimesh.load(mesh_path, force="mesh")
@@ -1226,14 +744,10 @@ def depth_image_plot_example(
     object_scale = get_object_scale(nerf_config_path)
 
     # Path to meshes
-    DEXGRASPNET_DATA_ROOT = str(pathlib.Path(nerf_grasping.get_repo_root()) / "data")
-    DEXGRASPNET_MESHDATA_ROOT = os.path.join(DEXGRASPNET_DATA_ROOT, "meshdata")
-    mesh_path = os.path.join(
-        DEXGRASPNET_MESHDATA_ROOT,
-        object_code,
-        "coacd",
-        "decomposed.obj",
+    DEXGRASPNET_MESHDATA_ROOT = (
+        pathlib.Path(nerf_grasping.get_repo_root()) / "data" / "meshdata"
     )
+    mesh_path = DEXGRASPNET_MESHDATA_ROOT / object_code / "coacd" / "decomposed.obj"
 
     print(f"Loading mesh from {mesh_path}...")
     mesh = trimesh.load(mesh_path, force="mesh")
@@ -1378,9 +892,17 @@ lr_scheduler = get_scheduler(
 # # Load Checkpoint
 
 # %%
-checkpoint = load_checkpoint(checkpoint_workspace_dir_path)
-if checkpoint is not None:
-    print("Loading checkpoint...")
+if cfg.checkpoint_workspace.input_dir is not None:
+    assert (
+        cfg.checkpoint_workspace.input_dir.exists()
+    ), f"checkpoint_workspace.input_dir does not exist at {cfg.checkpoint_workspace.input_dir}"
+    print(f"Loading checkpoint ({cfg.checkpoint_workspace.input_dir})...")
+    latest_checkpoint_path = cfg.checkpoint_workspace.latest_input_checkpoint_path
+    assert (
+        latest_checkpoint_path is not None and latest_checkpoint_path.exists()
+    ), f"latest_checkpoint_path does not exist at {latest_checkpoint_path}"
+
+    checkpoint = torch.load(latest_checkpoint_path)
     classifier.load_state_dict(checkpoint["classifier"])
     optimizer.load_state_dict(checkpoint["optimizer"])
     start_epoch = checkpoint["epoch"]
@@ -1457,15 +979,13 @@ if SHOW_DOT:
 # %%
 @localscope.mfc
 def save_checkpoint(
-    checkpoint_workspace_dir_path: str,
+    checkpoint_output_dir: pathlib.Path,
     epoch: int,
     classifier: Classifier,
     optimizer: torch.optim.Optimizer,
     lr_scheduler: Optional[torch.optim.lr_scheduler.LRScheduler] = None,
 ) -> None:
-    checkpoint_filepath = os.path.join(
-        checkpoint_workspace_dir_path, f"checkpoint_{epoch:04}.pt"
-    )
+    checkpoint_filepath = checkpoint_output_dir / f"checkpoint_{epoch:04}.pt"
     print(f"Saving checkpoint to {checkpoint_filepath}")
     torch.save(
         {
@@ -1494,13 +1014,15 @@ def _iterate_through_dataloader(
     training_cfg: Optional[ClassifierTrainingConfig] = None,
     optimizer: Optional[torch.optim.Optimizer] = None,
     lr_scheduler: Optional[torch.optim.lr_scheduler.LRScheduler] = None,
+    max_num_batches: Optional[int] = None,
+    log_every_n_batches: int = 5,
 ) -> Tuple[Dict[str, List[float]], Dict[str, List[float]], Dict[str, List[float]]]:
     losses_dict = defaultdict(list)  # loss name => list of losses (one loss per batch)
     predictions_dict, ground_truths_dict = defaultdict(list), defaultdict(
         list
     )  # task name => list of predictions / ground truths (one per datapoint)
 
-    assert phase in [Phase.TRAIN, Phase.VAL, Phase.TEST]
+    assert phase in [Phase.TRAIN, Phase.VAL, Phase.TEST, Phase.EVAL_TRAIN]
     if phase == Phase.TRAIN:
         classifier.train()
         assert training_cfg is not None and optimizer is not None
@@ -1519,6 +1041,10 @@ def _iterate_through_dataloader(
             dataload_section_timer.stop()
 
             batch_idx = int(batch_idx)
+
+            if max_num_batches is not None and batch_idx >= max_num_batches:
+                break
+
             batch_data: BatchData = batch_data.to(device)
             if (
                 USE_DEPTH_IMAGES
@@ -1585,11 +1111,17 @@ def _iterate_through_dataloader(
                         input=task_logits,
                         target=task_target,
                     )
-                    losses_dict[f"{task_name}_loss"].append(task_loss.item())
+                    assert task_loss.shape == (batch_data.batch_size,)
+                    losses_dict[f"{task_name}_loss"].extend(task_loss.tolist())
                     task_losses.append(task_loss)
-                total_loss = torch.sum(
-                    torch.stack(task_losses)
+                task_losses = torch.stack(task_losses, dim=0)
+                assert_equals(
+                    task_losses.shape, (classifier.n_tasks, batch_data.batch_size)
+                )
+                total_loss = torch.mean(
+                    task_losses, dim=0
                 )  # TODO: Consider weighting losses.
+                assert_equals(total_loss.shape, (batch_data.batch_size,))
 
             # Gradient step
             with loop_timer.add_section_timer("Bwd"):
@@ -1612,7 +1144,7 @@ def _iterate_through_dataloader(
 
             # Loss logging
             with loop_timer.add_section_timer("Loss"):
-                losses_dict["loss"].append(total_loss.item())
+                losses_dict["loss"].extend(total_loss.tolist())
 
             # Gather predictions
             with loop_timer.add_section_timer("Gather"):
@@ -1625,17 +1157,62 @@ def _iterate_through_dataloader(
                     predictions_dict[f"{task_name}"] += predictions
                     ground_truths_dict[f"{task_name}"] += ground_truths
 
+            if (
+                wandb.run is not None
+                and log_every_n_batches is not None
+                and batch_idx % log_every_n_batches == 0
+                and batch_idx != 0
+            ):
+                with loop_timer.add_section_timer("Log"):
+                    mid_epoch_log_dict = {}
+                    for loss_name, losses in losses_dict.items():
+                        mid_epoch_log_dict.update(
+                            {
+                                f"mid_epoch/{phase.name.lower()}_{loss_name}": np.mean(
+                                    losses
+                                ),
+                                f"mid_epoch/{phase.name.lower()}_{loss_name}_min": np.min(
+                                    losses
+                                ),
+                                f"mid_epoch/{phase.name.lower()}_{loss_name}_quartile_25": np.quantile(
+                                    losses, 0.25
+                                ),
+                                f"mid_epoch/{phase.name.lower()}_{loss_name}_median": np.median(
+                                    losses
+                                ),
+                                f"mid_epoch/{phase.name.lower()}_{loss_name}_quartile_75": np.quantile(
+                                    losses, 0.75
+                                ),
+                                f"mid_epoch/{phase.name.lower()}_{loss_name}_max": np.max(
+                                    losses
+                                ),
+                            }
+                        )
+                    wandb.log(mid_epoch_log_dict)
+
+                loop_timer.pretty_print_section_times()
+
             # Set description
-            loss_log_str = (
-                f"loss: {np.mean(losses_dict['loss']):.5f}"
-                if len(losses_dict["loss"]) > 0
-                else "loss: N/A"
-            )
+            if len(losses_dict["loss"]) > 0:
+                loss_log_strs = [
+                    f"{loss_name}: "
+                    + f"{np.mean(losses):.3f} "
+                    + f"({np.min(losses):.3f}, "
+                    + f"{np.quantile(losses, 0.25):.3f}, "
+                    + f"{np.median(losses):.3f}, "
+                    + f"{np.quantile(losses, 0.75):.3f}, "
+                    + f"{np.max(losses):.3f})"
+                    for loss_name, losses in losses_dict.items()
+                ]
+
+            else:
+                loss_log_strs = ["loss: N/A"]
+
             description = " | ".join(
                 [
-                    f"{phase.name.lower()} (ms)",
-                    loss_log_str,
+                    f"{phase.name.lower()}",
                 ]
+                + loss_log_strs
             )
             pbar.set_description(description)
 
@@ -1662,6 +1239,11 @@ def create_log_dict(
     with loop_timer.add_section_timer("Agg Loss"):
         for loss_name, losses in losses_dict.items():
             temp_log_dict[f"{loss_name}"] = np.mean(losses)
+            temp_log_dict[f"{loss_name}_min"] = np.min(losses)
+            temp_log_dict[f"{loss_name}_quartile_25"] = np.quantile(losses, 0.25)
+            temp_log_dict[f"{loss_name}_median"] = np.median(losses)
+            temp_log_dict[f"{loss_name}_quartile_75"] = np.quantile(losses, 0.75)
+            temp_log_dict[f"{loss_name}_max"] = np.max(losses)
 
     with loop_timer.add_section_timer("Metrics"):
         assert_equals(set(predictions_dict.keys()), set(ground_truths_dict.keys()))
@@ -1758,7 +1340,7 @@ def run_training_loop(
     device: torch.device,
     ce_loss_fns: List[nn.CrossEntropyLoss],
     optimizer: torch.optim.Optimizer,
-    checkpoint_workspace_dir_path: str,
+    checkpoint_output_dir: pathlib.Path,
     task_type: TaskType,
     lr_scheduler: Optional[torch.optim.lr_scheduler.LRScheduler] = None,
     start_epoch: int = 0,
@@ -1780,7 +1362,7 @@ def run_training_loop(
             epoch != 0 or training_cfg.save_checkpoint_on_epoch_0
         ):
             save_checkpoint(
-                checkpoint_workspace_dir_path=checkpoint_workspace_dir_path,
+                checkpoint_output_dir=checkpoint_output_dir,
                 epoch=epoch,
                 classifier=classifier,
                 optimizer=optimizer,
@@ -1873,22 +1455,21 @@ def compute_class_weight_np(
         print("Computing class weight with this data...")
         t5 = time.time()
 
-        # class_weight threshold required to make binary classes
-        CLASS_WEIGHT_THRESHOLD = 0.4
+        # argmax required to make binary classes
         passed_simulation_class_weight_np = compute_class_weight(
             class_weight="balanced",
-            classes=np.unique(passed_simulations_np < CLASS_WEIGHT_THRESHOLD),
-            y=passed_simulations_np < CLASS_WEIGHT_THRESHOLD,
+            classes=np.unique(passed_simulations_np.argmax(axis=-1)),
+            y=passed_simulations_np.argmax(axis=-1),
         )
         passed_penetration_threshold_class_weight_np = compute_class_weight(
             class_weight="balanced",
-            classes=np.unique(passed_penetration_threshold_np < CLASS_WEIGHT_THRESHOLD),
-            y=passed_penetration_threshold_np < CLASS_WEIGHT_THRESHOLD,
+            classes=np.unique(passed_penetration_threshold_np.argmax(axis=-1)),
+            y=passed_penetration_threshold_np.argmax(axis=-1),
         )
         passed_eval_class_weight_np = compute_class_weight(
             class_weight="balanced",
-            classes=np.unique(passed_eval_np < CLASS_WEIGHT_THRESHOLD),
-            y=passed_eval_np < CLASS_WEIGHT_THRESHOLD,
+            classes=np.unique(passed_eval_np.argmax(axis=-1)),
+            y=passed_eval_np.argmax(axis=-1),
         )
         t6 = time.time()
         print(f"Computed class weight in {t6 - t5:.2f} s")
@@ -1948,14 +1529,19 @@ if cfg.training.extra_punish_false_positive_factor != 0.0:
     )
 
 passed_simulation_ce_loss_fn = nn.CrossEntropyLoss(
-    weight=passed_simulation_class_weight, label_smoothing=cfg.training.label_smoothing
+    weight=passed_simulation_class_weight,
+    label_smoothing=cfg.training.label_smoothing,
+    reduction="none",
 )
 passed_penetration_threshold_ce_loss_fn = nn.CrossEntropyLoss(
     weight=passed_penetration_threshold_class_weight,
     label_smoothing=cfg.training.label_smoothing,
+    reduction="none",
 )
 passed_eval_ce_loss_fn = nn.CrossEntropyLoss(
-    weight=passed_eval_class_weight, label_smoothing=cfg.training.label_smoothing
+    weight=passed_eval_class_weight,
+    label_smoothing=cfg.training.label_smoothing,
+    reduction="none",
 )
 
 if cfg.task_type == TaskType.PASSED_SIMULATION:
@@ -1973,7 +1559,7 @@ else:
     raise ValueError(f"Unknown task_type: {cfg.task_type}")
 
 # Save out config to file if we haven't yet.
-cfg_path = pathlib.Path(checkpoint_workspace_dir_path) / "config.yaml"
+cfg_path = pathlib.Path(cfg.checkpoint_workspace.output_dir) / "config.yaml"
 if not cfg_path.exists():
     cfg_yaml = tyro.extras.to_yaml(cfg)
     with open(cfg_path, "w") as f:
@@ -1984,9 +1570,152 @@ if cfg.data.debug_shuffle_labels:
     print(
         "WARNING: Shuffle labels is turned on! Random labels are being passed. Press 'c' to continue"
     )
-    breakpoint()
+
+# %% [markdown]
+# # Analyze model
+# loop_timer = LoopTimer()
+# (
+#     val_losses_dict,
+#     val_predictions_dict,
+#     val_ground_truths_dict,
+# ) = _iterate_through_dataloader(
+#     loop_timer=loop_timer,
+#     phase=Phase.VAL,
+#     dataloader=val_loader,
+#     classifier=classifier,
+#     device=device,
+#     ce_loss_fns=ce_loss_fns,
+#     task_type=cfg.task_type,
+#     max_num_batches=10,
+# )
+# 
+# # %%
+# loop_timer = LoopTimer()
+# (
+#     train_losses_dict,
+#     train_predictions_dict,
+#     train_ground_truths_dict,
+# ) = _iterate_through_dataloader(
+#     loop_timer=loop_timer,
+#     phase=Phase.EVAL_TRAIN,
+#     dataloader=train_loader,
+#     classifier=classifier,
+#     device=device,
+#     ce_loss_fns=ce_loss_fns,
+#     task_type=cfg.task_type,
+#     max_num_batches=10,
+# )
+# 
+# # %%
+# loss_names = [
+#     "passed_simulation_loss",
+#     "passed_penetration_threshold_loss",
+# ]
+# from plotly.subplots import make_subplots
+# import plotly.graph_objects as go
+# 
+# fig = make_subplots(rows=len(loss_names), cols=1, subplot_titles=loss_names)
+# for i, loss_name in enumerate(loss_names):
+#     fig.add_trace(
+#         go.Scatter(y=val_losses_dict[loss_name], name=loss_name, mode="markers"),
+#         row=i + 1,
+#         col=1,
+#     )
+# fig.show()
+# 
+# 
+# # %%
+# def plot_distribution(data: np.ndarray, name: str) -> None:
+#     # Calculating statistics
+#     import scipy.stats as stats
+# 
+#     data = np.array(data)
+#     mean = np.mean(data)
+#     max_value = np.max(data)
+#     min_value = np.min(data)
+#     data_range = np.ptp(data)  # Range as max - min
+#     std_dev = np.std(data)
+#     median = np.median(data)
+#     mode = stats.mode(data).mode[0]
+#     iqr = stats.iqr(data)  # Interquartile range
+#     percentile_25 = np.percentile(data, 25)
+#     percentile_75 = np.percentile(data, 75)
+# 
+#     import matplotlib.pyplot as plt
+# 
+#     # Create histogram
+#     plt.hist(data, bins=50, alpha=0.7, color="blue", log=True)
+# 
+#     # Printing results
+#     print(
+#         f"Mean: {mean}, Max: {max_value}, Min: {min_value}, Range: {data_range}, Standard Deviation: {std_dev}"
+#     )
+#     print(
+#         f"Median: {median}, Mode: {mode}, IQR: {iqr}, 25th Percentile: {percentile_25}, 75th Percentile: {percentile_75}"
+#     )
+# 
+#     # Add lines for mean, median, and mode
+#     plt.axvline(
+#         mean, color="red", linestyle="dashed", linewidth=2, label=f"Mean: {mean:.4f}"
+#     )
+#     plt.axvline(
+#         median,
+#         color="green",
+#         linestyle="dashed",
+#         linewidth=2,
+#         label=f"Median: {median:.4f}",
+#     )
+#     plt.axvline(
+#         mode, color="yellow", linestyle="dashed", linewidth=2, label=f"Mode: {mode:.4f}"
+#     )
+# 
+#     # Add lines for percentiles
+#     plt.axvline(
+#         percentile_25,
+#         color="orange",
+#         linestyle="dotted",
+#         linewidth=2,
+#         label=f"25th percentile: {percentile_25:.4f}",
+#     )
+#     plt.axvline(
+#         percentile_75,
+#         color="purple",
+#         linestyle="dotted",
+#         linewidth=2,
+#         label=f"75th percentile: {percentile_75:.4f}",
+#     )
+# 
+#     # Add standard deviation
+#     plt.axvline(
+#         mean - std_dev,
+#         color="cyan",
+#         linestyle="dashdot",
+#         linewidth=2,
+#         label=f"Std Dev: {std_dev:.4f}",
+#     )
+#     plt.axvline(mean + std_dev, color="cyan", linestyle="dashdot", linewidth=2)
+# 
+#     # Add legend
+#     plt.legend()
+#     plt.title(f"{name} histogram")
+# 
+#     # Show plot
+#     plt.show()
+# 
+# 
+# plot_distribution(
+#     data=val_losses_dict["passed_penetration_threshold_loss"],
+#     name="passed_penetration_threshold_loss",
+# )
+# 
+# # %%
+# plot_distribution(
+#     data=val_losses_dict["passed_simulation_loss"], name="passed_simulation_loss"
+# )
+
 
 # %%
+
 
 run_training_loop(
     training_cfg=cfg.training,
@@ -1996,7 +1725,7 @@ run_training_loop(
     device=device,
     ce_loss_fns=ce_loss_fns,
     optimizer=optimizer,
-    checkpoint_workspace_dir_path=checkpoint_workspace_dir_path,
+    checkpoint_output_dir=cfg.checkpoint_workspace.output_dir,
     task_type=cfg.task_type,
     lr_scheduler=lr_scheduler,
     start_epoch=start_epoch,
@@ -2026,7 +1755,7 @@ wandb.log(wandb_log_dict)
 
 # %%
 save_checkpoint(
-    checkpoint_workspace_dir_path=checkpoint_workspace_dir_path,
+    checkpoint_output_dir=cfg.checkpoint_workspace.output_dir,
     epoch=cfg.training.n_epochs,
     classifier=classifier,
     optimizer=optimizer,

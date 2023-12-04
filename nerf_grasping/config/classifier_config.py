@@ -157,14 +157,51 @@ class ClassifierTrainingConfig:
 class CheckpointWorkspaceConfig:
     """Parameters for paths to checkpoints."""
 
-    root_dir: str = "Train_DexGraspNet_NeRF_Grasp_Metric_workspaces"
+    root_dir: pathlib.Path = pathlib.Path(
+        "Train_DexGraspNet_NeRF_Grasp_Metric_workspaces"
+    )
     """Root directory for checkpoints."""
 
-    leaf_dir: str = field(default_factory=lambda: CONFIG_DATETIME_STR)
-    """Leaf directory for checkpoints."""
+    input_leaf_dir_name: Optional[str] = None
+    """Leaf directory name to LOAD a checkpoint and potentially resume a run."""
 
-    force_no_resume: bool = True
-    """Flag to force no resume, even if a checkpoint exists."""
+    output_leaf_dir_name: str = field(default_factory=lambda: CONFIG_DATETIME_STR)
+    """Leaf directory name to SAVE checkpoints and run information."""
+
+    @property
+    def input_dir(self) -> Optional[pathlib.Path]:
+        """Input directory for checkpoints."""
+        return (
+            self.root_dir / self.input_leaf_dir_name
+            if self.input_leaf_dir_name is not None
+            else None
+        )
+
+    @property
+    def output_dir(self) -> pathlib.Path:
+        """Output directory for checkpoints."""
+        return self.root_dir / self.output_leaf_dir_name
+
+    @property
+    def latest_input_checkpoint_path(self) -> Optional[pathlib.Path]:
+        """Path to the latest checkpoint in the input directory."""
+        if self.input_dir is None:
+            return None
+
+        checkpoint_filepaths = sorted(
+            [x for x in self.input_dir.glob("*.pt")]
+            + [x for x in self.input_dir.glob("*.pth")],
+            key=lambda x: x.stat().st_mtime,
+        )
+        if len(checkpoint_filepaths) == 0:
+            print("No checkpoint found")
+            return None
+
+        if len(checkpoint_filepaths) > 1:
+            print(
+                f"Found multiple checkpoints: {checkpoint_filepaths}. Returning most recent one."
+            )
+        return checkpoint_filepaths[-1]
 
 
 @dataclass(frozen=True)
@@ -429,7 +466,6 @@ class ClassifierConfig:
         )
     )
 
-    dry_run: bool = False
     random_seed: int = 42
 
     def __post_init__(self):

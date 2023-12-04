@@ -1435,22 +1435,21 @@ def compute_class_weight_np(
         print("Computing class weight with this data...")
         t5 = time.time()
 
-        # class_weight threshold required to make binary classes
-        CLASS_WEIGHT_THRESHOLD = 0.4
+        # argmax required to make binary classes
         passed_simulation_class_weight_np = compute_class_weight(
             class_weight="balanced",
-            classes=np.unique(passed_simulations_np < CLASS_WEIGHT_THRESHOLD),
-            y=passed_simulations_np < CLASS_WEIGHT_THRESHOLD,
+            classes=np.unique(passed_simulations_np.argmax(axis=-1)),
+            y=passed_simulations_np.argmax(axis=-1),
         )
         passed_penetration_threshold_class_weight_np = compute_class_weight(
             class_weight="balanced",
-            classes=np.unique(passed_penetration_threshold_np < CLASS_WEIGHT_THRESHOLD),
-            y=passed_penetration_threshold_np < CLASS_WEIGHT_THRESHOLD,
+            classes=np.unique(passed_penetration_threshold_np.argmax(axis=-1)),
+            y=passed_penetration_threshold_np.argmax(axis=-1),
         )
         passed_eval_class_weight_np = compute_class_weight(
             class_weight="balanced",
-            classes=np.unique(passed_eval_np < CLASS_WEIGHT_THRESHOLD),
-            y=passed_eval_np < CLASS_WEIGHT_THRESHOLD,
+            classes=np.unique(passed_eval_np.argmax(axis=-1)),
+            y=passed_eval_np.argmax(axis=-1),
         )
         t6 = time.time()
         print(f"Computed class weight in {t6 - t5:.2f} s")
@@ -1595,7 +1594,7 @@ def plot_distribution(data: np.ndarray, name: str) -> None:
     min_value = np.min(data)
     data_range = np.ptp(data)  # Range as max - min
     std_dev = np.std(data)
-    raw_median = np.median(data)
+    median = np.median(data)
     mode = stats.mode(data).mode[0]
     iqr = stats.iqr(data)  # Interquartile range
     percentile_25 = np.percentile(data, 25)
@@ -1604,19 +1603,17 @@ def plot_distribution(data: np.ndarray, name: str) -> None:
     import matplotlib.pyplot as plt
 
     # Create histogram
-    counts, bin_edges, _ = plt.hist(data, bins=50, alpha=0.7, color="blue", log=True)
-    # median = (bin_edges[np.argmax(counts)] + bin_edges[np.argmax(counts) + 1]) / 2
-    median = (bin_edges[np.argmax(counts)]) / 2
+    plt.hist(data, bins=50, alpha=0.7, color="blue", log=True)
 
     # Printing results
     print(
         f"Mean: {mean}, Max: {max_value}, Min: {min_value}, Range: {data_range}, Standard Deviation: {std_dev}"
     )
     print(
-        f"Median: {median}, Raw Median: {raw_median}, Mode: {mode}, IQR: {iqr}, 25th Percentile: {percentile_25}, 75th Percentile: {percentile_75}"
+        f"Median: {median}, Mode: {mode}, IQR: {iqr}, 25th Percentile: {percentile_25}, 75th Percentile: {percentile_75}"
     )
 
-    # Add lines for mean, median, raw_median, and mode
+    # Add lines for mean, median, and mode
     plt.axvline(
         mean, color="red", linestyle="dashed", linewidth=2, label=f"Mean: {mean:.4f}"
     )
@@ -1626,13 +1623,6 @@ def plot_distribution(data: np.ndarray, name: str) -> None:
         linestyle="dashed",
         linewidth=2,
         label=f"Median: {median:.4f}",
-    )
-    plt.axvline(
-        raw_median,
-        color="pink",
-        linestyle="dashed",
-        linewidth=2,
-        label=f"Raw Median: {raw_median:.4f}",
     )
     plt.axvline(
         mode, color="yellow", linestyle="dashed", linewidth=2, label=f"Mode: {mode:.4f}"

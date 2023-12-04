@@ -31,8 +31,8 @@ from torchviz import make_dot
 from nerf_grasping.learned_metric.DexGraspNet_batch_data import (
     BatchData,
     BatchDataInput,
-    BatchDataOutput,
     DepthImageBatchDataInput,
+    BatchDataOutput,
 )
 from nerf_grasping.dataset.DexGraspNet_NeRF_Grasps_utils import (
     get_object_code,
@@ -1118,7 +1118,10 @@ def _iterate_through_dataloader(
                 assert_equals(
                     task_losses.shape, (classifier.n_tasks, batch_data.batch_size)
                 )
-                total_loss = torch.mean(task_losses)  # TODO: Consider weighting losses.
+                total_loss = torch.mean(
+                    task_losses, dim=0
+                )  # TODO: Consider weighting losses.
+                assert_equals(total_loss.shape, (batch_data.batch_size,))
 
             # Gradient step
             with loop_timer.add_section_timer("Bwd"):
@@ -1141,7 +1144,7 @@ def _iterate_through_dataloader(
 
             # Loss logging
             with loop_timer.add_section_timer("Loss"):
-                losses_dict["loss"].append(total_loss.item())
+                losses_dict["loss"].extend(total_loss.tolist())
 
             # Gather predictions
             with loop_timer.add_section_timer("Gather"):
@@ -1163,18 +1166,31 @@ def _iterate_through_dataloader(
                 with loop_timer.add_section_timer("Log"):
                     mid_epoch_log_dict = {}
                     for loss_name, losses in losses_dict.items():
-                        mid_epoch_log_dict.update({
-                            f"mid_epoch/{phase.name.lower()}_{loss_name}": np.mean(losses),
-                            f"mid_epoch/{phase.name.lower()}_{loss_name}_min": np.min(losses),
-                            f"mid_epoch/{phase.name.lower()}_{loss_name}_quartile_25": np.quantile(losses, 0.25),
-                            f"mid_epoch/{phase.name.lower()}_{loss_name}_median": np.median(losses),
-                            f"mid_epoch/{phase.name.lower()}_{loss_name}_quartile_75": np.quantile(losses, 0.75),
-                            f"mid_epoch/{phase.name.lower()}_{loss_name}_max": np.max(losses),
-                        })
+                        mid_epoch_log_dict.update(
+                            {
+                                f"mid_epoch/{phase.name.lower()}_{loss_name}": np.mean(
+                                    losses
+                                ),
+                                f"mid_epoch/{phase.name.lower()}_{loss_name}_min": np.min(
+                                    losses
+                                ),
+                                f"mid_epoch/{phase.name.lower()}_{loss_name}_quartile_25": np.quantile(
+                                    losses, 0.25
+                                ),
+                                f"mid_epoch/{phase.name.lower()}_{loss_name}_median": np.median(
+                                    losses
+                                ),
+                                f"mid_epoch/{phase.name.lower()}_{loss_name}_quartile_75": np.quantile(
+                                    losses, 0.75
+                                ),
+                                f"mid_epoch/{phase.name.lower()}_{loss_name}_max": np.max(
+                                    losses
+                                ),
+                            }
+                        )
                     wandb.log(mid_epoch_log_dict)
 
                 loop_timer.pretty_print_section_times()
-
 
             # Set description
             if len(losses_dict["loss"]) > 0:
@@ -1558,7 +1574,11 @@ if cfg.data.debug_shuffle_labels:
 # %% [markdown]
 # # Analyze model
 loop_timer = LoopTimer()
-val_losses_dict, val_predictions_dict, val_ground_truths_dict = _iterate_through_dataloader(
+(
+    val_losses_dict,
+    val_predictions_dict,
+    val_ground_truths_dict,
+) = _iterate_through_dataloader(
     loop_timer=loop_timer,
     phase=Phase.VAL,
     dataloader=val_loader,
@@ -1571,7 +1591,11 @@ val_losses_dict, val_predictions_dict, val_ground_truths_dict = _iterate_through
 
 # %%
 loop_timer = LoopTimer()
-train_losses_dict, train_predictions_dict, train_ground_truths_dict = _iterate_through_dataloader(
+(
+    train_losses_dict,
+    train_predictions_dict,
+    train_ground_truths_dict,
+) = _iterate_through_dataloader(
     loop_timer=loop_timer,
     phase=Phase.EVAL_TRAIN,
     dataloader=train_loader,
@@ -1581,12 +1605,6 @@ train_losses_dict, train_predictions_dict, train_ground_truths_dict = _iterate_t
     task_type=cfg.task_type,
     max_num_batches=10,
 )
-
-# %%
-val_losses_dict == losses_dict_copy
-
-# %%
-losses_dict_copy = val_losses_dict.copy()
 
 # %%
 loss_names = [

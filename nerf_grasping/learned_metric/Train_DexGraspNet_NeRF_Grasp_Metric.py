@@ -1153,46 +1153,7 @@ def _iterate_through_dataloader(
                     predictions_dict[f"{task_name}"] += predictions
                     ground_truths_dict[f"{task_name}"] += ground_truths
 
-            # Set description
-            if len(losses_dict["loss"]) > 0:
-                means = [
-                    np.mean(losses_dict[f"{loss_name}"])
-                    for loss_name in losses_dict.keys()
-                ]
-                mins = [
-                    np.min(losses_dict[f"{loss_name}"])
-                    for loss_name in losses_dict.keys()
-                ]
-                maxs = [
-                    np.max(losses_dict[f"{loss_name}"])
-                    for loss_name in losses_dict.keys()
-                ]
-                quartile_50s = [
-                    np.quantile(losses_dict[f"{loss_name}"], 0.5)
-                    for loss_name in losses_dict.keys()
-                ]
-                quartile_25s = [
-                    np.quantile(losses_dict[f"{loss_name}"], 0.25)
-                    for loss_name in losses_dict.keys()
-                ]
-                quartile_75s = [
-                    np.quantile(losses_dict[f"{loss_name}"], 0.75)
-                    for loss_name in losses_dict.keys()
-                ]
-
-                loss_log_strs = [
-                    f"{loss_name}: {mean:.3f} ({min:.3f}, {quartile_25:.3f}, {quartile_50:.3f}, {quartile_75:.3f}, {max:.3f})"
-                    for loss_name, mean, min, quartile_25, quartile_50, quartile_75, max in zip(
-                        losses_dict.keys(),
-                        means,
-                        mins,
-                        quartile_25s,
-                        quartile_50s,
-                        quartile_75s,
-                        maxs,
-                    )
-                ]
-
+            with loop_timer.add_section_timer("Log"):
                 if (
                     wandb.run is not None
                     and log_every_n_batches is not None
@@ -1200,34 +1161,29 @@ def _iterate_through_dataloader(
                     and batch_idx != 0
                 ):
                     mid_epoch_log_dict = {}
-                    for (
-                        loss_name,
-                        mean,
-                        min,
-                        quartile_25,
-                        quartile_50,
-                        quartile_75,
-                        max,
-                    ) in zip(
-                        loss_names,
-                        means,
-                        mins,
-                        quartile_25s,
-                        quartile_50s,
-                        quartile_75s,
-                        maxs,
-                    ):
-                        mid_epoch_log_dict.update(
-                            {
-                                f"mid_epoch/{phase.name.lower()}_{loss_name}_mean": mean,
-                                f"mid_epoch/{phase.name.lower()}_{loss_name}_min": min,
-                                f"mid_epoch/{phase.name.lower()}_{loss_name}_quartile_25": quartile_25,
-                                f"mid_epoch/{phase.name.lower()}_{loss_name}_quartile_50": quartile_50,
-                                f"mid_epoch/{phase.name.lower()}_{loss_name}_quartile_75": quartile_75,
-                                f"mid_epoch/{phase.name.lower()}_{loss_name}_max": max,
-                            }
-                        )
+                    for loss_name, losses in losses_dict.items():
+                        mid_epoch_log_dict.update({
+                            f"mid_epoch/{phase.name.lower()}_{loss_name}": np.mean(losses),
+                            f"mid_epoch/{phase.name.lower()}_{loss_name}_min": np.min(losses),
+                            f"mid_epoch/{phase.name.lower()}_{loss_name}_quartile_25": np.quantile(losses, 0.25),
+                            f"mid_epoch/{phase.name.lower()}_{loss_name}_median": np.median(losses),
+                            f"mid_epoch/{phase.name.lower()}_{loss_name}_quartile_75": np.quantile(losses, 0.75),
+                            f"mid_epoch/{phase.name.lower()}_{loss_name}_max": np.max(losses),
+                        })
                     wandb.log(mid_epoch_log_dict)
+
+            # Set description
+            if len(losses_dict["loss"]) > 0:
+                loss_log_strs = [
+                    f"{loss_name}: "
+                    + f"{np.mean(losses):.3f} "
+                    + f"({np.min(losses):.3f}, "
+                    + f"{np.quantile(losses, 0.25):.3f}, "
+                    + f"{np.median(losses):.3f}, "
+                    + f"{np.quantile(losses, 0.75):.3f}, "
+                    + f"{np.max(losses):.3f})"
+                    for loss_name, losses in losses_dict.items()
+                ]
 
             else:
                 loss_log_strs = ["loss: N/A"]
@@ -1264,10 +1220,10 @@ def create_log_dict(
         for loss_name, losses in losses_dict.items():
             temp_log_dict[f"{loss_name}"] = np.mean(losses)
             temp_log_dict[f"{loss_name}_min"] = np.min(losses)
-            temp_log_dict[f"{loss_name}_max"] = np.max(losses)
             temp_log_dict[f"{loss_name}_quartile_25"] = np.quantile(losses, 0.25)
-            temp_log_dict[f"{loss_name}_quartile_50"] = np.quantile(losses, 0.5)
+            temp_log_dict[f"{loss_name}_median"] = np.median(losses)
             temp_log_dict[f"{loss_name}_quartile_75"] = np.quantile(losses, 0.75)
+            temp_log_dict[f"{loss_name}_max"] = np.max(losses)
 
     with loop_timer.add_section_timer("Metrics"):
         assert_equals(set(predictions_dict.keys()), set(ground_truths_dict.keys()))

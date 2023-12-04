@@ -61,8 +61,6 @@ import pypose as pp
 import h5py
 from typing import Optional, Tuple, List, Dict, Any, Union
 from sklearn.metrics import (
-    ConfusionMatrixDisplay,
-    confusion_matrix,
     accuracy_score,
     f1_score,
     precision_score,
@@ -76,7 +74,6 @@ import torch
 from torch.utils.data import (
     DataLoader,
     Subset,
-    Dataset,
     random_split,
 )
 from sklearn.utils.class_weight import compute_class_weight
@@ -90,7 +87,6 @@ from wandb.util import generate_id
 
 from enum import Enum, auto
 from nerf_grasping.models.tyler_new_models import get_scheduler
-from nerf_grasping.config.base import CONFIG_DATETIME_STR
 
 import tyro
 
@@ -146,13 +142,25 @@ tqdm = partial(std_tqdm, dynamic_ncols=True)
 
 # %%
 if is_notebook():
+    # arguments = [
+    #     "cnn-2d-1d",
+    #     "--task-type", "PASSED_SIMULATION_AND_PENETRATION_THRESHOLD",
+    #     "--nerfdata-config.output-filepath", "data/2023-11-23_rubikscuberepeat_labelnoise_2/grid_dataset/dataset.h5",
+    #     "--dataloader.batch-size", "128",
+    #     "--wandb.name", "debug_cluster_grid_noisy_large_investigate",
+    #     "--checkpoint-workspace.input_leaf_dir_name", "2023-11-30_15-49-25",
+    # ]
+
     arguments = [
-        "cnn-2d-1d",
-        "--task-type", "PASSED_SIMULATION_AND_PENETRATION_THRESHOLD",
-        "--nerfdata-config.output-filepath", "data/2023-11-23_rubikscuberepeat_labelnoise_2/grid_dataset/dataset.h5",
-        "--dataloader.batch-size", "128",
-        "--wandb.name", "debug_cluster_grid_noisy_large_investigate",
-        "--checkpoint-workspace.input_leaf_dir_name", "2023-11-30_15-54-52",
+        "depth-cnn-2d",
+        "--task-type",
+        "PASSED_SIMULATION_AND_PENETRATION_THRESHOLD",
+        "--nerfdata-config.output-filepath",
+        "data/2023-11-23_rubikscuberepeat_labelnoise_2/depth_image_dataset/dataset.h5",
+        "--wandb.name",
+        "probe_debug_depth_noisy_large",
+        "--checkpoint-workspace.input_leaf_dir_name",
+        "2023-11-30_15-49-25",
     ]
 
 else:
@@ -602,7 +610,9 @@ def nerf_densities_plot_example(
     object_scale = get_object_scale(nerf_config_path)
 
     # Path to meshes
-    DEXGRASPNET_MESHDATA_ROOT = pathlib.Path(nerf_grasping.get_repo_root()) / "data" / "meshdata"
+    DEXGRASPNET_MESHDATA_ROOT = (
+        pathlib.Path(nerf_grasping.get_repo_root()) / "data" / "meshdata"
+    )
     mesh_path = DEXGRASPNET_MESHDATA_ROOT / object_code / "coacd" / "decomposed.obj"
 
     print(f"Loading mesh from {mesh_path}...")
@@ -733,7 +743,9 @@ def depth_image_plot_example(
     object_scale = get_object_scale(nerf_config_path)
 
     # Path to meshes
-    DEXGRASPNET_MESHDATA_ROOT = pathlib.Path(nerf_grasping.get_repo_root()) / "data" / "meshdata"
+    DEXGRASPNET_MESHDATA_ROOT = (
+        pathlib.Path(nerf_grasping.get_repo_root()) / "data" / "meshdata"
+    )
     mesh_path = DEXGRASPNET_MESHDATA_ROOT / object_code / "coacd" / "decomposed.obj"
 
     print(f"Loading mesh from {mesh_path}...")
@@ -1001,6 +1013,7 @@ def _iterate_through_dataloader(
     training_cfg: Optional[ClassifierTrainingConfig] = None,
     optimizer: Optional[torch.optim.Optimizer] = None,
     lr_scheduler: Optional[torch.optim.lr_scheduler.LRScheduler] = None,
+    max_num_batches: Optional[int] = None,
 ) -> Tuple[Dict[str, List[float]], Dict[str, List[float]], Dict[str, List[float]]]:
     losses_dict = defaultdict(list)  # loss name => list of losses (one loss per batch)
     predictions_dict, ground_truths_dict = defaultdict(list), defaultdict(
@@ -1026,6 +1039,10 @@ def _iterate_through_dataloader(
             dataload_section_timer.stop()
 
             batch_idx = int(batch_idx)
+
+            if max_num_batches is not None and batch_idx >= max_num_batches:
+                break
+
             batch_data: BatchData = batch_data.to(device)
             if (
                 USE_DEPTH_IMAGES
@@ -1092,11 +1109,14 @@ def _iterate_through_dataloader(
                         input=task_logits,
                         target=task_target,
                     )
-                    losses_dict[f"{task_name}_loss"].append(task_loss.item())
+                    assert task_loss.shape == (batch_data.batch_size,)
+                    losses_dict[f"{task_name}_loss"].extend(task_loss.tolist())
                     task_losses.append(task_loss)
-                total_loss = torch.sum(
-                    torch.stack(task_losses)
-                )  # TODO: Consider weighting losses.
+                task_losses = torch.stack(task_losses, dim=0)
+                assert_equals(
+                    task_losses.shape, (classifier.n_tasks, batch_data.batch_size)
+                )
+                total_loss = torch.mean(task_losses)  # TODO: Consider weighting losses.
 
             # Gradient step
             with loop_timer.add_section_timer("Bwd"):
@@ -1135,7 +1155,7 @@ def _iterate_through_dataloader(
             # Set description
             loss_log_str = (
                 f"loss: {np.mean(losses_dict['loss']):.5f}, {np.median(losses_dict['loss']):.5f}, {np.std(losses_dict['loss']):.5f}"
-                if len(losses_dict["loss"]) > 1
+                if len(losses_dict["loss"]) > 0
                 else "loss: N/A"
             )
             description = " | ".join(
@@ -1455,14 +1475,19 @@ if cfg.training.extra_punish_false_positive_factor != 0.0:
     )
 
 passed_simulation_ce_loss_fn = nn.CrossEntropyLoss(
-    weight=passed_simulation_class_weight, label_smoothing=cfg.training.label_smoothing
+    weight=passed_simulation_class_weight,
+    label_smoothing=cfg.training.label_smoothing,
+    reduction="none",
 )
 passed_penetration_threshold_ce_loss_fn = nn.CrossEntropyLoss(
     weight=passed_penetration_threshold_class_weight,
     label_smoothing=cfg.training.label_smoothing,
+    reduction="none",
 )
 passed_eval_ce_loss_fn = nn.CrossEntropyLoss(
-    weight=passed_eval_class_weight, label_smoothing=cfg.training.label_smoothing
+    weight=passed_eval_class_weight,
+    label_smoothing=cfg.training.label_smoothing,
+    reduction="none",
 )
 
 if cfg.task_type == TaskType.PASSED_SIMULATION:
@@ -1503,12 +1528,207 @@ losses_dict, predictions_dict, ground_truths_dict = _iterate_through_dataloader(
     device=device,
     ce_loss_fns=ce_loss_fns,
     task_type=cfg.task_type,
-    training_cfg=cfg.training,
-    optimizer=optimizer,
-    lr_scheduler=lr_scheduler,
+    max_num_batches=10,
 )
 
 # %%
+losses_dict.keys()
+
+# %%
+np.mean(losses_dict["passed_penetration_threshold_loss"]), np.median(
+    losses_dict["passed_penetration_threshold_loss"]
+), np.std(losses_dict["passed_penetration_threshold_loss"])
+
+# %%
+loss_names = [
+    "passed_simulation_loss",
+    "passed_penetration_threshold_loss",
+]
+from plotly.subplots import make_subplots
+import plotly.graph_objects as go
+
+fig = make_subplots(rows=len(loss_names), cols=1, subplot_titles=loss_names)
+for i, loss_name in enumerate(loss_names):
+    fig.add_trace(
+        go.Scatter(y=losses_dict[loss_name], name=loss_name, mode="markers"),
+        row=i + 1,
+        col=1,
+    )
+fig.show()
+
+
+# %%
+def effective_median(data: np.ndarray, num_bins: int = 100) -> float:
+    assert_equals(data.ndim, 1)
+
+    # Create histogram bins
+    counts, bin_edges = np.histogram(data, bins=num_bins)
+
+    # Find the median position
+    median_pos = np.argmax(counts)
+
+    # Calculate the effective median as the average of the bin edges
+    effective_median = (bin_edges[median_pos] + bin_edges[median_pos + 1]) / 2
+    print(f"effective_median = {effective_median}")
+    return effective_median
+
+
+# %%
+fig = make_subplots(rows=len(loss_names), cols=1, subplot_titles=loss_names)
+for i, loss_name in enumerate(loss_names):
+    fig.add_trace(
+        go.Histogram(x=losses_dict[loss_name], name=loss_name), row=i + 1, col=1
+    )
+    mean_value = np.mean(losses_dict[loss_name])
+    # median_value = np.median(losses_dict[loss_name])
+    median_value = effective_median(np.array(losses_dict[loss_name]))
+    fig.add_shape(
+        type="line",
+        x0=mean_value,
+        y0=0,
+        x1=mean_value,
+        y1=1000,
+        row=i + 1,
+        col=1,
+        line=dict(color="red", width=3),
+    )
+    fig.add_shape(
+        type="line",
+        x0=median_value,
+        y0=0,
+        x1=median_value,
+        y1=1000,
+        row=i + 1,
+        col=1,
+        line=dict(color="green", width=3),
+    )
+    fig.add_annotation(
+        x=mean_value,
+        y=950,
+        xref="x" + str(i + 1),
+        yref="paper",
+        text="Mean",
+        showarrow=False,
+        row=i + 1,
+        col=1,
+        bgcolor="Red",
+        font=dict(color="white"),
+    )
+    fig.add_annotation(
+        x=median_value,
+        y=850,
+        xref="x" + str(i + 1),
+        yref="paper",
+        text="Median",
+        showarrow=False,
+        row=i + 1,
+        col=1,
+        bgcolor="Green",
+        font=dict(color="white"),
+    )
+fig.show()
+
+
+# %%
+# Calculating statistics
+import scipy.stats as stats
+data = np.array(losses_dict["passed_penetration_threshold_loss"])
+mean = np.mean(data)
+max_value = np.max(data)
+min_value = np.min(data)
+data_range = np.ptp(data)  # Range as max - min
+std_dev = np.std(data)
+median = np.median(data)
+mode = stats.mode(data).mode[0]
+iqr = stats.iqr(data)  # Interquartile range
+percentile_25 = np.percentile(data, 25)
+percentile_75 = np.percentile(data, 75)
+
+# Printing results
+print(f"Mean: {mean}, Max: {max_value}, Min: {min_value}, Range: {data_range}, Standard Deviation: {std_dev}")
+print(f"Median: {median}, Mode: {mode}, IQR: {iqr}, 25th Percentile: {percentile_25}, 75th Percentile: {percentile_75}")
+
+# %%
+import matplotlib.pyplot as plt
+# Create histogram
+plt.hist(data, bins=30, alpha=0.7, color='blue', log=True)
+
+# Add lines for mean, median, and mode
+plt.axvline(mean, color='red', linestyle='dashed', linewidth=2, label=f'Mean: {mean:.2f}')
+plt.axvline(median, color='green', linestyle='dashed', linewidth=2, label=f'Median: {median:.2f}')
+plt.axvline(mode, color='yellow', linestyle='dashed', linewidth=2, label=f'Mode: {mode:.2f}')
+
+# Add lines for percentiles
+plt.axvline(percentile_25, color='orange', linestyle='dotted', linewidth=2, label=f'25th percentile: {percentile_25:.2f}')
+plt.axvline(percentile_75, color='purple', linestyle='dotted', linewidth=2, label=f'75th percentile: {percentile_75:.2f}')
+
+# Add standard deviation
+plt.axvline(mean - std_dev, color='cyan', linestyle='dashdot', linewidth=2, label=f'Std Dev: {std_dev:.2f}')
+plt.axvline(mean + std_dev, color='cyan', linestyle='dashdot', linewidth=2)
+
+# Add legend
+plt.legend()
+
+# Show plot
+plt.show()
+
+
+# %%
+def plot_distribution(data: np.ndarray, name: str) -> None:
+    # Calculating statistics
+    import scipy.stats as stats
+    data = np.array(data)
+    mean = np.mean(data)
+    max_value = np.max(data)
+    min_value = np.min(data)
+    data_range = np.ptp(data)  # Range as max - min
+    std_dev = np.std(data)
+    raw_median = np.median(data)
+    mode = stats.mode(data).mode[0]
+    iqr = stats.iqr(data)  # Interquartile range
+    percentile_25 = np.percentile(data, 25)
+    percentile_75 = np.percentile(data, 75)
+
+    import matplotlib.pyplot as plt
+    # Create histogram
+    counts, bin_edges, _ = plt.hist(data, bins=50, alpha=0.7, color='blue', log=True)
+    # median = (bin_edges[np.argmax(counts)] + bin_edges[np.argmax(counts) + 1]) / 2
+    median = (bin_edges[np.argmax(counts)]) / 2
+
+    # Printing results
+    print(f"Mean: {mean}, Max: {max_value}, Min: {min_value}, Range: {data_range}, Standard Deviation: {std_dev}")
+    print(f"Median: {median}, Raw Median: {raw_median}, Mode: {mode}, IQR: {iqr}, 25th Percentile: {percentile_25}, 75th Percentile: {percentile_75}")
+
+
+    # Add lines for mean, median, raw_median, and mode
+    plt.axvline(mean, color='red', linestyle='dashed', linewidth=2, label=f'Mean: {mean:.4f}')
+    plt.axvline(median, color='green', linestyle='dashed', linewidth=2, label=f'Median: {median:.4f}')
+    plt.axvline(raw_median, color='pink', linestyle='dashed', linewidth=2, label=f'Raw Median: {raw_median:.4f}')
+    plt.axvline(mode, color='yellow', linestyle='dashed', linewidth=2, label=f'Mode: {mode:.4f}')
+
+    # Add lines for percentiles
+    plt.axvline(percentile_25, color='orange', linestyle='dotted', linewidth=2, label=f'25th percentile: {percentile_25:.4f}')
+    plt.axvline(percentile_75, color='purple', linestyle='dotted', linewidth=2, label=f'75th percentile: {percentile_75:.4f}')
+
+    # Add standard deviation
+    plt.axvline(mean - std_dev, color='cyan', linestyle='dashdot', linewidth=2, label=f'Std Dev: {std_dev:.4f}')
+    plt.axvline(mean + std_dev, color='cyan', linestyle='dashdot', linewidth=2)
+
+    # Add legend
+    plt.legend()
+    plt.title(f"{name} histogram")
+
+    # Show plot
+    plt.show()
+
+plot_distribution(data=losses_dict["passed_penetration_threshold_loss"], name="passed_penetration_threshold_loss")
+
+# %%
+plot_distribution(data=losses_dict["passed_simulation_loss"], name="passed_simulation_loss")
+
+
+# %%
+
 
 run_training_loop(
     training_cfg=cfg.training,

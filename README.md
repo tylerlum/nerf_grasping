@@ -3,6 +3,93 @@
 This project focuses on performing grasping and manipulation using
 Neural Radiance Fields (NeRFs).
 
+# How to run (2023-12-04)
+
+First, follow the instructions at DexGraspNet to run an experiment. Should have something like the following in DexGraspNet
+
+```
+ls ../data/2023-12-04_rubikscube_one_object
+augmented_raw_evaled_grasp_config_dicts_opened_hand  augmented_raw_hand_config_dicts_opened_hand  nerfdata
+augmented_raw_grasp_config_dicts_opened_hand         evaled_grasp_config_dicts                    raw_evaled_grasp_config_dicts
+augmented_raw_hand_config_dicts_closed_hand          hand_config_dicts                            raw_grasp_config_dicts
+```
+
+## Train nerfs and create dataset
+
+Everything should be run from the root directory of this repo.
+
+First create a directory to store data:
+```
+mkdir data
+```
+
+Then prepare the DGN data by:
+* Creating symlinks to the DexGraspNet data
+* Training nerfs on the nerfdata
+* Making train/val/test split of `evaled_grasp_config_dicts` (train/val/test across objects)
+
+```
+python prepare_dgn_experiment.py --experiment_name 2023-12-04_rubikscube_one_object --train_nerfs --dgn_data_path <PATH TO DEXGRASPNET DATA FOLDER eg. ~/github_repos/DexGraspNet/data>
+```
+
+You should now see the roughly the following:
+```
+ls data/2023-12-04_rubikscube_one_object
+augmented_raw_grasp_config_dicts  evaled_grasp_config_dicts_test   grasp_config_dicts  nerfcheckpoints                raw_grasp_config_dicts
+depth_image_dataset               evaled_grasp_config_dicts_train  grid_dataset        nerfdata
+evaled_grasp_config_dicts         evaled_grasp_config_dicts_val    hand_config_dicts   raw_evaled_grasp_config_dicts
+```
+
+The main outputs are:
+* `depth_image_dataset/dataset.h5`
+* `grid_dataset/dataset.h5`
+
+## Train models
+
+Density grid inputs:
+```
+python nerf_grasping/learned_metric/Train_DexGraspNet_NeRF_Grasp_Metric.py cnn-2d-1d --task-type PASSED_SIMULATION_AND_PENETRATION_THRESHOLD --nerfdata-config.output-filepath data/2023-12-04_rubikscube_one_object/grid_dataset/dataset.h5 --dataloader.batch-size 128 --wandb.name grid_cnn2d1d --checkpoint-workspace.output_leaf_dir_name grid_cnn2d1d
+```
+
+Depth image inputs:
+```
+python nerf_grasping/learned_metric/Train_DexGraspNet_NeRF_Grasp_Metric.py depth-cnn-2d --task-type PASSED_SIMULATION_AND_PENETRATION_THRESHOLD --nerfdata-config.output-filepath data/2023-12-04_rubikscube_one_object/depth_image_dataset/dataset.h5 --wandb.name depth_cnn2d --checkpoint-workspace.output_leaf_dir_name depth_cnn2d
+```
+
+Outputs checkpoints:
+```
+ls Train_DexGraspNet_NeRF_Grasp_Metric_workspaces/depth_cnn2d
+
+checkpoint_0005.pt  checkpoint_0115.pt  checkpoint_0225.pt  checkpoint_0335.pt  checkpoint_0445.pt  checkpoint_0555.pt  checkpoint_0665.pt
+checkpoint_0010.pt  checkpoint_0120.pt  checkpoint_0230.pt  checkpoint_0340.pt  checkpoint_0450.pt  checkpoint_0560.pt  checkpoint_0670.pt
+checkpoint_0015.pt  checkpoint_0125.pt  checkpoint_0235.pt  checkpoint_0345.pt  checkpoint_0455.pt  checkpoint_0565.pt  checkpoint_0675.pt
+checkpoint_0020.pt  checkpoint_0130.pt  checkpoint_0240.pt  checkpoint_0350.pt  checkpoint_0460.pt  checkpoint_0570.pt  checkpoint_0680.pt
+checkpoint_0025.pt  checkpoint_0135.pt  checkpoint_0245.pt  checkpoint_0355.pt  checkpoint_0465.pt  checkpoint_0575.pt  checkpoint_0685.pt
+checkpoint_0030.pt  checkpoint_0140.pt  checkpoint_0250.pt  checkpoint_0360.pt  checkpoint_0470.pt  checkpoint_0580.pt  checkpoint_0690.pt
+checkpoint_0035.pt  checkpoint_0145.pt  checkpoint_0255.pt  checkpoint_0365.pt  checkpoint_0475.pt  checkpoint_0585.pt  checkpoint_0695.pt
+checkpoint_0040.pt  checkpoint_0150.pt  checkpoint_0260.pt  checkpoint_0370.pt  checkpoint_0480.pt  checkpoint_0590.pt  checkpoint_0700.pt
+checkpoint_0045.pt  checkpoint_0155.pt  checkpoint_0265.pt  checkpoint_0375.pt  checkpoint_0485.pt  checkpoint_0595.pt  checkpoint_0705.pt
+checkpoint_0050.pt  checkpoint_0160.pt  checkpoint_0270.pt  checkpoint_0380.pt  checkpoint_0490.pt  checkpoint_0600.pt  checkpoint_0710.pt
+checkpoint_0055.pt  checkpoint_0165.pt  checkpoint_0275.pt  checkpoint_0385.pt  checkpoint_0495.pt  checkpoint_0605.pt  checkpoint_0715.pt
+checkpoint_0060.pt  checkpoint_0170.pt  checkpoint_0280.pt  checkpoint_0390.pt  checkpoint_0500.pt  checkpoint_0610.pt  checkpoint_0720.pt
+checkpoint_0065.pt  checkpoint_0175.pt  checkpoint_0285.pt  checkpoint_0395.pt  checkpoint_0505.pt  checkpoint_0615.pt  checkpoint_0725.pt
+checkpoint_0070.pt  checkpoint_0180.pt  checkpoint_0290.pt  checkpoint_0400.pt  checkpoint_0510.pt  checkpoint_0620.pt  checkpoint_0730.pt
+checkpoint_0075.pt  checkpoint_0185.pt  checkpoint_0295.pt  checkpoint_0405.pt  checkpoint_0515.pt  checkpoint_0625.pt  checkpoint_0735.pt
+checkpoint_0080.pt  checkpoint_0190.pt  checkpoint_0300.pt  checkpoint_0410.pt  checkpoint_0520.pt  checkpoint_0630.pt  checkpoint_0740.pt
+checkpoint_0085.pt  checkpoint_0195.pt  checkpoint_0305.pt  checkpoint_0415.pt  checkpoint_0525.pt  checkpoint_0635.pt  checkpoint_0745.pt
+checkpoint_0090.pt  checkpoint_0200.pt  checkpoint_0310.pt  checkpoint_0420.pt  checkpoint_0530.pt  checkpoint_0640.pt  checkpoint_0750.pt
+checkpoint_0095.pt  checkpoint_0205.pt  checkpoint_0315.pt  checkpoint_0425.pt  checkpoint_0535.pt  checkpoint_0645.pt  checkpoint_0755.pt
+checkpoint_0100.pt  checkpoint_0210.pt  checkpoint_0320.pt  checkpoint_0430.pt  checkpoint_0540.pt  checkpoint_0650.pt  config.yaml
+checkpoint_0105.pt  checkpoint_0215.pt  checkpoint_0325.pt  checkpoint_0435.pt  checkpoint_0545.pt  checkpoint_0655.pt  wandb_run_id.txt
+checkpoint_0110.pt  checkpoint_0220.pt  checkpoint_0330.pt  checkpoint_0440.pt  checkpoint_0550.pt  checkpoint_0660.pt
+```
+
+Can load checkpoint with `--checkpoint-workspace.input_leaf_dir_name depth_cnn2d`
+
+Look at wandb to see results!
+
+TODO: Optimizer and grasp scoring after training
+
 # System Diagram
 
 View diagrams [here](diagrams.md)

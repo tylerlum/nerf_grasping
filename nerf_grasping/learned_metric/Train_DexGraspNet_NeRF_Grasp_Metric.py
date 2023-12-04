@@ -123,6 +123,7 @@ class Phase(Enum):
     TRAIN = auto()
     VAL = auto()
     TEST = auto()
+    EVAL_TRAIN = auto()
 
 
 # %%
@@ -1021,7 +1022,7 @@ def _iterate_through_dataloader(
         list
     )  # task name => list of predictions / ground truths (one per datapoint)
 
-    assert phase in [Phase.TRAIN, Phase.VAL, Phase.TEST]
+    assert phase in [Phase.TRAIN, Phase.VAL, Phase.TEST, Phase.EVAL_TRAIN]
     if phase == Phase.TRAIN:
         classifier.train()
         assert training_cfg is not None and optimizer is not None
@@ -1153,13 +1154,13 @@ def _iterate_through_dataloader(
                     predictions_dict[f"{task_name}"] += predictions
                     ground_truths_dict[f"{task_name}"] += ground_truths
 
-            with loop_timer.add_section_timer("Log"):
-                if (
-                    wandb.run is not None
-                    and log_every_n_batches is not None
-                    and batch_idx % log_every_n_batches == 0
-                    and batch_idx != 0
-                ):
+            if (
+                wandb.run is not None
+                and log_every_n_batches is not None
+                and batch_idx % log_every_n_batches == 0
+                and batch_idx != 0
+            ):
+                with loop_timer.add_section_timer("Log"):
                     mid_epoch_log_dict = {}
                     for loss_name, losses in losses_dict.items():
                         mid_epoch_log_dict.update({
@@ -1171,6 +1172,9 @@ def _iterate_through_dataloader(
                             f"mid_epoch/{phase.name.lower()}_{loss_name}_max": np.max(losses),
                         })
                     wandb.log(mid_epoch_log_dict)
+
+                loop_timer.pretty_print_section_times()
+
 
             # Set description
             if len(losses_dict["loss"]) > 0:
@@ -1554,7 +1558,7 @@ if cfg.data.debug_shuffle_labels:
 # %% [markdown]
 # # Analyze model
 loop_timer = LoopTimer()
-losses_dict, predictions_dict, ground_truths_dict = _iterate_through_dataloader(
+val_losses_dict, val_predictions_dict, val_ground_truths_dict = _iterate_through_dataloader(
     loop_timer=loop_timer,
     phase=Phase.VAL,
     dataloader=val_loader,
@@ -1564,6 +1568,25 @@ losses_dict, predictions_dict, ground_truths_dict = _iterate_through_dataloader(
     task_type=cfg.task_type,
     max_num_batches=10,
 )
+
+# %%
+loop_timer = LoopTimer()
+train_losses_dict, train_predictions_dict, train_ground_truths_dict = _iterate_through_dataloader(
+    loop_timer=loop_timer,
+    phase=Phase.EVAL_TRAIN,
+    dataloader=train_loader,
+    classifier=classifier,
+    device=device,
+    ce_loss_fns=ce_loss_fns,
+    task_type=cfg.task_type,
+    max_num_batches=10,
+)
+
+# %%
+val_losses_dict == losses_dict_copy
+
+# %%
+losses_dict_copy = val_losses_dict.copy()
 
 # %%
 loss_names = [
@@ -1576,7 +1599,7 @@ import plotly.graph_objects as go
 fig = make_subplots(rows=len(loss_names), cols=1, subplot_titles=loss_names)
 for i, loss_name in enumerate(loss_names):
     fig.add_trace(
-        go.Scatter(y=losses_dict[loss_name], name=loss_name, mode="markers"),
+        go.Scatter(y=val_losses_dict[loss_name], name=loss_name, mode="markers"),
         row=i + 1,
         col=1,
     )
@@ -1663,13 +1686,13 @@ def plot_distribution(data: np.ndarray, name: str) -> None:
 
 
 plot_distribution(
-    data=losses_dict["passed_penetration_threshold_loss"],
+    data=val_losses_dict["passed_penetration_threshold_loss"],
     name="passed_penetration_threshold_loss",
 )
 
 # %%
 plot_distribution(
-    data=losses_dict["passed_simulation_loss"], name="passed_simulation_loss"
+    data=val_losses_dict["passed_simulation_loss"], name="passed_simulation_loss"
 )
 
 

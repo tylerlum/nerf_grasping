@@ -7,6 +7,7 @@ import pathlib
 import trimesh
 from localscope import localscope
 from functools import partial
+import torch
 
 # %%
 # PARAMS
@@ -125,11 +126,60 @@ def plot_grasp_config(mesh, grasp_config: AllegroGraspConfig, idx: int = 0) -> F
     return fig
 
 
+@localscope.mfc(allowed=["N_GRASPS", "N_FINGERS", "N_XYZ"])
+def plot_grasps(mesh, grasps: torch.Tensor, idx: int = 0) -> Figure:
+    fig = go.Figure()
+
+    assert_equals(grasps.shape[1:], (N_FINGERS, N_XYZ * 2))
+    fingertip_positions = grasps[idx, :, :3]
+    grasp_dirs = grasps[idx, :, 3:]
+    assert_equals(fingertip_positions.shape, (N_FINGERS, N_XYZ))
+    assert_equals(grasp_dirs.shape, (N_FINGERS, N_XYZ))
+
+    fig.add_trace(
+        go.Mesh3d(
+            x=mesh.vertices[:, 0],
+            y=mesh.vertices[:, 1],
+            z=mesh.vertices[:, 2],
+            i=mesh.faces[:, 0],
+            j=mesh.faces[:, 1],
+            k=mesh.faces[:, 2],
+            name="mesh",
+            opacity=0.5,
+            color="lightpink",
+        )
+    )
+
+    fig.add_trace(
+        go.Scatter3d(
+            x=fingertip_positions[:, 0],
+            y=fingertip_positions[:, 1],
+            z=fingertip_positions[:, 2],
+            mode="markers",
+            marker=dict(size=5, color="blue"),
+            name="fingertips",
+        )
+    )
+    DELTA = 0.02
+    target_fingertip_positions = fingertip_positions + grasp_dirs * DELTA
+    for i in range(N_FINGERS):
+        fig.add_trace(
+            go.Scatter3d(
+                x=[fingertip_positions[i, 0], target_fingertip_positions[i, 0]],
+                y=[fingertip_positions[i, 1], target_fingertip_positions[i, 1]],
+                z=[fingertip_positions[i, 2], target_fingertip_positions[i, 2]],
+                mode="lines",
+                line=dict(color="blue", width=5),
+                name="fingertips dirs",
+            )
+        )
+    return fig
+
+
 fig = plot_grasp_config(mesh, init_grasp_configs, idx=0)
 fig.show()
 
 # %%
-import torch
 
 mu_0 = torch.cat(
     [
@@ -138,9 +188,9 @@ mu_0 = torch.cat(
     ],
     dim=-1,
 ).flatten()
-sigma_0 = torch.eye(N_FINGERS * N_XYZ * 2) * 0.01
+Sigma_0 = torch.eye(N_FINGERS * N_XYZ * 2) * 1e-3
 assert_equals(mu_0.shape, (N_FINGERS * N_XYZ * 2,))
-assert_equals(sigma_0.shape, (N_FINGERS * N_XYZ * 2, N_FINGERS * N_XYZ * 2))
+assert_equals(Sigma_0.shape, (N_FINGERS * N_XYZ * 2, N_FINGERS * N_XYZ * 2))
 
 
 # %%
@@ -243,7 +293,7 @@ def get_grasp_points(mesh, grasp_vars, residual_dirs=False):
     rays_d = rays_d / torch.norm(rays_d, dim=-1, keepdim=True)
 
     # Cast to numpy, reshape.
-    rays_o_np, rays_d_np = rays_o.cpu().numpy(), rays_d.cpu().numpy()
+    rays_o_np, rays_d_np = rays_o.detach().cpu().numpy(), rays_d.detach().cpu().numpy()
 
     # Put ray origins into mesh frame.
     # rays_o_np = rays_o_np - mesh.centroid.reshape(1, 3)
@@ -266,6 +316,14 @@ def get_grasp_points(mesh, grasp_vars, residual_dirs=False):
     grasp_points = torch.from_numpy(grasp_points).reshape(B, n_f, 3).to(rays_o)
     grasp_normals = torch.from_numpy(grasp_normals).reshape(B, n_f, 3).to(rays_d)
     grasp_mask = torch.from_numpy(grasp_mask).reshape(B, n_f).to(rays_o).bool()
+
+    # new_grasp_mask = grasp_mask.any(-1)
+    # new_grasps = torch.cat(
+    #     [grasp_points[new_grasp_mask], grasp_normals[new_grasp_mask]], dim=-1
+    # )
+    # breakpoint()
+    # fig = plot_grasps(mesh, new_grasps.detach(), idx=-1)
+    # fig.show()
 
     return grasp_points, grasp_normals, grasp_mask
 
@@ -377,10 +435,10 @@ def cos_similarity(a, b):
     return torch.sum(a * b, dim=-1) / (torch.norm(a, dim=-1) * torch.norm(b, dim=-1))
 
 
-def get_cost_function(cost_fn="psv"):
+def get_cost_function(cost_fn="psv", return_details=False):
     """Factory for grasp cost function; generates grasp cost for CEM using config/model."""
 
-    centroid = torch.as_tensor(mesh.centroid)
+    centroid = torch.from_numpy(mesh.centroid.copy())
 
     def cost_function(grasp_vars):
         # Reshape grasp vars into something useful, get dims.
@@ -389,7 +447,9 @@ def get_cost_function(cost_fn="psv"):
         B = gps.shape[0]
 
         # If mesh is a triangle mesh, extract points/normals from it.
-        grasp_points, grad_ests, grasp_mask = get_grasp_points(mesh, gps, residual_dirs=False)
+        grasp_points, grad_ests, grasp_mask = get_grasp_points(
+            mesh, gps, residual_dirs=False
+        )
         grasp_mask = grasp_mask.all(-1, keepdim=True)
 
         risk_sensitivity = None
@@ -453,14 +513,19 @@ def get_cost_function(cost_fn="psv"):
         # Take expectation along sample dim.
         g_cost = g_cost.mean(-1)  # shape (B,)
 
-        # Set invalid grasp costs to an upper bound (here, 2.0).
+        # Set invalid grasp costs to an upper bound
+        INVALID_GRASP_COST = 2.0
         g_cost = torch.where(
-            torch.all(grasp_mask, dim=-1), g_cost, 2.0 * torch.ones_like(g_cost)
+            torch.all(grasp_mask, dim=-1),
+            g_cost,
+            INVALID_GRASP_COST * torch.ones_like(g_cost),
         )
 
         if risk_sensitivity:
             g_cost = (1 / risk_sensitivity) * torch.log(g_cost)
 
+        if return_details:
+            return g_cost, raw_cost, grasp_points, grad_ests, grasp_mask
         return g_cost
 
     return cost_function
@@ -468,7 +533,10 @@ def get_cost_function(cost_fn="psv"):
 
 def correct_z_dists(mesh, rays_o, rays_d, des_z_dist):
     if isinstance(rays_o, torch.Tensor):
-        rays_o_np, rays_d_np = rays_o.detach().cpu().numpy(), rays_d.detach().cpu().numpy()
+        rays_o_np, rays_d_np = (
+            rays_o.detach().cpu().numpy(),
+            rays_d.detach().cpu().numpy(),
+        )
     else:
         rays_o_np, rays_d_np = rays_o, rays_d
 
@@ -494,9 +562,7 @@ def correct_z_dists(mesh, rays_o, rays_d, des_z_dist):
     # Put back into ig frame.
     # rays_o_corrected = rays_o_corrected + mesh.ig_centroid.reshape(1, 3)
 
-    rays_o_corrected[:, 1] = np.maximum(
-        rays_o_corrected[:, 1], object_bounds[1][0]
-    )
+    rays_o_corrected[:, 1] = np.maximum(rays_o_corrected[:, 1], object_bounds[1][0])
     dists_corrected = np.linalg.norm(
         rays_o_corrected - hit_points, axis=-1, keepdims=True
     )
@@ -534,14 +600,14 @@ object_bounds = torch.tensor(mesh.bounds).T * 1.5
 assert_equals(object_bounds.shape, (N_XYZ, 2))
 projection_fn = partial(box_projection, object_bounds=object_bounds)
 cost_fn = get_cost_function()
-centroid = torch.as_tensor(mesh.centroid)
+centroid = torch.from_numpy(mesh.centroid.copy())
 assert_equals(centroid.shape, (N_XYZ,))
 
 for ii in range(N_GRASPS):
     mu_f, Sigma_f, cost_history, best_point = optimize_cem(
         cost_fn,
         mu_0,
-        sigma_0,
+        Sigma_0,
         num_iters=cem_num_iters,
         num_samples=cem_num_samples,
         elite_frac=cem_elite_frac,
@@ -555,5 +621,38 @@ for ii in range(N_GRASPS):
 
     sampled_grasps[ii, :, :3] = rays_o
     sampled_grasps[ii, :, 3:] = rays_d
+
+# %%
+fig = plot_grasps(mesh, sampled_grasps.detach(), idx=0)
+fig.show()
+
+
+# %%
+costs = cost_fn(sampled_grasps)
+print(f"costs: {costs}")
+print(f"sampled_grasps.shape {sampled_grasps.shape}")
+
+# %%
+detailed_cost_fn = get_cost_function(cost_fn="psv", return_details=True)
+
+# %%
+g_cost, raw_cost, grasp_points, grad_ests, grasp_mask = detailed_cost_fn(sampled_grasps)
+idx = 0
+print(f"g_cost[idx]: {g_cost[idx]}")
+print(f"raw_cost[idx]: {raw_cost[idx]}")
+print(f"grasp_points[idx]: {grasp_points[idx]}")
+print(f"grad_ests[idx]: {grad_ests[idx]}")
+print(f"grasp_mask[idx]: {grasp_mask[idx]}")
+
+
+# %%
+breakpoint()
+
+# %%
+grasp_points[0]
+
+# %%
+distances = trimesh.proximity.signed_distance(mesh, grasp_points[0])
+distances
 
 # %%

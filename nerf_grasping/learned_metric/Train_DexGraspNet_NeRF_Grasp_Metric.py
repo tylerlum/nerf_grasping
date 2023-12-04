@@ -1014,6 +1014,7 @@ def _iterate_through_dataloader(
     optimizer: Optional[torch.optim.Optimizer] = None,
     lr_scheduler: Optional[torch.optim.lr_scheduler.LRScheduler] = None,
     max_num_batches: Optional[int] = None,
+    log_every_n_batches: int = 5,
 ) -> Tuple[Dict[str, List[float]], Dict[str, List[float]], Dict[str, List[float]]]:
     losses_dict = defaultdict(list)  # loss name => list of losses (one loss per batch)
     predictions_dict, ground_truths_dict = defaultdict(list), defaultdict(
@@ -1153,16 +1154,89 @@ def _iterate_through_dataloader(
                     ground_truths_dict[f"{task_name}"] += ground_truths
 
             # Set description
-            loss_log_str = (
-                f"loss: {np.mean(losses_dict['loss']):.5f}, {np.median(losses_dict['loss']):.5f}, {np.std(losses_dict['loss']):.5f}"
-                if len(losses_dict["loss"]) > 0
-                else "loss: N/A"
-            )
+            if len(losses_dict["loss"]) > 0:
+                means = [
+                    np.mean(losses_dict[f"{loss_name}"])
+                    for loss_name in losses_dict.keys()
+                ]
+                mins = [
+                    np.min(losses_dict[f"{loss_name}"])
+                    for loss_name in losses_dict.keys()
+                ]
+                maxs = [
+                    np.max(losses_dict[f"{loss_name}"])
+                    for loss_name in losses_dict.keys()
+                ]
+                quartile_50s = [
+                    np.quantile(losses_dict[f"{loss_name}"], 0.5)
+                    for loss_name in losses_dict.keys()
+                ]
+                quartile_25s = [
+                    np.quantile(losses_dict[f"{loss_name}"], 0.25)
+                    for loss_name in losses_dict.keys()
+                ]
+                quartile_75s = [
+                    np.quantile(losses_dict[f"{loss_name}"], 0.75)
+                    for loss_name in losses_dict.keys()
+                ]
+
+                loss_log_strs = [
+                    f"{loss_name}: {mean:.3f} ({min:.3f}, {quartile_25:.3f}, {quartile_50:.3f}, {quartile_75:.3f}, {max:.3f})"
+                    for loss_name, mean, min, quartile_25, quartile_50, quartile_75, max in zip(
+                        losses_dict.keys(),
+                        means,
+                        mins,
+                        quartile_25s,
+                        quartile_50s,
+                        quartile_75s,
+                        maxs,
+                    )
+                ]
+
+                if (
+                    wandb.run is not None
+                    and log_every_n_batches is not None
+                    and batch_idx % log_every_n_batches == 0
+                    and batch_idx != 0
+                ):
+                    mid_epoch_log_dict = {}
+                    for (
+                        loss_name,
+                        mean,
+                        min,
+                        quartile_25,
+                        quartile_50,
+                        quartile_75,
+                        max,
+                    ) in zip(
+                        loss_names,
+                        means,
+                        mins,
+                        quartile_25s,
+                        quartile_50s,
+                        quartile_75s,
+                        maxs,
+                    ):
+                        mid_epoch_log_dict.update(
+                            {
+                                f"mid_epoch/{phase.name.lower()}_{loss_name}_mean": mean,
+                                f"mid_epoch/{phase.name.lower()}_{loss_name}_min": min,
+                                f"mid_epoch/{phase.name.lower()}_{loss_name}_quartile_25": quartile_25,
+                                f"mid_epoch/{phase.name.lower()}_{loss_name}_quartile_50": quartile_50,
+                                f"mid_epoch/{phase.name.lower()}_{loss_name}_quartile_75": quartile_75,
+                                f"mid_epoch/{phase.name.lower()}_{loss_name}_max": max,
+                            }
+                        )
+                    wandb.log(mid_epoch_log_dict)
+
+            else:
+                loss_log_strs = ["loss: N/A"]
+
             description = " | ".join(
                 [
                     f"{phase.name.lower()}",
-                    loss_log_str,
                 ]
+                + loss_log_strs
             )
             pbar.set_description(description)
 
@@ -1189,6 +1263,11 @@ def create_log_dict(
     with loop_timer.add_section_timer("Agg Loss"):
         for loss_name, losses in losses_dict.items():
             temp_log_dict[f"{loss_name}"] = np.mean(losses)
+            temp_log_dict[f"{loss_name}_min"] = np.min(losses)
+            temp_log_dict[f"{loss_name}_max"] = np.max(losses)
+            temp_log_dict[f"{loss_name}_quartile_25"] = np.quantile(losses, 0.25)
+            temp_log_dict[f"{loss_name}_quartile_50"] = np.quantile(losses, 0.5)
+            temp_log_dict[f"{loss_name}_quartile_75"] = np.quantile(losses, 0.75)
 
     with loop_timer.add_section_timer("Metrics"):
         assert_equals(set(predictions_dict.keys()), set(ground_truths_dict.keys()))
@@ -1532,14 +1611,6 @@ losses_dict, predictions_dict, ground_truths_dict = _iterate_through_dataloader(
 )
 
 # %%
-losses_dict.keys()
-
-# %%
-np.mean(losses_dict["passed_penetration_threshold_loss"]), np.median(
-    losses_dict["passed_penetration_threshold_loss"]
-), np.std(losses_dict["passed_penetration_threshold_loss"])
-
-# %%
 loss_names = [
     "passed_simulation_loss",
     "passed_penetration_threshold_loss",
@@ -1558,125 +1629,10 @@ fig.show()
 
 
 # %%
-def effective_median(data: np.ndarray, num_bins: int = 100) -> float:
-    assert_equals(data.ndim, 1)
-
-    # Create histogram bins
-    counts, bin_edges = np.histogram(data, bins=num_bins)
-
-    # Find the median position
-    median_pos = np.argmax(counts)
-
-    # Calculate the effective median as the average of the bin edges
-    effective_median = (bin_edges[median_pos] + bin_edges[median_pos + 1]) / 2
-    print(f"effective_median = {effective_median}")
-    return effective_median
-
-
-# %%
-fig = make_subplots(rows=len(loss_names), cols=1, subplot_titles=loss_names)
-for i, loss_name in enumerate(loss_names):
-    fig.add_trace(
-        go.Histogram(x=losses_dict[loss_name], name=loss_name), row=i + 1, col=1
-    )
-    mean_value = np.mean(losses_dict[loss_name])
-    # median_value = np.median(losses_dict[loss_name])
-    median_value = effective_median(np.array(losses_dict[loss_name]))
-    fig.add_shape(
-        type="line",
-        x0=mean_value,
-        y0=0,
-        x1=mean_value,
-        y1=1000,
-        row=i + 1,
-        col=1,
-        line=dict(color="red", width=3),
-    )
-    fig.add_shape(
-        type="line",
-        x0=median_value,
-        y0=0,
-        x1=median_value,
-        y1=1000,
-        row=i + 1,
-        col=1,
-        line=dict(color="green", width=3),
-    )
-    fig.add_annotation(
-        x=mean_value,
-        y=950,
-        xref="x" + str(i + 1),
-        yref="paper",
-        text="Mean",
-        showarrow=False,
-        row=i + 1,
-        col=1,
-        bgcolor="Red",
-        font=dict(color="white"),
-    )
-    fig.add_annotation(
-        x=median_value,
-        y=850,
-        xref="x" + str(i + 1),
-        yref="paper",
-        text="Median",
-        showarrow=False,
-        row=i + 1,
-        col=1,
-        bgcolor="Green",
-        font=dict(color="white"),
-    )
-fig.show()
-
-
-# %%
-# Calculating statistics
-import scipy.stats as stats
-data = np.array(losses_dict["passed_penetration_threshold_loss"])
-mean = np.mean(data)
-max_value = np.max(data)
-min_value = np.min(data)
-data_range = np.ptp(data)  # Range as max - min
-std_dev = np.std(data)
-median = np.median(data)
-mode = stats.mode(data).mode[0]
-iqr = stats.iqr(data)  # Interquartile range
-percentile_25 = np.percentile(data, 25)
-percentile_75 = np.percentile(data, 75)
-
-# Printing results
-print(f"Mean: {mean}, Max: {max_value}, Min: {min_value}, Range: {data_range}, Standard Deviation: {std_dev}")
-print(f"Median: {median}, Mode: {mode}, IQR: {iqr}, 25th Percentile: {percentile_25}, 75th Percentile: {percentile_75}")
-
-# %%
-import matplotlib.pyplot as plt
-# Create histogram
-plt.hist(data, bins=30, alpha=0.7, color='blue', log=True)
-
-# Add lines for mean, median, and mode
-plt.axvline(mean, color='red', linestyle='dashed', linewidth=2, label=f'Mean: {mean:.2f}')
-plt.axvline(median, color='green', linestyle='dashed', linewidth=2, label=f'Median: {median:.2f}')
-plt.axvline(mode, color='yellow', linestyle='dashed', linewidth=2, label=f'Mode: {mode:.2f}')
-
-# Add lines for percentiles
-plt.axvline(percentile_25, color='orange', linestyle='dotted', linewidth=2, label=f'25th percentile: {percentile_25:.2f}')
-plt.axvline(percentile_75, color='purple', linestyle='dotted', linewidth=2, label=f'75th percentile: {percentile_75:.2f}')
-
-# Add standard deviation
-plt.axvline(mean - std_dev, color='cyan', linestyle='dashdot', linewidth=2, label=f'Std Dev: {std_dev:.2f}')
-plt.axvline(mean + std_dev, color='cyan', linestyle='dashdot', linewidth=2)
-
-# Add legend
-plt.legend()
-
-# Show plot
-plt.show()
-
-
-# %%
 def plot_distribution(data: np.ndarray, name: str) -> None:
     # Calculating statistics
     import scipy.stats as stats
+
     data = np.array(data)
     mean = np.mean(data)
     max_value = np.max(data)
@@ -1690,29 +1646,67 @@ def plot_distribution(data: np.ndarray, name: str) -> None:
     percentile_75 = np.percentile(data, 75)
 
     import matplotlib.pyplot as plt
+
     # Create histogram
-    counts, bin_edges, _ = plt.hist(data, bins=50, alpha=0.7, color='blue', log=True)
+    counts, bin_edges, _ = plt.hist(data, bins=50, alpha=0.7, color="blue", log=True)
     # median = (bin_edges[np.argmax(counts)] + bin_edges[np.argmax(counts) + 1]) / 2
     median = (bin_edges[np.argmax(counts)]) / 2
 
     # Printing results
-    print(f"Mean: {mean}, Max: {max_value}, Min: {min_value}, Range: {data_range}, Standard Deviation: {std_dev}")
-    print(f"Median: {median}, Raw Median: {raw_median}, Mode: {mode}, IQR: {iqr}, 25th Percentile: {percentile_25}, 75th Percentile: {percentile_75}")
-
+    print(
+        f"Mean: {mean}, Max: {max_value}, Min: {min_value}, Range: {data_range}, Standard Deviation: {std_dev}"
+    )
+    print(
+        f"Median: {median}, Raw Median: {raw_median}, Mode: {mode}, IQR: {iqr}, 25th Percentile: {percentile_25}, 75th Percentile: {percentile_75}"
+    )
 
     # Add lines for mean, median, raw_median, and mode
-    plt.axvline(mean, color='red', linestyle='dashed', linewidth=2, label=f'Mean: {mean:.4f}')
-    plt.axvline(median, color='green', linestyle='dashed', linewidth=2, label=f'Median: {median:.4f}')
-    plt.axvline(raw_median, color='pink', linestyle='dashed', linewidth=2, label=f'Raw Median: {raw_median:.4f}')
-    plt.axvline(mode, color='yellow', linestyle='dashed', linewidth=2, label=f'Mode: {mode:.4f}')
+    plt.axvline(
+        mean, color="red", linestyle="dashed", linewidth=2, label=f"Mean: {mean:.4f}"
+    )
+    plt.axvline(
+        median,
+        color="green",
+        linestyle="dashed",
+        linewidth=2,
+        label=f"Median: {median:.4f}",
+    )
+    plt.axvline(
+        raw_median,
+        color="pink",
+        linestyle="dashed",
+        linewidth=2,
+        label=f"Raw Median: {raw_median:.4f}",
+    )
+    plt.axvline(
+        mode, color="yellow", linestyle="dashed", linewidth=2, label=f"Mode: {mode:.4f}"
+    )
 
     # Add lines for percentiles
-    plt.axvline(percentile_25, color='orange', linestyle='dotted', linewidth=2, label=f'25th percentile: {percentile_25:.4f}')
-    plt.axvline(percentile_75, color='purple', linestyle='dotted', linewidth=2, label=f'75th percentile: {percentile_75:.4f}')
+    plt.axvline(
+        percentile_25,
+        color="orange",
+        linestyle="dotted",
+        linewidth=2,
+        label=f"25th percentile: {percentile_25:.4f}",
+    )
+    plt.axvline(
+        percentile_75,
+        color="purple",
+        linestyle="dotted",
+        linewidth=2,
+        label=f"75th percentile: {percentile_75:.4f}",
+    )
 
     # Add standard deviation
-    plt.axvline(mean - std_dev, color='cyan', linestyle='dashdot', linewidth=2, label=f'Std Dev: {std_dev:.4f}')
-    plt.axvline(mean + std_dev, color='cyan', linestyle='dashdot', linewidth=2)
+    plt.axvline(
+        mean - std_dev,
+        color="cyan",
+        linestyle="dashdot",
+        linewidth=2,
+        label=f"Std Dev: {std_dev:.4f}",
+    )
+    plt.axvline(mean + std_dev, color="cyan", linestyle="dashdot", linewidth=2)
 
     # Add legend
     plt.legend()
@@ -1721,10 +1715,16 @@ def plot_distribution(data: np.ndarray, name: str) -> None:
     # Show plot
     plt.show()
 
-plot_distribution(data=losses_dict["passed_penetration_threshold_loss"], name="passed_penetration_threshold_loss")
+
+plot_distribution(
+    data=losses_dict["passed_penetration_threshold_loss"],
+    name="passed_penetration_threshold_loss",
+)
 
 # %%
-plot_distribution(data=losses_dict["passed_simulation_loss"], name="passed_simulation_loss")
+plot_distribution(
+    data=losses_dict["passed_simulation_loss"], name="passed_simulation_loss"
+)
 
 
 # %%

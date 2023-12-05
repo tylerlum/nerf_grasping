@@ -31,6 +31,9 @@ class OptimizationConfig:
             project="learned_metric", name=CONFIG_DATETIME_STR
         )
     )
+    use_rich: bool = False
+    """Whether to use rich for logging (rich is nice but makes breakpoint() not work)."""
+
     def __post_init__(self):
         """
         Set default output path if not specified.

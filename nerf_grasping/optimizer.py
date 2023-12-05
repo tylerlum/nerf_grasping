@@ -29,6 +29,7 @@ from rich.console import Console
 from rich.table import Table
 
 from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
+from contextlib import nullcontext
 
 
 def is_notebook() -> bool:
@@ -251,78 +252,92 @@ def run_optimizer_loop(
     Convenience function for running the optimizer loop.
     """
 
-    # start_column = TextColumn("[bold green]{task.description}[/bold green]")
-    # progress = Progress(
-    #     SpinnerColumn(),
-    #     *Progress.get_default_columns(),
-    #     TextColumn("=>"),
-    #     TimeElapsedColumn(),
-    #     console=console,
-    # )
-    # with progress:
-    #     task_id = progress.add_task(
-    #         "Optimizing grasps...",
-    #         total=optimizer_config.num_steps,
-    #     )
-    for iter in range(optimizer_config.num_steps):
-        wandb_log_dict = {}
-        wandb_log_dict["optimization_step"] = iter
-        optimizer.step()
-
-        # # Update progress bar.
-        # progress.update(
-        #     task_id,
-        #     advance=1,
-        # )
-
-        if iter % optimizer_config.print_freq == 0:
-            # console.print(
-            #     f"Iter: {iter} | Min score: {optimizer.grasp_scores.min():.3f} | Max score: {optimizer.grasp_scores.max():.3f} | Mean score: {optimizer.grasp_scores.mean():.3f} | Std dev: {optimizer.grasp_scores.std():.3f}"
-            # )
-            print(
-                f"Iter: {iter} | Min score: {optimizer.grasp_scores.min():.3f} | Max score: {optimizer.grasp_scores.max():.3f} | Mean score: {optimizer.grasp_scores.mean():.3f} | Std dev: {optimizer.grasp_scores.std():.3f}"
+    start_column = TextColumn("[bold green]{task.description}[/bold green]")
+    with (
+        Progress(
+            SpinnerColumn(),
+            *Progress.get_default_columns(),
+            TextColumn("=>"),
+            TimeElapsedColumn(),
+            console=console,
+        )
+        if cfg.use_rich
+        else nullcontext()
+    ) as progress:
+        task_id = (
+            progress.add_task(
+                "Optimizing grasps...",
+                total=optimizer_config.num_steps,
             )
+            if progress is not None
+            else None
+        )
 
-        # Log to wandb.
-        wandb_log_dict["scores"] = optimizer.grasp_scores.detach().cpu().numpy()
-        wandb_log_dict["min_score"] = optimizer.grasp_scores.min().item()
-        wandb_log_dict["max_score"] = optimizer.grasp_scores.max().item()
-        wandb_log_dict["mean_score"] = optimizer.grasp_scores.mean().item()
-        wandb_log_dict["std_score"] = optimizer.grasp_scores.std().item()
+        for iter in range(optimizer_config.num_steps):
+            wandb_log_dict = {}
+            wandb_log_dict["optimization_step"] = iter
+            optimizer.step()
 
-        if wandb.run is not None:
-            wandb.log(wandb_log_dict)
+            # Update progress bar.
+            if progress is not None and task_id is not None:
+                progress.update(
+                    task_id,
+                    advance=1,
+                )
 
-        if iter % optimizer_config.save_grasps_freq == 0:
-            # Save mid optimization grasps to file
-            grasp_config_dict = optimizer.grasp_config.as_dict()
-            grasp_config_dict["score"] = optimizer.grasp_scores.detach().cpu().numpy()
+            if iter % optimizer_config.print_freq == 0:
+                # console.print(
+                #     f"Iter: {iter} | Min score: {optimizer.grasp_scores.min():.3f} | Max score: {optimizer.grasp_scores.max():.3f} | Mean score: {optimizer.grasp_scores.mean():.3f} | Std dev: {optimizer.grasp_scores.std():.3f}"
+                # )
+                print(
+                    f"Iter: {iter} | Min score: {optimizer.grasp_scores.min():.3f} | Max score: {optimizer.grasp_scores.max():.3f} | Mean score: {optimizer.grasp_scores.mean():.3f} | Std dev: {optimizer.grasp_scores.std():.3f}"
+                )
 
-            # To interface with mid optimization visualizer, need to create new folder (mid_optimization_folder_path)
-            # that has folders with iteration number
-            # TODO: Decide if this should just store in cfg.output_path.parent (does this cause issues?) or store in new folder
-            # <mid_optimization_folder_path>
-            #    - 0
-            #        - <object_code_and_scale_str>.py
-            #    - x
-            #        - <object_code_and_scale_str>.py
-            #    - 2x
-            #        - <object_code_and_scale_str>.py
-            #    - 3x
-            #        - <object_code_and_scale_str>.py
-            main_output_folder_path, filename = (
-                cfg.output_path.parent,
-                cfg.output_path.name,
-            )
-            mid_optimization_folder_path = (
-                main_output_folder_path.parent / f"{main_output_folder_path.name}_mid"
-            )
-            this_iter_folder_path = mid_optimization_folder_path / f"{iter}"
-            this_iter_folder_path.mkdir(parents=True, exist_ok=True)
-            print(f"Saving mid opt grasp config dict to {this_iter_folder_path}")
-            np.save(
-                this_iter_folder_path / filename, grasp_config_dict, allow_pickle=True
-            )
+            # Log to wandb.
+            wandb_log_dict["scores"] = optimizer.grasp_scores.detach().cpu().numpy()
+            wandb_log_dict["min_score"] = optimizer.grasp_scores.min().item()
+            wandb_log_dict["max_score"] = optimizer.grasp_scores.max().item()
+            wandb_log_dict["mean_score"] = optimizer.grasp_scores.mean().item()
+            wandb_log_dict["std_score"] = optimizer.grasp_scores.std().item()
+
+            if wandb.run is not None:
+                wandb.log(wandb_log_dict)
+
+            if iter % optimizer_config.save_grasps_freq == 0:
+                # Save mid optimization grasps to file
+                grasp_config_dict = optimizer.grasp_config.as_dict()
+                grasp_config_dict["score"] = (
+                    optimizer.grasp_scores.detach().cpu().numpy()
+                )
+
+                # To interface with mid optimization visualizer, need to create new folder (mid_optimization_folder_path)
+                # that has folders with iteration number
+                # TODO: Decide if this should just store in cfg.output_path.parent (does this cause issues?) or store in new folder
+                # <mid_optimization_folder_path>
+                #    - 0
+                #        - <object_code_and_scale_str>.py
+                #    - x
+                #        - <object_code_and_scale_str>.py
+                #    - 2x
+                #        - <object_code_and_scale_str>.py
+                #    - 3x
+                #        - <object_code_and_scale_str>.py
+                main_output_folder_path, filename = (
+                    cfg.output_path.parent,
+                    cfg.output_path.name,
+                )
+                mid_optimization_folder_path = (
+                    main_output_folder_path.parent
+                    / f"{main_output_folder_path.name}_mid"
+                )
+                this_iter_folder_path = mid_optimization_folder_path / f"{iter}"
+                this_iter_folder_path.mkdir(parents=True, exist_ok=True)
+                print(f"Saving mid opt grasp config dict to {this_iter_folder_path}")
+                np.save(
+                    this_iter_folder_path / filename,
+                    grasp_config_dict,
+                    allow_pickle=True,
+                )
 
     optimizer.grasp_metric.eval()
 
@@ -351,13 +366,20 @@ def main(cfg: OptimizationConfig) -> None:
             config=asdict(cfg),
         )
 
-    # Sample a batch of grasps from the grasp data.
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[bold blue]{task.description} "),
-        console=console,
+    with (
+        Progress(
+            SpinnerColumn(),
+            TextColumn("[bold blue]{task.description} "),
+            console=console,
+        )
+        if cfg.use_rich
+        else nullcontext()
     ) as progress:
-        task = progress.add_task("Loading grasp data", total=1)
+        task = (
+            progress.add_task("Loading grasp data", total=1)
+            if progress is not None
+            else None
+        )
 
         # TODO: Find a way to load a particular split of the grasp_data.
         init_grasp_config_dict = np.load(
@@ -398,7 +420,8 @@ def main(cfg: OptimizationConfig) -> None:
         data_inds = np.random.choice(data_inds, size=num_grasps)
         init_grasp_configs = init_grasp_configs[data_inds]
 
-        progress.update(task, advance=1)
+        if progress is not None and task is not None:
+            progress.update(task, advance=1)
 
     # Create grasp metric
     USE_DEPTH_IMAGES = isinstance(
@@ -407,10 +430,12 @@ def main(cfg: OptimizationConfig) -> None:
     if USE_DEPTH_IMAGES:
         grasp_metric = DepthImageGraspMetric.from_config(
             cfg.grasp_metric,
+            console=console,
         )
     else:
         grasp_metric = GraspMetric.from_config(
             cfg.grasp_metric,
+            console=console,
         )
 
     # Create Optimizer.

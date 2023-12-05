@@ -21,11 +21,14 @@ def get_cameras(
 ) -> Cameras:
     """
     Get cameras from the grasp transforms and camera config.
+    NOTE: Cameras requires the inputs to be on cpu not gpu
+          Issue in nerfstudio/cameras/cameras.py:166 torch.Tensor instead of torch.tensor
     """
+
     # Flip rotations so -z points along the grasp dir.
-    c2w_rotations = grasp_transforms.rotation() @ GRASP_TO_OPENCV
+    c2w_rotations = grasp_transforms.rotation().cpu() @ GRASP_TO_OPENCV
     # c2w_rotations = grasp_transforms.rotation()
-    c2w_translations = grasp_transforms.translation()
+    c2w_translations = grasp_transforms.translation().cpu()
 
     cameras = Cameras(
         camera_to_worlds=torch.cat(

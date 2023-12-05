@@ -20,8 +20,9 @@ class OptimizationConfig:
     init_grasp_config_dict_path: pathlib.Path = (
         pathlib.Path(nerf_grasping.get_repo_root())
         / "data"
-        / "2023-08-29_evaled_grasp_config_dicts_trial_big"
-        / "mug_0_1000.npy"
+        / "2023-11-17_rubikscube_0"
+        / "evaled_grasp_config_dicts"
+        / "ddg-gd_rubik_cube_poisson_004_0_1000.npy"
     )
     output_path: Optional[pathlib.Path] = None
     grasp_split: Literal["train", "val", "test"] = "val"

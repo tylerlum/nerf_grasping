@@ -90,6 +90,30 @@ Look at wandb to see results!
 
 TODO: Optimizer and grasp scoring after training
 
+## NeRF to Mesh + URDF
+
+After training nerfs, create meshes and urdfs like so:
+```
+python nerf_grasping/baselines/nerf_to_urdf_all.py --nerfcheckpoints_path data/2023-11-17_01-27-23/nerfcheckpoints --output-dir-path data/2023-11-17_01-27-23/nerf_meshdata_mugs_v10
+```
+
+Output:
+```
+ls data/2023-11-17_01-27-23/nerf_meshdata_mugs_v10
+core-mug-1038e4eac0e18dcce02ae6d2a21d494a  core-mug-1305b9266d38eb4d9f818dd0aa1a251   core-mug-162201dfe14b73f0281365259d1cf342
+core-mug-10f6e09036350e92b3f21f1137c3c347  core-mug-141f1db25095b16dcfb3760e4293e310  core-mug-17952a204c0a9f526c69dceb67157a66
+core-mug-127944b6dabee1c9e20e92c5b8147e4a  core-mug-159e56c18906830278d8f8c02c47cde0
+core-mug-128ecbc10df5b05d96eaf1340564a4de  core-mug-15bd6225c209a8e3654b0ce7754570c8
+
+tree data/2023-11-17_01-27-23/nerf_meshdata_mugs_v10/core-mug-1038e4eac0e18dcce02ae6d2a21d494a
+data/2023-11-17_01-27-23/nerf_meshdata_mugs_v10/core-mug-1038e4eac0e18dcce02ae6d2a21d494a
+└── coacd
+    ├── coacd.urdf
+    └── decomposed.obj
+```
+
+This can be used by DexGraspNet for baselines.
+
 # System Diagram
 
 View diagrams [here](diagrams.md)

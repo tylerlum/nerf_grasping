@@ -492,6 +492,8 @@ class GraspMetric(torch.nn.Module):
         self,
         grasp_config: AllegroGraspConfig,
     ) -> torch.Tensor:
+        # TODO: Batch this to avoid OOM (refer to Create_DexGraspNet_NeRF_Grasps_Dataset.py)
+
         # Generate RaySamples.
         ray_samples = grasp_utils.get_ray_samples(
             self.ray_origins_finger_frame,
@@ -524,6 +526,8 @@ class GraspMetric(torch.nn.Module):
             return self.classifier_model.get_failure_probability(batch_data_input)
         elif self.return_type == "failure_logits":
             return self.classifier_model(batch_data_input)[:, -1]
+        else:
+            raise ValueError(f"return_type {self.return_type} not recognized")
 
     def get_failure_probability(
         self,
@@ -662,6 +666,7 @@ class DepthImageGraspMetric(torch.nn.Module):
         self,
         grasp_config: AllegroGraspConfig,
     ) -> torch.Tensor:
+        # TODO: Batch this to avoid OOM (refer to Create_DexGraspNet_NeRF_Grasps_Dataset.py)
         cameras = get_cameras(
             grasp_config.grasp_frame_transforms, self.camera_config
         ).to(self.nerf_model.device)
@@ -715,6 +720,8 @@ class DepthImageGraspMetric(torch.nn.Module):
             return self.classifier_model.get_failure_probability(batch_data_input)
         elif self.return_type == "failure_logits":
             return self.classifier_model(batch_data_input)[:, -1]
+        else:
+            raise ValueError(f"return_type {self.return_type} not recognized")
 
     def get_failure_probability(
         self,
@@ -727,7 +734,7 @@ class DepthImageGraspMetric(torch.nn.Module):
         cls,
         grasp_metric_config: GraspMetricConfig,
         console: Optional[Console] = None,
-    ) -> GraspMetric:
+    ) -> DepthImageGraspMetric:
         return cls.from_configs(
             grasp_metric_config.nerf_checkpoint_path,
             grasp_metric_config.classifier_config,
@@ -742,7 +749,7 @@ class DepthImageGraspMetric(torch.nn.Module):
         classifier_config: ClassifierConfig,
         classifier_checkpoint: int = -1,
         console: Optional[Console] = None,
-    ) -> GraspMetric:
+    ) -> DepthImageGraspMetric:
         assert isinstance(
             classifier_config.nerfdata_config, DepthImageNerfDataConfig
         ), f"classifier_config.nerfdata_config must be a DepthImageNerfDataConfig, but is {classifier_config.nerfdata_config}"

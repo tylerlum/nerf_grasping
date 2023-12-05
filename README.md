@@ -88,7 +88,23 @@ Can load checkpoint with `--checkpoint-workspace.input_leaf_dir_name depth_cnn2d
 
 Look at wandb to see results!
 
-TODO: Optimizer and grasp scoring after training
+## Test Grasp Metric
+
+Test out how well the grasp metric is doing on a file of labeled grasps:
+```
+python nerf_grasping/test_grasp_metric.py --grasp_config_dict_path <path_to_npy> --max_num_grasps 10 --grasp_metric.classifier_config_path <path to classifier config yaml> --grasp_metric.nerf_checkpoint_path <path to nerf checkpoint config yaml>
+```
+
+Prints to screen comparing predicted scores and ground truth.
+
+## Optimizer
+
+Run SGD optimizer:
+```
+python nerf_grasping/optimizer.py --use-rich optimizer:sgd --optimizer.num-grasps 5 --init_grasp_config_dict_path <path_to_npy> --grasp_metric.classifier_config_path <path to classifier config yaml> --grasp_metric.nerf_checkpoint_path <path to nerf checkpoint config yaml>                                    
+```
+
+Saves to npy file with the optimized grasps
 
 ## NeRF to Mesh + URDF
 

@@ -25,7 +25,9 @@ class Args:
 
 
 def print_and_run(cmd: str) -> None:
+    print("=" * 80)
     print(f"Running: {cmd}")
+    print("=" * 80 + "\n")
     subprocess.run(cmd, shell=True, check=True)
 
 

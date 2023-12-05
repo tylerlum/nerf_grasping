@@ -183,25 +183,31 @@ class CheckpointWorkspaceConfig:
         return self.root_dir / self.output_leaf_dir_name
 
     @property
-    def latest_input_checkpoint_path(self) -> Optional[pathlib.Path]:
-        """Path to the latest checkpoint in the input directory."""
+    def input_checkpoint_paths(self) -> List[pathlib.Path]:
         if self.input_dir is None:
-            return None
+            return []
 
         checkpoint_filepaths = sorted(
             [x for x in self.input_dir.glob("*.pt")]
             + [x for x in self.input_dir.glob("*.pth")],
             key=lambda x: x.stat().st_mtime,
         )
-        if len(checkpoint_filepaths) == 0:
+
+        return checkpoint_filepaths
+
+    @property
+    def latest_input_checkpoint_path(self) -> Optional[pathlib.Path]:
+        """Path to the latest checkpoint in the input directory."""
+        input_checkpoint_paths = self.input_checkpoint_paths
+        if len(input_checkpoint_paths) == 0:
             print("No checkpoint found")
             return None
 
-        if len(checkpoint_filepaths) > 1:
+        if len(input_checkpoint_paths) > 1:
             print(
-                f"Found multiple checkpoints: {checkpoint_filepaths}. Returning most recent one."
+                f"Found multiple checkpoints: {input_checkpoint_paths}. Returning most recent one."
             )
-        return checkpoint_filepaths[-1]
+        return input_checkpoint_paths[-1]
 
 
 @dataclass(frozen=True)

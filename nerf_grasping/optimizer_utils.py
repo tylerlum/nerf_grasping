@@ -1,7 +1,9 @@
 # %%
+from __future__ import annotations
 import numpy as np
 import pathlib
 import pytorch_kinematics as pk
+from pytorch_kinematics.chain import Chain
 import pypose as pp
 import torch
 
@@ -10,9 +12,18 @@ from nerf_grasping import grasp_utils
 
 from typing import List, Tuple, Dict, Any, Iterable, Union, Optional
 from nerfstudio.fields.base_field import Field
-from nerf_grasping.classifier import Classifier
-from nerf_grasping.learned_metric.DexGraspNet_batch_data import BatchDataInput
+from nerf_grasping.classifier import (
+    Classifier,
+    DepthImageClassifier,
+    Simple_CNN_LSTM_Classifier,
+)
+from nerf_grasping.learned_metric.DexGraspNet_batch_data import (
+    BatchDataInput,
+    DepthImageBatchDataInput,
+)
+from nerf_grasping.config.grasp_metric_config import GraspMetricConfig
 from nerf_grasping.config.fingertip_config import UnionFingertipConfig
+from nerf_grasping.config.classifier_config import ClassifierConfig
 
 ALLEGRO_URDF_PATH = list(
     pathlib.Path(nerf_grasping.get_package_root()).rglob(
@@ -30,7 +41,7 @@ FINGERTIP_LINK_NAMES = [
 ]
 
 
-def load_allegro(allegro_path: pathlib.Path = ALLEGRO_URDF_PATH) -> pk.chain.Chain:
+def load_allegro(allegro_path: pathlib.Path = ALLEGRO_URDF_PATH) -> Chain:
     return pk.build_chain_from_urdf(open(allegro_path).read())
 
 
@@ -43,7 +54,7 @@ class AllegroHandConfig(torch.nn.Module):
     def __init__(
         self,
         batch_size: int = 1,  # TODO(pculbert): refactor for arbitrary batch sizes.
-        chain: pk.chain.Chain = load_allegro(),
+        chain: Chain = load_allegro(),
         requires_grad: bool = True,
     ):
         # TODO(pculbert): add device/dtype kwargs.
@@ -62,7 +73,7 @@ class AllegroHandConfig(torch.nn.Module):
         cls,
         wrist_pose: pp.LieTensor,
         joint_angles: torch.Tensor,
-        chain: pk.chain.Chain = load_allegro(),
+        chain: Chain = load_allegro(),
         requires_grad: bool = True,
     ):
         """
@@ -183,7 +194,7 @@ class AllegroGraspConfig(torch.nn.Module):
     def __init__(
         self,
         batch_size: int = 1,
-        chain: pk.chain.Chain = load_allegro(),
+        chain: Chain = load_allegro(),
         requires_grad: bool = True,
         num_fingers: int = 4,
     ):
@@ -449,6 +460,8 @@ class GraspMetric(torch.nn.Module):
     a particular AllegroGraspConfig.
     """
 
+    # TODO: implement version for depth images
+
     def __init__(
         self,
         nerf_field: Field,
@@ -507,6 +520,65 @@ class GraspMetric(torch.nn.Module):
         grasp_config: AllegroGraspConfig,
     ):
         return self(grasp_config)
+
+
+    @classmethod
+    def from_config(
+        cls,
+        GraspMetricConfig: GraspMetricConfig,
+    ) -> GraspMetric:
+        return cls.from_configs(
+            GraspMetricConfig.nerf_checkpoint_path,
+            GraspMetricConfig.classifier_config,
+            GraspMetricConfig.classifier_checkpoint,
+        )
+
+    @classmethod
+    def from_configs(
+        cls,
+        nerf_config: pathlib.Path,
+        classifier_config: ClassifierConfig,
+        classifier_checkpoint: int = -1,
+    ) -> GraspMetric:
+        # Load nerf
+        nerf = grasp_utils.load_nerf_field(nerf_config)
+
+        # Load classifier (should device thing be here? probably since saved on gpu)
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        classifier = (
+            classifier_config.model_config.get_classifier_from_fingertip_config(
+                fingertip_config=classifier_config.nerfdata_config.fingertip_config,
+                n_tasks=classifier_config.task_type.n_tasks,
+            )
+        ).to(device)
+
+        # Load classifier weights
+        assert (
+            classifier_config.checkpoint_workspace.output_dir.exists()
+        ), f"checkpoint_workspace.output_dir does not exist at {classifier_config.checkpoint_workspace.output_dir}"
+        print(
+            f"Loading checkpoint ({classifier_config.checkpoint_workspace.output_dir})..."
+        )
+
+        input_checkpoint_paths = (
+            classifier_config.checkpoint_workspace.input_checkpoint_paths
+        )
+        assert (
+            len(input_checkpoint_paths) > 0
+        ), f"No checkpoints found in {classifier_config.checkpoint_workspace.input_checkpoint_paths}"
+        assert classifier_checkpoint < len(
+            input_checkpoint_paths
+        ), f"Requested checkpoint {classifier_checkpoint} does not exist in {classifier_config.checkpoint_workspace.input_checkpoint_paths}"
+        checkpoint_path = input_checkpoint_paths[classifier_checkpoint]
+
+        checkpoint = torch.load(checkpoint_path)
+        classifier.load_state_dict(checkpoint["classifier"])
+        classifier.load_state_dict(torch.load(checkpoint_path)["classifier"])
+
+        if not isinstance(classifier, Simple_CNN_LSTM_Classifier):
+            classifier.eval()  # weird LSTM thing where cudnn hasn't implemented the backwards pass in eval (??)
+
+        return cls(nerf, classifier, classifier_config.nerfdata_config.fingertip_config)
 
 
 class IndexingDataset(torch.utils.data.Dataset):

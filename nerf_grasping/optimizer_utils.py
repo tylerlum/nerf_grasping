@@ -30,6 +30,7 @@ from nerf_grasping.config.grasp_metric_config import GraspMetricConfig
 from nerf_grasping.config.fingertip_config import UnionFingertipConfig
 from nerf_grasping.config.camera_config import CameraConfig
 from nerf_grasping.config.classifier_config import ClassifierConfig
+from nerf_grasping.config.nerfdata_config import DepthImageNerfDataConfig
 
 ALLEGRO_URDF_PATH = list(
     pathlib.Path(nerf_grasping.get_package_root()).rglob(
@@ -525,7 +526,6 @@ class GraspMetric(torch.nn.Module):
     ):
         return self(grasp_config)
 
-
     @classmethod
     def from_config(
         cls,
@@ -544,7 +544,9 @@ class GraspMetric(torch.nn.Module):
         classifier_config: ClassifierConfig,
         classifier_checkpoint: int = -1,
     ) -> GraspMetric:
-        assert not isinstance(classifier_config.nerfdata_config, DepthImageNerfDataConfig), f"classifier_config.nerfdata_config must not be a DepthImageNerfDataConfig, but is {classifier_config.nerfdata_config}
+        assert not isinstance(
+            classifier_config.nerfdata_config, DepthImageNerfDataConfig
+        ), f"classifier_config.nerfdata_config must not be a DepthImageNerfDataConfig, but is {classifier_config.nerfdata_config}"
 
         # Load nerf
         nerf_field = grasp_utils.load_nerf_field(nerf_config)
@@ -584,7 +586,9 @@ class GraspMetric(torch.nn.Module):
         if not isinstance(classifier, Simple_CNN_LSTM_Classifier):
             classifier.eval()  # weird LSTM thing where cudnn hasn't implemented the backwards pass in eval (??)
 
-        return cls(nerf_field, classifier, classifier_config.nerfdata_config.fingertip_config)
+        return cls(
+            nerf_field, classifier, classifier_config.nerfdata_config.fingertip_config
+        )
 
 
 class DepthImageGraspMetric(torch.nn.Module):
@@ -613,9 +617,7 @@ class DepthImageGraspMetric(torch.nn.Module):
         cameras = get_cameras(grasp_config.grasp_frame_transforms, self.camera_config)
         batch_size = cameras.shape[0]
 
-        depth, uncertainty = render(
-            cameras, self.nerf_model, "median", far_plane=0.15
-        )
+        depth, uncertainty = render(cameras, self.nerf_model, "median", far_plane=0.15)
         assert (
             depth.shape
             == uncertainty.shape
@@ -640,11 +642,9 @@ class DepthImageGraspMetric(torch.nn.Module):
         )
 
         depth_uncertainty_images = torch.stack(
-                [
-                    depth, uncertainty
-                ],
-                dim=-3,
-            )
+            [depth, uncertainty],
+            dim=-3,
+        )
         assert depth_uncertainty_images.shape == (
             batch_size,
             grasp_config.num_fingers,
@@ -672,7 +672,6 @@ class DepthImageGraspMetric(torch.nn.Module):
     ):
         return self(grasp_config)
 
-
     @classmethod
     def from_config(
         cls,
@@ -691,8 +690,9 @@ class DepthImageGraspMetric(torch.nn.Module):
         classifier_config: ClassifierConfig,
         classifier_checkpoint: int = -1,
     ) -> GraspMetric:
-
-        assert isinstance(classifier_config.nerfdata_config, DepthImageNerfDataConfig), f"classifier_config.nerfdata_config must be a DepthImageNerfDataConfig, but is {classifier_config.nerfdata_config}
+        assert isinstance(
+            classifier_config.nerfdata_config, DepthImageNerfDataConfig
+        ), f"classifier_config.nerfdata_config must be a DepthImageNerfDataConfig, but is {classifier_config.nerfdata_config}"
 
         # Load nerf
         nerf_model = grasp_utils.load_nerf_model(nerf_config)
@@ -732,9 +732,9 @@ class DepthImageGraspMetric(torch.nn.Module):
         if not isinstance(classifier, Simple_CNN_LSTM_Classifier):
             classifier.eval()  # weird LSTM thing where cudnn hasn't implemented the backwards pass in eval (??)
 
-        return cls(nerf_model, classifier, classifier_config.nerfdata_config.fingertip_config)
-
-
+        return cls(
+            nerf_model, classifier, classifier_config.nerfdata_config.fingertip_config
+        )
 
 
 class IndexingDataset(torch.utils.data.Dataset):

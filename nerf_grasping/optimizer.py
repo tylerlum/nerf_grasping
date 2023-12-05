@@ -2,6 +2,7 @@ from __future__ import annotations
 from nerf_grasping.optimizer_utils import (
     AllegroGraspConfig,
     GraspMetric,
+    DepthImageGraspMetric,
     get_split_inds,
 )
 from dataclasses import asdict
@@ -11,12 +12,13 @@ import grasp_utils
 import torch
 from nerf_grasping.classifier import Classifier, Simple_CNN_LSTM_Classifier
 from nerf_grasping.config.classifier_config import ClassifierConfig
+from nerf_grasping.config.nerfdata_config import DepthImageNerfDataConfig
 from nerf_grasping.config.optimizer_config import (
     UnionGraspOptimizerConfig,
     SGDOptimizerConfig,
     CEMOptimizerConfig,
 )
-from typing import Tuple
+from typing import Tuple, Union
 import nerf_grasping
 from functools import partial
 import numpy as np
@@ -57,7 +59,9 @@ class Optimizer:
     """
 
     def __init__(
-        self, init_grasp_config: AllegroGraspConfig, grasp_metric: GraspMetric
+        self,
+        init_grasp_config: AllegroGraspConfig,
+        grasp_metric: Union[GraspMetric, DepthImageGraspMetric],
     ):
         # Put on the correct device. (TODO: DO WE NEED THIS?)
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -79,7 +83,7 @@ class SGDOptimizer(Optimizer):
     def __init__(
         self,
         init_grasp_config: AllegroGraspConfig,
-        grasp_metric: GraspMetric,
+        grasp_metric: Union[GraspMetric, DepthImageGraspMetric],
         optimizer_config: SGDOptimizerConfig,
     ):
         """
@@ -87,7 +91,7 @@ class SGDOptimizer(Optimizer):
 
         Args:
             init_grasp_config: Initial grasp configuration.
-            grasp_metric: GraspMetric object defining the metric to optimize.
+            grasp_metric: Union[GraspMetric, DepthImageGraspMetric] object defining the metric to optimize.
             **kwargs: Keyword arguments to pass to torch.optim.SGD.
         """
         super().__init__(init_grasp_config, grasp_metric)
@@ -143,7 +147,7 @@ class CEMOptimizer(Optimizer):
     def __init__(
         self,
         grasp_config: AllegroGraspConfig,
-        grasp_metric: GraspMetric,
+        grasp_metric: Union[GraspMetric, DepthImageGraspMetric],
         optimizer_config: CEMOptimizerConfig,
     ):
         """
@@ -151,7 +155,7 @@ class CEMOptimizer(Optimizer):
 
         Args:
             init_grasp_config: Initial grasp configuration.
-            grasp_metric: GraspMetric object defining the metric to optimize.
+            grasp_metric: Union[GraspMetric, DepthImageGraspMetric] object defining the metric to optimize.
             **kwargs: Keyword arguments to pass to torch.optim.SGD.
         """
         self.grasp_config = grasp_config
@@ -316,7 +320,9 @@ def run_optimizer_loop(
             this_iter_folder_path = mid_optimization_folder_path / f"{iter}"
             this_iter_folder_path.mkdir(parents=True, exist_ok=True)
             print(f"Saving mid opt grasp config dict to {this_iter_folder_path}")
-            np.save(this_iter_folder_path / filename, grasp_config_dict, allow_pickle=True)
+            np.save(
+                this_iter_folder_path / filename, grasp_config_dict, allow_pickle=True
+            )
 
     optimizer.grasp_metric.eval()
 
@@ -374,7 +380,6 @@ def main(cfg: OptimizationConfig) -> None:
             init_grasp_configs.batch_size,
             [
                 cfg.grasp_metric.classifier_config.data.frac_train,
-
                 cfg.grasp_metric.classifier_config.data.frac_val,
                 cfg.grasp_metric.classifier_config.data.frac_test,
             ],
@@ -396,9 +401,17 @@ def main(cfg: OptimizationConfig) -> None:
         progress.update(task, advance=1)
 
     # Create grasp metric
-    grasp_metric = GraspMetric.from_config(
-        cfg.grasp_metric,
+    USE_DEPTH_IMAGES = isinstance(
+        cfg.grasp_metric.classifier_config.nerfdata_config, DepthImageNerfDataConfig
     )
+    if USE_DEPTH_IMAGES:
+        grasp_metric = DepthImageGraspMetric.from_config(
+            cfg.grasp_metric,
+        )
+    else:
+        grasp_metric = GraspMetric.from_config(
+            cfg.grasp_metric,
+        )
 
     # Create Optimizer.
     if isinstance(cfg.optimizer, SGDOptimizerConfig):

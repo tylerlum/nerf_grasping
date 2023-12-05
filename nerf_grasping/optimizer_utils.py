@@ -12,6 +12,7 @@ from nerf_grasping import grasp_utils
 
 from typing import List, Tuple, Dict, Any, Iterable, Union, Optional
 from nerfstudio.fields.base_field import Field
+from nerfstudio.models.base_model import Model
 from nerf_grasping.classifier import (
     Classifier,
     DepthImageClassifier,
@@ -21,8 +22,13 @@ from nerf_grasping.learned_metric.DexGraspNet_batch_data import (
     BatchDataInput,
     DepthImageBatchDataInput,
 )
+from nerf_grasping.nerf_utils import (
+    get_cameras,
+    render,
+)
 from nerf_grasping.config.grasp_metric_config import GraspMetricConfig
 from nerf_grasping.config.fingertip_config import UnionFingertipConfig
+from nerf_grasping.config.camera_config import CameraConfig
 from nerf_grasping.config.classifier_config import ClassifierConfig
 
 ALLEGRO_URDF_PATH = list(
@@ -460,8 +466,6 @@ class GraspMetric(torch.nn.Module):
     a particular AllegroGraspConfig.
     """
 
-    # TODO: implement version for depth images
-
     def __init__(
         self,
         nerf_field: Field,
@@ -540,8 +544,10 @@ class GraspMetric(torch.nn.Module):
         classifier_config: ClassifierConfig,
         classifier_checkpoint: int = -1,
     ) -> GraspMetric:
+        assert not isinstance(classifier_config.nerfdata_config, DepthImageNerfDataConfig), f"classifier_config.nerfdata_config must not be a DepthImageNerfDataConfig, but is {classifier_config.nerfdata_config}
+
         # Load nerf
-        nerf = grasp_utils.load_nerf_field(nerf_config)
+        nerf_field = grasp_utils.load_nerf_field(nerf_config)
 
         # Load classifier (should device thing be here? probably since saved on gpu)
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -578,7 +584,157 @@ class GraspMetric(torch.nn.Module):
         if not isinstance(classifier, Simple_CNN_LSTM_Classifier):
             classifier.eval()  # weird LSTM thing where cudnn hasn't implemented the backwards pass in eval (??)
 
-        return cls(nerf, classifier, classifier_config.nerfdata_config.fingertip_config)
+        return cls(nerf_field, classifier, classifier_config.nerfdata_config.fingertip_config)
+
+
+class DepthImageGraspMetric(torch.nn.Module):
+    """
+    Wrapper for NeRF + grasp classifier to evaluate
+    a particular AllegroGraspConfig.
+    """
+
+    def __init__(
+        self,
+        nerf_model: Model,
+        classifier_model: DepthImageClassifier,
+        camera_config: CameraConfig,
+        return_type: str = "failure_probability",
+    ):
+        super().__init__()
+        self.nerf_model = nerf_model
+        self.classifier_model = classifier_model
+        self.camera_config = camera_config
+        self.return_type = return_type
+
+    def forward(
+        self,
+        grasp_config: AllegroGraspConfig,
+    ):
+        cameras = get_cameras(grasp_config.grasp_frame_transforms, self.camera_config)
+        batch_size = cameras.shape[0]
+
+        depth, uncertainty = render(
+            cameras, self.nerf_model, "median", far_plane=0.15
+        )
+        assert (
+            depth.shape
+            == uncertainty.shape
+            == (
+                self.camera_config.H,
+                self.camera_config.W,
+                batch_size * grasp_config.num_fingers,
+            )
+        )
+
+        depth = depth.permute(2, 0, 1).reshape(
+            batch_size,
+            grasp_config.num_fingers,
+            self.camera_config.H,
+            self.camera_config.W,
+        )
+        uncertainty = uncertainty.permute(2, 0, 1).reshape(
+            batch_size,
+            grasp_config.num_fingers,
+            self.camera_config.H,
+            self.camera_config.W,
+        )
+
+        depth_uncertainty_images = torch.stack(
+                [
+                    depth, uncertainty
+                ],
+                dim=-3,
+            )
+        assert depth_uncertainty_images.shape == (
+            batch_size,
+            grasp_config.num_fingers,
+            2,
+            self.camera_config.H,
+            self.camera_config.W,
+        )
+
+        batch_data_input = DepthBatchDataInput(
+            depth_uncertainty_images=depth_uncertainty_images,
+            grasp_transforms=grasp_config.grasp_frame_transforms,
+            fingertip_config=self.fingertip_config,
+            grasp_configs=grasp_config.as_tensor(),
+        )
+
+        # Pass grasp transforms, densities into classifier.
+        if self.return_type == "failure_probability":
+            return self.classifier_model.get_failure_probability(batch_data_input)
+        elif self.return_type == "failure_logits":
+            return self.classifier_model(batch_data_input)[:, -1]
+
+    def get_failure_probability(
+        self,
+        grasp_config: AllegroGraspConfig,
+    ):
+        return self(grasp_config)
+
+
+    @classmethod
+    def from_config(
+        cls,
+        GraspMetricConfig: GraspMetricConfig,
+    ) -> GraspMetric:
+        return cls.from_configs(
+            GraspMetricConfig.nerf_checkpoint_path,
+            GraspMetricConfig.classifier_config,
+            GraspMetricConfig.classifier_checkpoint,
+        )
+
+    @classmethod
+    def from_configs(
+        cls,
+        nerf_config: pathlib.Path,
+        classifier_config: ClassifierConfig,
+        classifier_checkpoint: int = -1,
+    ) -> GraspMetric:
+
+        assert isinstance(classifier_config.nerfdata_config, DepthImageNerfDataConfig), f"classifier_config.nerfdata_config must be a DepthImageNerfDataConfig, but is {classifier_config.nerfdata_config}
+
+        # Load nerf
+        nerf_model = grasp_utils.load_nerf_model(nerf_config)
+
+        # Load classifier (should device thing be here? probably since saved on gpu)
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        classifier: DepthImageClassifier = (
+            classifier_config.model_config.get_classifier_from_camera_config(
+                camera_config=classifier_config.nerfdata_config.fingertip_camera_config,
+                n_tasks=classifier_config.task_type.n_tasks,
+            ).to(device)
+        )
+
+        # Load classifier weights
+        assert (
+            classifier_config.checkpoint_workspace.output_dir.exists()
+        ), f"checkpoint_workspace.output_dir does not exist at {classifier_config.checkpoint_workspace.output_dir}"
+        print(
+            f"Loading checkpoint ({classifier_config.checkpoint_workspace.output_dir})..."
+        )
+
+        input_checkpoint_paths = (
+            classifier_config.checkpoint_workspace.input_checkpoint_paths
+        )
+        assert (
+            len(input_checkpoint_paths) > 0
+        ), f"No checkpoints found in {classifier_config.checkpoint_workspace.input_checkpoint_paths}"
+        assert classifier_checkpoint < len(
+            input_checkpoint_paths
+        ), f"Requested checkpoint {classifier_checkpoint} does not exist in {classifier_config.checkpoint_workspace.input_checkpoint_paths}"
+        checkpoint_path = input_checkpoint_paths[classifier_checkpoint]
+
+        checkpoint = torch.load(checkpoint_path)
+        classifier.load_state_dict(checkpoint["classifier"])
+        classifier.load_state_dict(torch.load(checkpoint_path)["classifier"])
+
+        if not isinstance(classifier, Simple_CNN_LSTM_Classifier):
+            classifier.eval()  # weird LSTM thing where cudnn hasn't implemented the backwards pass in eval (??)
+
+        return cls(nerf_model, classifier, classifier_config.nerfdata_config.fingertip_config)
+
+
 
 
 class IndexingDataset(torch.utils.data.Dataset):

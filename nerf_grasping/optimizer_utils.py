@@ -529,12 +529,12 @@ class GraspMetric(torch.nn.Module):
     @classmethod
     def from_config(
         cls,
-        GraspMetricConfig: GraspMetricConfig,
+        grasp_metric_config: GraspMetricConfig,
     ) -> GraspMetric:
         return cls.from_configs(
-            GraspMetricConfig.nerf_checkpoint_path,
-            GraspMetricConfig.classifier_config,
-            GraspMetricConfig.classifier_checkpoint,
+            grasp_metric_config.nerf_checkpoint_path,
+            grasp_metric_config.classifier_config,
+            grasp_metric_config.classifier_checkpoint,
         )
 
     @classmethod
@@ -675,12 +675,12 @@ class DepthImageGraspMetric(torch.nn.Module):
     @classmethod
     def from_config(
         cls,
-        GraspMetricConfig: GraspMetricConfig,
+        grasp_metric_config: GraspMetricConfig,
     ) -> GraspMetric:
         return cls.from_configs(
-            GraspMetricConfig.nerf_checkpoint_path,
-            GraspMetricConfig.classifier_config,
-            GraspMetricConfig.classifier_checkpoint,
+            grasp_metric_config.nerf_checkpoint_path,
+            grasp_metric_config.classifier_config,
+            grasp_metric_config.classifier_checkpoint,
         )
 
     @classmethod

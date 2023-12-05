@@ -63,7 +63,7 @@ class AllegroHandConfig(torch.nn.Module):
         batch_size: int = 1,  # TODO(pculbert): refactor for arbitrary batch sizes.
         chain: Chain = load_allegro(),
         requires_grad: bool = True,
-    ):
+    ) -> None:
         # TODO(pculbert): add device/dtype kwargs.
         super().__init__()
         self.chain = chain
@@ -82,7 +82,7 @@ class AllegroHandConfig(torch.nn.Module):
         joint_angles: torch.Tensor,
         chain: Chain = load_allegro(),
         requires_grad: bool = True,
-    ):
+    ) -> AllegroHandConfig:
         """
         Factory method to create an AllegroHandConfig from a wrist pose and joint angles.
         """
@@ -98,7 +98,7 @@ class AllegroHandConfig(torch.nn.Module):
         return hand_config
 
     @classmethod
-    def from_hand_config_dict(cls, hand_config_dict: Dict[str, Any]):
+    def from_hand_config_dict(cls, hand_config_dict: Dict[str, Any]) -> AllegroHandConfig:
         trans = torch.from_numpy(hand_config_dict["trans"]).float()
         rot = torch.from_numpy(hand_config_dict["rot"]).float()
         joint_angles = torch.from_numpy(hand_config_dict["joint_angles"]).float()
@@ -113,13 +113,13 @@ class AllegroHandConfig(torch.nn.Module):
 
         return cls.from_values(wrist_pose=wrist_pose, joint_angles=joint_angles)
 
-    def set_wrist_pose(self, wrist_pose: pp.LieTensor):
+    def set_wrist_pose(self, wrist_pose: pp.LieTensor) -> None:
         assert (
             wrist_pose.shape == self.wrist_pose.shape
         ), f"New wrist pose, shape {wrist_pose.shape} does not match current wrist pose shape {self.wrist_pose.shape}"
         self.wrist_pose.data = wrist_pose.data.clone()
 
-    def set_joint_angles(self, joint_angles: torch.Tensor):
+    def set_joint_angles(self, joint_angles: torch.Tensor) -> None:
         assert (
             joint_angles.shape == self.joint_angles.shape
         ), f"New hand config, shape {joint_angles.shape}, does not match shape of current hand config, {self.joint_angles.shape}."
@@ -143,7 +143,7 @@ class AllegroHandConfig(torch.nn.Module):
             [self.wrist_pose @ fp for fp in fingertip_pyposes], dim=1
         )  # shape [B, batch_size, 7]
 
-    def as_dict(self):
+    def as_dict(self) -> Dict[str, Any]:
         """
         Returns a hand config dict
         """
@@ -156,14 +156,14 @@ class AllegroHandConfig(torch.nn.Module):
             "joint_angles": joint_angles,
         }
 
-    def as_tensor(self):
+    def as_tensor(self) -> torch.Tensor:
         """
         Returns a tensor of shape [batch_size, 23]
         with all config parameters.
         """
         return torch.cat((self.wrist_pose.tensor(), self.joint_angles), dim=-1)
 
-    def mean(self):
+    def mean(self) -> AllegroHandConfig:
         """
         Returns the mean of the batch of hand configs.
         A bit hacky -- just works in the Lie algebra, which
@@ -178,7 +178,7 @@ class AllegroHandConfig(torch.nn.Module):
             chain=self.chain,
         )
 
-    def cov(self):
+    def cov(self) -> Tuple[pp.LieTensor, torch.Tensor]:
         """
         Returns the covariance of the batch of hand configs.
         A bit hacky -- just works in the Lie algebra, which
@@ -204,7 +204,7 @@ class AllegroGraspConfig(torch.nn.Module):
         chain: Chain = load_allegro(),
         requires_grad: bool = True,
         num_fingers: int = 4,
-    ):
+    ) -> None:
         # TODO(pculbert): refactor for arbitrary batch sizes.
         # TODO(pculbert): add device/dtype kwargs.
 
@@ -223,7 +223,7 @@ class AllegroGraspConfig(torch.nn.Module):
         self.num_fingers = num_fingers
 
     @classmethod
-    def from_path(cls, path: pathlib.Path):
+    def from_path(cls, path: pathlib.Path) -> AllegroGraspConfig:
         """
         Factory method to create an AllegroGraspConfig from a path to a saved state dict.
         """
@@ -240,7 +240,7 @@ class AllegroGraspConfig(torch.nn.Module):
         joint_angles: torch.Tensor,
         grasp_orientations: pp.LieTensor,
         num_fingers: int = 4,
-    ):
+    ) -> AllegroGraspConfig:
         """
         Factory method to create an AllegroGraspConfig from values
         for the wrist pose, joint angles, and grasp orientations.
@@ -269,7 +269,7 @@ class AllegroGraspConfig(torch.nn.Module):
         std_wrist_pose: float = 0.1,
         std_joint_angles: float = 0.1,
         num_fingers: int = 4,
-    ):
+    ) -> AllegroGraspConfig:
         """
         Factory method to create a random AllegroGraspConfig.
         """
@@ -313,7 +313,7 @@ class AllegroGraspConfig(torch.nn.Module):
         cls,
         grasp_config_dict: Dict[str, Any],
         num_fingers: int = 4,
-    ):
+    ) -> AllegroGraspConfig:
         """
         Factory method get grasp configs from grasp config_dict
         """
@@ -344,7 +344,7 @@ class AllegroGraspConfig(torch.nn.Module):
 
         return grasp_config
 
-    def as_dict(self):
+    def as_dict(self) -> Dict[str, Any]:
         hand_config_dict = self.hand_config.as_dict()
         hand_config_dict_batch_size = hand_config_dict["trans"].shape[0]
         assert (
@@ -356,7 +356,7 @@ class AllegroGraspConfig(torch.nn.Module):
         )
         return hand_config_dict
 
-    def as_tensor(self):
+    def as_tensor(self) -> torch.Tensor:
         """
         Returns a tensor of shape [batch_size, num_fingers, 7 + 16 + 4]
         with all config parameters.
@@ -371,7 +371,7 @@ class AllegroGraspConfig(torch.nn.Module):
             dim=-1,
         )
 
-    def mean(self):
+    def mean(self) -> AllegroGraspConfig:
         """
         Returns the mean of the batch of grasp configs.
         """
@@ -386,7 +386,7 @@ class AllegroGraspConfig(torch.nn.Module):
             grasp_orientations=mean_grasp_orientations,
         )
 
-    def cov(self):
+    def cov(self) -> Tuple[pp.LieTensor, torch.Tensor, torch.Tensor]:
         """
         Returns the covariance of the batch of grasp configs.
         """
@@ -399,13 +399,13 @@ class AllegroGraspConfig(torch.nn.Module):
             cov_grasp_orientations,
         )
 
-    def set_grasp_orientations(self, grasp_orientations: pp.LieTensor):
+    def set_grasp_orientations(self, grasp_orientations: pp.LieTensor) -> None:
         assert (
             grasp_orientations.shape == self.grasp_orientations.shape
         ), f"New grasp orientations, shape {grasp_orientations.shape}, do not match current grasp orientations shape {self.grasp_orientations.shape}"
         self.grasp_orientations.data = grasp_orientations.data.clone()
 
-    def __getitem__(self, idxs):
+    def __getitem__(self, idxs) -> AllegroGraspConfig:
         """
         Enables indexing/slicing into a batch of grasp configs.
         """
@@ -473,7 +473,7 @@ class GraspMetric(torch.nn.Module):
         classifier_model: Classifier,
         fingertip_config: UnionFingertipConfig,
         return_type: str = "failure_probability",
-    ):
+    ) -> None:
         super().__init__()
         self.nerf_field = nerf_field
         self.classifier_model = classifier_model
@@ -486,7 +486,7 @@ class GraspMetric(torch.nn.Module):
     def forward(
         self,
         grasp_config: AllegroGraspConfig,
-    ):
+    ) -> torch.Tensor:
         # Generate RaySamples.
         ray_samples = grasp_utils.get_ray_samples(
             self.ray_origins_finger_frame,
@@ -523,7 +523,7 @@ class GraspMetric(torch.nn.Module):
     def get_failure_probability(
         self,
         grasp_config: AllegroGraspConfig,
-    ):
+    ) -> torch.Tensor:
         return self(grasp_config)
 
     @classmethod
@@ -603,7 +603,7 @@ class DepthImageGraspMetric(torch.nn.Module):
         classifier_model: DepthImageClassifier,
         camera_config: CameraConfig,
         return_type: str = "failure_probability",
-    ):
+    ) -> None:
         super().__init__()
         self.nerf_model = nerf_model
         self.classifier_model = classifier_model
@@ -613,7 +613,7 @@ class DepthImageGraspMetric(torch.nn.Module):
     def forward(
         self,
         grasp_config: AllegroGraspConfig,
-    ):
+    ) -> torch.Tensor:
         cameras = get_cameras(grasp_config.grasp_frame_transforms, self.camera_config)
         batch_size = cameras.shape[0]
 
@@ -653,7 +653,7 @@ class DepthImageGraspMetric(torch.nn.Module):
             self.camera_config.W,
         )
 
-        batch_data_input = DepthBatchDataInput(
+        batch_data_input = DepthImageBatchDataInput(
             depth_uncertainty_images=depth_uncertainty_images,
             grasp_transforms=grasp_config.grasp_frame_transforms,
             fingertip_config=self.fingertip_config,
@@ -669,7 +669,7 @@ class DepthImageGraspMetric(torch.nn.Module):
     def get_failure_probability(
         self,
         grasp_config: AllegroGraspConfig,
-    ):
+    ) -> torch.Tensor:
         return self(grasp_config)
 
     @classmethod

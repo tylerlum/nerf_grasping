@@ -1,7 +1,11 @@
 from nerf_grasping.config.grasp_metric_config import GraspMetricConfig
-from nerf_grasping.optimizer_utils import GraspMetric, DepthImageGraspMetric, AllegroGraspConfig
+from nerf_grasping.optimizer_utils import (
+    GraspMetric,
+    DepthImageGraspMetric,
+    AllegroGraspConfig,
+)
 from nerf_grasping.config.nerfdata_config import DepthImageNerfDataConfig
-import grasp_utils
+import nerf_grasping
 import tyro
 import pathlib
 import numpy as np
@@ -31,12 +35,17 @@ def main(cfg: GraspMetricConfig):
             cfg,
         )
 
+    # Evaluate grasp
     scores = grasp_metric.get_failure_probability(grasp_config)
     print(f"Grasp score: {scores}")
+
+    # Ensure grasp_config was not modified
     output_grasp_config_dict = grasp_config.as_dict()
     assert grasp_config_dict.keys() == output_grasp_config_dict.keys()
     for key in grasp_config_dict.keys():
         assert np.allclose(grasp_config_dict[key], output_grasp_config_dict[key])
+
+    # Compare to ground truth
     passed_eval = output_grasp_config_dict["passed_eval"]
     print(f"Passed eval: {passed_eval}")
 

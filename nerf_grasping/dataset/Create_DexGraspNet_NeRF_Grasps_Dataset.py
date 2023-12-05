@@ -597,16 +597,6 @@ def get_nerf_densities(
             cfg.fingertip_config,
         )
 
-    with loop_timer.add_section_timer("frustums.get_positions"):
-        query_points = ray_samples.frustums.get_positions().reshape(
-            batch_size,
-            cfg.fingertip_config.n_fingers,
-            cfg.fingertip_config.num_pts_x,
-            cfg.fingertip_config.num_pts_y,
-            cfg.fingertip_config.num_pts_z,
-            3,
-        )
-
     with loop_timer.add_section_timer("get_density"):
         # Split ray_samples into chunks so everything fits on the gpu
         split_inds = torch.arange(0, batch_size, cfg.ray_samples_chunk_size)
@@ -634,6 +624,16 @@ def get_nerf_densities(
             )
             curr_ray_samples.to("cpu")
         nerf_densities = torch.cat(nerf_density_list, dim=0)
+
+    with loop_timer.add_section_timer("frustums.get_positions"):
+        query_points = ray_samples.frustums.get_positions().reshape(
+            batch_size,
+            cfg.fingertip_config.n_fingers,
+            cfg.fingertip_config.num_pts_x,
+            cfg.fingertip_config.num_pts_y,
+            cfg.fingertip_config.num_pts_z,
+            3,
+        )
 
     return nerf_densities, query_points
 

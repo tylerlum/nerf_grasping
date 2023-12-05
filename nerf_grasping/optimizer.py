@@ -2,21 +2,23 @@ from __future__ import annotations
 from nerf_grasping.optimizer_utils import (
     AllegroGraspConfig,
     GraspMetric,
+    DepthImageGraspMetric,
     get_split_inds,
 )
 from dataclasses import asdict
-from nerf_grasping.config.metric_config import GraspMetricConfig
+from nerf_grasping.config.optimization_config import OptimizationConfig
 import pathlib
 import grasp_utils
 import torch
 from nerf_grasping.classifier import Classifier, Simple_CNN_LSTM_Classifier
 from nerf_grasping.config.classifier_config import ClassifierConfig
+from nerf_grasping.config.nerfdata_config import DepthImageNerfDataConfig
 from nerf_grasping.config.optimizer_config import (
     UnionGraspOptimizerConfig,
     SGDOptimizerConfig,
     CEMOptimizerConfig,
 )
-from typing import Tuple
+from typing import Tuple, Union
 import nerf_grasping
 from functools import partial
 import numpy as np
@@ -27,6 +29,7 @@ from rich.console import Console
 from rich.table import Table
 
 from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
+from contextlib import nullcontext
 
 
 def is_notebook() -> bool:
@@ -57,48 +60,49 @@ class Optimizer:
     """
 
     def __init__(
-        self, init_grasp_config: AllegroGraspConfig, grasp_metric: GraspMetric
+        self,
+        init_grasp_config: AllegroGraspConfig,
+        grasp_metric: Union[GraspMetric, DepthImageGraspMetric],
     ):
+        # Put on the correct device. (TODO: DO WE NEED THIS?)
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        grasp_metric = grasp_metric.to(device=device)
+        init_grasp_config = init_grasp_config.to(device=device)
+
         self.grasp_config = init_grasp_config
         self.grasp_metric = grasp_metric
-
-    @classmethod
-    def from_configs(
-        cls,
-        init_grasp_config: AllegroGraspConfig,
-        nerf_config: pathlib.Path,
-        classifier_config: pathlib.Path,
-    ) -> Optimizer:
-        """
-        Factory method for creating an Optimizer from configs.
-        """
-        nerf = grasp_utils.load_nerf_field(nerf_config)
-        classifier = Classifier(classifier_config)
-        grasp_metric = GraspMetric(nerf, classifier)
-        return cls(init_grasp_config, grasp_metric)
 
     @property
     def grasp_scores(self) -> torch.Tensor:
         return self.grasp_metric.get_failure_probability(self.grasp_config)
+
+    def step(self):
+        raise NotImplementedError()
 
 
 class SGDOptimizer(Optimizer):
     def __init__(
         self,
         init_grasp_config: AllegroGraspConfig,
-        grasp_metric: GraspMetric,
+        grasp_metric: Union[GraspMetric, DepthImageGraspMetric],
         optimizer_config: SGDOptimizerConfig,
-        classifier_config: ClassifierConfig,
     ):
         """
         Constructor for SGDOptimizer.
 
         Args:
             init_grasp_config: Initial grasp configuration.
-            grasp_metric: GraspMetric object defining the metric to optimize.
+            grasp_metric: Union[GraspMetric, DepthImageGraspMetric] object defining the metric to optimize.
             **kwargs: Keyword arguments to pass to torch.optim.SGD.
         """
         super().__init__(init_grasp_config, grasp_metric)
+
+        # Add requires_grad to grasp config.
+        init_grasp_config.wrist_pose.requires_grad = optimizer_config.opt_wrist_pose
+        init_grasp_config.grasp_orientations.requires_grad = (
+            optimizer_config.opt_grasp_dirs
+        )
+
         if optimizer_config.opt_wrist_pose:
             self.wrist_optimizer = torch.optim.SGD(
                 [self.grasp_config.wrist_pose],
@@ -119,81 +123,7 @@ class SGDOptimizer(Optimizer):
                 momentum=optimizer_config.momentum,
             )
 
-        self.classifier_config = classifier_config
         self.optimizer_config = optimizer_config
-
-    @classmethod
-    def from_configs(
-        cls,
-        init_grasp_config: AllegroGraspConfig,
-        nerf_config: pathlib.Path,
-        classifier_config: ClassifierConfig,
-        optimizer_config: SGDOptimizerConfig,
-        classifier_checkpoint: int = -1,
-        console=Console(width=120),
-    ) -> SGDOptimizer:
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[bold blue]{task.description} "),
-            console=console,
-        ) as progress:
-            task = progress.add_task("Loading NeRF", total=1)
-            nerf = grasp_utils.load_nerf_field(nerf_config)
-            progress.update(task, advance=1)
-
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[bold blue]{task.description} "),
-            console=console,
-        ) as progress:
-            task = progress.add_task("Loading classifier", total=1)
-            classifier = (
-                classifier_config.model_config.get_classifier_from_fingertip_config(
-                    fingertip_config=classifier_config.nerfdata_config.fingertip_config,
-                    n_tasks=classifier_config.task_type.n_tasks,
-                ).to(device=device)
-            )
-
-            # Load checkpoint if specified.
-            checkpoint_path = (
-                pathlib.Path(classifier_config.checkpoint_workspace.root_dir)
-                / classifier_config.checkpoint_workspace.leaf_dir
-            )
-
-            if classifier_checkpoint == -1:
-                # take latest checkpoint.
-                all_checkpoints = checkpoint_path.glob("*.pt")
-                checkpoint_path = max(all_checkpoints, key=pathlib.Path.stat)
-            else:
-                checkpoint_path = (
-                    checkpoint_path / f"checkpoint_{classifier_checkpoint:04}.pt"
-                )
-
-            classifier.load_state_dict(torch.load(checkpoint_path)["classifier"])
-
-            progress.update(task, advance=1)
-
-        if not isinstance(classifier, Simple_CNN_LSTM_Classifier):
-            classifier.eval()  # weird LSTM thing where cudnn hasn't implemented the backwards pass in eval (??)
-
-        # Put grasps on the correct device.
-        init_grasp_config = init_grasp_config.to(device=device)
-
-        # Wrap Nerf and Classifier in GraspMetric.
-        grasp_metric = GraspMetric(
-            nerf,
-            classifier,
-            classifier_config.nerfdata_config.fingertip_config,
-        )
-
-        init_grasp_config.wrist_pose.requires_grad = optimizer_config.opt_wrist_pose
-        init_grasp_config.grasp_orientations.requires_grad = (
-            optimizer_config.opt_grasp_dirs
-        )
-
-        return cls(init_grasp_config, grasp_metric, optimizer_config, classifier_config)
 
     def step(self):
         self.joint_optimizer.zero_grad()
@@ -217,91 +147,21 @@ class SGDOptimizer(Optimizer):
 class CEMOptimizer(Optimizer):
     def __init__(
         self,
-        grasp_metric: GraspMetric,
-        optimizer_config: CEMOptimizerConfig,
         grasp_config: AllegroGraspConfig,
-        classifier_config: ClassifierConfig,
+        grasp_metric: Union[GraspMetric, DepthImageGraspMetric],
+        optimizer_config: CEMOptimizerConfig,
     ):
         """
         Constructor for SGDOptimizer.
 
         Args:
             init_grasp_config: Initial grasp configuration.
-            grasp_metric: GraspMetric object defining the metric to optimize.
+            grasp_metric: Union[GraspMetric, DepthImageGraspMetric] object defining the metric to optimize.
             **kwargs: Keyword arguments to pass to torch.optim.SGD.
         """
         self.grasp_config = grasp_config
         self.grasp_metric = grasp_metric
         self.optimizer_config = optimizer_config
-        self.classifier_config = classifier_config
-
-    # TODO: refactor to dispatch optimizer on config type.
-    @classmethod
-    def from_configs(
-        cls,
-        init_grasp_config: AllegroGraspConfig,
-        nerf_config: pathlib.Path,
-        classifier_config: ClassifierConfig,
-        optimizer_config: CEMOptimizerConfig,
-        classifier_checkpoint: int = -1,
-        console=Console(width=120),
-    ) -> CEMOptimizer:
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[bold blue]{task.description} "),
-            console=console,
-        ) as progress:
-            task = progress.add_task("Loading NeRF", total=1)
-            nerf = grasp_utils.load_nerf_field(nerf_config)
-            progress.update(task, advance=1)
-
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[bold blue]{task.description} "),
-            console=console,
-        ) as progress:
-            task = progress.add_task("Loading classifier", total=1)
-            classifier = (
-                classifier_config.model_config.get_classifier_from_fingertip_config(
-                    fingertip_config=classifier_config.nerfdata_config.fingertip_config,
-                    n_tasks=classifier_config.task_type.n_tasks,
-                ).to(device=device)
-            )
-
-            # Load checkpoint if specified.
-            checkpoint_path = (
-                pathlib.Path(classifier_config.checkpoint_workspace.root_dir)
-                / classifier_config.checkpoint_workspace.leaf_dir
-            )
-
-            if classifier_checkpoint == -1:
-                # take latest checkpoint.
-                all_checkpoints = checkpoint_path.glob("*.pt")
-                checkpoint_path = max(all_checkpoints, key=pathlib.Path.stat)
-            else:
-                checkpoint_path = (
-                    checkpoint_path / f"checkpoint_{classifier_checkpoint:04}.pt"
-                )
-
-            classifier.load_state_dict(torch.load(checkpoint_path)["classifier"])
-
-            progress.update(task, advance=1)
-
-        classifier.eval()
-
-        # Wrap Nerf and Classifier in GraspMetric.
-        grasp_metric = GraspMetric(
-            nerf, classifier, classifier_config.nerfdata_config.fingertip_config
-        )
-
-        return cls(
-            grasp_metric,
-            optimizer_config,
-            init_grasp_config.to(device=device),
-            classifier_config,
-        )
 
     def step(self):
         # Find the elite fraction of samples.
@@ -392,76 +252,92 @@ def run_optimizer_loop(
     Convenience function for running the optimizer loop.
     """
 
-    # start_column = TextColumn("[bold green]{task.description}[/bold green]")
-    # progress = Progress(
-    #     SpinnerColumn(),
-    #     *Progress.get_default_columns(),
-    #     TextColumn("=>"),
-    #     TimeElapsedColumn(),
-    #     console=console,
-    # )
-    # with progress:
-    #     task_id = progress.add_task(
-    #         "Optimizing grasps...",
-    #         total=optimizer_config.num_steps,
-    #     )
-    for iter in range(optimizer_config.num_steps):
-        wandb_log_dict = {}
-        wandb_log_dict["optimization_step"] = iter
-        optimizer.step()
-
-        # # Update progress bar.
-        # progress.update(
-        #     task_id,
-        #     advance=1,
-        # )
-
-        if iter % optimizer_config.print_freq == 0:
-            # console.print(
-            #     f"Iter: {iter} | Min score: {optimizer.grasp_scores.min():.3f} | Max score: {optimizer.grasp_scores.max():.3f} | Mean score: {optimizer.grasp_scores.mean():.3f} | Std dev: {optimizer.grasp_scores.std():.3f}"
-            # )
-            print(
-                f"Iter: {iter} | Min score: {optimizer.grasp_scores.min():.3f} | Max score: {optimizer.grasp_scores.max():.3f} | Mean score: {optimizer.grasp_scores.mean():.3f} | Std dev: {optimizer.grasp_scores.std():.3f}"
+    start_column = TextColumn("[bold green]{task.description}[/bold green]")
+    with (
+        Progress(
+            SpinnerColumn(),
+            *Progress.get_default_columns(),
+            TextColumn("=>"),
+            TimeElapsedColumn(),
+            console=console,
+        )
+        if cfg.use_rich
+        else nullcontext()
+    ) as progress:
+        task_id = (
+            progress.add_task(
+                "Optimizing grasps...",
+                total=optimizer_config.num_steps,
             )
+            if progress is not None
+            else None
+        )
 
-        # Log to wandb.
-        wandb_log_dict["scores"] = optimizer.grasp_scores.detach().cpu().numpy()
-        wandb_log_dict["min_score"] = optimizer.grasp_scores.min().item()
-        wandb_log_dict["max_score"] = optimizer.grasp_scores.max().item()
-        wandb_log_dict["mean_score"] = optimizer.grasp_scores.mean().item()
-        wandb_log_dict["std_score"] = optimizer.grasp_scores.std().item()
+        for iter in range(optimizer_config.num_steps):
+            wandb_log_dict = {}
+            wandb_log_dict["optimization_step"] = iter
+            optimizer.step()
 
-        if wandb.run is not None:
-            wandb.log(wandb_log_dict)
+            # Update progress bar.
+            if progress is not None and task_id is not None:
+                progress.update(
+                    task_id,
+                    advance=1,
+                )
 
-        if iter % optimizer_config.save_grasps_freq == 0:
-            # Save mid optimization grasps to file
-            grasp_config_dict = optimizer.grasp_config.as_dict()
-            grasp_config_dict["score"] = optimizer.grasp_scores.detach().cpu().numpy()
+            if iter % optimizer_config.print_freq == 0:
+                # console.print(
+                #     f"Iter: {iter} | Min score: {optimizer.grasp_scores.min():.3f} | Max score: {optimizer.grasp_scores.max():.3f} | Mean score: {optimizer.grasp_scores.mean():.3f} | Std dev: {optimizer.grasp_scores.std():.3f}"
+                # )
+                print(
+                    f"Iter: {iter} | Min score: {optimizer.grasp_scores.min():.3f} | Max score: {optimizer.grasp_scores.max():.3f} | Mean score: {optimizer.grasp_scores.mean():.3f} | Std dev: {optimizer.grasp_scores.std():.3f}"
+                )
 
-            # To interface with mid optimization visualizer, need to create new folder (mid_optimization_folder_path)
-            # that has folders with iteration number
-            # TODO: Decide if this should just store in cfg.output_path.parent (does this cause issues?) or store in new folder
-            # <mid_optimization_folder_path>
-            #    - 0
-            #        - <object_code_and_scale_str>.py
-            #    - x
-            #        - <object_code_and_scale_str>.py
-            #    - 2x
-            #        - <object_code_and_scale_str>.py
-            #    - 3x
-            #        - <object_code_and_scale_str>.py
-            main_output_folder_path, filename = (
-                cfg.output_path.parent,
-                cfg.output_path.name,
-            )
-            mid_optimization_folder_path = (
-                main_output_folder_path.parent / f"{main_output_folder_path.name}_mid"
-            )
-            this_iter_folder_path = mid_optimization_folder_path / f"{iter}"
-            this_iter_folder_path.mkdir(parents=True, exist_ok=True)
-            print(f"Saving mid opt grasp config dict to {this_iter_folder_path}")
-            np.save(this_iter_folder_path / filename, grasp_config_dict)
+            # Log to wandb.
+            wandb_log_dict["scores"] = optimizer.grasp_scores.detach().cpu().numpy()
+            wandb_log_dict["min_score"] = optimizer.grasp_scores.min().item()
+            wandb_log_dict["max_score"] = optimizer.grasp_scores.max().item()
+            wandb_log_dict["mean_score"] = optimizer.grasp_scores.mean().item()
+            wandb_log_dict["std_score"] = optimizer.grasp_scores.std().item()
+
+            if wandb.run is not None:
+                wandb.log(wandb_log_dict)
+
+            if iter % optimizer_config.save_grasps_freq == 0:
+                # Save mid optimization grasps to file
+                grasp_config_dict = optimizer.grasp_config.as_dict()
+                grasp_config_dict["score"] = (
+                    optimizer.grasp_scores.detach().cpu().numpy()
+                )
+
+                # To interface with mid optimization visualizer, need to create new folder (mid_optimization_folder_path)
+                # that has folders with iteration number
+                # TODO: Decide if this should just store in cfg.output_path.parent (does this cause issues?) or store in new folder
+                # <mid_optimization_folder_path>
+                #    - 0
+                #        - <object_code_and_scale_str>.py
+                #    - x
+                #        - <object_code_and_scale_str>.py
+                #    - 2x
+                #        - <object_code_and_scale_str>.py
+                #    - 3x
+                #        - <object_code_and_scale_str>.py
+                main_output_folder_path, filename = (
+                    cfg.output_path.parent,
+                    cfg.output_path.name,
+                )
+                mid_optimization_folder_path = (
+                    main_output_folder_path.parent
+                    / f"{main_output_folder_path.name}_mid"
+                )
+                this_iter_folder_path = mid_optimization_folder_path / f"{iter}"
+                this_iter_folder_path.mkdir(parents=True, exist_ok=True)
+                print(f"Saving mid opt grasp config dict to {this_iter_folder_path}")
+                np.save(
+                    this_iter_folder_path / filename,
+                    grasp_config_dict,
+                    allow_pickle=True,
+                )
 
     optimizer.grasp_metric.eval()
 
@@ -474,7 +350,7 @@ def run_optimizer_loop(
     )
 
 
-def main(cfg: GraspMetricConfig) -> None:
+def main(cfg: OptimizationConfig) -> None:
     # Create rich.Console object.
 
     torch.random.manual_seed(0)
@@ -490,13 +366,20 @@ def main(cfg: GraspMetricConfig) -> None:
             config=asdict(cfg),
         )
 
-    # Sample a batch of grasps from the grasp data.
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[bold blue]{task.description} "),
-        console=console,
+    with (
+        Progress(
+            SpinnerColumn(),
+            TextColumn("[bold blue]{task.description} "),
+            console=console,
+        )
+        if cfg.use_rich
+        else nullcontext()
     ) as progress:
-        task = progress.add_task("Loading grasp data", total=1)
+        task = (
+            progress.add_task("Loading grasp data", total=1)
+            if progress is not None
+            else None
+        )
 
         # TODO: Find a way to load a particular split of the grasp_data.
         init_grasp_config_dict = np.load(
@@ -518,11 +401,11 @@ def main(cfg: GraspMetricConfig) -> None:
         train_inds, val_inds, test_inds = get_split_inds(
             init_grasp_configs.batch_size,
             [
-                cfg.classifier_config.data.frac_train,
-                cfg.classifier_config.data.frac_val,
-                cfg.classifier_config.data.frac_test,
+                cfg.grasp_metric.classifier_config.data.frac_train,
+                cfg.grasp_metric.classifier_config.data.frac_val,
+                cfg.grasp_metric.classifier_config.data.frac_test,
             ],
-            cfg.classifier_config.random_seed,
+            cfg.grasp_metric.classifier_config.random_seed,
         )
 
         if cfg.grasp_split == "train":
@@ -537,26 +420,36 @@ def main(cfg: GraspMetricConfig) -> None:
         data_inds = np.random.choice(data_inds, size=num_grasps)
         init_grasp_configs = init_grasp_configs[data_inds]
 
-        progress.update(task, advance=1)
+        if progress is not None and task is not None:
+            progress.update(task, advance=1)
+
+    # Create grasp metric
+    USE_DEPTH_IMAGES = isinstance(
+        cfg.grasp_metric.classifier_config.nerfdata_config, DepthImageNerfDataConfig
+    )
+    if USE_DEPTH_IMAGES:
+        grasp_metric = DepthImageGraspMetric.from_config(
+            cfg.grasp_metric,
+            console=console,
+        )
+    else:
+        grasp_metric = GraspMetric.from_config(
+            cfg.grasp_metric,
+            console=console,
+        )
 
     # Create Optimizer.
     if isinstance(cfg.optimizer, SGDOptimizerConfig):
-        optimizer = SGDOptimizer.from_configs(
+        optimizer = SGDOptimizer(
             init_grasp_configs,
-            cfg.nerf_checkpoint_path,
-            cfg.classifier_config,
+            grasp_metric,
             cfg.optimizer,
-            cfg.classifier_checkpoint,
-            console=console,
         )
     elif isinstance(cfg.optimizer, CEMOptimizerConfig):
-        optimizer = CEMOptimizer.from_configs(
+        optimizer = CEMOptimizer(
             init_grasp_configs,
-            cfg.nerf_checkpoint_path,
-            cfg.classifier_config,
+            grasp_metric,
             cfg.optimizer,
-            cfg.classifier_checkpoint,
-            console=console,
         )
     else:
         raise ValueError(f"Invalid optimizer config: {cfg.optimizer}")
@@ -601,11 +494,11 @@ def main(cfg: GraspMetricConfig) -> None:
 
     print(f"Saving sorted grasp config dict to {cfg.output_path}")
     cfg.output_path.parent.mkdir(parents=True, exist_ok=True)
-    np.save(str(cfg.output_path), grasp_config_dict)
+    np.save(str(cfg.output_path), grasp_config_dict, allow_pickle=True)
 
     wandb.finish()
 
 
 if __name__ == "__main__":
-    cfg = tyro.cli(GraspMetricConfig)
+    cfg = tyro.cli(OptimizationConfig)
     main(cfg)

@@ -1588,7 +1588,7 @@ if cfg.data.debug_shuffle_labels:
 #     task_type=cfg.task_type,
 #     max_num_batches=10,
 # )
-# 
+#
 # # %%
 # loop_timer = LoopTimer()
 # (
@@ -1605,7 +1605,7 @@ if cfg.data.debug_shuffle_labels:
 #     task_type=cfg.task_type,
 #     max_num_batches=10,
 # )
-# 
+#
 # # %%
 # loss_names = [
 #     "passed_simulation_loss",
@@ -1613,7 +1613,7 @@ if cfg.data.debug_shuffle_labels:
 # ]
 # from plotly.subplots import make_subplots
 # import plotly.graph_objects as go
-# 
+#
 # fig = make_subplots(rows=len(loss_names), cols=1, subplot_titles=loss_names)
 # for i, loss_name in enumerate(loss_names):
 #     fig.add_trace(
@@ -1622,13 +1622,13 @@ if cfg.data.debug_shuffle_labels:
 #         col=1,
 #     )
 # fig.show()
-# 
-# 
+#
+#
 # # %%
 # def plot_distribution(data: np.ndarray, name: str) -> None:
 #     # Calculating statistics
 #     import scipy.stats as stats
-# 
+#
 #     data = np.array(data)
 #     mean = np.mean(data)
 #     max_value = np.max(data)
@@ -1640,12 +1640,12 @@ if cfg.data.debug_shuffle_labels:
 #     iqr = stats.iqr(data)  # Interquartile range
 #     percentile_25 = np.percentile(data, 25)
 #     percentile_75 = np.percentile(data, 75)
-# 
+#
 #     import matplotlib.pyplot as plt
-# 
+#
 #     # Create histogram
 #     plt.hist(data, bins=50, alpha=0.7, color="blue", log=True)
-# 
+#
 #     # Printing results
 #     print(
 #         f"Mean: {mean}, Max: {max_value}, Min: {min_value}, Range: {data_range}, Standard Deviation: {std_dev}"
@@ -1653,7 +1653,7 @@ if cfg.data.debug_shuffle_labels:
 #     print(
 #         f"Median: {median}, Mode: {mode}, IQR: {iqr}, 25th Percentile: {percentile_25}, 75th Percentile: {percentile_75}"
 #     )
-# 
+#
 #     # Add lines for mean, median, and mode
 #     plt.axvline(
 #         mean, color="red", linestyle="dashed", linewidth=2, label=f"Mean: {mean:.4f}"
@@ -1668,7 +1668,7 @@ if cfg.data.debug_shuffle_labels:
 #     plt.axvline(
 #         mode, color="yellow", linestyle="dashed", linewidth=2, label=f"Mode: {mode:.4f}"
 #     )
-# 
+#
 #     # Add lines for percentiles
 #     plt.axvline(
 #         percentile_25,
@@ -1684,7 +1684,7 @@ if cfg.data.debug_shuffle_labels:
 #         linewidth=2,
 #         label=f"75th percentile: {percentile_75:.4f}",
 #     )
-# 
+#
 #     # Add standard deviation
 #     plt.axvline(
 #         mean - std_dev,
@@ -1694,20 +1694,20 @@ if cfg.data.debug_shuffle_labels:
 #         label=f"Std Dev: {std_dev:.4f}",
 #     )
 #     plt.axvline(mean + std_dev, color="cyan", linestyle="dashdot", linewidth=2)
-# 
+#
 #     # Add legend
 #     plt.legend()
 #     plt.title(f"{name} histogram")
-# 
+#
 #     # Show plot
 #     plt.show()
-# 
-# 
+#
+#
 # plot_distribution(
 #     data=val_losses_dict["passed_penetration_threshold_loss"],
 #     name="passed_penetration_threshold_loss",
 # )
-# 
+#
 # # %%
 # plot_distribution(
 #     data=val_losses_dict["passed_simulation_loss"], name="passed_simulation_loss"

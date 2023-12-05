@@ -8,6 +8,7 @@ from nerf_grasping.config.classifier_config import (
 )
 from typing import Optional
 
+
 @dataclass
 class GraspMetricConfig:
     """Top-level config for creating a grasp metric."""
@@ -16,17 +17,18 @@ class GraspMetricConfig:
     classifier_config_path: Optional[pathlib.Path] = (
         pathlib.Path(nerf_grasping.get_repo_root())
         / "Train_DexGraspNet_NeRF_Grasp_Metric_workspaces"
-        / "2023-08-30_02-14-46"
-        / "config.yaml"
+        / "2023-11-30_15-49-25"
+        / "config_MANUALLY_CHANGED.yaml"
     )
     classifier_checkpoint: int = -1  # Load latest checkpoint if -1.
     nerf_checkpoint_path: pathlib.Path = (
         pathlib.Path(nerf_grasping.get_repo_root())
         / "data"
-        / "2023-08-29_nerfcheckpoints_trial"
-        / "mug_0_1000"
+        / "2023-11-17_rubikscube_0"
+        / "nerfcheckpoints"
+        / "ddg-gd_rubik_cube_poisson_004_0_1000"
         / "nerfacto"
-        / "2023-08-25_130206"
+        / "2023-11-21_182452"
         / "config.yml"
     )
 
@@ -45,6 +47,7 @@ class GraspMetricConfig:
     @property
     def object_name(self) -> str:
         return self.nerf_checkpoint_path.parents[2].stem
+
 
 if __name__ == "__main__":
     cfg = tyro.cli(GraspMetricConfig)

@@ -98,7 +98,9 @@ class AllegroHandConfig(torch.nn.Module):
         return hand_config
 
     @classmethod
-    def from_hand_config_dict(cls, hand_config_dict: Dict[str, Any]) -> AllegroHandConfig:
+    def from_hand_config_dict(
+        cls, hand_config_dict: Dict[str, Any]
+    ) -> AllegroHandConfig:
         trans = torch.from_numpy(hand_config_dict["trans"]).float()
         rot = torch.from_numpy(hand_config_dict["rot"]).float()
         joint_angles = torch.from_numpy(hand_config_dict["joint_angles"]).float()
@@ -512,7 +514,7 @@ class GraspMetric(torch.nn.Module):
             grasp_transforms=grasp_config.grasp_frame_transforms,
             fingertip_config=self.fingertip_config,
             grasp_configs=grasp_config.as_tensor(),
-        )
+        ).to(self.nerf_field.device)
 
         # Pass grasp transforms, densities into classifier.
         if self.return_type == "failure_probability":
@@ -568,16 +570,16 @@ class GraspMetric(torch.nn.Module):
             f"Loading checkpoint ({classifier_config.checkpoint_workspace.output_dir})..."
         )
 
-        input_checkpoint_paths = (
-            classifier_config.checkpoint_workspace.input_checkpoint_paths
+        output_checkpoint_paths = (
+            classifier_config.checkpoint_workspace.output_checkpoint_paths
         )
         assert (
-            len(input_checkpoint_paths) > 0
-        ), f"No checkpoints found in {classifier_config.checkpoint_workspace.input_checkpoint_paths}"
+            len(output_checkpoint_paths) > 0
+        ), f"No checkpoints found in {classifier_config.checkpoint_workspace.output_checkpoint_paths}"
         assert classifier_checkpoint < len(
-            input_checkpoint_paths
-        ), f"Requested checkpoint {classifier_checkpoint} does not exist in {classifier_config.checkpoint_workspace.input_checkpoint_paths}"
-        checkpoint_path = input_checkpoint_paths[classifier_checkpoint]
+            output_checkpoint_paths
+        ), f"Requested checkpoint {classifier_checkpoint} does not exist in {classifier_config.checkpoint_workspace.output_checkpoint_paths}"
+        checkpoint_path = output_checkpoint_paths[classifier_checkpoint]
 
         checkpoint = torch.load(checkpoint_path)
         classifier.load_state_dict(checkpoint["classifier"])
@@ -601,12 +603,14 @@ class DepthImageGraspMetric(torch.nn.Module):
         self,
         nerf_model: Model,
         classifier_model: DepthImageClassifier,
+        fingertip_config: UnionFingertipConfig,
         camera_config: CameraConfig,
         return_type: str = "failure_probability",
     ) -> None:
         super().__init__()
         self.nerf_model = nerf_model
         self.classifier_model = classifier_model
+        self.fingertip_config = fingertip_config
         self.camera_config = camera_config
         self.return_type = return_type
 
@@ -614,7 +618,9 @@ class DepthImageGraspMetric(torch.nn.Module):
         self,
         grasp_config: AllegroGraspConfig,
     ) -> torch.Tensor:
-        cameras = get_cameras(grasp_config.grasp_frame_transforms, self.camera_config)
+        cameras = get_cameras(
+            grasp_config.grasp_frame_transforms, self.camera_config
+        ).to(self.nerf_model.device)
         batch_size = cameras.shape[0]
 
         depth, uncertainty = render(cameras, self.nerf_model, "median", far_plane=0.15)
@@ -658,7 +664,7 @@ class DepthImageGraspMetric(torch.nn.Module):
             grasp_transforms=grasp_config.grasp_frame_transforms,
             fingertip_config=self.fingertip_config,
             grasp_configs=grasp_config.as_tensor(),
-        )
+        ).to(self.nerf_model.device)
 
         # Pass grasp transforms, densities into classifier.
         if self.return_type == "failure_probability":
@@ -714,16 +720,16 @@ class DepthImageGraspMetric(torch.nn.Module):
             f"Loading checkpoint ({classifier_config.checkpoint_workspace.output_dir})..."
         )
 
-        input_checkpoint_paths = (
-            classifier_config.checkpoint_workspace.input_checkpoint_paths
+        output_checkpoint_paths = (
+            classifier_config.checkpoint_workspace.output_checkpoint_paths
         )
         assert (
-            len(input_checkpoint_paths) > 0
-        ), f"No checkpoints found in {classifier_config.checkpoint_workspace.input_checkpoint_paths}"
+            len(output_checkpoint_paths) > 0
+        ), f"No checkpoints found in {classifier_config.checkpoint_workspace.output_checkpoint_paths}"
         assert classifier_checkpoint < len(
-            input_checkpoint_paths
-        ), f"Requested checkpoint {classifier_checkpoint} does not exist in {classifier_config.checkpoint_workspace.input_checkpoint_paths}"
-        checkpoint_path = input_checkpoint_paths[classifier_checkpoint]
+            output_checkpoint_paths
+        ), f"Requested checkpoint {classifier_checkpoint} does not exist in {classifier_config.checkpoint_workspace.output_checkpoint_paths}"
+        checkpoint_path = output_checkpoint_paths[classifier_checkpoint]
 
         checkpoint = torch.load(checkpoint_path)
         classifier.load_state_dict(checkpoint["classifier"])
@@ -733,7 +739,10 @@ class DepthImageGraspMetric(torch.nn.Module):
             classifier.eval()  # weird LSTM thing where cudnn hasn't implemented the backwards pass in eval (??)
 
         return cls(
-            nerf_model, classifier, classifier_config.nerfdata_config.fingertip_config
+            nerf_model,
+            classifier,
+            classifier_config.nerfdata_config.fingertip_config,
+            classifier_config.nerfdata_config.fingertip_camera_config,
         )
 
 

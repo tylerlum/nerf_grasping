@@ -184,30 +184,54 @@ class CheckpointWorkspaceConfig:
 
     @property
     def input_checkpoint_paths(self) -> List[pathlib.Path]:
-        if self.input_dir is None:
-            return []
-
-        checkpoint_filepaths = sorted(
-            [x for x in self.input_dir.glob("*.pt")]
-            + [x for x in self.input_dir.glob("*.pth")],
-            key=lambda x: x.stat().st_mtime,
-        )
-
-        return checkpoint_filepaths
+        return self.checkpoint_paths(self.input_dir)
 
     @property
     def latest_input_checkpoint_path(self) -> Optional[pathlib.Path]:
         """Path to the latest checkpoint in the input directory."""
-        input_checkpoint_paths = self.input_checkpoint_paths
-        if len(input_checkpoint_paths) == 0:
+        return self.latest_checkpoint_path(self.input_dir)
+
+    @property
+    def output_checkpoint_paths(self) -> List[pathlib.Path]:
+        return self.checkpoint_paths(self.output_dir)
+
+    @property
+    def latest_output_checkpoint_path(self) -> Optional[pathlib.Path]:
+        """Path to the latest checkpoint in the output directory."""
+        return self.latest_checkpoint_path(self.output_dir)
+
+    @staticmethod
+    def checkpoint_paths(
+        checkpoint_dir: Optional[pathlib.Path],
+    ) -> List[pathlib.Path]:
+        if checkpoint_dir is None:
+            return []
+
+        """Get all the checkpoint paths in a directory."""
+        checkpoint_filepaths = sorted(
+            [x for x in checkpoint_dir.glob("*.pt")]
+            + [x for x in checkpoint_dir.glob("*.pth")],
+            key=lambda x: x.stat().st_mtime,
+        )
+        return checkpoint_filepaths
+
+    @staticmethod
+    def latest_checkpoint_path(
+        checkpoint_dir: Optional[pathlib.Path],
+    ) -> Optional[pathlib.Path]:
+        """Path to the latest checkpoint in a directory."""
+        checkpoint_filepaths = CheckpointWorkspaceConfig.checkpoint_paths(
+            checkpoint_dir
+        )
+        if len(checkpoint_filepaths) == 0:
             print("No checkpoint found")
             return None
 
-        if len(input_checkpoint_paths) > 1:
+        if len(checkpoint_filepaths) > 1:
             print(
-                f"Found multiple checkpoints: {input_checkpoint_paths}. Returning most recent one."
+                f"Found multiple checkpoints: {checkpoint_filepaths}. Returning most recent one."
             )
-        return input_checkpoint_paths[-1]
+        return checkpoint_filepaths[-1]
 
 
 @dataclass(frozen=True)

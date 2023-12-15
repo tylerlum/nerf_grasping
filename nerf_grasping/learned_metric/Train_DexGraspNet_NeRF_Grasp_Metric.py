@@ -1118,10 +1118,11 @@ def _iterate_through_dataloader(
                 assert_equals(
                     task_losses.shape, (classifier.n_tasks, batch_data.batch_size)
                 )
-                total_loss = torch.mean(
+                total_losses = torch.mean(
                     task_losses, dim=0
                 )  # TODO: Consider weighting losses.
-                assert_equals(total_loss.shape, (batch_data.batch_size,))
+                assert_equals(total_losses.shape, (batch_data.batch_size,))
+                total_loss = torch.mean(total_losses)
 
             # Gradient step
             with loop_timer.add_section_timer("Bwd"):
@@ -1144,7 +1145,7 @@ def _iterate_through_dataloader(
 
             # Loss logging
             with loop_timer.add_section_timer("Loss"):
-                losses_dict["loss"].extend(total_loss.tolist())
+                losses_dict["loss"].extend(total_losses.tolist())
 
             # Gather predictions
             with loop_timer.add_section_timer("Gather"):

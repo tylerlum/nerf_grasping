@@ -726,7 +726,9 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
             passed_evals = evaled_grasp_config_dict["passed_eval"]
             passed_simulations = evaled_grasp_config_dict["passed_simulation"]
             passed_penetration_thresholds = evaled_grasp_config_dict[
-                "passed_penetration_threshold"
+                # TODO: Choose which label to use
+                # "passed_penetration_threshold"
+                "passed_new_penetration_test"
             ]
 
             # If plot_only_one is True, slice out the grasp index we want to visualize.

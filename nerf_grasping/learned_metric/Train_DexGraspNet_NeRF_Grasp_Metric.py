@@ -1537,7 +1537,7 @@ class SoftmaxL1Loss(nn.Module):
 
     def forward(self, input: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
         input = torch.softmax(input, dim=-1)
-        return self.l1_loss(input, target)
+        return self.l1_loss(input, target).mean(dim=-1)
 
 
 USE_L1_LOSS = True

@@ -32,7 +32,7 @@ import os
 import trimesh
 import numpy as np
 from tqdm import tqdm
-from typing import Tuple, List, Dict, Any
+from typing import Tuple, List, Dict, Any, Optional
 from nerf_grasping.dataset.DexGraspNet_NeRF_Grasps_utils import (
     plot_mesh_and_query_points,
     plot_mesh_and_transforms,
@@ -573,7 +573,8 @@ def get_nerf_densities(
     grasp_frame_transforms: pp.LieTensor,
     ray_origins_finger_frame: torch.Tensor,
     nerf_field: Field,
-) -> Tuple[torch.Tensor, torch.Tensor]:
+    compute_query_points: bool = True,
+) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
     assert cfg.fingertip_config is not None
 
     # Shape check grasp_frame_transforms
@@ -603,7 +604,7 @@ def get_nerf_densities(
         split_inds = torch.cat(
             [split_inds, torch.tensor([batch_size]).to(split_inds.device)]
         )
-        nerf_density_list = []
+        nerf_densities = []
         for curr_ind, next_ind in tqdm(
             zip(split_inds[:-1], split_inds[1:]),
             total=len(split_inds) - 1,
@@ -611,7 +612,7 @@ def get_nerf_densities(
             dynamic_ncols=True,
         ):
             curr_ray_samples = ray_samples[curr_ind:next_ind].to("cuda")
-            nerf_density_list.append(
+            nerf_densities.append(
                 nerf_field.get_density(curr_ray_samples)[0]
                 .reshape(
                     -1,
@@ -623,17 +624,20 @@ def get_nerf_densities(
                 .cpu()
             )
             curr_ray_samples.to("cpu")
-        nerf_densities = torch.cat(nerf_density_list, dim=0)
+        nerf_densities = torch.cat(nerf_densities, dim=0)
 
     with loop_timer.add_section_timer("frustums.get_positions"):
-        query_points = ray_samples.frustums.get_positions().reshape(
-            batch_size,
-            cfg.fingertip_config.n_fingers,
-            cfg.fingertip_config.num_pts_x,
-            cfg.fingertip_config.num_pts_y,
-            cfg.fingertip_config.num_pts_z,
-            3,
-        )
+        if compute_query_points:
+            query_points = ray_samples.frustums.get_positions().reshape(
+                batch_size,
+                cfg.fingertip_config.n_fingers,
+                cfg.fingertip_config.num_pts_x,
+                cfg.fingertip_config.num_pts_y,
+                cfg.fingertip_config.num_pts_z,
+                3,
+            )
+        else:
+            query_points = None
 
     return nerf_densities, query_points
 
@@ -788,6 +792,7 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                     grasp_frame_transforms=grasp_frame_transforms,
                     ray_origins_finger_frame=ray_origins_finger_frame,
                     nerf_field=nerf_pipeline.model.field,
+                    compute_query_points=cfg.plot_only_one,
                 )
                 if nerf_densities.isnan().any():
                     print("\n" + "-" * 80)

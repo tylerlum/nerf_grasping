@@ -914,7 +914,7 @@ mesh.apply_transform(trimesh.transformations.scale_matrix(object_scale))
 
 if "nerf_densities" in globals():
     nerf_alphas = [
-        1 - np.exp(-delta * dd) for dd in nerf_densities[cfg.grasp_visualize_index]
+        1 - np.exp(-delta * dd) for dd in nerf_densities[cfg.grasp_visualize_index].detach().cpu().numpy()
     ]
     fig = plot_mesh_and_query_points(
         mesh=mesh,
@@ -980,7 +980,7 @@ if cfg.plot_all_high_density_points:
 
 if cfg.plot_alphas_each_finger_1D and "nerf_densities" in globals():
     nerf_alphas = [
-        1 - np.exp(-delta * dd) for dd in nerf_densities[cfg.grasp_visualize_index]
+        1 - np.exp(-delta * dd) for dd in nerf_densities[cfg.grasp_visualize_index].detach().cpu().numpy()
     ]
     nrows, ncols = cfg.fingertip_config.n_fingers, 1
     fig4, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=(10, 10))
@@ -1006,7 +1006,7 @@ if cfg.plot_alphas_each_finger_1D and "nerf_densities" in globals():
 
 if cfg.plot_alpha_images_each_finger and "nerf_densities" in globals():
     nerf_alphas = [
-        1 - np.exp(-delta * dd) for dd in nerf_densities[cfg.grasp_visualize_index]
+        1 - np.exp(-delta * dd) for dd in nerf_densities[cfg.grasp_visualize_index].detach().cpu().numpy()
     ]
 
     num_images = 5

@@ -1009,7 +1009,7 @@ def _iterate_through_dataloader(
     dataloader: DataLoader,
     classifier: Classifier,
     device: torch.device,
-    ce_loss_fns: List[nn.CrossEntropyLoss],
+    loss_fns: List[nn.Module],
     task_type: TaskType,
     training_cfg: Optional[ClassifierTrainingConfig] = None,
     optimizer: Optional[torch.optim.Optimizer] = None,
@@ -1030,7 +1030,7 @@ def _iterate_through_dataloader(
         classifier.eval()
         assert training_cfg is None and optimizer is None
 
-    assert_equals(len(ce_loss_fns), classifier.n_tasks)
+    assert_equals(len(loss_fns), classifier.n_tasks)
     assert_equals(len(task_type.task_names), classifier.n_tasks)
 
     with torch.set_grad_enabled(phase == Phase.TRAIN):
@@ -1103,11 +1103,11 @@ def _iterate_through_dataloader(
                 assert_equals(len(task_targets), classifier.n_tasks)
 
                 task_losses = []
-                for task_i, (ce_loss_fn, task_target, task_name) in enumerate(
-                    zip(ce_loss_fns, task_targets, task_type.task_names)
+                for task_i, (loss_fn, task_target, task_name) in enumerate(
+                    zip(loss_fns, task_targets, task_type.task_names)
                 ):
                     task_logits = all_logits[:, task_i, :]
-                    task_loss = ce_loss_fn(
+                    task_loss = loss_fn(
                         input=task_logits,
                         target=task_target,
                     )
@@ -1118,10 +1118,11 @@ def _iterate_through_dataloader(
                 assert_equals(
                     task_losses.shape, (classifier.n_tasks, batch_data.batch_size)
                 )
-                total_loss = torch.mean(
+                total_losses = torch.mean(
                     task_losses, dim=0
                 )  # TODO: Consider weighting losses.
-                assert_equals(total_loss.shape, (batch_data.batch_size,))
+                assert_equals(total_losses.shape, (batch_data.batch_size,))
+                total_loss = torch.mean(total_losses)
 
             # Gradient step
             with loop_timer.add_section_timer("Bwd"):
@@ -1144,7 +1145,7 @@ def _iterate_through_dataloader(
 
             # Loss logging
             with loop_timer.add_section_timer("Loss"):
-                losses_dict["loss"].extend(total_loss.tolist())
+                losses_dict["loss"].extend(total_losses.tolist())
 
             # Gather predictions
             with loop_timer.add_section_timer("Gather"):
@@ -1288,13 +1289,13 @@ def iterate_through_dataloader(
     dataloader: DataLoader,
     classifier: Classifier,
     device: torch.device,
-    ce_loss_fns: List[nn.CrossEntropyLoss],
+    loss_fns: List[nn.Module],
     task_type: TaskType,
     training_cfg: Optional[ClassifierTrainingConfig] = None,
     optimizer: Optional[torch.optim.Optimizer] = None,
     lr_scheduler: Optional[torch.optim.lr_scheduler.LRScheduler] = None,
 ) -> Dict[str, Any]:
-    assert_equals(len(ce_loss_fns), classifier.n_tasks)
+    assert_equals(len(loss_fns), classifier.n_tasks)
     assert_equals(len(task_type.task_names), classifier.n_tasks)
 
     loop_timer = LoopTimer()
@@ -1306,7 +1307,7 @@ def iterate_through_dataloader(
         dataloader=dataloader,
         classifier=classifier,
         device=device,
-        ce_loss_fns=ce_loss_fns,
+        loss_fns=loss_fns,
         task_type=task_type,
         training_cfg=training_cfg,
         optimizer=optimizer,
@@ -1338,7 +1339,7 @@ def run_training_loop(
     val_loader: DataLoader,
     classifier: Classifier,
     device: torch.device,
-    ce_loss_fns: List[nn.CrossEntropyLoss],
+    loss_fns: List[nn.Module],
     optimizer: torch.optim.Optimizer,
     checkpoint_output_dir: pathlib.Path,
     task_type: TaskType,
@@ -1377,7 +1378,7 @@ def run_training_loop(
             dataloader=train_loader,
             classifier=classifier,
             device=device,
-            ce_loss_fns=ce_loss_fns,
+            loss_fns=loss_fns,
             task_type=task_type,
             training_cfg=training_cfg,
             optimizer=optimizer,
@@ -1398,7 +1399,7 @@ def run_training_loop(
                 dataloader=val_loader,
                 classifier=classifier,
                 device=device,
-                ce_loss_fns=ce_loss_fns,
+                loss_fns=loss_fns,
                 task_type=task_type,
             )
             wandb_log_dict.update(val_log_dict)
@@ -1528,32 +1529,63 @@ if cfg.training.extra_punish_false_positive_factor != 0.0:
         f"After adjustment, passed_simulation_class_weight: {passed_eval_class_weight}"
     )
 
-passed_simulation_ce_loss_fn = nn.CrossEntropyLoss(
-    weight=passed_simulation_class_weight,
-    label_smoothing=cfg.training.label_smoothing,
-    reduction="none",
-)
-passed_penetration_threshold_ce_loss_fn = nn.CrossEntropyLoss(
-    weight=passed_penetration_threshold_class_weight,
-    label_smoothing=cfg.training.label_smoothing,
-    reduction="none",
-)
-passed_eval_ce_loss_fn = nn.CrossEntropyLoss(
-    weight=passed_eval_class_weight,
-    label_smoothing=cfg.training.label_smoothing,
-    reduction="none",
+# %%
+class SoftmaxL1Loss(nn.Module):
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__()
+        self.l1_loss = nn.L1Loss(*args, **kwargs)
+
+    def forward(self, input: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        input = torch.softmax(input, dim=-1)
+        return self.l1_loss(input, target).mean(dim=-1)
+
+
+USE_L1_LOSS = True
+USE_CE_LOSS = False
+assert sum([USE_L1_LOSS, USE_CE_LOSS]) == 1, (
+    f"Exactly one of USE_L1_LOSS and USE_CE_LOSS must be True. "
+    f"USE_L1_LOSS = {USE_L1_LOSS}, USE_CE_LOSS = {USE_CE_LOSS}"
 )
 
+if USE_L1_LOSS:
+    print("=" * 80)
+    print(f"Using L1 loss")
+    print("=" * 80 + "\n")
+    passed_simulation_loss_fn = SoftmaxL1Loss(reduction="none")
+    passed_penetration_threshold_loss_fn = SoftmaxL1Loss(reduction="none")
+    passed_eval_loss_fn = SoftmaxL1Loss(reduction="none")
+elif USE_CE_LOSS:
+    print("=" * 80)
+    print(f"Using CE loss")
+    print("=" * 80 + "\n")
+    passed_simulation_loss_fn = nn.CrossEntropyLoss(
+        weight=passed_simulation_class_weight,
+        label_smoothing=cfg.training.label_smoothing,
+        reduction="none",
+    )
+    passed_penetration_threshold_loss_fn = nn.CrossEntropyLoss(
+        weight=passed_penetration_threshold_class_weight,
+        label_smoothing=cfg.training.label_smoothing,
+        reduction="none",
+    )
+    passed_eval_loss_fn = nn.CrossEntropyLoss(
+        weight=passed_eval_class_weight,
+        label_smoothing=cfg.training.label_smoothing,
+        reduction="none",
+    )
+else:
+    raise ValueError("Unknown loss function")
+
 if cfg.task_type == TaskType.PASSED_SIMULATION:
-    ce_loss_fns = [passed_simulation_ce_loss_fn]
+    loss_fns = [passed_simulation_loss_fn]
 elif cfg.task_type == TaskType.PASSED_PENETRATION_THRESHOLD:
-    ce_loss_fns = [passed_penetration_threshold_ce_loss_fn]
+    loss_fns = [passed_penetration_threshold_loss_fn]
 elif cfg.task_type == TaskType.PASSED_EVAL:
-    ce_loss_fns = [passed_eval_ce_loss_fn]
+    loss_fns = [passed_eval_loss_fn]
 elif cfg.task_type == TaskType.PASSED_SIMULATION_AND_PENETRATION_THRESHOLD:
-    ce_loss_fns = [
-        passed_simulation_ce_loss_fn,
-        passed_penetration_threshold_ce_loss_fn,
+    loss_fns = [
+        passed_simulation_loss_fn,
+        passed_penetration_threshold_loss_fn,
     ]
 else:
     raise ValueError(f"Unknown task_type: {cfg.task_type}")
@@ -1584,7 +1616,7 @@ if cfg.data.debug_shuffle_labels:
 #     dataloader=val_loader,
 #     classifier=classifier,
 #     device=device,
-#     ce_loss_fns=ce_loss_fns,
+#     loss_fns=loss_fns,
 #     task_type=cfg.task_type,
 #     max_num_batches=10,
 # )
@@ -1601,7 +1633,7 @@ if cfg.data.debug_shuffle_labels:
 #     dataloader=train_loader,
 #     classifier=classifier,
 #     device=device,
-#     ce_loss_fns=ce_loss_fns,
+#     loss_fns=loss_fns,
 #     task_type=cfg.task_type,
 #     max_num_batches=10,
 # )
@@ -1723,7 +1755,7 @@ run_training_loop(
     val_loader=val_loader,
     classifier=classifier,
     device=device,
-    ce_loss_fns=ce_loss_fns,
+    loss_fns=loss_fns,
     optimizer=optimizer,
     checkpoint_output_dir=cfg.checkpoint_workspace.output_dir,
     task_type=cfg.task_type,
@@ -1744,7 +1776,7 @@ test_log_dict = iterate_through_dataloader(
     dataloader=test_loader,
     classifier=classifier,
     device=device,
-    ce_loss_fns=ce_loss_fns,
+    loss_fns=loss_fns,
     task_type=cfg.task_type,
 )
 wandb_log_dict.update(test_log_dict)

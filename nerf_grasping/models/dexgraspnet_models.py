@@ -124,11 +124,11 @@ class CNN_2D_1D_Model(nn.Module):
         self.conv_2d = ConvEncoder2D(
             input_shape=(1, n_pts_x, n_pts_y),
             conditioning_dim=conditioning_dim,
-            use_pretrained=False,
+            use_pretrained=True,
             pooling_method=ConvOutputTo1D.AVG_POOL_SPATIAL,
             film_hidden_layers=conv_2d_film_hidden_layers,
-            # resnet_type="resnet18", # TODO: Config this
-            resnet_type="resnet_smaller",  # TODO: Config this
+            resnet_type="resnet18", # TODO: Config this
+            # resnet_type="resnet_smaller",  # TODO: Config this
         )
 
         self.conv_1d = ConvEncoder1D(
@@ -641,11 +641,11 @@ class DepthImage_CNN_2D_Model(nn.Module):
         self.conv_2d = ConvEncoder2D(
             input_shape=(1, H, W),
             conditioning_dim=conditioning_dim,
-            use_pretrained=False,
+            use_pretrained=True,
             pooling_method=ConvOutputTo1D.AVG_POOL_SPATIAL,
             film_hidden_layers=conv_2d_film_hidden_layers,
-            # resnet_type="resnet18", # TODO: Config this
-            resnet_type="resnet_smaller",  # TODO: Config this
+            resnet_type="resnet18", # TODO: Config this
+            # resnet_type="resnet_smaller",  # TODO: Config this
         )
 
         self.mlp = mlp(

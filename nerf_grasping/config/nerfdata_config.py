@@ -40,7 +40,7 @@ class BaseNerfDataConfig:
     max_num_data_points_per_file: Optional[
         int
     ] = None  # None for count actual num data points
-    ray_samples_chunk_size: int = 200  # ~12GB on GPU
+    ray_samples_chunk_size: int = 50  # ~12GB on GPU
     cameras_samples_chunk_size: int = 2000  # ~14GB on GPU
     plot_all_high_density_points: bool = True
     plot_alphas_each_finger_1D: bool = True

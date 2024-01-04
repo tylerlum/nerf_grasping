@@ -32,7 +32,7 @@ import os
 import trimesh
 import numpy as np
 from tqdm import tqdm
-from typing import Tuple, List, Dict, Any
+from typing import Tuple, List, Dict, Any, Optional
 from nerf_grasping.dataset.DexGraspNet_NeRF_Grasps_utils import (
     plot_mesh_and_query_points,
     plot_mesh_and_transforms,
@@ -573,7 +573,8 @@ def get_nerf_densities(
     grasp_frame_transforms: pp.LieTensor,
     ray_origins_finger_frame: torch.Tensor,
     nerf_field: Field,
-) -> Tuple[torch.Tensor, torch.Tensor]:
+    compute_query_points: bool = True,
+) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
     assert cfg.fingertip_config is not None
 
     # Shape check grasp_frame_transforms
@@ -603,7 +604,7 @@ def get_nerf_densities(
         split_inds = torch.cat(
             [split_inds, torch.tensor([batch_size]).to(split_inds.device)]
         )
-        nerf_density_list = []
+        nerf_densities = []
         for curr_ind, next_ind in tqdm(
             zip(split_inds[:-1], split_inds[1:]),
             total=len(split_inds) - 1,
@@ -611,7 +612,7 @@ def get_nerf_densities(
             dynamic_ncols=True,
         ):
             curr_ray_samples = ray_samples[curr_ind:next_ind].to("cuda")
-            nerf_density_list.append(
+            nerf_densities.append(
                 nerf_field.get_density(curr_ray_samples)[0]
                 .reshape(
                     -1,
@@ -623,17 +624,20 @@ def get_nerf_densities(
                 .cpu()
             )
             curr_ray_samples.to("cpu")
-        nerf_densities = torch.cat(nerf_density_list, dim=0)
+        nerf_densities = torch.cat(nerf_densities, dim=0)
 
     with loop_timer.add_section_timer("frustums.get_positions"):
-        query_points = ray_samples.frustums.get_positions().reshape(
-            batch_size,
-            cfg.fingertip_config.n_fingers,
-            cfg.fingertip_config.num_pts_x,
-            cfg.fingertip_config.num_pts_y,
-            cfg.fingertip_config.num_pts_z,
-            3,
-        )
+        if compute_query_points:
+            query_points = ray_samples.frustums.get_positions().reshape(
+                batch_size,
+                cfg.fingertip_config.n_fingers,
+                cfg.fingertip_config.num_pts_x,
+                cfg.fingertip_config.num_pts_y,
+                cfg.fingertip_config.num_pts_z,
+                3,
+            )
+        else:
+            query_points = None
 
     return nerf_densities, query_points
 
@@ -726,7 +730,9 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
             passed_evals = evaled_grasp_config_dict["passed_eval"]
             passed_simulations = evaled_grasp_config_dict["passed_simulation"]
             passed_penetration_thresholds = evaled_grasp_config_dict[
-                "passed_penetration_threshold"
+                # TODO: Choose which label to use
+                # "passed_penetration_threshold"
+                "passed_new_penetration_test"
             ]
 
             # If plot_only_one is True, slice out the grasp index we want to visualize.
@@ -786,6 +792,7 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                     grasp_frame_transforms=grasp_frame_transforms,
                     ray_origins_finger_frame=ray_origins_finger_frame,
                     nerf_field=nerf_pipeline.model.field,
+                    compute_query_points=cfg.plot_only_one,
                 )
                 if nerf_densities.isnan().any():
                     print("\n" + "-" * 80)
@@ -912,7 +919,7 @@ mesh.apply_transform(trimesh.transformations.scale_matrix(object_scale))
 
 if "nerf_densities" in globals():
     nerf_alphas = [
-        1 - np.exp(-delta * dd) for dd in nerf_densities[cfg.grasp_visualize_index]
+        1 - np.exp(-delta * dd) for dd in nerf_densities[cfg.grasp_visualize_index].detach().cpu().numpy()
     ]
     fig = plot_mesh_and_query_points(
         mesh=mesh,
@@ -978,7 +985,7 @@ if cfg.plot_all_high_density_points:
 
 if cfg.plot_alphas_each_finger_1D and "nerf_densities" in globals():
     nerf_alphas = [
-        1 - np.exp(-delta * dd) for dd in nerf_densities[cfg.grasp_visualize_index]
+        1 - np.exp(-delta * dd) for dd in nerf_densities[cfg.grasp_visualize_index].detach().cpu().numpy()
     ]
     nrows, ncols = cfg.fingertip_config.n_fingers, 1
     fig4, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=(10, 10))
@@ -1004,7 +1011,7 @@ if cfg.plot_alphas_each_finger_1D and "nerf_densities" in globals():
 
 if cfg.plot_alpha_images_each_finger and "nerf_densities" in globals():
     nerf_alphas = [
-        1 - np.exp(-delta * dd) for dd in nerf_densities[cfg.grasp_visualize_index]
+        1 - np.exp(-delta * dd) for dd in nerf_densities[cfg.grasp_visualize_index].detach().cpu().numpy()
     ]
 
     num_images = 5

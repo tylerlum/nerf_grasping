@@ -1540,21 +1540,14 @@ class SoftmaxL1Loss(nn.Module):
         return self.l1_loss(input, target).mean(dim=-1)
 
 
-USE_L1_LOSS = True
-USE_CE_LOSS = False
-assert sum([USE_L1_LOSS, USE_CE_LOSS]) == 1, (
-    f"Exactly one of USE_L1_LOSS and USE_CE_LOSS must be True. "
-    f"USE_L1_LOSS = {USE_L1_LOSS}, USE_CE_LOSS = {USE_CE_LOSS}"
-)
-
-if USE_L1_LOSS:
+if cfg.training.loss_fn == "l1":
     print("=" * 80)
     print(f"Using L1 loss")
     print("=" * 80 + "\n")
     passed_simulation_loss_fn = SoftmaxL1Loss(reduction="none")
     passed_penetration_threshold_loss_fn = SoftmaxL1Loss(reduction="none")
     passed_eval_loss_fn = SoftmaxL1Loss(reduction="none")
-elif USE_CE_LOSS:
+elif cfg.training.loss_fn == "cross_entropy":
     print("=" * 80)
     print(f"Using CE loss")
     print("=" * 80 + "\n")

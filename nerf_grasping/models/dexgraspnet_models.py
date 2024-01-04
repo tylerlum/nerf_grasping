@@ -9,6 +9,7 @@ from nerf_grasping.models.tyler_new_models import (
     mlp,
     ConvEncoder2D,
     ConvEncoder1D,
+    ResnetType2d,
 )
 
 from nerf_grasping.models.preston_new_models import CNN2DFiLM, CNN1DFiLM, MLP, LSTMModel
@@ -108,6 +109,9 @@ class CNN_2D_1D_Model(nn.Module):
         conditioning_dim: int,
         conv_2d_film_hidden_layers: Tuple[int, ...],
         mlp_hidden_layers: Tuple[int, ...],
+        use_pretrained_2d: bool = True,
+        resnet_type_2d: ResnetType2d = ResnetType2d.RESNET18,
+        pooling_method_2d: ConvOutputTo1D = ConvOutputTo1D.AVG_POOL_SPATIAL,
         n_tasks: int = 1,
         n_classes: int = 2,
     ) -> None:
@@ -124,11 +128,10 @@ class CNN_2D_1D_Model(nn.Module):
         self.conv_2d = ConvEncoder2D(
             input_shape=(1, n_pts_x, n_pts_y),
             conditioning_dim=conditioning_dim,
-            use_pretrained=True,
-            pooling_method=ConvOutputTo1D.AVG_POOL_SPATIAL,
+            use_pretrained=use_pretrained_2d,
+            pooling_method=pooling_method_2d,
             film_hidden_layers=conv_2d_film_hidden_layers,
-            resnet_type="resnet18", # TODO: Config this
-            # resnet_type="resnet_smaller",  # TODO: Config this
+            resnet_type=resnet_type_2d,
         )
 
         self.conv_1d = ConvEncoder1D(
@@ -626,6 +629,9 @@ class DepthImage_CNN_2D_Model(nn.Module):
         conditioning_dim: int,
         conv_2d_film_hidden_layers: Tuple[int, ...],
         mlp_hidden_layers: Tuple[int, ...],
+        use_pretrained_2d: bool = True,
+        resnet_type_2d: ResnetType2d = ResnetType2d.RESNET18,
+        pooling_method_2d: ConvOutputTo1D = ConvOutputTo1D.AVG_POOL_SPATIAL,
         n_tasks: int = 1,
         n_classes: int = 2,
     ) -> None:
@@ -641,11 +647,10 @@ class DepthImage_CNN_2D_Model(nn.Module):
         self.conv_2d = ConvEncoder2D(
             input_shape=(1, H, W),
             conditioning_dim=conditioning_dim,
-            use_pretrained=True,
-            pooling_method=ConvOutputTo1D.AVG_POOL_SPATIAL,
+            use_pretrained=use_pretrained_2d,
+            pooling_method=pooling_method_2d,
             film_hidden_layers=conv_2d_film_hidden_layers,
-            resnet_type="resnet18", # TODO: Config this
-            # resnet_type="resnet_smaller",  # TODO: Config this
+            resnet_type=resnet_type_2d,
         )
 
         self.mlp = mlp(

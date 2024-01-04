@@ -11,6 +11,8 @@ from nerf_grasping.classifier import (
     DepthImage_CNN_2D_Classifier,
     Classifier,
     DepthImageClassifier,
+    ResnetType2d,
+    ConvOutputTo1D,
 )
 from nerf_grasping.learned_metric.DexGraspNet_batch_data import (
     ConditioningType,
@@ -151,6 +153,11 @@ class ClassifierTrainingConfig:
 
     save_checkpoint_on_epoch_0: bool = False
     """Flag to save checkpoint on epoch 0."""
+
+    loss_fn: Literal[
+        "cross_entropy",
+        "l1",
+    ] = "l1"
 
 
 @dataclass(frozen=True)
@@ -293,6 +300,9 @@ class CNN_2D_1D_ModelConfig(ClassifierModelConfig):
     mlp_hidden_layers: List[int]
     conditioning_type: ConditioningType
     n_fingers: int = 4
+    use_pretrained_2d: bool = True
+    resnet_type_2d: ResnetType2d = ResnetType2d.RESNET18
+    pooling_method_2d: ConvOutputTo1D = ConvOutputTo1D.AVG_POOL_SPATIAL
 
     @classmethod
     def grid_shape_from_fingertip_config(
@@ -316,9 +326,11 @@ class CNN_2D_1D_ModelConfig(ClassifierModelConfig):
             grid_shape=self.grid_shape_from_fingertip_config(fingertip_config),
             n_fingers=self.n_fingers,
             n_tasks=n_tasks,
-            conditioning_dim=self.conditioning_type.dim,
             conv_2d_film_hidden_layers=self.conv_2d_film_hidden_layers,
             mlp_hidden_layers=self.mlp_hidden_layers,
+            use_pretrained_2d=self.use_pretrained_2d,
+            resnet_type_2d=self.resnet_type_2d,
+            pooling_method_2d=self.pooling_method_2d,
         )
 
 
@@ -355,7 +367,6 @@ class Simple_CNN_2D_1D_ModelConfig(ClassifierModelConfig):
             grid_shape=self.grid_shape_from_fingertip_config(fingertip_config),
             n_fingers=self.n_fingers,
             n_tasks=n_tasks,
-            conditioning_dim=self.conditioning_type.dim,
             mlp_hidden_layers=self.mlp_hidden_layers,
             conv_2d_channels=self.conv_2d_channels,
             conv_1d_channels=self.conv_1d_channels,
@@ -397,7 +408,6 @@ class Simple_CNN_1D_2D_ModelConfig(ClassifierModelConfig):
             grid_shape=self.grid_shape_from_fingertip_config(fingertip_config),
             n_fingers=self.n_fingers,
             n_tasks=n_tasks,
-            conditioning_dim=self.conditioning_type.dim,
             mlp_hidden_layers=self.mlp_hidden_layers,
             conv_2d_channels=self.conv_2d_channels,
             conv_1d_channels=self.conv_1d_channels,
@@ -438,7 +448,6 @@ class Simple_CNN_LSTM_ModelConfig(ClassifierModelConfig):
             grid_shape=self.grid_shape_from_fingertip_config(fingertip_config),
             n_fingers=self.n_fingers,
             n_tasks=n_tasks,
-            conditioning_dim=self.conditioning_type.dim,
             mlp_hidden_layers=self.mlp_hidden_layers,
             conv_2d_channels=self.conv_2d_channels,
             film_2d_hidden_layers=self.film_2d_hidden_layers,
@@ -455,6 +464,9 @@ class DepthImage_CNN_2D_ModelConfig(ClassifierModelConfig):
     mlp_hidden_layers: List[int]
     conditioning_type: ConditioningType
     n_fingers: int = 4
+    use_pretrained_2d: bool = True
+    resnet_type_2d: ResnetType2d = ResnetType2d.RESNET18
+    pooling_method_2d: ConvOutputTo1D = ConvOutputTo1D.AVG_POOL_SPATIAL
 
     def get_classifier_from_camera_config(
         self,
@@ -473,9 +485,11 @@ class DepthImage_CNN_2D_ModelConfig(ClassifierModelConfig):
             ),
             n_fingers=self.n_fingers,
             n_tasks=n_tasks,
-            conditioning_dim=self.conditioning_type.dim,
             conv_2d_film_hidden_layers=self.conv_2d_film_hidden_layers,
             mlp_hidden_layers=self.mlp_hidden_layers,
+            use_pretrained_2d=self.use_pretrained_2d,
+            resnet_type_2d=self.resnet_type_2d,
+            pooling_method_2d=self.pooling_method_2d,
         )
 
 

@@ -755,6 +755,7 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                     cfg.grasp_visualize_index : cfg.grasp_visualize_index + 1
                 ]
 
+            print(f"grasp_configs.batch_size = {grasp_configs.batch_size}")
             if (
                 cfg.max_num_data_points_per_file is not None
                 and grasp_configs.batch_size > cfg.max_num_data_points_per_file

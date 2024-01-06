@@ -868,6 +868,7 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                     nerf_densities_dataset[prev_idx:current_idx] = (
                         nerf_densities.detach().cpu().numpy()
                     )
+                    del nerf_densities
 
                 if isinstance(cfg, DepthImageNerfDataConfig):
                     depth_images_dataset[prev_idx:current_idx] = (
@@ -876,6 +877,7 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                     uncertainty_images_dataset[prev_idx:current_idx] = (
                         uncertainty_images.detach().cpu().numpy()
                     )
+                    del depth_images, uncertainty_images
 
                 grasp_config_tensors = grasp_configs.as_tensor().detach().cpu().numpy()
                 assert_equals(

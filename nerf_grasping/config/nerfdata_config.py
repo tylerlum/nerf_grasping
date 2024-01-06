@@ -39,7 +39,7 @@ class BaseNerfDataConfig:
     limit_num_configs: Optional[int] = None  # None for no limit
     max_num_data_points_per_file: Optional[
         int
-    ] = 25_000  # None for count actual num data points, set to avoid OOM
+    ] = 15_000  # None for count actual num data points, set to avoid OOM
     ray_samples_chunk_size: int = 50  # ~8GB on GPU
     cameras_samples_chunk_size: int = 2000  # ~14GB on GPU
     plot_all_high_density_points: bool = True

@@ -300,8 +300,8 @@ class CNN_2D_1D_ModelConfig(ClassifierModelConfig):
     mlp_hidden_layers: List[int]
     conditioning_type: ConditioningType
     n_fingers: int = 4
-    use_pretrained_2d: bool = True
-    resnet_type_2d: ResnetType2d = ResnetType2d.RESNET18
+    use_pretrained_2d: bool = False
+    resnet_type_2d: ResnetType2d = ResnetType2d.RESNET_SMALLEST
     pooling_method_2d: ConvOutputTo1D = ConvOutputTo1D.AVG_POOL_SPATIAL
 
     @classmethod
@@ -464,8 +464,8 @@ class DepthImage_CNN_2D_ModelConfig(ClassifierModelConfig):
     mlp_hidden_layers: List[int]
     conditioning_type: ConditioningType
     n_fingers: int = 4
-    use_pretrained_2d: bool = True
-    resnet_type_2d: ResnetType2d = ResnetType2d.RESNET18
+    use_pretrained_2d: bool = False
+    resnet_type_2d: ResnetType2d = ResnetType2d.RESNET_SMALLEST
     pooling_method_2d: ConvOutputTo1D = ConvOutputTo1D.AVG_POOL_SPATIAL
 
     def get_classifier_from_camera_config(

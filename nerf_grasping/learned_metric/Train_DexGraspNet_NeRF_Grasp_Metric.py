@@ -798,7 +798,7 @@ def depth_image_plot_example(
 
 # Add config var to enable / disable plotting.
 # %%
-PLOT_EXAMPLES = True
+PLOT_EXAMPLES = False
 if PLOT_EXAMPLES:
     if USE_DEPTH_IMAGES:
         fig, fig2 = depth_image_plot_example(
@@ -816,13 +816,13 @@ if PLOT_EXAMPLES:
 if PLOT_EXAMPLES:
     if USE_DEPTH_IMAGES:
         fig, fig2 = depth_image_plot_example(
-            batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=15, augmented=True
+            batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=2, augmented=True
         )
         fig.show()
         fig2.show()
     else:
         fig = nerf_densities_plot_example(
-            batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=15, augmented=True
+            batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=2, augmented=True
         )
         fig.show()
 
@@ -830,13 +830,13 @@ if PLOT_EXAMPLES:
 if PLOT_EXAMPLES:
     if USE_DEPTH_IMAGES:
         fig, fig2 = depth_image_plot_example(
-            batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=14
+            batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=2
         )
         fig.show()
         fig2.show()
     else:
         fig = nerf_densities_plot_example(
-            batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=14
+            batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=2
         )
         fig.show()
 

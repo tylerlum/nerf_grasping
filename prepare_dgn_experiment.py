@@ -6,6 +6,7 @@ import nerf_grasping
 from typing import Optional, List
 import random
 import math
+import shutil
 
 
 @dataclass
@@ -29,6 +30,12 @@ def print_and_run(cmd: str) -> None:
     print(f"Running: {cmd}")
     print("=" * 80 + "\n")
     subprocess.run(cmd, shell=True, check=True)
+
+
+def delete_if_exists(filepath: pathlib.Path) -> None:
+    if filepath.exists():
+        print(f"{filepath} already exists, deleting")
+    shutil.rmtree(filepath)
 
 
 def create_symlinks(
@@ -104,6 +111,7 @@ def main() -> None:
         (evaled_grasp_config_dicts_val_path, val_filenames),
         (evaled_grasp_config_dicts_test_path, test_filenames),
     ]:
+        delete_if_exists(filepath=new_path)
         create_symlinks(
             src_folderpath=evaled_grasp_config_dicts_path,
             dest_folderpath=new_path,

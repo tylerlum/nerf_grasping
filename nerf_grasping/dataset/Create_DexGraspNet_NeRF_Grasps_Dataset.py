@@ -604,7 +604,12 @@ def get_nerf_densities(
         split_inds = torch.cat(
             [split_inds, torch.tensor([batch_size]).to(split_inds.device)]
         )
-        nerf_densities = []
+        # Preallocate to avoid OOM (instead of making a list and concatenating at the end)
+        nerf_densities = torch.zeros(
+            (batch_size, cfg.fingertip_config.n_fingers, cfg.fingertip_config.num_pts_x, cfg.fingertip_config.num_pts_y, cfg.fingertip_config.num_pts_z),
+            dtype=torch.float,
+            device="cpu",
+        )
         for curr_ind, next_ind in tqdm(
             zip(split_inds[:-1], split_inds[1:]),
             total=len(split_inds) - 1,
@@ -612,7 +617,7 @@ def get_nerf_densities(
             dynamic_ncols=True,
         ):
             curr_ray_samples = ray_samples[curr_ind:next_ind].to("cuda")
-            nerf_densities.append(
+            nerf_densities_chunk = (
                 nerf_field.get_density(curr_ray_samples)[0]
                 .reshape(
                     -1,
@@ -624,7 +629,7 @@ def get_nerf_densities(
                 .cpu()
             )
             curr_ray_samples.to("cpu")
-        nerf_densities = torch.cat(nerf_densities, dim=0)
+            nerf_densities[curr_ind:next_ind] = nerf_densities_chunk
 
     with loop_timer.add_section_timer("frustums.get_positions"):
         if compute_query_points:

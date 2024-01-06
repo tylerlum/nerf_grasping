@@ -35,7 +35,7 @@ def print_and_run(cmd: str) -> None:
 def delete_if_exists(filepath: pathlib.Path) -> None:
     if filepath.exists():
         print(f"{filepath} already exists, deleting")
-    shutil.rmtree(filepath)
+        shutil.rmtree(filepath)
 
 
 def create_symlinks(

@@ -14,6 +14,8 @@ from typing import Literal, Dict, Tuple
 
 GRASP_TO_OPENCV = pp.euler2SO3([np.pi, 0, 0]).unsqueeze(0)
 
+def assert_equals(a, b):
+    assert a == b, f"{a} != {b}"
 
 def get_cameras(
     grasp_transforms: pp.LieTensor,
@@ -53,12 +55,12 @@ def render(
     near_plane: float = 1e-3,
     far_plane: float = 1e-1,
 ):
-    # TODO: Use this original_shape?
     original_shape = cameras.shape
     cameras = cameras.reshape(-1)
     assert len(cameras.shape) == 1
-    # TODO: make sure we have enough VRAM to render all the cameras at once.
+    num_imgs = cameras.shape[0]
 
+    # TODO: make sure we have enough VRAM to render all the cameras at once.
     ray_bundle = cameras.generate_rays(
         torch.arange(
             cameras.camera_to_worlds.shape[0], device=cameras.camera_to_worlds.device
@@ -70,6 +72,14 @@ def render(
     depth, uncertainty = _render_depth_and_uncertainty_for_camera_ray_bundle(
         nerf_model, ray_bundle, depth_mode
     )
+
+    height, width, _ = ray_bundle.shape
+    assert_equals(ray_bundle.shape, (height, width, num_imgs))
+    assert_equals(depth.shape, ray_bundle.shape)
+    assert_equals(uncertainty.shape, ray_bundle.shape)
+
+    depth = depth.reshape(height, width, *original_shape)
+    uncertainty = uncertainty.reshape(height, width, *original_shape)
     return depth, uncertainty
 
 

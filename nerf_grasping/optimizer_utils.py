@@ -671,6 +671,7 @@ class DepthImageGraspMetric(torch.nn.Module):
             grasp_config.grasp_frame_transforms, self.camera_config
         ).to(self.nerf_model.device)
         batch_size = cameras.shape[0]
+        assert cameras.shape == (batch_size, grasp_config.num_fingers)
 
         depth, uncertainty = render(cameras, self.nerf_model, "median", far_plane=0.15)
         assert (
@@ -679,22 +680,13 @@ class DepthImageGraspMetric(torch.nn.Module):
             == (
                 self.camera_config.H,
                 self.camera_config.W,
-                batch_size * grasp_config.num_fingers,
+                batch_size,
+                grasp_config.num_fingers,
             )
         )
 
-        depth = depth.permute(2, 0, 1).reshape(
-            batch_size,
-            grasp_config.num_fingers,
-            self.camera_config.H,
-            self.camera_config.W,
-        )
-        uncertainty = uncertainty.permute(2, 0, 1).reshape(
-            batch_size,
-            grasp_config.num_fingers,
-            self.camera_config.H,
-            self.camera_config.W,
-        )
+        depth = depth.permute(2, 3, 0, 1)
+        uncertainty = uncertainty.permute(2, 3, 0, 1)
 
         depth_uncertainty_images = torch.stack(
             [depth, uncertainty],

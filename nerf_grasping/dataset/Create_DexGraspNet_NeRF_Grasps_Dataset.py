@@ -778,12 +778,12 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                     f"batch_size = {grasp_configs.batch_size}, cfg.max_num_data_points_per_file = {cfg.max_num_data_points_per_file}"
                 )
 
-            grasp_configs = grasp_configs[:max_num_datapoints]
+            grasp_configs = grasp_configs[:cfg.max_num_data_points_per_file]
 
-            passed_evals = passed_evals[:max_num_datapoints]
-            passed_simulations = passed_simulations[:max_num_datapoints]
+            passed_evals = passed_evals[:cfg.max_num_data_points_per_file]
+            passed_simulations = passed_simulations[:cfg.max_num_data_points_per_file]
             passed_penetration_thresholds = passed_penetration_thresholds[
-                :max_num_datapoints
+                cfg.max_num_data_points_per_file:
             ]
             grasp_frame_transforms = grasp_configs.grasp_frame_transforms
 

@@ -610,11 +610,58 @@ DEFAULTS_DICT = {
         ),
         nerfdata_config=GridNerfDataConfig(),
     ),
-    "grasp-cond-cnn-2d-1d": ClassifierConfig(
+    "grasp-cond-cnn-2d-1d-smallest": ClassifierConfig(
         model_config=CNN_2D_1D_ModelConfig(
             conditioning_type=ConditioningType.GRASP_CONFIG,
             conv_2d_film_hidden_layers=[256, 256],
             mlp_hidden_layers=[256, 256],
+            use_pretrained_2d=False,
+            resnet_type_2d=ResnetType2d.RESNET_SMALLEST,
+            pooling_method_2d=ConvOutputTo1D.AVG_POOL_SPATIAL,
+        ),
+        nerfdata_config=GridNerfDataConfig(),
+    ),
+    "grasp-cond-cnn-2d-1d-smaller": ClassifierConfig(
+        model_config=CNN_2D_1D_ModelConfig(
+            conditioning_type=ConditioningType.GRASP_CONFIG,
+            conv_2d_film_hidden_layers=[256, 256],
+            mlp_hidden_layers=[256, 256],
+            use_pretrained_2d=False,
+            resnet_type_2d=ResnetType2d.RESNET_SMALLER,
+            pooling_method_2d=ConvOutputTo1D.AVG_POOL_SPATIAL,
+        ),
+        nerfdata_config=GridNerfDataConfig(),
+    ),
+    "grasp-cond-cnn-2d-1d-small": ClassifierConfig(
+        model_config=CNN_2D_1D_ModelConfig(
+            conditioning_type=ConditioningType.GRASP_CONFIG,
+            conv_2d_film_hidden_layers=[256, 256],
+            mlp_hidden_layers=[256, 256],
+            use_pretrained_2d=False,
+            resnet_type_2d=ResnetType2d.RESNET_SMALL,
+            pooling_method_2d=ConvOutputTo1D.AVG_POOL_SPATIAL,
+        ),
+        nerfdata_config=GridNerfDataConfig(),
+    ),
+    "grasp-cond-cnn-2d-1d-18": ClassifierConfig(
+        model_config=CNN_2D_1D_ModelConfig(
+            conditioning_type=ConditioningType.GRASP_CONFIG,
+            conv_2d_film_hidden_layers=[256, 256],
+            mlp_hidden_layers=[256, 256],
+            use_pretrained_2d=True,
+            resnet_type_2d=ResnetType2d.RESNET18,
+            pooling_method_2d=ConvOutputTo1D.AVG_POOL_SPATIAL,
+        ),
+        nerfdata_config=GridNerfDataConfig(),
+    ),
+    "grasp-cond-cnn-2d-1d-34": ClassifierConfig(
+        model_config=CNN_2D_1D_ModelConfig(
+            conditioning_type=ConditioningType.GRASP_CONFIG,
+            conv_2d_film_hidden_layers=[256, 256],
+            mlp_hidden_layers=[256, 256],
+            use_pretrained_2d=True,
+            resnet_type_2d=ResnetType2d.RESNET34,
+            pooling_method_2d=ConvOutputTo1D.AVG_POOL_SPATIAL,
         ),
         nerfdata_config=GridNerfDataConfig(),
     ),

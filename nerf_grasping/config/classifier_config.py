@@ -463,10 +463,10 @@ class DepthImage_CNN_2D_ModelConfig(ClassifierModelConfig):
     conv_2d_film_hidden_layers: List[int]
     mlp_hidden_layers: List[int]
     conditioning_type: ConditioningType
-    n_fingers: int = 4
     use_pretrained_2d: bool
     resnet_type_2d: ResnetType2d
     pooling_method_2d: ConvOutputTo1D
+    n_fingers: int = 4
 
     def get_classifier_from_camera_config(
         self,

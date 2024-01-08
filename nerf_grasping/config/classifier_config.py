@@ -793,6 +793,101 @@ DEFAULTS_DICT = {
             fingertip_camera_config=CameraConfig(H=60, W=60),
         ),
     ),
+    "grasp-cond-depth-cnn-2d-smallest": ClassifierConfig(
+        model_config=DepthImage_CNN_2D_ModelConfig(
+            conditioning_type=ConditioningType.GRASP_CONFIG,
+            conv_2d_film_hidden_layers=[256, 256],
+            mlp_hidden_layers=[256, 256],
+            use_pretrained_2d=False,
+            resnet_type_2d=ResnetType2d.RESNET_SMALLEST,
+            pooling_method_2d=ConvOutputTo1D.AVG_POOL_SPATIAL,
+        ),
+        nerfdata_config=DepthImageNerfDataConfig(
+            fingertip_config=EvenlySpacedFingertipConfig(
+                finger_width_mm=50,
+                finger_height_mm=50,
+                grasp_depth_mm=20,
+                distance_between_pts_mm=0.5,
+            ),
+            fingertip_camera_config=CameraConfig(H=60, W=60),
+        ),
+    ),
+    "grasp-cond-depth-cnn-2d-smaller": ClassifierConfig(
+        model_config=DepthImage_CNN_2D_ModelConfig(
+            conditioning_type=ConditioningType.GRASP_CONFIG,
+            conv_2d_film_hidden_layers=[256, 256],
+            mlp_hidden_layers=[256, 256],
+            use_pretrained_2d=False,
+            resnet_type_2d=ResnetType2d.RESNET_SMALLER,
+            pooling_method_2d=ConvOutputTo1D.AVG_POOL_SPATIAL,
+        ),
+        nerfdata_config=DepthImageNerfDataConfig(
+            fingertip_config=EvenlySpacedFingertipConfig(
+                finger_width_mm=50,
+                finger_height_mm=50,
+                grasp_depth_mm=20,
+                distance_between_pts_mm=0.5,
+            ),
+            fingertip_camera_config=CameraConfig(H=60, W=60),
+        ),
+    ),
+    "grasp-cond-depth-cnn-2d-small": ClassifierConfig(
+        model_config=DepthImage_CNN_2D_ModelConfig(
+            conditioning_type=ConditioningType.GRASP_CONFIG,
+            conv_2d_film_hidden_layers=[256, 256],
+            mlp_hidden_layers=[256, 256],
+            use_pretrained_2d=False,
+            resnet_type_2d=ResnetType2d.RESNET_SMALL,
+            pooling_method_2d=ConvOutputTo1D.AVG_POOL_SPATIAL,
+        ),
+        nerfdata_config=DepthImageNerfDataConfig(
+            fingertip_config=EvenlySpacedFingertipConfig(
+                finger_width_mm=50,
+                finger_height_mm=50,
+                grasp_depth_mm=20,
+                distance_between_pts_mm=0.5,
+            ),
+            fingertip_camera_config=CameraConfig(H=60, W=60),
+        ),
+    ),
+    "grasp-cond-depth-cnn-2d-18": ClassifierConfig(
+        model_config=DepthImage_CNN_2D_ModelConfig(
+            conditioning_type=ConditioningType.GRASP_CONFIG,
+            conv_2d_film_hidden_layers=[256, 256],
+            mlp_hidden_layers=[256, 256],
+            use_pretrained_2d=True,
+            resnet_type_2d=ResnetType2d.RESNET18,
+            pooling_method_2d=ConvOutputTo1D.AVG_POOL_SPATIAL,
+        ),
+        nerfdata_config=DepthImageNerfDataConfig(
+            fingertip_config=EvenlySpacedFingertipConfig(
+                finger_width_mm=50,
+                finger_height_mm=50,
+                grasp_depth_mm=20,
+                distance_between_pts_mm=0.5,
+            ),
+            fingertip_camera_config=CameraConfig(H=60, W=60),
+        ),
+    ),
+    "grasp-cond-depth-cnn-2d-34": ClassifierConfig(
+        model_config=DepthImage_CNN_2D_ModelConfig(
+            conditioning_type=ConditioningType.GRASP_CONFIG,
+            conv_2d_film_hidden_layers=[256, 256],
+            mlp_hidden_layers=[256, 256],
+            use_pretrained_2d=True,
+            resnet_type_2d=ResnetType2d.RESNET34,
+            pooling_method_2d=ConvOutputTo1D.AVG_POOL_SPATIAL,
+        ),
+        nerfdata_config=DepthImageNerfDataConfig(
+            fingertip_config=EvenlySpacedFingertipConfig(
+                finger_width_mm=50,
+                finger_height_mm=50,
+                grasp_depth_mm=20,
+                distance_between_pts_mm=0.5,
+            ),
+            fingertip_camera_config=CameraConfig(H=60, W=60),
+        ),
+    ),
 }
 
 UnionClassifierConfig = tyro.extras.subcommand_type_from_defaults(DEFAULTS_DICT)

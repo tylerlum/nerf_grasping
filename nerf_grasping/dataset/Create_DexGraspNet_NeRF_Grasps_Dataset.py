@@ -783,7 +783,7 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
             passed_evals = passed_evals[:cfg.max_num_data_points_per_file]
             passed_simulations = passed_simulations[:cfg.max_num_data_points_per_file]
             passed_penetration_thresholds = passed_penetration_thresholds[
-                cfg.max_num_data_points_per_file:
+                :cfg.max_num_data_points_per_file
             ]
             grasp_frame_transforms = grasp_configs.grasp_frame_transforms
 
@@ -864,7 +864,7 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                 )
                 object_scale_dataset[prev_idx:current_idx] = object_scale
                 grasp_idx_dataset[prev_idx:current_idx] = np.arange(
-                    prev_idx, current_idx
+                    0, current_idx - prev_idx
                 )
                 grasp_transforms_dataset[prev_idx:current_idx] = (
                     grasp_frame_transforms.matrix().cpu().detach().numpy()

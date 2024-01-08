@@ -778,21 +778,34 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                     f"batch_size = {grasp_configs.batch_size}, cfg.max_num_data_points_per_file = {cfg.max_num_data_points_per_file}"
                 )
 
-            grasp_configs = grasp_configs[:cfg.max_num_data_points_per_file]
+                grasp_configs = grasp_configs[:cfg.max_num_data_points_per_file]
 
-            passed_evals = passed_evals[:cfg.max_num_data_points_per_file]
-            passed_simulations = passed_simulations[:cfg.max_num_data_points_per_file]
-            passed_penetration_thresholds = passed_penetration_thresholds[
-                :cfg.max_num_data_points_per_file
-            ]
+                passed_evals = passed_evals[:cfg.max_num_data_points_per_file]
+                passed_simulations = passed_simulations[:cfg.max_num_data_points_per_file]
+                passed_penetration_thresholds = passed_penetration_thresholds[
+                    :cfg.max_num_data_points_per_file
+                ]
             grasp_frame_transforms = grasp_configs.grasp_frame_transforms
+            grasp_config_tensors = grasp_configs.as_tensor().detach().cpu().numpy()
 
             assert_equals(passed_evals.shape, (grasp_configs.batch_size,))
+            assert_equals(passed_simulations.shape, (grasp_configs.batch_size,))
+            assert_equals(passed_penetration_thresholds.shape, (grasp_configs.batch_size,))
             assert_equals(
                 grasp_frame_transforms.lshape,
                 (
                     grasp_configs.batch_size,
                     cfg.fingertip_config.n_fingers,
+                ),
+            )
+            assert_equals(
+                grasp_config_tensors.shape,
+                (
+                    grasp_configs.batch_size,
+                    cfg.fingertip_config.n_fingers,
+                    7
+                    + 16
+                    + 4,  # wrist pose, joint angles, grasp orientations (as quats)
                 ),
             )
 
@@ -885,17 +898,6 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                     )
                     del depth_images, uncertainty_images
 
-                grasp_config_tensors = grasp_configs.as_tensor().detach().cpu().numpy()
-                assert_equals(
-                    grasp_config_tensors.shape,
-                    (
-                        grasp_configs.batch_size,
-                        cfg.fingertip_config.n_fingers,
-                        7
-                        + 16
-                        + 4,  # wrist pose, joint angles, grasp orientations (as quats)
-                    ),
-                )
                 grasp_configs_dataset[prev_idx:current_idx] = grasp_config_tensors
 
                 # May not be max_num_data_points if nan grasps

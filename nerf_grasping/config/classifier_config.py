@@ -582,7 +582,7 @@ DEFAULTS_DICT = {
         ),
         nerfdata_config=GridNerfDataConfig(),
     ),
-    "grasp-cond-cnn-1d-2d": ClassifierConfig(
+    "grasp-cond-simple-cnn-1d-2d": ClassifierConfig(
         model_config=Simple_CNN_1D_2D_ModelConfig(
             conditioning_type=ConditioningType.GRASP_CONFIG,
             mlp_hidden_layers=[32, 32],

@@ -505,15 +505,37 @@ def get_depth_and_uncertainty_images(
 
     with loop_timer.add_section_timer("get_cameras"):
         cameras = get_cameras(grasp_frame_transforms, cfg.fingertip_camera_config)
+        batch_size = cameras.shape[0]
+        assert_equals(cameras.shape, (batch_size, cfg.fingertip_config.n_fingers))
 
-    batch_size = cameras.shape[0]
     with loop_timer.add_section_timer("render"):
         # Split cameras into chunks so everything fits on the gpu
         split_inds = torch.arange(0, batch_size, cfg.cameras_samples_chunk_size)
         split_inds = torch.cat(
             [split_inds, torch.tensor([batch_size]).to(split_inds.device)]
         )
-        depths, uncertainties = [], []
+
+        # Preallocate to avoid OOM (instead of making a list and concatenating at the end)
+        depths = torch.zeros(
+            (
+                batch_size,
+                cfg.fingertip_config.n_fingers,
+                cfg.fingertip_camera_config.H,
+                cfg.fingertip_camera_config.W,
+            ),
+            dtype=torch.float,
+            device="cpu",
+        )
+        uncertainties = torch.zeros(
+            (
+                batch_size,
+                cfg.fingertip_config.n_fingers,
+                cfg.fingertip_camera_config.H,
+                cfg.fingertip_camera_config.W,
+            ),
+            dtype=torch.float,
+            device="cpu",
+        )
         for curr_ind, next_ind in tqdm(
             zip(split_inds[:-1], split_inds[1:]),
             total=len(split_inds) - 1,
@@ -530,39 +552,17 @@ def get_depth_and_uncertainty_images(
                 == (
                     cfg.fingertip_camera_config.H,
                     cfg.fingertip_camera_config.W,
-                    curr_cameras.shape[0] * cfg.fingertip_config.n_fingers,
+                    curr_cameras.shape[0],
+                    cfg.fingertip_config.n_fingers,
                 )
             )
-            depths.append(curr_depth.cpu())
-            uncertainties.append(curr_uncertainty.cpu())
+            curr_depth = curr_depth.permute(2, 3, 0, 1).cpu()
+            curr_uncertainty = curr_uncertainty.permute(2, 3, 0, 1).cpu()
+            depths[curr_ind:next_ind] = curr_depth
+            uncertainties[curr_ind:next_ind] = curr_uncertainty
             curr_cameras.to("cpu")
 
-        depths = torch.cat(depths, dim=-1)
-        uncertainties = torch.cat(uncertainties, dim=-1)
-        assert (
-            depths.shape
-            == uncertainties.shape
-            == (
-                cfg.fingertip_camera_config.H,
-                cfg.fingertip_camera_config.W,
-                batch_size * cfg.fingertip_config.n_fingers,
-            )
-        )
-
-    return (
-        depths.permute(2, 0, 1).reshape(
-            batch_size,
-            cfg.fingertip_config.n_fingers,
-            cfg.fingertip_camera_config.H,
-            cfg.fingertip_camera_config.W,
-        ),
-        uncertainties.permute(2, 0, 1).reshape(
-            batch_size,
-            cfg.fingertip_config.n_fingers,
-            cfg.fingertip_camera_config.H,
-            cfg.fingertip_camera_config.W,
-        ),
-    )
+    return depths, uncertainties
 
 
 @torch.no_grad()
@@ -604,7 +604,18 @@ def get_nerf_densities(
         split_inds = torch.cat(
             [split_inds, torch.tensor([batch_size]).to(split_inds.device)]
         )
-        nerf_densities = []
+        # Preallocate to avoid OOM (instead of making a list and concatenating at the end)
+        nerf_densities = torch.zeros(
+            (
+                batch_size,
+                cfg.fingertip_config.n_fingers,
+                cfg.fingertip_config.num_pts_x,
+                cfg.fingertip_config.num_pts_y,
+                cfg.fingertip_config.num_pts_z,
+            ),
+            dtype=torch.float,
+            device="cpu",
+        )
         for curr_ind, next_ind in tqdm(
             zip(split_inds[:-1], split_inds[1:]),
             total=len(split_inds) - 1,
@@ -612,7 +623,7 @@ def get_nerf_densities(
             dynamic_ncols=True,
         ):
             curr_ray_samples = ray_samples[curr_ind:next_ind].to("cuda")
-            nerf_densities.append(
+            curr_nerf_densities = (
                 nerf_field.get_density(curr_ray_samples)[0]
                 .reshape(
                     -1,
@@ -624,7 +635,7 @@ def get_nerf_densities(
                 .cpu()
             )
             curr_ray_samples.to("cpu")
-        nerf_densities = torch.cat(nerf_densities, dim=0)
+            nerf_densities[curr_ind:next_ind] = curr_nerf_densities
 
     with loop_timer.add_section_timer("frustums.get_positions"):
         if compute_query_points:
@@ -755,6 +766,7 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                     cfg.grasp_visualize_index : cfg.grasp_visualize_index + 1
                 ]
 
+            print(f"grasp_configs.batch_size = {grasp_configs.batch_size}")
             if (
                 cfg.max_num_data_points_per_file is not None
                 and grasp_configs.batch_size > cfg.max_num_data_points_per_file
@@ -766,21 +778,34 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                     f"batch_size = {grasp_configs.batch_size}, cfg.max_num_data_points_per_file = {cfg.max_num_data_points_per_file}"
                 )
 
-            grasp_configs = grasp_configs[:max_num_datapoints]
+                grasp_configs = grasp_configs[:cfg.max_num_data_points_per_file]
 
-            passed_evals = passed_evals[:max_num_datapoints]
-            passed_simulations = passed_simulations[:max_num_datapoints]
-            passed_penetration_thresholds = passed_penetration_thresholds[
-                :max_num_datapoints
-            ]
+                passed_evals = passed_evals[:cfg.max_num_data_points_per_file]
+                passed_simulations = passed_simulations[:cfg.max_num_data_points_per_file]
+                passed_penetration_thresholds = passed_penetration_thresholds[
+                    :cfg.max_num_data_points_per_file
+                ]
             grasp_frame_transforms = grasp_configs.grasp_frame_transforms
+            grasp_config_tensors = grasp_configs.as_tensor().detach().cpu().numpy()
 
             assert_equals(passed_evals.shape, (grasp_configs.batch_size,))
+            assert_equals(passed_simulations.shape, (grasp_configs.batch_size,))
+            assert_equals(passed_penetration_thresholds.shape, (grasp_configs.batch_size,))
             assert_equals(
                 grasp_frame_transforms.lshape,
                 (
                     grasp_configs.batch_size,
                     cfg.fingertip_config.n_fingers,
+                ),
+            )
+            assert_equals(
+                grasp_config_tensors.shape,
+                (
+                    grasp_configs.batch_size,
+                    cfg.fingertip_config.n_fingers,
+                    7
+                    + 16
+                    + 4,  # wrist pose, joint angles, grasp orientations (as quats)
                 ),
             )
 
@@ -852,7 +877,7 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                 )
                 object_scale_dataset[prev_idx:current_idx] = object_scale
                 grasp_idx_dataset[prev_idx:current_idx] = np.arange(
-                    prev_idx, current_idx
+                    0, current_idx - prev_idx
                 )
                 grasp_transforms_dataset[prev_idx:current_idx] = (
                     grasp_frame_transforms.matrix().cpu().detach().numpy()
@@ -862,6 +887,7 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                     nerf_densities_dataset[prev_idx:current_idx] = (
                         nerf_densities.detach().cpu().numpy()
                     )
+                    del nerf_densities
 
                 if isinstance(cfg, DepthImageNerfDataConfig):
                     depth_images_dataset[prev_idx:current_idx] = (
@@ -870,18 +896,8 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                     uncertainty_images_dataset[prev_idx:current_idx] = (
                         uncertainty_images.detach().cpu().numpy()
                     )
+                    del depth_images, uncertainty_images
 
-                grasp_config_tensors = grasp_configs.as_tensor().detach().cpu().numpy()
-                assert_equals(
-                    grasp_config_tensors.shape,
-                    (
-                        grasp_configs.batch_size,
-                        cfg.fingertip_config.n_fingers,
-                        7
-                        + 16
-                        + 4,  # wrist pose, joint angles, grasp orientations (as quats)
-                    ),
-                )
                 grasp_configs_dataset[prev_idx:current_idx] = grasp_config_tensors
 
                 # May not be max_num_data_points if nan grasps
@@ -919,7 +935,8 @@ mesh.apply_transform(trimesh.transformations.scale_matrix(object_scale))
 
 if "nerf_densities" in globals():
     nerf_alphas = [
-        1 - np.exp(-delta * dd) for dd in nerf_densities[cfg.grasp_visualize_index].detach().cpu().numpy()
+        1 - np.exp(-delta * dd)
+        for dd in nerf_densities[cfg.grasp_visualize_index].detach().cpu().numpy()
     ]
     fig = plot_mesh_and_query_points(
         mesh=mesh,
@@ -985,7 +1002,8 @@ if cfg.plot_all_high_density_points:
 
 if cfg.plot_alphas_each_finger_1D and "nerf_densities" in globals():
     nerf_alphas = [
-        1 - np.exp(-delta * dd) for dd in nerf_densities[cfg.grasp_visualize_index].detach().cpu().numpy()
+        1 - np.exp(-delta * dd)
+        for dd in nerf_densities[cfg.grasp_visualize_index].detach().cpu().numpy()
     ]
     nrows, ncols = cfg.fingertip_config.n_fingers, 1
     fig4, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=(10, 10))
@@ -1011,7 +1029,8 @@ if cfg.plot_alphas_each_finger_1D and "nerf_densities" in globals():
 
 if cfg.plot_alpha_images_each_finger and "nerf_densities" in globals():
     nerf_alphas = [
-        1 - np.exp(-delta * dd) for dd in nerf_densities[cfg.grasp_visualize_index].detach().cpu().numpy()
+        1 - np.exp(-delta * dd)
+        for dd in nerf_densities[cfg.grasp_visualize_index].detach().cpu().numpy()
     ]
 
     num_images = 5

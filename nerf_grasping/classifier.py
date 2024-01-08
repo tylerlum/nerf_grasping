@@ -10,6 +10,8 @@ from nerf_grasping.models.dexgraspnet_models import (
     Simple_CNN_1D_2D_Model,
     Simple_CNN_LSTM_Model,
     DepthImage_CNN_2D_Model,
+    ResnetType2d,
+    ConvOutputTo1D,
 )
 from nerf_grasping.learned_metric.DexGraspNet_batch_data import (
     BatchDataInput,
@@ -111,9 +113,11 @@ class CNN_2D_1D_Classifier(Classifier):
         grid_shape: Tuple[int, int, int],
         n_fingers: int,
         n_tasks: int,
-        conditioning_dim: int,
         conv_2d_film_hidden_layers: Tuple[int, ...],
         mlp_hidden_layers: Tuple[int, ...],
+        use_pretrained_2d: bool,
+        resnet_type_2d: ResnetType2d,
+        pooling_method_2d: ConvOutputTo1D,
     ) -> None:
         super().__init__()
         self.conditioning_type = conditioning_type
@@ -121,9 +125,12 @@ class CNN_2D_1D_Classifier(Classifier):
             grid_shape=grid_shape,
             n_fingers=n_fingers,
             n_tasks=n_tasks,
-            conditioning_dim=conditioning_dim,
+            conditioning_dim=conditioning_type.dim,
             conv_2d_film_hidden_layers=conv_2d_film_hidden_layers,
             mlp_hidden_layers=mlp_hidden_layers,
+            use_pretrained_2d=use_pretrained_2d,
+            resnet_type_2d=resnet_type_2d,
+            pooling_method_2d=pooling_method_2d,
         )
 
     def forward(self, batch_data_input: BatchDataInput) -> torch.Tensor:
@@ -143,7 +150,6 @@ class Simple_CNN_2D_1D_Classifier(Classifier):
         grid_shape: Tuple[int, int, int],
         n_fingers: int,
         n_tasks: int,
-        conditioning_dim: int,
         mlp_hidden_layers: List[int] = [32, 32],
         conv_2d_channels: List[int] = [32, 16, 8, 4],
         conv_1d_channels: List[int] = [4, 8],
@@ -156,7 +162,7 @@ class Simple_CNN_2D_1D_Classifier(Classifier):
             grid_shape=grid_shape,
             n_fingers=n_fingers,
             n_tasks=n_tasks,
-            conditioning_dim=conditioning_dim,
+            conditioning_dim=conditioning_type.dim,
             mlp_hidden_layers=mlp_hidden_layers,
             conv_2d_channels=conv_2d_channels,
             conv_1d_channels=conv_1d_channels,
@@ -180,7 +186,6 @@ class Simple_CNN_1D_2D_Classifier(Classifier):
         grid_shape: Tuple[int, int, int],
         n_fingers: int,
         n_tasks: int,
-        conditioning_dim: int,
         mlp_hidden_layers: List[int] = [32, 32],
         conv_2d_channels: List[int] = [32, 16, 8, 4],
         conv_1d_channels: List[int] = [4, 8],
@@ -193,7 +198,7 @@ class Simple_CNN_1D_2D_Classifier(Classifier):
             grid_shape=grid_shape,
             n_fingers=n_fingers,
             n_tasks=n_tasks,
-            conditioning_dim=conditioning_dim,
+            conditioning_dim=conditioning_type.dim,
             mlp_hidden_layers=mlp_hidden_layers,
             conv_2d_channels=conv_2d_channels,
             conv_1d_channels=conv_1d_channels,
@@ -217,7 +222,6 @@ class Simple_CNN_LSTM_Classifier(Classifier):
         grid_shape: Tuple[int, int, int],
         n_fingers: int,
         n_tasks: int,
-        conditioning_dim: int,
         mlp_hidden_layers: List[int] = [32, 32],
         conv_2d_channels: List[int] = [32, 16, 8, 4],
         film_2d_hidden_layers: List[int] = [8, 8],
@@ -230,7 +234,7 @@ class Simple_CNN_LSTM_Classifier(Classifier):
             grid_shape=grid_shape,
             n_fingers=n_fingers,
             n_tasks=n_tasks,
-            conditioning_dim=conditioning_dim,
+            conditioning_dim=conditioning_type.dim,
             mlp_hidden_layers=mlp_hidden_layers,
             conv_2d_channels=conv_2d_channels,
             film_2d_hidden_layers=film_2d_hidden_layers,
@@ -312,9 +316,11 @@ class DepthImage_CNN_2D_Classifier(DepthImageClassifier):
         img_shape: Tuple[int, int, int],
         n_fingers: int,
         n_tasks: int,
-        conditioning_dim: int,
         conv_2d_film_hidden_layers: Tuple[int, ...],
         mlp_hidden_layers: Tuple[int, ...],
+        use_pretrained_2d: bool,
+        resnet_type_2d: ResnetType2d,
+        pooling_method_2d: ConvOutputTo1D,
     ) -> None:
         super().__init__()
         self.conditioning_type = conditioning_type
@@ -323,9 +329,12 @@ class DepthImage_CNN_2D_Classifier(DepthImageClassifier):
             img_shape=img_shape,
             n_fingers=n_fingers,
             n_tasks=n_tasks,
-            conditioning_dim=conditioning_dim,
+            conditioning_dim=conditioning_type.dim,
             conv_2d_film_hidden_layers=conv_2d_film_hidden_layers,
             mlp_hidden_layers=mlp_hidden_layers,
+            use_pretrained_2d=use_pretrained_2d,
+            resnet_type_2d=resnet_type_2d,
+            pooling_method_2d=pooling_method_2d,
         )
 
     def forward(self, batch_data_input: DepthImageBatchDataInput) -> torch.Tensor:
@@ -383,19 +392,22 @@ def main() -> None:
         n_tasks=N_TASKS,
     ).to(DEVICE)
     cnn_2d_1d_classifier = CNN_2D_1D_Classifier(
+        conditioning_type=ConditioningType.GRASP_TRANSFORM,
         grid_shape=(NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z),
         n_fingers=NUM_FINGERS,
         n_tasks=N_TASKS,
-        conditioning_dim=7,
         conv_2d_film_hidden_layers=(256, 256),
         mlp_hidden_layers=(256, 256),
+        use_pretrained_2d=True,
+        resnet_type_2d=ResnetType2d.RESNET18,
+        pooling_method_2d=ConvOutputTo1D.AVG_POOL_SPATIAL,
     ).to(DEVICE)
 
     simple_cnn_2d_1d_classifier = Simple_CNN_2D_1D_Classifier(
+        conditioning_type=ConditioningType.GRASP_TRANSFORM,
         grid_shape=(NUM_PTS_X, NUM_PTS_Y, NUM_PTS_Z),
         n_fingers=NUM_FINGERS,
         n_tasks=N_TASKS,
-        conditioning_dim=7,
         # conv_2d_film_hidden_layers=(32, 32),
         mlp_hidden_layers=(64, 64),
     ).to(DEVICE)

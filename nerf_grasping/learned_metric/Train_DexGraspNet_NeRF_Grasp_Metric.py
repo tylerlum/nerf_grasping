@@ -798,7 +798,7 @@ def depth_image_plot_example(
 
 # Add config var to enable / disable plotting.
 # %%
-PLOT_EXAMPLES = True
+PLOT_EXAMPLES = False
 if PLOT_EXAMPLES:
     if USE_DEPTH_IMAGES:
         fig, fig2 = depth_image_plot_example(
@@ -816,13 +816,13 @@ if PLOT_EXAMPLES:
 if PLOT_EXAMPLES:
     if USE_DEPTH_IMAGES:
         fig, fig2 = depth_image_plot_example(
-            batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=15, augmented=True
+            batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=2, augmented=True
         )
         fig.show()
         fig2.show()
     else:
         fig = nerf_densities_plot_example(
-            batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=15, augmented=True
+            batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=2, augmented=True
         )
         fig.show()
 
@@ -830,13 +830,13 @@ if PLOT_EXAMPLES:
 if PLOT_EXAMPLES:
     if USE_DEPTH_IMAGES:
         fig, fig2 = depth_image_plot_example(
-            batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=14
+            batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=2
         )
         fig.show()
         fig2.show()
     else:
         fig = nerf_densities_plot_example(
-            batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=14
+            batch_data=EXAMPLE_BATCH_DATA, idx_to_visualize=2
         )
         fig.show()
 
@@ -1540,21 +1540,14 @@ class SoftmaxL1Loss(nn.Module):
         return self.l1_loss(input, target).mean(dim=-1)
 
 
-USE_L1_LOSS = True
-USE_CE_LOSS = False
-assert sum([USE_L1_LOSS, USE_CE_LOSS]) == 1, (
-    f"Exactly one of USE_L1_LOSS and USE_CE_LOSS must be True. "
-    f"USE_L1_LOSS = {USE_L1_LOSS}, USE_CE_LOSS = {USE_CE_LOSS}"
-)
-
-if USE_L1_LOSS:
+if cfg.training.loss_fn == "l1":
     print("=" * 80)
     print(f"Using L1 loss")
     print("=" * 80 + "\n")
     passed_simulation_loss_fn = SoftmaxL1Loss(reduction="none")
     passed_penetration_threshold_loss_fn = SoftmaxL1Loss(reduction="none")
     passed_eval_loss_fn = SoftmaxL1Loss(reduction="none")
-elif USE_CE_LOSS:
+elif cfg.training.loss_fn == "cross_entropy":
     print("=" * 80)
     print(f"Using CE loss")
     print("=" * 80 + "\n")

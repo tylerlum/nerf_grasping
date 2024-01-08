@@ -336,6 +336,14 @@ def resnet_smallest(*, weights=None, progress: bool = True, **kwargs: Any):
     )
 
 
+class ResnetType2d(Enum):
+    RESNET18 = auto()
+    RESNET34 = auto()
+    RESNET_SMALL = auto()
+    RESNET_SMALLER = auto()
+    RESNET_SMALLEST = auto()
+
+
 class ConvEncoder2D(nn.Module):
     def __init__(
         self,
@@ -344,7 +352,7 @@ class ConvEncoder2D(nn.Module):
         use_pretrained: bool = True,
         pooling_method: ConvOutputTo1D = ConvOutputTo1D.FLATTEN,
         film_hidden_layers: Tuple[int, ...] = (64, 64),
-        resnet_type: str = "resnet18",
+        resnet_type: ResnetType2d = ResnetType2d.RESNET18,
     ) -> None:
         super().__init__()
 
@@ -359,7 +367,7 @@ class ConvEncoder2D(nn.Module):
         assert n_channels == 1
 
         # Create conv architecture
-        if resnet_type == "resnet18":
+        if resnet_type == ResnetType2d.RESNET18:
             weights = ResNet18_Weights.DEFAULT if self.use_pretrained else None
             weights_transforms = (
                 [weights.transforms(antialias=True)] if weights is not None else []
@@ -368,7 +376,7 @@ class ConvEncoder2D(nn.Module):
                 [Lambda(lambda x: x.repeat(1, 3, 1, 1))] + weights_transforms
             )
             self.conv_2d = resnet18(weights=weights)
-        elif resnet_type == "resnet34":
+        elif resnet_type == ResnetType2d.RESNET34:
             weights = ResNet34_Weights.DEFAULT if self.use_pretrained else None
             weights_transforms = (
                 [weights.transforms(antialias=True)] if weights is not None else []
@@ -377,19 +385,19 @@ class ConvEncoder2D(nn.Module):
                 [Lambda(lambda x: x.repeat(1, 3, 1, 1))] + weights_transforms
             )
             self.conv_2d = resnet34(weights=weights)
-        elif resnet_type == "resnet_small":
+        elif resnet_type == ResnetType2d.RESNET_SMALL:
             assert not self.use_pretrained
             self.img_preprocess = Compose(
                 [Lambda(lambda x: x.repeat(1, 3, 1, 1))]
             )
             self.conv_2d = resnet_small(weights=None)
-        elif resnet_type == "resnet_smaller":
+        elif resnet_type == ResnetType2d.RESNET_SMALLER:
             self.img_preprocess = Compose(
                 [Lambda(lambda x: x.repeat(1, 3, 1, 1))]
             )
             assert not self.use_pretrained
             self.conv_2d = resnet_smaller(weights=None)
-        elif resnet_type == "resnet_smallest":
+        elif resnet_type == ResnetType2d.RESNET_SMALLEST:
             self.img_preprocess = Compose(
                 [Lambda(lambda x: x.repeat(1, 3, 1, 1))]
             )

@@ -114,7 +114,7 @@ def is_notebook() -> bool:
 # %%
 # Make atol and rtol larger than default to avoid errors due to floating point precision.
 # Otherwise we get errors about invalid rotation matrices
-PP_MATRIX_ATOL, PP_MATRIX_RTOL = 1e-4, 1e-4
+PP_MATRIX_ATOL, PP_MATRIX_RTOL = 1e-3, 1e-3
 
 NUM_XYZ = 3
 

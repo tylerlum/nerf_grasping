@@ -299,10 +299,10 @@ class CNN_2D_1D_ModelConfig(ClassifierModelConfig):
     conv_2d_film_hidden_layers: List[int]
     mlp_hidden_layers: List[int]
     conditioning_type: ConditioningType
+    use_pretrained_2d: bool
+    resnet_type_2d: ResnetType2d
+    pooling_method_2d: ConvOutputTo1D
     n_fingers: int = 4
-    use_pretrained_2d: bool = False
-    resnet_type_2d: ResnetType2d = ResnetType2d.RESNET_SMALLEST
-    pooling_method_2d: ConvOutputTo1D = ConvOutputTo1D.AVG_POOL_SPATIAL
 
     @classmethod
     def grid_shape_from_fingertip_config(
@@ -464,9 +464,9 @@ class DepthImage_CNN_2D_ModelConfig(ClassifierModelConfig):
     mlp_hidden_layers: List[int]
     conditioning_type: ConditioningType
     n_fingers: int = 4
-    use_pretrained_2d: bool = False
-    resnet_type_2d: ResnetType2d = ResnetType2d.RESNET_SMALLEST
-    pooling_method_2d: ConvOutputTo1D = ConvOutputTo1D.AVG_POOL_SPATIAL
+    use_pretrained_2d: bool
+    resnet_type_2d: ResnetType2d
+    pooling_method_2d: ConvOutputTo1D
 
     def get_classifier_from_camera_config(
         self,
@@ -533,11 +533,58 @@ DEFAULTS_DICT = {
         ),
         nerfdata_config=GridNerfDataConfig(),
     ),
-    "cnn-2d-1d": ClassifierConfig(
+    "cnn-2d-1d-smallest": ClassifierConfig(
         model_config=CNN_2D_1D_ModelConfig(
             conditioning_type=ConditioningType.GRASP_TRANSFORM,
             conv_2d_film_hidden_layers=[256, 256],
             mlp_hidden_layers=[256, 256],
+            use_pretrained_2d=False,
+            resnet_type_2d=ResnetType2d.RESNET_SMALLEST,
+            pooling_method_2d=ConvOutputTo1D.AVG_POOL_SPATIAL,
+        ),
+        nerfdata_config=GridNerfDataConfig(),
+    ),
+    "cnn-2d-1d-smaller": ClassifierConfig(
+        model_config=CNN_2D_1D_ModelConfig(
+            conditioning_type=ConditioningType.GRASP_TRANSFORM,
+            conv_2d_film_hidden_layers=[256, 256],
+            mlp_hidden_layers=[256, 256],
+            use_pretrained_2d=False,
+            resnet_type_2d=ResnetType2d.RESNET_SMALLER,
+            pooling_method_2d=ConvOutputTo1D.AVG_POOL_SPATIAL,
+        ),
+        nerfdata_config=GridNerfDataConfig(),
+    ),
+    "cnn-2d-1d-small": ClassifierConfig(
+        model_config=CNN_2D_1D_ModelConfig(
+            conditioning_type=ConditioningType.GRASP_TRANSFORM,
+            conv_2d_film_hidden_layers=[256, 256],
+            mlp_hidden_layers=[256, 256],
+            use_pretrained_2d=False,
+            resnet_type_2d=ResnetType2d.RESNET_SMALL,
+            pooling_method_2d=ConvOutputTo1D.AVG_POOL_SPATIAL,
+        ),
+        nerfdata_config=GridNerfDataConfig(),
+    ),
+    "cnn-2d-1d-18": ClassifierConfig(
+        model_config=CNN_2D_1D_ModelConfig(
+            conditioning_type=ConditioningType.GRASP_TRANSFORM,
+            conv_2d_film_hidden_layers=[256, 256],
+            mlp_hidden_layers=[256, 256],
+            use_pretrained_2d=True,
+            resnet_type_2d=ResnetType2d.RESNET18,
+            pooling_method_2d=ConvOutputTo1D.AVG_POOL_SPATIAL,
+        ),
+        nerfdata_config=GridNerfDataConfig(),
+    ),
+    "cnn-2d-1d-34": ClassifierConfig(
+        model_config=CNN_2D_1D_ModelConfig(
+            conditioning_type=ConditioningType.GRASP_TRANSFORM,
+            conv_2d_film_hidden_layers=[256, 256],
+            mlp_hidden_layers=[256, 256],
+            use_pretrained_2d=True,
+            resnet_type_2d=ResnetType2d.RESNET34,
+            pooling_method_2d=ConvOutputTo1D.AVG_POOL_SPATIAL,
         ),
         nerfdata_config=GridNerfDataConfig(),
     ),
@@ -604,11 +651,90 @@ DEFAULTS_DICT = {
         ),
         nerfdata_config=GridNerfDataConfig(),
     ),
-    "depth-cnn-2d": ClassifierConfig(
+    "depth-cnn-2d-smallest": ClassifierConfig(
         model_config=DepthImage_CNN_2D_ModelConfig(
             conditioning_type=ConditioningType.GRASP_TRANSFORM,
             conv_2d_film_hidden_layers=[256, 256],
             mlp_hidden_layers=[256, 256],
+            use_pretrained_2d=False,
+            resnet_type_2d=ResnetType2d.RESNET_SMALLEST,
+            pooling_method_2d=ConvOutputTo1D.AVG_POOL_SPATIAL,
+        ),
+        nerfdata_config=DepthImageNerfDataConfig(
+            fingertip_config=EvenlySpacedFingertipConfig(
+                finger_width_mm=50,
+                finger_height_mm=50,
+                grasp_depth_mm=20,
+                distance_between_pts_mm=0.5,
+            ),
+            fingertip_camera_config=CameraConfig(H=60, W=60),
+        ),
+    ),
+    "depth-cnn-2d-smaller": ClassifierConfig(
+        model_config=DepthImage_CNN_2D_ModelConfig(
+            conditioning_type=ConditioningType.GRASP_TRANSFORM,
+            conv_2d_film_hidden_layers=[256, 256],
+            mlp_hidden_layers=[256, 256],
+            use_pretrained_2d=False,
+            resnet_type_2d=ResnetType2d.RESNET_SMALLER,
+            pooling_method_2d=ConvOutputTo1D.AVG_POOL_SPATIAL,
+        ),
+        nerfdata_config=DepthImageNerfDataConfig(
+            fingertip_config=EvenlySpacedFingertipConfig(
+                finger_width_mm=50,
+                finger_height_mm=50,
+                grasp_depth_mm=20,
+                distance_between_pts_mm=0.5,
+            ),
+            fingertip_camera_config=CameraConfig(H=60, W=60),
+        ),
+    ),
+    "depth-cnn-2d-small": ClassifierConfig(
+        model_config=DepthImage_CNN_2D_ModelConfig(
+            conditioning_type=ConditioningType.GRASP_TRANSFORM,
+            conv_2d_film_hidden_layers=[256, 256],
+            mlp_hidden_layers=[256, 256],
+            use_pretrained_2d=False,
+            resnet_type_2d=ResnetType2d.RESNET_SMALL,
+            pooling_method_2d=ConvOutputTo1D.AVG_POOL_SPATIAL,
+        ),
+        nerfdata_config=DepthImageNerfDataConfig(
+            fingertip_config=EvenlySpacedFingertipConfig(
+                finger_width_mm=50,
+                finger_height_mm=50,
+                grasp_depth_mm=20,
+                distance_between_pts_mm=0.5,
+            ),
+            fingertip_camera_config=CameraConfig(H=60, W=60),
+        ),
+    ),
+    "depth-cnn-2d-18": ClassifierConfig(
+        model_config=DepthImage_CNN_2D_ModelConfig(
+            conditioning_type=ConditioningType.GRASP_TRANSFORM,
+            conv_2d_film_hidden_layers=[256, 256],
+            mlp_hidden_layers=[256, 256],
+            use_pretrained_2d=True,
+            resnet_type_2d=ResnetType2d.RESNET18,
+            pooling_method_2d=ConvOutputTo1D.AVG_POOL_SPATIAL,
+        ),
+        nerfdata_config=DepthImageNerfDataConfig(
+            fingertip_config=EvenlySpacedFingertipConfig(
+                finger_width_mm=50,
+                finger_height_mm=50,
+                grasp_depth_mm=20,
+                distance_between_pts_mm=0.5,
+            ),
+            fingertip_camera_config=CameraConfig(H=60, W=60),
+        ),
+    ),
+    "depth-cnn-2d-34": ClassifierConfig(
+        model_config=DepthImage_CNN_2D_ModelConfig(
+            conditioning_type=ConditioningType.GRASP_TRANSFORM,
+            conv_2d_film_hidden_layers=[256, 256],
+            mlp_hidden_layers=[256, 256],
+            use_pretrained_2d=True,
+            resnet_type_2d=ResnetType2d.RESNET34,
+            pooling_method_2d=ConvOutputTo1D.AVG_POOL_SPATIAL,
         ),
         nerfdata_config=DepthImageNerfDataConfig(
             fingertip_config=EvenlySpacedFingertipConfig(

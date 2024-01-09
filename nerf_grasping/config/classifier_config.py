@@ -576,6 +576,7 @@ DEFAULTS_DICT = {
             pooling_method_2d=ConvOutputTo1D.AVG_POOL_SPATIAL,
         ),
         nerfdata_config=GridNerfDataConfig(),
+        dataloader=ClassifierDataLoaderConfig(batch_size=8),
     ),
     "cnn-2d-1d-34": ClassifierConfig(
         model_config=CNN_2D_1D_ModelConfig(
@@ -587,6 +588,7 @@ DEFAULTS_DICT = {
             pooling_method_2d=ConvOutputTo1D.AVG_POOL_SPATIAL,
         ),
         nerfdata_config=GridNerfDataConfig(),
+        dataloader=ClassifierDataLoaderConfig(batch_size=8),
     ),
     "simple-cnn-2d-1d": ClassifierConfig(
         model_config=Simple_CNN_2D_1D_ModelConfig(

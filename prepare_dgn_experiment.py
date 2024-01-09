@@ -125,18 +125,44 @@ def main() -> None:
             + f" --experiment_name {args.experiment_name}"
         )
 
-    # Create dataset
+    # Create grid dataset
     print_and_run(
         f"python nerf_grasping/dataset/Create_DexGraspNet_NeRF_Grasps_Dataset.py grid"
         + f" --evaled-grasp-config-dicts-path {new_experiment_path / 'evaled_grasp_config_dicts_train'}"
         + f" --nerf-checkpoints-path {new_experiment_path / 'nerfcheckpoints'}"
-        + f" --output-filepath {new_experiment_path / 'grid_dataset' / 'dataset.h5'}"
+        + f" --output-filepath {new_experiment_path / 'grid_dataset' / 'train_dataset.h5'}"
     )
+    print_and_run(
+        f"python nerf_grasping/dataset/Create_DexGraspNet_NeRF_Grasps_Dataset.py grid"
+        + f" --evaled-grasp-config-dicts-path {new_experiment_path / 'evaled_grasp_config_dicts_val'}"
+        + f" --nerf-checkpoints-path {new_experiment_path / 'nerfcheckpoints'}"
+        + f" --output-filepath {new_experiment_path / 'grid_dataset' / 'val_dataset.h5'}"
+    )
+    print_and_run(
+        f"python nerf_grasping/dataset/Create_DexGraspNet_NeRF_Grasps_Dataset.py grid"
+        + f" --evaled-grasp-config-dicts-path {new_experiment_path / 'evaled_grasp_config_dicts_test'}"
+        + f" --nerf-checkpoints-path {new_experiment_path / 'nerfcheckpoints'}"
+        + f" --output-filepath {new_experiment_path / 'grid_dataset' / 'test_dataset.h5'}"
+    )
+
+    # Create depth_image dataset
     print_and_run(
         f"python nerf_grasping/dataset/Create_DexGraspNet_NeRF_Grasps_Dataset.py depth-image"
         + f" --evaled-grasp-config-dicts-path {new_experiment_path / 'evaled_grasp_config_dicts_train'}"
         + f" --nerf-checkpoints-path {new_experiment_path / 'nerfcheckpoints'}"
-        + f" --output-filepath {new_experiment_path / 'depth_image_dataset' / 'dataset.h5'}"
+        + f" --output-filepath {new_experiment_path / 'depth_image_dataset' / 'train_dataset.h5'}"
+    )
+    print_and_run(
+        f"python nerf_grasping/dataset/Create_DexGraspNet_NeRF_Grasps_Dataset.py depth-image"
+        + f" --evaled-grasp-config-dicts-path {new_experiment_path / 'evaled_grasp_config_dicts_val'}"
+        + f" --nerf-checkpoints-path {new_experiment_path / 'nerfcheckpoints'}"
+        + f" --output-filepath {new_experiment_path / 'depth_image_dataset' / 'val_dataset.h5'}"
+    )
+    print_and_run(
+        f"python nerf_grasping/dataset/Create_DexGraspNet_NeRF_Grasps_Dataset.py depth-image"
+        + f" --evaled-grasp-config-dicts-path {new_experiment_path / 'evaled_grasp_config_dicts_test'}"
+        + f" --nerf-checkpoints-path {new_experiment_path / 'nerfcheckpoints'}"
+        + f" --output-filepath {new_experiment_path / 'depth_image_dataset' / 'test_dataset.h5'}"
     )
 
 

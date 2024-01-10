@@ -71,6 +71,7 @@ from sklearn.metrics import (
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 from torch.utils.data import (
     DataLoader,
     Subset,
@@ -1017,7 +1018,7 @@ def _iterate_through_dataloader(
     max_num_batches: Optional[int] = None,
     log_every_n_batches: int = 5,
 ) -> Tuple[Dict[str, List[float]], Dict[str, List[float]], Dict[str, List[float]]]:
-    losses_dict = defaultdict(list)  # loss name => list of losses (one loss per batch)
+    losses_dict = defaultdict(list)  # loss name => list of losses (one per datapoint)
     predictions_dict, ground_truths_dict = defaultdict(list), defaultdict(
         list
     )  # task name => list of predictions / ground truths (one per datapoint)
@@ -1153,10 +1154,16 @@ def _iterate_through_dataloader(
                     zip(task_targets, task_type.task_names)
                 ):
                     task_logits = all_logits[:, task_i, :]
-                    predictions = task_logits.argmax(dim=-1).tolist()
-                    ground_truths = task_target.argmax(dim=-1).tolist()
-                    predictions_dict[f"{task_name}"] += predictions
-                    ground_truths_dict[f"{task_name}"] += ground_truths
+                    assert_equals(task_logits.shape, (batch_data.batch_size, 2))
+                    assert_equals(task_target.shape, (batch_data.batch_size, 2))
+
+                    predictions = F.softmax(task_logits, dim=-1)[..., -1]
+                    ground_truths = task_target[..., -1]
+                    assert_equals(predictions.shape, (batch_data.batch_size,))
+                    assert_equals(ground_truths.shape, (batch_data.batch_size,))
+
+                    predictions_dict[f"{task_name}"] += predictions.tolist()
+                    ground_truths_dict[f"{task_name}"] += ground_truths.tolist()
 
             if (
                 wandb.run is not None
@@ -1223,7 +1230,25 @@ def _iterate_through_dataloader(
 
     return losses_dict, predictions_dict, ground_truths_dict
 
+@localscope.mfc
+def _create_wandb_scatter_plot(
+    ground_truths: List[float],
+    predictions: List[float],
+    title: str,
+) -> wandb.plots.Plot:
+    # data = [[x, y] for (x, y) in zip(class_x_scores, class_y_scores)]
+    # table = wandb.Table(data=data, columns=["class_x", "class_y"])
+    # wandb.log({"my_custom_id": wandb.plot.scatter(table, "class_x", "class_y")})
+    data = [[x, y] for (x, y) in zip(ground_truths, predictions)]
+    table = wandb.Table(data=data, columns=["ground_truth", "prediction"])
+    return wandb.plot.scatter(
+        table=table,
+        x="ground_truth",
+        y="prediction",
+        title=title,
+    )
 
+@localscope.mfc
 def create_log_dict(
     phase: Phase,
     loop_timer: LoopTimer,
@@ -1246,12 +1271,25 @@ def create_log_dict(
             temp_log_dict[f"{loss_name}_quartile_75"] = np.quantile(losses, 0.75)
             temp_log_dict[f"{loss_name}_max"] = np.max(losses)
 
-    with loop_timer.add_section_timer("Metrics"):
+    with loop_timer.add_section_timer("Scatter"):
+        # Make scatter plot of predicted vs ground truth
         assert_equals(set(predictions_dict.keys()), set(ground_truths_dict.keys()))
         assert_equals(set(predictions_dict.keys()), set(task_type.task_names))
         for task_name in task_type.task_names:
             predictions = predictions_dict[task_name]
             ground_truths = ground_truths_dict[task_name]
+            temp_log_dict[f"{task_name}_scatter"] = _create_wandb_scatter_plot(
+                ground_truths=ground_truths,
+                predictions=predictions,
+                title=f"{phase.name.title()} {task_name} Scatter Plot",
+            )
+
+    with loop_timer.add_section_timer("Metrics"):
+        assert_equals(set(predictions_dict.keys()), set(ground_truths_dict.keys()))
+        assert_equals(set(predictions_dict.keys()), set(task_type.task_names))
+        for task_name in task_type.task_names:
+            predictions = predictions_dict[task_name].round().int().tolist()
+            ground_truths = ground_truths_dict[task_name].round().int().tolist()
             for metric_name, function in [
                 ("accuracy", accuracy_score),
                 ("precision", precision_score),
@@ -1266,8 +1304,8 @@ def create_log_dict(
         assert_equals(set(predictions_dict.keys()), set(ground_truths_dict.keys()))
         assert_equals(set(predictions_dict.keys()), set(task_type.task_names))
         for task_name in task_type.task_names:
-            predictions = predictions_dict[task_name]
-            ground_truths = ground_truths_dict[task_name]
+            predictions = predictions_dict[task_name].round().int().tolist()
+            ground_truths = ground_truths_dict[task_name].round().int().tolist()
             temp_log_dict[
                 f"{task_name}_confusion_matrix"
             ] = wandb.plot.confusion_matrix(

@@ -91,8 +91,8 @@ from nerf_grasping.models.tyler_new_models import get_scheduler
 
 import tyro
 
+# %%
 os.chdir(nerf_grasping.get_repo_root())
-
 
 # %%
 def assert_equals(a, b):
@@ -153,16 +153,29 @@ if is_notebook():
     #     "--checkpoint-workspace.input_leaf_dir_name", "2023-11-30_15-49-25",
     # ]
 
+    # arguments = [
+    #     "depth-cnn-2d",
+    #     "--task-type",
+    #     "PASSED_SIMULATION_AND_PENETRATION_THRESHOLD",
+    #     "--nerfdata-config.output-filepath",
+    #     "data/2023-11-23_rubikscuberepeat_labelnoise_2/depth_image_dataset/dataset.h5",
+    #     "--wandb.name",
+    #     "probe_debug_depth_noisy_large",
+    #     "--checkpoint-workspace.input_leaf_dir_name",
+    #     "2023-11-30_15-49-25",
+    # ]
     arguments = [
-        "depth-cnn-2d",
+        "grasp-cond-simple-cnn-1d-2d",
         "--task-type",
-        "PASSED_SIMULATION_AND_PENETRATION_THRESHOLD",
+        "PASSED_SIMULATION",
         "--nerfdata-config.output-filepath",
-        "data/2023-11-23_rubikscuberepeat_labelnoise_2/depth_image_dataset/dataset.h5",
+        "data/2023-01-03_mug_one_object_smaller0-075_noise_lightshake_mid_opt/grid_dataset/dataset.h5",
+        "--dataloader.batch-size",
+        "32",
         "--wandb.name",
-        "probe_debug_depth_noisy_large",
+        "probe_mug_grid_graspcond",
         "--checkpoint-workspace.input_leaf_dir_name",
-        "2023-11-30_15-49-25",
+        "mug_grid_graspcond_BACKUP",
     ]
 
 else:
@@ -555,7 +568,7 @@ def print_shapes(batch_data: BatchData) -> None:
     print(f"len(nerf_config): {len(batch_data.nerf_config)}")
 
 
-EXAMPLE_BATCH_DATA: BatchData = next(iter(val_loader))
+EXAMPLE_BATCH_DATA: BatchData = next(iter(train_loader))
 print_shapes(batch_data=EXAMPLE_BATCH_DATA)
 
 # %% [markdown]
@@ -799,7 +812,7 @@ def depth_image_plot_example(
 
 # Add config var to enable / disable plotting.
 # %%
-PLOT_EXAMPLES = False
+PLOT_EXAMPLES = True
 if PLOT_EXAMPLES:
     if USE_DEPTH_IMAGES:
         fig, fig2 = depth_image_plot_example(
@@ -1288,8 +1301,8 @@ def create_log_dict(
         assert_equals(set(predictions_dict.keys()), set(ground_truths_dict.keys()))
         assert_equals(set(predictions_dict.keys()), set(task_type.task_names))
         for task_name in task_type.task_names:
-            predictions = predictions_dict[task_name].round().int().tolist()
-            ground_truths = ground_truths_dict[task_name].round().int().tolist()
+            predictions = np.array(predictions_dict[task_name]).round().astype(int).tolist()
+            ground_truths = np.array(ground_truths_dict[task_name]).round().astype(int).tolist()
             for metric_name, function in [
                 ("accuracy", accuracy_score),
                 ("precision", precision_score),
@@ -1304,8 +1317,8 @@ def create_log_dict(
         assert_equals(set(predictions_dict.keys()), set(ground_truths_dict.keys()))
         assert_equals(set(predictions_dict.keys()), set(task_type.task_names))
         for task_name in task_type.task_names:
-            predictions = predictions_dict[task_name].round().int().tolist()
-            ground_truths = ground_truths_dict[task_name].round().int().tolist()
+            predictions = np.array(predictions_dict[task_name]).round().astype(int).tolist()
+            ground_truths = np.array(ground_truths_dict[task_name]).round().astype(int).tolist()
             temp_log_dict[
                 f"{task_name}_confusion_matrix"
             ] = wandb.plot.confusion_matrix(
@@ -1621,6 +1634,8 @@ elif cfg.task_type == TaskType.PASSED_SIMULATION_AND_PENETRATION_THRESHOLD:
 else:
     raise ValueError(f"Unknown task_type: {cfg.task_type}")
 
+# %%
+
 # Save out config to file if we haven't yet.
 cfg_path = pathlib.Path(cfg.checkpoint_workspace.output_dir) / "config.yaml"
 if not cfg_path.exists():
@@ -1634,147 +1649,187 @@ if cfg.data.debug_shuffle_labels:
         "WARNING: Shuffle labels is turned on! Random labels are being passed. Press 'c' to continue"
     )
 
+# %%
+loss_fns
+
 # %% [markdown]
-# # Analyze model
-# loop_timer = LoopTimer()
-# (
-#     val_losses_dict,
-#     val_predictions_dict,
-#     val_ground_truths_dict,
-# ) = _iterate_through_dataloader(
-#     loop_timer=loop_timer,
-#     phase=Phase.VAL,
-#     dataloader=val_loader,
-#     classifier=classifier,
-#     device=device,
-#     loss_fns=loss_fns,
-#     task_type=cfg.task_type,
-#     max_num_batches=10,
-# )
-#
-# # %%
-# loop_timer = LoopTimer()
-# (
-#     train_losses_dict,
-#     train_predictions_dict,
-#     train_ground_truths_dict,
-# ) = _iterate_through_dataloader(
-#     loop_timer=loop_timer,
-#     phase=Phase.EVAL_TRAIN,
-#     dataloader=train_loader,
-#     classifier=classifier,
-#     device=device,
-#     loss_fns=loss_fns,
-#     task_type=cfg.task_type,
-#     max_num_batches=10,
-# )
-#
-# # %%
-# loss_names = [
-#     "passed_simulation_loss",
-#     "passed_penetration_threshold_loss",
-# ]
-# from plotly.subplots import make_subplots
-# import plotly.graph_objects as go
-#
-# fig = make_subplots(rows=len(loss_names), cols=1, subplot_titles=loss_names)
-# for i, loss_name in enumerate(loss_names):
-#     fig.add_trace(
-#         go.Scatter(y=val_losses_dict[loss_name], name=loss_name, mode="markers"),
-#         row=i + 1,
-#         col=1,
-#     )
-# fig.show()
-#
-#
-# # %%
-# def plot_distribution(data: np.ndarray, name: str) -> None:
-#     # Calculating statistics
-#     import scipy.stats as stats
-#
-#     data = np.array(data)
-#     mean = np.mean(data)
-#     max_value = np.max(data)
-#     min_value = np.min(data)
-#     data_range = np.ptp(data)  # Range as max - min
-#     std_dev = np.std(data)
-#     median = np.median(data)
-#     mode = stats.mode(data).mode[0]
-#     iqr = stats.iqr(data)  # Interquartile range
-#     percentile_25 = np.percentile(data, 25)
-#     percentile_75 = np.percentile(data, 75)
-#
-#     import matplotlib.pyplot as plt
-#
-#     # Create histogram
-#     plt.hist(data, bins=50, alpha=0.7, color="blue", log=True)
-#
-#     # Printing results
-#     print(
-#         f"Mean: {mean}, Max: {max_value}, Min: {min_value}, Range: {data_range}, Standard Deviation: {std_dev}"
-#     )
-#     print(
-#         f"Median: {median}, Mode: {mode}, IQR: {iqr}, 25th Percentile: {percentile_25}, 75th Percentile: {percentile_75}"
-#     )
-#
-#     # Add lines for mean, median, and mode
-#     plt.axvline(
-#         mean, color="red", linestyle="dashed", linewidth=2, label=f"Mean: {mean:.4f}"
-#     )
-#     plt.axvline(
-#         median,
-#         color="green",
-#         linestyle="dashed",
-#         linewidth=2,
-#         label=f"Median: {median:.4f}",
-#     )
-#     plt.axvline(
-#         mode, color="yellow", linestyle="dashed", linewidth=2, label=f"Mode: {mode:.4f}"
-#     )
-#
-#     # Add lines for percentiles
-#     plt.axvline(
-#         percentile_25,
-#         color="orange",
-#         linestyle="dotted",
-#         linewidth=2,
-#         label=f"25th percentile: {percentile_25:.4f}",
-#     )
-#     plt.axvline(
-#         percentile_75,
-#         color="purple",
-#         linestyle="dotted",
-#         linewidth=2,
-#         label=f"75th percentile: {percentile_75:.4f}",
-#     )
-#
-#     # Add standard deviation
-#     plt.axvline(
-#         mean - std_dev,
-#         color="cyan",
-#         linestyle="dashdot",
-#         linewidth=2,
-#         label=f"Std Dev: {std_dev:.4f}",
-#     )
-#     plt.axvline(mean + std_dev, color="cyan", linestyle="dashdot", linewidth=2)
-#
-#     # Add legend
-#     plt.legend()
-#     plt.title(f"{name} histogram")
-#
-#     # Show plot
-#     plt.show()
-#
-#
-# plot_distribution(
-#     data=val_losses_dict["passed_penetration_threshold_loss"],
-#     name="passed_penetration_threshold_loss",
-# )
-#
-# # %%
-# plot_distribution(
-#     data=val_losses_dict["passed_simulation_loss"], name="passed_simulation_loss"
-# )
+# Analyze model
+loop_timer = LoopTimer()
+(
+    val_losses_dict,
+    val_predictions_dict,
+    val_ground_truths_dict,
+) = _iterate_through_dataloader(
+    loop_timer=loop_timer,
+    phase=Phase.VAL,
+    dataloader=val_loader,
+    classifier=classifier,
+    device=device,
+    loss_fns=loss_fns,
+    task_type=cfg.task_type,
+    max_num_batches=10,
+)
+
+# %%
+val_losses_dict.keys()
+
+# %%    
+val_losses_dict["passed_simulation_loss"][:10]
+
+# %%
+val_predictions_dict["passed_simulation"][:10]
+
+# %%
+val_ground_truths_dict["passed_simulation"][:10]
+
+# %%
+val_predictions_dict
+
+# %%
+
+
+
+# %%
+val_log_dict = create_log_dict(
+    loop_timer=loop_timer,
+    phase=Phase.VAL,
+    task_type=cfg.task_type,
+    losses_dict=val_losses_dict,
+    predictions_dict=val_predictions_dict,
+    ground_truths_dict=val_ground_truths_dict,
+    optimizer=optimizer,
+)
+# %%
+val_log_dict
+
+# %%
+val_log_dict['val_passed_simulation_scatter']
+wandb.log(val_log_dict)
+
+
+# %%
+loop_timer = LoopTimer()
+(
+    train_losses_dict,
+    train_predictions_dict,
+    train_ground_truths_dict,
+) = _iterate_through_dataloader(
+    loop_timer=loop_timer,
+    phase=Phase.EVAL_TRAIN,
+    dataloader=train_loader,
+    classifier=classifier,
+    device=device,
+    loss_fns=loss_fns,
+    task_type=cfg.task_type,
+    max_num_batches=10,
+)
+
+# %%
+loss_names = [
+    "passed_simulation_loss",
+    "passed_penetration_threshold_loss",
+]
+from plotly.subplots import make_subplots
+import plotly.graph_objects as go
+
+fig = make_subplots(rows=len(loss_names), cols=1, subplot_titles=loss_names)
+for i, loss_name in enumerate(loss_names):
+    fig.add_trace(
+        go.Scatter(y=val_losses_dict[loss_name], name=loss_name, mode="markers"),
+        row=i + 1,
+        col=1,
+    )
+fig.show()
+
+
+# %%
+def plot_distribution(data: np.ndarray, name: str) -> None:
+    # Calculating statistics
+    import scipy.stats as stats
+
+    data = np.array(data)
+    mean = np.mean(data)
+    max_value = np.max(data)
+    min_value = np.min(data)
+    data_range = np.ptp(data)  # Range as max - min
+    std_dev = np.std(data)
+    median = np.median(data)
+    mode = stats.mode(data).mode[0]
+    iqr = stats.iqr(data)  # Interquartile range
+    percentile_25 = np.percentile(data, 25)
+    percentile_75 = np.percentile(data, 75)
+
+    import matplotlib.pyplot as plt
+
+    # Create histogram
+    plt.hist(data, bins=50, alpha=0.7, color="blue", log=True)
+
+    # Printing results
+    print(
+        f"Mean: {mean}, Max: {max_value}, Min: {min_value}, Range: {data_range}, Standard Deviation: {std_dev}"
+    )
+    print(
+        f"Median: {median}, Mode: {mode}, IQR: {iqr}, 25th Percentile: {percentile_25}, 75th Percentile: {percentile_75}"
+    )
+
+    # Add lines for mean, median, and mode
+    plt.axvline(
+        mean, color="red", linestyle="dashed", linewidth=2, label=f"Mean: {mean:.4f}"
+    )
+    plt.axvline(
+        median,
+        color="green",
+        linestyle="dashed",
+        linewidth=2,
+        label=f"Median: {median:.4f}",
+    )
+    plt.axvline(
+        mode, color="yellow", linestyle="dashed", linewidth=2, label=f"Mode: {mode:.4f}"
+    )
+
+    # Add lines for percentiles
+    plt.axvline(
+        percentile_25,
+        color="orange",
+        linestyle="dotted",
+        linewidth=2,
+        label=f"25th percentile: {percentile_25:.4f}",
+    )
+    plt.axvline(
+        percentile_75,
+        color="purple",
+        linestyle="dotted",
+        linewidth=2,
+        label=f"75th percentile: {percentile_75:.4f}",
+    )
+
+    # Add standard deviation
+    plt.axvline(
+        mean - std_dev,
+        color="cyan",
+        linestyle="dashdot",
+        linewidth=2,
+        label=f"Std Dev: {std_dev:.4f}",
+    )
+    plt.axvline(mean + std_dev, color="cyan", linestyle="dashdot", linewidth=2)
+
+    # Add legend
+    plt.legend()
+    plt.title(f"{name} histogram")
+
+    # Show plot
+    plt.show()
+
+
+plot_distribution(
+    data=val_losses_dict["passed_penetration_threshold_loss"],
+    name="passed_penetration_threshold_loss",
+)
+
+# %%
+plot_distribution(
+    data=val_losses_dict["passed_simulation_loss"], name="passed_simulation_loss"
+)
 
 
 # %%

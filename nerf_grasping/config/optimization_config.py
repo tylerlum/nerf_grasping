@@ -22,12 +22,11 @@ class OptimizationConfig:
     init_grasp_config_dict_path: pathlib.Path = (
         pathlib.Path(nerf_grasping.get_repo_root())
         / "data"
-        / "2023-11-17_rubikscube_0"
+        / "2023-01-03_mugs_smaller0-075_noise_lightshake_mid_opt"
         / "evaled_grasp_config_dicts"
-        / "ddg-gd_rubik_cube_poisson_004_0_1000.npy"
+        / "core-mug-10f6e09036350e92b3f21f1137c3c347_0_0750.npy"
     )
     output_path: Optional[pathlib.Path] = None
-    grasp_split: Literal["train", "val", "test"] = "val"
     wandb: Optional[WandbConfig] = field(
         default_factory=lambda: WandbConfig(
             project=DEFAULT_WANDB_PROJECT
@@ -35,6 +34,8 @@ class OptimizationConfig:
     )
     use_rich: bool = False
     """Whether to use rich for logging (rich is nice but makes breakpoint() not work)."""
+    print_freq: int = 5
+    save_grasps_freq: int = 5
 
     def __post_init__(self):
         """
@@ -47,7 +48,7 @@ class OptimizationConfig:
             output_folder_path = (
                 input_folder_path.parent / f"{input_folder_path.name}_optimized"
             )
-            self.output_path = output_folder_path / filename
+            self.output_path = output_folder_path / f"{filename}.npy"
 
 
 if __name__ == "__main__":

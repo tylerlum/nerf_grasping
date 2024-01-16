@@ -4,17 +4,16 @@ import tyro
 
 @dataclass
 class BaseOptimizerConfig:
-    print_freq: int = 5
-    save_grasps_freq: int = 5
+    pass
 
 
 @dataclass
 class SGDOptimizerConfig(BaseOptimizerConfig):
-    num_steps: int = 35
-    num_grasps: int = 256
-    finger_lr: float = 5e-2
-    grasp_dir_lr: float = 5e-2
-    wrist_lr: float = 5e-4
+    num_steps: int = 1000
+    num_grasps: int = 10
+    finger_lr: float = 5e-5
+    grasp_dir_lr: float = 5e-5
+    wrist_lr: float = 5e-5
     momentum: float = 0.9
     opt_wrist_pose: bool = True
     opt_grasp_dirs: bool = True

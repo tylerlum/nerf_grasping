@@ -3,7 +3,6 @@ from nerf_grasping.optimizer_utils import (
     AllegroGraspConfig,
     GraspMetric,
     DepthImageGraspMetric,
-    get_split_inds,
 )
 from dataclasses import asdict
 from nerf_grasping.config.optimization_config import OptimizationConfig
@@ -14,7 +13,6 @@ from nerf_grasping.classifier import Classifier, Simple_CNN_LSTM_Classifier
 from nerf_grasping.config.classifier_config import ClassifierConfig
 from nerf_grasping.config.nerfdata_config import DepthImageNerfDataConfig
 from nerf_grasping.config.optimizer_config import (
-    UnionGraspOptimizerConfig,
     SGDOptimizerConfig,
     CEMOptimizerConfig,
 )
@@ -73,7 +71,7 @@ class Optimizer:
         self.grasp_metric = grasp_metric
 
     @property
-    def grasp_scores(self) -> torch.Tensor:
+    def grasp_loss(self) -> torch.Tensor:
         return self.grasp_metric.get_failure_probability(self.grasp_config)
 
     def step(self):
@@ -93,7 +91,7 @@ class SGDOptimizer(Optimizer):
         Args:
             init_grasp_config: Initial grasp configuration.
             grasp_metric: Union[GraspMetric, DepthImageGraspMetric] object defining the metric to optimize.
-            **kwargs: Keyword arguments to pass to torch.optim.SGD.
+            optimizer_config: SGDOptimizerConfig object defining the optimizer configuration.
         """
         super().__init__(init_grasp_config, grasp_metric)
 
@@ -104,23 +102,23 @@ class SGDOptimizer(Optimizer):
         )
 
         if optimizer_config.opt_wrist_pose:
-            self.wrist_optimizer = torch.optim.SGD(
+            self.wrist_optimizer = torch.optim.AdamW(
                 [self.grasp_config.wrist_pose],
                 lr=optimizer_config.wrist_lr,
-                momentum=optimizer_config.momentum,
+                # momentum=optimizer_config.momentum,
             )
 
-        self.joint_optimizer = torch.optim.SGD(
+        self.joint_optimizer = torch.optim.AdamW(
             [self.grasp_config.joint_angles],
             lr=optimizer_config.finger_lr,
-            momentum=optimizer_config.momentum,
+            # momentum=optimizer_config.momentum,
         )
 
         if optimizer_config.opt_grasp_dirs:
-            self.grasp_dir_optimizer = torch.optim.SGD(
+            self.grasp_dir_optimizer = torch.optim.AdamW(
                 [self.grasp_config.grasp_orientations],
                 lr=optimizer_config.grasp_dir_lr,
-                momentum=optimizer_config.momentum,
+                # momentum=optimizer_config.momentum,
             )
 
         self.optimizer_config = optimizer_config
@@ -131,7 +129,7 @@ class SGDOptimizer(Optimizer):
             self.wrist_optimizer.zero_grad()
         if self.optimizer_config.opt_grasp_dirs:
             self.grasp_dir_optimizer.zero_grad()
-        loss = self.grasp_scores
+        loss = self.grasp_loss
         assert loss.shape == (self.grasp_config.batch_size,)
 
         # TODO(pculbert): Think about clipping joint angles
@@ -157,7 +155,7 @@ class CEMOptimizer(Optimizer):
         Args:
             init_grasp_config: Initial grasp configuration.
             grasp_metric: Union[GraspMetric, DepthImageGraspMetric] object defining the metric to optimize.
-            **kwargs: Keyword arguments to pass to torch.optim.SGD.
+            optimizer_config: SGDOptimizerConfig object defining the optimizer configuration.
         """
         self.grasp_config = grasp_config
         self.grasp_metric = grasp_metric
@@ -165,7 +163,7 @@ class CEMOptimizer(Optimizer):
 
     def step(self):
         # Find the elite fraction of samples.
-        elite_inds = torch.argsort(self.grasp_scores)[: self.optimizer_config.num_elite]
+        elite_inds = torch.argsort(self.grasp_loss)[: self.optimizer_config.num_elite]
         elite_grasps = self.grasp_config[elite_inds]
 
         # Compute the mean and covariance of the grasp config.
@@ -246,15 +244,19 @@ class CEMOptimizer(Optimizer):
 
 
 def run_optimizer_loop(
-    optimizer: Optimizer, optimizer_config: UnionGraspOptimizerConfig, console=Console()
+    optimizer: Optimizer,
+    optimizer_config: Union[SGDOptimizerConfig, CEMOptimizerConfig],
+    print_freq: int,
+    save_grasps_freq: int,
+    console=Console(),
 ) -> Tuple[torch.Tensor, AllegroGraspConfig]:
     """
     Convenience function for running the optimizer loop.
     """
 
-    start_column = TextColumn("[bold green]{task.description}[/bold green]")
     with (
         Progress(
+            TextColumn("[bold green]{task.description}[/bold green]"),
             SpinnerColumn(),
             *Progress.get_default_columns(),
             TextColumn("=>"),
@@ -276,6 +278,15 @@ def run_optimizer_loop(
         for iter in range(optimizer_config.num_steps):
             wandb_log_dict = {}
             wandb_log_dict["optimization_step"] = iter
+
+            if iter % print_freq == 0:
+                # console.print(
+                #     f"Iter: {iter} | Min loss: {optimizer.grasp_loss.min():.3f} | Max loss: {optimizer.grasp_loss.max():.3f} | Mean loss: {optimizer.grasp_loss.mean():.3f} | Std dev: {optimizer.grasp_loss.std():.3f}"
+                # )
+                print(
+                    f"Iter: {iter} | Min loss: {optimizer.grasp_loss.min():.3f} | Max loss: {optimizer.grasp_loss.max():.3f} | Mean loss: {optimizer.grasp_loss.mean():.3f} | Std dev: {optimizer.grasp_loss.std():.3f}"
+                )
+
             optimizer.step()
 
             # Update progress bar.
@@ -285,30 +296,20 @@ def run_optimizer_loop(
                     advance=1,
                 )
 
-            if iter % optimizer_config.print_freq == 0:
-                # console.print(
-                #     f"Iter: {iter} | Min score: {optimizer.grasp_scores.min():.3f} | Max score: {optimizer.grasp_scores.max():.3f} | Mean score: {optimizer.grasp_scores.mean():.3f} | Std dev: {optimizer.grasp_scores.std():.3f}"
-                # )
-                print(
-                    f"Iter: {iter} | Min score: {optimizer.grasp_scores.min():.3f} | Max score: {optimizer.grasp_scores.max():.3f} | Mean score: {optimizer.grasp_scores.mean():.3f} | Std dev: {optimizer.grasp_scores.std():.3f}"
-                )
-
             # Log to wandb.
-            wandb_log_dict["scores"] = optimizer.grasp_scores.detach().cpu().numpy()
-            wandb_log_dict["min_score"] = optimizer.grasp_scores.min().item()
-            wandb_log_dict["max_score"] = optimizer.grasp_scores.max().item()
-            wandb_log_dict["mean_score"] = optimizer.grasp_scores.mean().item()
-            wandb_log_dict["std_score"] = optimizer.grasp_scores.std().item()
+            wandb_log_dict["losss"] = optimizer.grasp_loss.detach().cpu().numpy()
+            wandb_log_dict["min_loss"] = optimizer.grasp_loss.min().item()
+            wandb_log_dict["max_loss"] = optimizer.grasp_loss.max().item()
+            wandb_log_dict["mean_loss"] = optimizer.grasp_loss.mean().item()
+            wandb_log_dict["std_loss"] = optimizer.grasp_loss.std().item()
 
             if wandb.run is not None:
                 wandb.log(wandb_log_dict)
 
-            if iter % optimizer_config.save_grasps_freq == 0:
+            if iter % save_grasps_freq == 0:
                 # Save mid optimization grasps to file
                 grasp_config_dict = optimizer.grasp_config.as_dict()
-                grasp_config_dict["score"] = (
-                    optimizer.grasp_scores.detach().cpu().numpy()
-                )
+                grasp_config_dict["loss"] = optimizer.grasp_loss.detach().cpu().numpy()
 
                 # To interface with mid optimization visualizer, need to create new folder (mid_optimization_folder_path)
                 # that has folders with iteration number
@@ -341,11 +342,11 @@ def run_optimizer_loop(
 
     optimizer.grasp_metric.eval()
 
-    # Sort grasp scores and configs by score.
-    _, sort_indices = torch.sort(optimizer.grasp_scores, descending=False)
+    # Sort grasp losss and configs by loss.
+    _, sort_indices = torch.sort(optimizer.grasp_loss, descending=False)
     print(f"best 5: {sort_indices[:5]}")
     return (
-        optimizer.grasp_scores[sort_indices],
+        optimizer.grasp_loss[sort_indices],
         optimizer.grasp_config[sort_indices],
     )
 
@@ -362,7 +363,7 @@ def main(cfg: OptimizationConfig) -> None:
         wandb.init(
             entity=cfg.wandb.entity,
             project=cfg.wandb.project,
-            name=cfg.wandb.name_with_date,
+            name=cfg.wandb.name,
             config=asdict(cfg),
         )
 
@@ -397,28 +398,7 @@ def main(cfg: OptimizationConfig) -> None:
             init_grasp_config_dict
         )
 
-        # Get indices of preferred split.
-        train_inds, val_inds, test_inds = get_split_inds(
-            init_grasp_configs.batch_size,
-            [
-                cfg.grasp_metric.classifier_config.data.frac_train,
-                cfg.grasp_metric.classifier_config.data.frac_val,
-                cfg.grasp_metric.classifier_config.data.frac_test,
-            ],
-            cfg.grasp_metric.classifier_config.random_seed,
-        )
-
-        if cfg.grasp_split == "train":
-            data_inds = train_inds
-        elif cfg.grasp_split == "val":
-            data_inds = val_inds
-        elif cfg.grasp_split == "test":
-            data_inds = test_inds
-        else:
-            raise ValueError(f"Invalid grasp_split: {cfg.grasp_split}")
-
-        data_inds = np.random.choice(data_inds, size=num_grasps)
-        init_grasp_configs = init_grasp_configs[data_inds]
+        init_grasp_configs = init_grasp_configs[:num_grasps]
 
         if progress is not None and task is not None:
             progress.update(task, advance=1)
@@ -454,43 +434,47 @@ def main(cfg: OptimizationConfig) -> None:
     else:
         raise ValueError(f"Invalid optimizer config: {cfg.optimizer}")
 
-    table = Table(title="Grasp scores")
+    table = Table(title="Grasp loss")
     table.add_column("Iteration", justify="right")
-    table.add_column("Min value")
-    table.add_column("Mean value")
-    table.add_column("Max value")
+    table.add_column("Min loss")
+    table.add_column("Mean loss")
+    table.add_column("Max loss")
     table.add_column("Std dev.")
 
     table.add_row(
         "0",
-        f"{optimizer.grasp_scores.min():.5f}",
-        f"{optimizer.grasp_scores.mean():.5f}",
-        f"{optimizer.grasp_scores.max():.5f}",
-        f"{optimizer.grasp_scores.std():.5f}",
+        f"{optimizer.grasp_loss.min():.5f}",
+        f"{optimizer.grasp_loss.mean():.5f}",
+        f"{optimizer.grasp_loss.max():.5f}",
+        f"{optimizer.grasp_loss.std():.5f}",
     )
 
-    scores, grasp_configs = run_optimizer_loop(
-        optimizer, optimizer_config=cfg.optimizer, console=console
+    losses, grasp_configs = run_optimizer_loop(
+        optimizer,
+        optimizer_config=cfg.optimizer,
+        print_freq=cfg.print_freq,
+        save_grasps_freq=cfg.save_grasps_freq,
+        console=console,
     )
 
     assert (
-        scores.shape[0] == grasp_configs.batch_size
-    ), f"{scores.shape[0]} != {grasp_configs.shape[0]}"
+        losses.shape[0] == grasp_configs.batch_size
+    ), f"{losses.shape[0]} != {grasp_configs.shape[0]}"
     assert all(
-        x <= y for x, y in zip(scores[:-1], scores[1:])
-    ), f"Scores are not sorted: {scores}"
+        x <= y for x, y in zip(losses[:-1], losses[1:])
+    ), f"losses are not sorted: {losses}"
 
     table.add_row(
-        "35",
-        f"{scores.min():.5f}",
-        f"{scores.mean():.5f}",
-        f"{scores.max():.5f}",
-        f"{scores.std():.5f}",
+        f"{cfg.optimizer.num_steps}",
+        f"{losses.min():.5f}",
+        f"{losses.mean():.5f}",
+        f"{losses.max():.5f}",
+        f"{losses.std():.5f}",
     )
     console.print(table)
 
     grasp_config_dict = grasp_configs.as_dict()
-    grasp_config_dict["score"] = scores.detach().cpu().numpy()
+    grasp_config_dict["loss"] = losses.detach().cpu().numpy()
 
     print(f"Saving sorted grasp config dict to {cfg.output_path}")
     cfg.output_path.parent.mkdir(parents=True, exist_ok=True)

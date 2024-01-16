@@ -13,22 +13,22 @@ from typing import Optional
 class GraspMetricConfig:
     """Top-level config for creating a grasp metric."""
 
-    classifier_config: ClassifierConfig = CLASSIFIER_DEFAULTS_DICT["simple-cnn-2d-1d"]
+    classifier_config: ClassifierConfig = CLASSIFIER_DEFAULTS_DICT["grasp-cond-simple-cnn-2d-1d"]
     classifier_config_path: Optional[pathlib.Path] = (
         pathlib.Path(nerf_grasping.get_repo_root())
         / "Train_DexGraspNet_NeRF_Grasp_Metric_workspaces"
-        / "2023-11-30_15-49-25"
-        / "config_MANUALLY_CHANGED.yaml"
+        / "mugs_grid_grasp-cond-simple-cnn-2d-1d"
+        / "config.yaml"
     )
     classifier_checkpoint: int = -1  # Load latest checkpoint if -1.
     nerf_checkpoint_path: pathlib.Path = (
         pathlib.Path(nerf_grasping.get_repo_root())
         / "data"
-        / "2023-11-17_rubikscube_0"
+        / "2023-01-03_mugs_smaller0-075_noise_lightshake_mid_opt"
         / "nerfcheckpoints"
-        / "ddg-gd_rubik_cube_poisson_004_0_1000"
+        / "core-mug-10f6e09036350e92b3f21f1137c3c347_0_0750"
         / "nerfacto"
-        / "2023-11-21_182452"
+        / "2024-01-03_235839"
         / "config.yml"
     )
 

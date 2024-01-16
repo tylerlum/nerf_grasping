@@ -366,7 +366,9 @@ def create_grid_dataset(
 # %%
 input_dataset_full_path = str(cfg.actual_train_dataset_filepath)
 if cfg.create_val_test_from_train:
-    print(f"Creating val and test datasets from train dataset: {input_dataset_full_path}")
+    print(
+        f"Creating val and test datasets from train dataset: {input_dataset_full_path}"
+    )
     if USE_DEPTH_IMAGES:
         full_dataset = create_depth_imgs_dataset(
             input_hdf5_filepath=input_dataset_full_path, cfg=cfg
@@ -391,7 +393,9 @@ if cfg.create_val_test_from_train:
         len(set.intersection(set(val_dataset.indices), set(test_dataset.indices))), 0
     )
 else:
-    print(f"Using actual val and test datasets: input_dataset_full_path = {input_dataset_full_path}, cfg.actual_val_dataset_filepath = {cfg.actual_val_dataset_filepath}, cfg.actual_test_dataset_filepath = {cfg.actual_test_dataset_filepath}")
+    print(
+        f"Using actual val and test datasets: input_dataset_full_path = {input_dataset_full_path}, cfg.actual_val_dataset_filepath = {cfg.actual_val_dataset_filepath}, cfg.actual_test_dataset_filepath = {cfg.actual_test_dataset_filepath}"
+    )
     if USE_DEPTH_IMAGES:
         train_dataset = create_depth_imgs_dataset(
             input_hdf5_filepath=input_dataset_full_path, cfg=cfg
@@ -1739,16 +1743,27 @@ if cfg.data.debug_shuffle_labels:
     )
 
 # # %% [markdown]
-# # Analyze model
+# Debug/Analyze model
+# DEBUG_phase = Phase.VAL
+# if DEBUG_phase == Phase.EVAL_TRAIN:
+#     DEBUG_loader = train_loader
+# elif DEBUG_phase == Phase.VAL:
+#     DEBUG_loader = val_loader
+# elif DEBUG_phase == Phase.TEST:
+#     DEBUG_loader = test_loader
+# else:
+#     raise ValueError(f"Unknown phase: {DEBUG_phase}")
+#
+#
 # loop_timer = LoopTimer()
 # (
-#     train_losses_dict,
-#     train_predictions_dict,
-#     train_ground_truths_dict,
+#     DEBUG_losses_dict,
+#     DEBUG_predictions_dict,
+#     DEBUG_ground_truths_dict,
 # ) = _iterate_through_dataloader(
 #     loop_timer=loop_timer,
-#     phase=Phase.EVAL_TRAIN,
-#     dataloader=train_loader,
+#     phase=DEBUG_phase,
+#     dataloader=DEBUG_loader,
 #     classifier=classifier,
 #     device=device,
 #     loss_fns=loss_fns,
@@ -1757,41 +1772,48 @@ if cfg.data.debug_shuffle_labels:
 # )
 #
 # # %%
-# train_losses_dict.keys()
+# DEBUG_losses_dict.keys()
 #
 # # %%
-# train_losses_dict["passed_simulation_loss"][:10]
+# DEBUG_losses_dict["passed_simulation_loss"][:10]
 #
 # # %%
-# train_predictions_dict["passed_simulation"][:10]
+# DEBUG_predictions_dict["passed_simulation"][:10]
 #
 # # %%
-# train_ground_truths_dict["passed_simulation"][:10]
+# DEBUG_ground_truths_dict["passed_simulation"][:10]
 #
 # # %%
-# train_predictions_dict
+# DEBUG_predictions_dict
 #
 # # %%
 # import matplotlib.pyplot as plt
+#
 # # Small circles
-# gaussian_noise = np.random.normal(0, 0.01, len(train_ground_truths_dict["passed_simulation"]))
-# plt.scatter(train_ground_truths_dict["passed_simulation"] + gaussian_noise, train_predictions_dict["passed_simulation"], s=0.1)
+# gaussian_noise = np.random.normal(
+#     0, 0.01, len(DEBUG_ground_truths_dict["passed_simulation"])
+# )
+# plt.scatter(
+#     DEBUG_ground_truths_dict["passed_simulation"] + gaussian_noise,
+#     DEBUG_predictions_dict["passed_simulation"],
+#     s=0.1,
+# )
 # plt.xlabel("Ground Truth")
 # plt.ylabel("Prediction")
 # plt.title(f"passed_simulation Scatter Plot")
 # plt.show()
 #
 # # %%
-# np.unique(train_ground_truths_dict["passed_simulation"], return_counts=True)
+# np.unique(DEBUG_ground_truths_dict["passed_simulation"], return_counts=True)
 #
 # # %%
-# unique_labels = np.unique(train_ground_truths_dict["passed_simulation"])
+# unique_labels = np.unique(DEBUG_ground_truths_dict["passed_simulation"])
 # fig, axes = plt.subplots(len(unique_labels), 1, figsize=(10, 10))
 # axes = axes.flatten()
 #
 # for i, unique_val in enumerate(unique_labels):
-#     preds = np.array(train_predictions_dict["passed_simulation"])
-#     idxs = np.array(train_ground_truths_dict["passed_simulation"]) == unique_val
+#     preds = np.array(DEBUG_predictions_dict["passed_simulation"])
+#     idxs = np.array(DEBUG_ground_truths_dict["passed_simulation"]) == unique_val
 #     ground_truths = preds[idxs]
 #     axes[i].hist(ground_truths, bins=50, alpha=0.7, color="blue")
 #     axes[i].set_title(f"Ground Truth: {unique_val}")
@@ -1799,30 +1821,25 @@ if cfg.data.debug_shuffle_labels:
 # fig.tight_layout()
 #
 #
-#
-#
 # # %%
-# train_log_dict = create_log_dict(
+# DEBUG_log_dict = create_log_dict(
 #     loop_timer=loop_timer,
-#     phase=Phase.EVAL_TRAIN,
+#     phase=DEBUG_phase,
 #     task_type=cfg.task_type,
-#     losses_dict=train_losses_dict,
-#     predictions_dict=train_predictions_dict,
-#     ground_truths_dict=train_ground_truths_dict,
+#     losses_dict=DEBUG_losses_dict,
+#     predictions_dict=DEBUG_predictions_dict,
+#     ground_truths_dict=DEBUG_ground_truths_dict,
 #     optimizer=optimizer,
 # )
 #
 # # %%
-# train_log_dict['train_loss']
+# DEBUG_log_dict[f"{DEBUG_phase.name.lower()}_loss"]
 #
 # # %%
-# train_log_dict_modified = {
-#     f"{k}_v2": v
-#     for k, v in train_log_dict.items()
-# }
+# DEBUG_log_dict_modified = {f"{k}_v2": v for k, v in DEBUG_log_dict.items()}
 #
 # # %%
-# wandb.log(train_log_dict_modified)
+# wandb.log(DEBUG_log_dict_modified)
 #
 #
 # # %%

@@ -134,7 +134,7 @@ class SGDOptimizer(Optimizer):
 
         # TODO(pculbert): Think about clipping joint angles
         # to feasible range.
-        loss.mean().backward()
+        loss.sum().backward()  # Should be sum so gradient magnitude is invariant to batch size.
         self.joint_optimizer.step()
         if self.optimizer_config.opt_wrist_pose:
             self.wrist_optimizer.step()
@@ -328,8 +328,7 @@ def run_optimizer_loop(
                     cfg.output_path.name,
                 )
                 mid_optimization_folder_path = (
-                    main_output_folder_path.parent
-                    / f"{main_output_folder_path.name}_mid"
+                    main_output_folder_path / "mid_optimization"
                 )
                 this_iter_folder_path = mid_optimization_folder_path / f"{iter}"
                 this_iter_folder_path.mkdir(parents=True, exist_ok=True)
@@ -342,12 +341,9 @@ def run_optimizer_loop(
 
     optimizer.grasp_metric.eval()
 
-    # Sort grasp losss and configs by loss.
-    _, sort_indices = torch.sort(optimizer.grasp_loss, descending=False)
-    print(f"best 5: {sort_indices[:5]}")
     return (
-        optimizer.grasp_loss[sort_indices],
-        optimizer.grasp_config[sort_indices],
+        optimizer.grasp_loss,
+        optimizer.grasp_config,
     )
 
 
@@ -434,6 +430,8 @@ def main(cfg: OptimizationConfig) -> None:
     else:
         raise ValueError(f"Invalid optimizer config: {cfg.optimizer}")
 
+    init_losses = optimizer.grasp_loss
+
     table = Table(title="Grasp loss")
     table.add_column("Iteration", justify="right")
     table.add_column("Min loss")
@@ -449,7 +447,7 @@ def main(cfg: OptimizationConfig) -> None:
         f"{optimizer.grasp_loss.std():.5f}",
     )
 
-    losses, grasp_configs = run_optimizer_loop(
+    final_losses, final_grasp_configs = run_optimizer_loop(
         optimizer,
         optimizer_config=cfg.optimizer,
         print_freq=cfg.print_freq,
@@ -458,25 +456,22 @@ def main(cfg: OptimizationConfig) -> None:
     )
 
     assert (
-        losses.shape[0] == grasp_configs.batch_size
-    ), f"{losses.shape[0]} != {grasp_configs.shape[0]}"
-    assert all(
-        x <= y for x, y in zip(losses[:-1], losses[1:])
-    ), f"losses are not sorted: {losses}"
+        final_losses.shape[0] == final_grasp_configs.batch_size
+    ), f"{final_losses.shape[0]} != {final_grasp_configs.batch_size}"
 
     table.add_row(
         f"{cfg.optimizer.num_steps}",
-        f"{losses.min():.5f}",
-        f"{losses.mean():.5f}",
-        f"{losses.max():.5f}",
-        f"{losses.std():.5f}",
+        f"{final_losses.min():.5f}",
+        f"{final_losses.mean():.5f}",
+        f"{final_losses.max():.5f}",
+        f"{final_losses.std():.5f}",
     )
     console.print(table)
 
-    grasp_config_dict = grasp_configs.as_dict()
-    grasp_config_dict["loss"] = losses.detach().cpu().numpy()
+    grasp_config_dict = final_grasp_configs.as_dict()
+    grasp_config_dict["loss"] = final_losses.detach().cpu().numpy()
 
-    print(f"Saving sorted grasp config dict to {cfg.output_path}")
+    print(f"Saving final grasp config dict to {cfg.output_path}")
     cfg.output_path.parent.mkdir(parents=True, exist_ok=True)
     np.save(str(cfg.output_path), grasp_config_dict, allow_pickle=True)
 

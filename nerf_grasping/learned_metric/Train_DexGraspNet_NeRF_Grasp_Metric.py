@@ -71,6 +71,7 @@ from sklearn.metrics import (
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 from torch.utils.data import (
     DataLoader,
     Subset,
@@ -90,6 +91,7 @@ from nerf_grasping.models.tyler_new_models import get_scheduler
 
 import tyro
 
+# %%
 os.chdir(nerf_grasping.get_repo_root())
 
 
@@ -152,18 +154,63 @@ if is_notebook():
     #     "--checkpoint-workspace.input_leaf_dir_name", "2023-11-30_15-49-25",
     # ]
 
-    arguments = [
-        "depth-cnn-2d",
-        "--task-type",
-        "PASSED_SIMULATION_AND_PENETRATION_THRESHOLD",
-        "--nerfdata-config.output-filepath",
-        "data/2023-11-23_rubikscuberepeat_labelnoise_2/depth_image_dataset/dataset.h5",
-        "--wandb.name",
-        "probe_debug_depth_noisy_large",
-        "--checkpoint-workspace.input_leaf_dir_name",
-        "2023-11-30_15-49-25",
-    ]
+    # arguments = [
+    #     "depth-cnn-2d",
+    #     "--task-type",
+    #     "PASSED_SIMULATION_AND_PENETRATION_THRESHOLD",
+    #     "--nerfdata-config.output-filepath",
+    #     "data/2023-11-23_rubikscuberepeat_labelnoise_2/depth_image_dataset/dataset.h5",
+    #     "--wandb.name",
+    #     "probe_debug_depth_noisy_large",
+    #     "--checkpoint-workspace.input_leaf_dir_name",
+    #     "2023-11-30_15-49-25",
+    # ]
 
+    # arguments = [
+    #     "grasp-cond-simple-cnn-1d-2d",
+    #     "--task-type",
+    #     "PASSED_SIMULATION",
+    #     "--nerfdata-config.output-filepath",
+    #     "data/2023-01-03_mug_one_object_smaller0-075_noise_lightshake_mid_opt/grid_dataset/dataset.h5",
+    #     "--dataloader.batch-size",
+    #     "32",
+    #     "--wandb.name",
+    #     "probe_mug_grid_graspcond",
+    #     "--checkpoint-workspace.input_leaf_dir_name",
+    #     "mug_grid_graspcond_BACKUP",
+    # ]
+
+    # arguments = [
+    #     "grasp-cond-simple-cnn-2d-1d",
+    #     "--task-type",
+    #     "PASSED_SIMULATION",
+    #     "--nerfdata-config.output-filepath",
+    #     "data/2023-01-03_mugs_smaller0-075_noise_lightshake_mid_opt/grid_dataset/dataset.h5",
+    #     "--dataloader.batch-size",
+    #     "32",
+    #     "--wandb.name",
+    #     "probe_mugs_grid_grasp-cond-simple-cnn-2d-1d",
+    #     "--checkpoint-workspace.input_leaf_dir_name",
+    #     "mugs_grid_grasp-cond-simple-cnn-2d-1d_BACKUP",
+    # ]
+
+    arguments = [
+        "grasp-cond-simple-cnn-2d-1d",
+        "--task-type",
+        "PASSED_SIMULATION",
+        "--train-dataset-filepath",
+        "data/2023-01-03_mugs_smaller0-075_noise_lightshake_mid_opt/grid_dataset/dataset.h5",
+        "--val-dataset-filepath",
+        "data/2023-01-03_mugs_smaller0-075_noise_lightshake_mid_opt/grid_dataset/val_dataset.h5",
+        "--test-dataset-filepath",
+        "data/2023-01-03_mugs_smaller0-075_noise_lightshake_mid_opt/grid_dataset/test_dataset.h5",
+        "--dataloader.batch-size",
+        "32",
+        "--wandb.name",
+        "probe_mugs_grid_grasp-cond-simple-cnn-2d-1d",
+        "--checkpoint-workspace.input_leaf_dir_name",
+        "mugs_grid_grasp-cond-simple-cnn-2d-1d_BACKUP",
+    ]
 else:
     arguments = sys.argv[1:]
     print(f"arguments = {arguments}")
@@ -280,12 +327,16 @@ run = wandb.init(
 # %% [markdown]
 # # Dataset and Dataloader
 
-# %%
 
-input_dataset_full_path = str(cfg.nerfdata_config.output_filepath)
-if USE_DEPTH_IMAGES:
-    full_dataset = DepthImage_To_GraspSuccess_HDF5_Dataset(
-        input_hdf5_filepath=input_dataset_full_path,
+# %%
+@localscope.mfc
+def create_depth_imgs_dataset(
+    input_hdf5_filepath: str, cfg: ClassifierConfig
+) -> DepthImage_To_GraspSuccess_HDF5_Dataset:
+    assert isinstance(cfg.nerfdata_config, DepthImageNerfDataConfig)
+    assert cfg.nerfdata_config.fingertip_config is not None
+    return DepthImage_To_GraspSuccess_HDF5_Dataset(
+        input_hdf5_filepath=input_hdf5_filepath,
         fingertip_config=cfg.nerfdata_config.fingertip_config,
         fingertip_camera_config=cfg.nerfdata_config.fingertip_camera_config,
         max_num_data_points=cfg.data.max_num_data_points,
@@ -294,9 +345,15 @@ if USE_DEPTH_IMAGES:
         load_grasp_transforms_in_ram=cfg.dataloader.load_grasp_transforms_in_ram,
         load_nerf_configs_in_ram=cfg.dataloader.load_nerf_configs_in_ram,
     )
-else:
-    full_dataset = NeRFGrid_To_GraspSuccess_HDF5_Dataset(
-        input_hdf5_filepath=input_dataset_full_path,
+
+
+@localscope.mfc
+def create_grid_dataset(
+    input_hdf5_filepath: str, cfg: ClassifierConfig
+) -> NeRFGrid_To_GraspSuccess_HDF5_Dataset:
+    assert cfg.nerfdata_config.fingertip_config is not None
+    return NeRFGrid_To_GraspSuccess_HDF5_Dataset(
+        input_hdf5_filepath=input_hdf5_filepath,
         fingertip_config=cfg.nerfdata_config.fingertip_config,
         max_num_data_points=cfg.data.max_num_data_points,
         load_nerf_densities_in_ram=cfg.dataloader.load_nerf_grid_inputs_in_ram,
@@ -305,28 +362,61 @@ else:
         load_nerf_configs_in_ram=cfg.dataloader.load_nerf_configs_in_ram,
     )
 
-train_dataset, val_dataset, test_dataset = random_split(
-    full_dataset,
-    [cfg.data.frac_train, cfg.data.frac_val, cfg.data.frac_test],
-    generator=torch.Generator().manual_seed(cfg.random_seed),
-)
+
+# %%
+input_dataset_full_path = str(cfg.actual_train_dataset_filepath)
+if cfg.create_val_test_from_train:
+    print(f"Creating val and test datasets from train dataset: {input_dataset_full_path}")
+    if USE_DEPTH_IMAGES:
+        full_dataset = create_depth_imgs_dataset(
+            input_hdf5_filepath=input_dataset_full_path, cfg=cfg
+        )
+    else:
+        full_dataset = create_grid_dataset(
+            input_hdf5_filepath=input_dataset_full_path, cfg=cfg
+        )
+
+    train_dataset, val_dataset, test_dataset = random_split(
+        full_dataset,
+        [cfg.data.frac_train, cfg.data.frac_val, cfg.data.frac_test],
+        generator=torch.Generator().manual_seed(cfg.random_seed),
+    )
+    assert_equals(
+        len(set.intersection(set(train_dataset.indices), set(val_dataset.indices))), 0
+    )
+    assert_equals(
+        len(set.intersection(set(train_dataset.indices), set(test_dataset.indices))), 0
+    )
+    assert_equals(
+        len(set.intersection(set(val_dataset.indices), set(test_dataset.indices))), 0
+    )
+else:
+    print(f"Using actual val and test datasets: input_dataset_full_path = {input_dataset_full_path}, cfg.actual_val_dataset_filepath = {cfg.actual_val_dataset_filepath}, cfg.actual_test_dataset_filepath = {cfg.actual_test_dataset_filepath}")
+    if USE_DEPTH_IMAGES:
+        train_dataset = create_depth_imgs_dataset(
+            input_hdf5_filepath=input_dataset_full_path, cfg=cfg
+        )
+        val_dataset = create_depth_imgs_dataset(
+            input_hdf5_filepath=str(cfg.actual_val_dataset_filepath), cfg=cfg
+        )
+        test_dataset = create_depth_imgs_dataset(
+            input_hdf5_filepath=str(cfg.actual_test_dataset_filepath), cfg=cfg
+        )
+    else:
+        train_dataset = create_grid_dataset(
+            input_hdf5_filepath=input_dataset_full_path, cfg=cfg
+        )
+        val_dataset = create_grid_dataset(
+            input_hdf5_filepath=str(cfg.actual_val_dataset_filepath), cfg=cfg
+        )
+        test_dataset = create_grid_dataset(
+            input_hdf5_filepath=str(cfg.actual_test_dataset_filepath), cfg=cfg
+        )
 
 # %%
 print(f"Train dataset size: {len(train_dataset)}")
 print(f"Val dataset size: {len(val_dataset)}")
 print(f"Test dataset size: {len(test_dataset)}")
-
-# %%
-assert_equals(
-    len(set.intersection(set(train_dataset.indices), set(val_dataset.indices))), 0
-)
-assert_equals(
-    len(set.intersection(set(train_dataset.indices), set(test_dataset.indices))), 0
-)
-assert_equals(
-    len(set.intersection(set(val_dataset.indices), set(test_dataset.indices))), 0
-)
-
 
 # %%
 
@@ -554,7 +644,7 @@ def print_shapes(batch_data: BatchData) -> None:
     print(f"len(nerf_config): {len(batch_data.nerf_config)}")
 
 
-EXAMPLE_BATCH_DATA: BatchData = next(iter(val_loader))
+EXAMPLE_BATCH_DATA: BatchData = next(iter(train_loader))
 print_shapes(batch_data=EXAMPLE_BATCH_DATA)
 
 # %% [markdown]
@@ -1017,7 +1107,7 @@ def _iterate_through_dataloader(
     max_num_batches: Optional[int] = None,
     log_every_n_batches: int = 5,
 ) -> Tuple[Dict[str, List[float]], Dict[str, List[float]], Dict[str, List[float]]]:
-    losses_dict = defaultdict(list)  # loss name => list of losses (one loss per batch)
+    losses_dict = defaultdict(list)  # loss name => list of losses (one per datapoint)
     predictions_dict, ground_truths_dict = defaultdict(list), defaultdict(
         list
     )  # task name => list of predictions / ground truths (one per datapoint)
@@ -1153,10 +1243,16 @@ def _iterate_through_dataloader(
                     zip(task_targets, task_type.task_names)
                 ):
                     task_logits = all_logits[:, task_i, :]
-                    predictions = task_logits.argmax(dim=-1).tolist()
-                    ground_truths = task_target.argmax(dim=-1).tolist()
-                    predictions_dict[f"{task_name}"] += predictions
-                    ground_truths_dict[f"{task_name}"] += ground_truths
+                    assert_equals(task_logits.shape, (batch_data.batch_size, 2))
+                    assert_equals(task_target.shape, (batch_data.batch_size, 2))
+
+                    predictions = F.softmax(task_logits, dim=-1)[..., -1]
+                    ground_truths = task_target[..., -1]
+                    assert_equals(predictions.shape, (batch_data.batch_size,))
+                    assert_equals(ground_truths.shape, (batch_data.batch_size,))
+
+                    predictions_dict[f"{task_name}"] += predictions.tolist()
+                    ground_truths_dict[f"{task_name}"] += ground_truths.tolist()
 
             if (
                 wandb.run is not None
@@ -1224,6 +1320,26 @@ def _iterate_through_dataloader(
     return losses_dict, predictions_dict, ground_truths_dict
 
 
+@localscope.mfc
+def _create_wandb_scatter_plot(
+    ground_truths: List[float],
+    predictions: List[float],
+    title: str,
+) -> wandb.plots.Plot:
+    # data = [[x, y] for (x, y) in zip(class_x_scores, class_y_scores)]
+    # table = wandb.Table(data=data, columns=["class_x", "class_y"])
+    # wandb.log({"my_custom_id": wandb.plot.scatter(table, "class_x", "class_y")})
+    data = [[x, y] for (x, y) in zip(ground_truths, predictions)]
+    table = wandb.Table(data=data, columns=["ground_truth", "prediction"])
+    return wandb.plot.scatter(
+        table=table,
+        x="ground_truth",
+        y="prediction",
+        title=title,
+    )
+
+
+@localscope.mfc
 def create_log_dict(
     phase: Phase,
     loop_timer: LoopTimer,
@@ -1246,12 +1362,29 @@ def create_log_dict(
             temp_log_dict[f"{loss_name}_quartile_75"] = np.quantile(losses, 0.75)
             temp_log_dict[f"{loss_name}_max"] = np.max(losses)
 
-    with loop_timer.add_section_timer("Metrics"):
+    with loop_timer.add_section_timer("Scatter"):
+        # Make scatter plot of predicted vs ground truth
         assert_equals(set(predictions_dict.keys()), set(ground_truths_dict.keys()))
         assert_equals(set(predictions_dict.keys()), set(task_type.task_names))
         for task_name in task_type.task_names:
             predictions = predictions_dict[task_name]
             ground_truths = ground_truths_dict[task_name]
+            temp_log_dict[f"{task_name}_scatter"] = _create_wandb_scatter_plot(
+                ground_truths=ground_truths,
+                predictions=predictions,
+                title=f"{phase.name.title()} {task_name} Scatter Plot",
+            )
+
+    with loop_timer.add_section_timer("Metrics"):
+        assert_equals(set(predictions_dict.keys()), set(ground_truths_dict.keys()))
+        assert_equals(set(predictions_dict.keys()), set(task_type.task_names))
+        for task_name in task_type.task_names:
+            predictions = (
+                np.array(predictions_dict[task_name]).round().astype(int).tolist()
+            )
+            ground_truths = (
+                np.array(ground_truths_dict[task_name]).round().astype(int).tolist()
+            )
             for metric_name, function in [
                 ("accuracy", accuracy_score),
                 ("precision", precision_score),
@@ -1266,8 +1399,12 @@ def create_log_dict(
         assert_equals(set(predictions_dict.keys()), set(ground_truths_dict.keys()))
         assert_equals(set(predictions_dict.keys()), set(task_type.task_names))
         for task_name in task_type.task_names:
-            predictions = predictions_dict[task_name]
-            ground_truths = ground_truths_dict[task_name]
+            predictions = (
+                np.array(predictions_dict[task_name]).round().astype(int).tolist()
+            )
+            ground_truths = (
+                np.array(ground_truths_dict[task_name]).round().astype(int).tolist()
+            )
             temp_log_dict[
                 f"{task_name}_confusion_matrix"
             ] = wandb.plot.confusion_matrix(
@@ -1429,8 +1566,9 @@ wandb.watch(classifier, log="gradients", log_freq=100)
 # %%
 @localscope.mfc
 def compute_class_weight_np(
-    train_dataset: Subset, input_dataset_full_path: str
+    train_dataset: Union[Subset, Any], input_dataset_full_path: str
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    # TODO: May break if train_dataset is not a subset, but separate val/test files
     try:
         print("Loading grasp success data for class weighting...")
         t1 = time.time()
@@ -1445,11 +1583,12 @@ def compute_class_weight_np(
 
         print("Extracting training indices...")
         t3 = time.time()
-        passed_simulations_np = passed_simulations_np[train_dataset.indices]
-        passed_penetration_threshold_np = passed_penetration_threshold_np[
-            train_dataset.indices
-        ]
-        passed_eval_np = passed_eval_np[train_dataset.indices]
+        if isinstance(train_dataset, Subset):
+            passed_simulations_np = passed_simulations_np[train_dataset.indices]
+            passed_penetration_threshold_np = passed_penetration_threshold_np[
+                train_dataset.indices
+            ]
+            passed_eval_np = passed_eval_np[train_dataset.indices]
         t4 = time.time()
         print(f"Extracted training indices in {t4 - t3:.2f} s")
 
@@ -1529,6 +1668,7 @@ if cfg.training.extra_punish_false_positive_factor != 0.0:
         f"After adjustment, passed_simulation_class_weight: {passed_eval_class_weight}"
     )
 
+
 # %%
 class SoftmaxL1Loss(nn.Module):
     def __init__(self, *args, **kwargs) -> None:
@@ -1583,6 +1723,8 @@ elif cfg.task_type == TaskType.PASSED_SIMULATION_AND_PENETRATION_THRESHOLD:
 else:
     raise ValueError(f"Unknown task_type: {cfg.task_type}")
 
+# %%
+
 # Save out config to file if we haven't yet.
 cfg_path = pathlib.Path(cfg.checkpoint_workspace.output_dir) / "config.yaml"
 if not cfg_path.exists():
@@ -1596,23 +1738,92 @@ if cfg.data.debug_shuffle_labels:
         "WARNING: Shuffle labels is turned on! Random labels are being passed. Press 'c' to continue"
     )
 
-# %% [markdown]
+# # %% [markdown]
 # # Analyze model
 # loop_timer = LoopTimer()
 # (
-#     val_losses_dict,
-#     val_predictions_dict,
-#     val_ground_truths_dict,
+#     train_losses_dict,
+#     train_predictions_dict,
+#     train_ground_truths_dict,
 # ) = _iterate_through_dataloader(
 #     loop_timer=loop_timer,
-#     phase=Phase.VAL,
-#     dataloader=val_loader,
+#     phase=Phase.EVAL_TRAIN,
+#     dataloader=train_loader,
 #     classifier=classifier,
 #     device=device,
 #     loss_fns=loss_fns,
 #     task_type=cfg.task_type,
-#     max_num_batches=10,
+#     max_num_batches=None,
 # )
+#
+# # %%
+# train_losses_dict.keys()
+#
+# # %%
+# train_losses_dict["passed_simulation_loss"][:10]
+#
+# # %%
+# train_predictions_dict["passed_simulation"][:10]
+#
+# # %%
+# train_ground_truths_dict["passed_simulation"][:10]
+#
+# # %%
+# train_predictions_dict
+#
+# # %%
+# import matplotlib.pyplot as plt
+# # Small circles
+# gaussian_noise = np.random.normal(0, 0.01, len(train_ground_truths_dict["passed_simulation"]))
+# plt.scatter(train_ground_truths_dict["passed_simulation"] + gaussian_noise, train_predictions_dict["passed_simulation"], s=0.1)
+# plt.xlabel("Ground Truth")
+# plt.ylabel("Prediction")
+# plt.title(f"passed_simulation Scatter Plot")
+# plt.show()
+#
+# # %%
+# np.unique(train_ground_truths_dict["passed_simulation"], return_counts=True)
+#
+# # %%
+# unique_labels = np.unique(train_ground_truths_dict["passed_simulation"])
+# fig, axes = plt.subplots(len(unique_labels), 1, figsize=(10, 10))
+# axes = axes.flatten()
+#
+# for i, unique_val in enumerate(unique_labels):
+#     preds = np.array(train_predictions_dict["passed_simulation"])
+#     idxs = np.array(train_ground_truths_dict["passed_simulation"]) == unique_val
+#     ground_truths = preds[idxs]
+#     axes[i].hist(ground_truths, bins=50, alpha=0.7, color="blue")
+#     axes[i].set_title(f"Ground Truth: {unique_val}")
+#
+# fig.tight_layout()
+#
+#
+#
+#
+# # %%
+# train_log_dict = create_log_dict(
+#     loop_timer=loop_timer,
+#     phase=Phase.EVAL_TRAIN,
+#     task_type=cfg.task_type,
+#     losses_dict=train_losses_dict,
+#     predictions_dict=train_predictions_dict,
+#     ground_truths_dict=train_ground_truths_dict,
+#     optimizer=optimizer,
+# )
+#
+# # %%
+# train_log_dict['train_loss']
+#
+# # %%
+# train_log_dict_modified = {
+#     f"{k}_v2": v
+#     for k, v in train_log_dict.items()
+# }
+#
+# # %%
+# wandb.log(train_log_dict_modified)
+#
 #
 # # %%
 # loop_timer = LoopTimer()

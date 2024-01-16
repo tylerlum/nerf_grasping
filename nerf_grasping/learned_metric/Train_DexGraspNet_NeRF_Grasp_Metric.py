@@ -197,8 +197,12 @@ if is_notebook():
         "grasp-cond-simple-cnn-2d-1d",
         "--task-type",
         "PASSED_SIMULATION",
-        "--nerfdata-config.output-filepath",
+        "--train-dataset-filepath",
+        "data/2023-01-03_mugs_smaller0-075_noise_lightshake_mid_opt/grid_dataset/dataset.h5",
+        "--val-dataset-filepath",
         "data/2023-01-03_mugs_smaller0-075_noise_lightshake_mid_opt/grid_dataset/val_dataset.h5",
+        "--test-dataset-filepath",
+        "data/2023-01-03_mugs_smaller0-075_noise_lightshake_mid_opt/grid_dataset/test_dataset.h5",
         "--dataloader.batch-size",
         "32",
         "--wandb.name",
@@ -364,6 +368,15 @@ if cfg.create_val_test_from_train:
         [cfg.data.frac_train, cfg.data.frac_val, cfg.data.frac_test],
         generator=torch.Generator().manual_seed(cfg.random_seed),
     )
+    assert_equals(
+        len(set.intersection(set(train_dataset.indices), set(val_dataset.indices))), 0
+    )
+    assert_equals(
+        len(set.intersection(set(train_dataset.indices), set(test_dataset.indices))), 0
+    )
+    assert_equals(
+        len(set.intersection(set(val_dataset.indices), set(test_dataset.indices))), 0
+    )
 else:
     if USE_DEPTH_IMAGES:
         train_dataset = create_depth_imgs_dataset(input_hdf5_filepath=input_dataset_full_path, cfg=cfg)
@@ -378,18 +391,6 @@ else:
 print(f"Train dataset size: {len(train_dataset)}")
 print(f"Val dataset size: {len(val_dataset)}")
 print(f"Test dataset size: {len(test_dataset)}")
-
-# %%
-assert_equals(
-    len(set.intersection(set(train_dataset.indices), set(val_dataset.indices))), 0
-)
-assert_equals(
-    len(set.intersection(set(train_dataset.indices), set(test_dataset.indices))), 0
-)
-assert_equals(
-    len(set.intersection(set(val_dataset.indices), set(test_dataset.indices))), 0
-)
-
 
 # %%
 

@@ -134,6 +134,8 @@ class SGDOptimizer(Optimizer):
         # TODO(pculbert): Think about clipping joint angles
         # to feasible range.
         loss.sum().backward()  # Should be sum so gradient magnitude is invariant to batch size.
+
+
         self.joint_optimizer.step()
         if self.optimizer_config.opt_wrist_pose:
             self.wrist_optimizer.step()

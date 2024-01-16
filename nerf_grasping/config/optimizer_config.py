@@ -5,6 +5,7 @@ import tyro
 @dataclass
 class BaseOptimizerConfig:
     num_grasps: int = 5
+    num_steps: int = 30
 
 
 @dataclass
@@ -20,9 +21,9 @@ class SGDOptimizerConfig(BaseOptimizerConfig):
 
 @dataclass
 class CEMOptimizerConfig(BaseOptimizerConfig):
+    num_steps: int = 30
     num_samples: int = 5
     num_elite: int = 2
-    num_steps: int = 30
     min_cov_std: float = 1e-2
 
 

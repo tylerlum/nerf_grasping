@@ -10,7 +10,7 @@ class BaseOptimizerConfig:
 @dataclass
 class SGDOptimizerConfig(BaseOptimizerConfig):
     num_steps: int = 200
-    num_grasps: int = 1
+    num_grasps: int = 10
     finger_lr: float = 1e-4
     grasp_dir_lr: float = 1e-4
     wrist_lr: float = 1e-4

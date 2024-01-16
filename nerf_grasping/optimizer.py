@@ -278,6 +278,7 @@ def run_optimizer_loop(
         for iter in range(optimizer_config.num_steps):
             wandb_log_dict = {}
             wandb_log_dict["optimization_step"] = iter
+            print(f"{iter}: {optimizer.grasp_loss}")
 
             if iter % print_freq == 0:
                 # console.print(
@@ -297,7 +298,7 @@ def run_optimizer_loop(
                 )
 
             # Log to wandb.
-            wandb_log_dict["losss"] = optimizer.grasp_loss.detach().cpu().numpy()
+            wandb_log_dict["loss"] = optimizer.grasp_loss.detach().cpu().numpy()
             wandb_log_dict["min_loss"] = optimizer.grasp_loss.min().item()
             wandb_log_dict["max_loss"] = optimizer.grasp_loss.max().item()
             wandb_log_dict["mean_loss"] = optimizer.grasp_loss.mean().item()
@@ -458,6 +459,9 @@ def main(cfg: OptimizationConfig) -> None:
     assert (
         final_losses.shape[0] == final_grasp_configs.batch_size
     ), f"{final_losses.shape[0]} != {final_grasp_configs.batch_size}"
+
+    print(f"Initial grasp loss: {init_losses}")
+    print(f"Final grasp loss: {final_losses}")
 
     table.add_row(
         f"{cfg.optimizer.num_steps}",

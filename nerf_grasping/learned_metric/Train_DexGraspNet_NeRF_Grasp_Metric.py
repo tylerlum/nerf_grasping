@@ -366,6 +366,7 @@ def create_grid_dataset(
 # %%
 input_dataset_full_path = str(cfg.actual_train_dataset_filepath)
 if cfg.create_val_test_from_train:
+    print(f"Creating val and test datasets from train dataset: {input_dataset_full_path}")
     if USE_DEPTH_IMAGES:
         full_dataset = create_depth_imgs_dataset(
             input_hdf5_filepath=input_dataset_full_path, cfg=cfg
@@ -390,6 +391,7 @@ if cfg.create_val_test_from_train:
         len(set.intersection(set(val_dataset.indices), set(test_dataset.indices))), 0
     )
 else:
+    print(f"Using actual val and test datasets: input_dataset_full_path = {input_dataset_full_path}, cfg.actual_val_dataset_filepath = {cfg.actual_val_dataset_filepath}, cfg.actual_test_dataset_filepath = {cfg.actual_test_dataset_filepath}")
     if USE_DEPTH_IMAGES:
         train_dataset = create_depth_imgs_dataset(
             input_hdf5_filepath=input_dataset_full_path, cfg=cfg

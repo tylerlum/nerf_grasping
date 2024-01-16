@@ -29,6 +29,8 @@ from enum import Enum, auto
 import tyro
 import pathlib
 
+DEFAULT_WANDB_PROJECT = "learned_metric"
+
 
 class TaskType(Enum):
     """Enum for task type."""
@@ -172,7 +174,7 @@ class CheckpointWorkspaceConfig:
     input_leaf_dir_name: Optional[str] = None
     """Leaf directory name to LOAD a checkpoint and potentially resume a run."""
 
-    output_leaf_dir_name: str = field(default_factory=lambda: CONFIG_DATETIME_STR)
+    output_leaf_dir_name: str = CONFIG_DATETIME_STR
     """Leaf directory name to SAVE checkpoints and run information."""
 
     @property
@@ -508,10 +510,9 @@ class ClassifierConfig:
     task_type: TaskType = TaskType.PASSED_EVAL
 
     wandb: WandbConfig = field(
-        default_factory=lambda: WandbConfig(
-            project="learned_metric", name=CONFIG_DATETIME_STR
-        )
+        default_factory=lambda: WandbConfig(project=DEFAULT_WANDB_PROJECT)
     )
+    name: Optional[str] = None
 
     random_seed: int = 42
 
@@ -535,6 +536,14 @@ class ClassifierConfig:
             and self.test_dataset_filepath is not None
         ), f"Must specify both val and test dataset filepaths, or neither. Got val: {self.val_dataset_filepath}, test: {self.test_dataset_filepath}"
 
+        # Set the name of the run if given
+        if self.name is not None:
+            name_with_date = f"{self.name}_{CONFIG_DATETIME_STR}"
+            self.checkpoint_workspace = CheckpointWorkspaceConfig(
+                output_leaf_dir_name=name_with_date
+            )
+            self.wandb = WandbConfig(project=DEFAULT_WANDB_PROJECT, name=name_with_date)
+
     @property
     def actual_train_dataset_filepath(self) -> pathlib.Path:
         if self.train_dataset_filepath is None:
@@ -544,9 +553,7 @@ class ClassifierConfig:
 
     @property
     def create_val_test_from_train(self) -> bool:
-        return (
-            self.val_dataset_filepath is None and self.test_dataset_filepath is None
-        )
+        return self.val_dataset_filepath is None and self.test_dataset_filepath is None
 
     @property
     def actual_val_dataset_filepath(self) -> pathlib.Path:

@@ -1667,7 +1667,7 @@ loop_timer = LoopTimer()
     device=device,
     loss_fns=loss_fns,
     task_type=cfg.task_type,
-    max_num_batches=10,
+    max_num_batches=None,
 )
 
 # %%
@@ -1686,6 +1686,29 @@ val_ground_truths_dict["passed_simulation"][:10]
 val_predictions_dict
 
 # %%
+import matplotlib.pyplot as plt
+# Small circles
+gaussian_noise = np.random.normal(0, 0.01, len(val_ground_truths_dict["passed_simulation"]))
+plt.scatter(val_ground_truths_dict["passed_simulation"] + gaussian_noise, val_predictions_dict["passed_simulation"], s=0.1)
+plt.show()
+
+# %%
+np.unique(val_ground_truths_dict["passed_simulation"], return_counts=True)
+
+# %%
+unique_labels = np.unique(val_ground_truths_dict["passed_simulation"])
+fig, axes = plt.subplots(len(unique_labels), 1, figsize=(10, 10))
+axes = axes.flatten()
+
+for i, unique_val in enumerate(unique_labels):
+    preds = np.array(val_predictions_dict["passed_simulation"])
+    idxs = np.array(val_ground_truths_dict["passed_simulation"]) == unique_val
+    ground_truths = preds[idxs]
+    axes[i].hist(ground_truths, bins=50, alpha=0.7, color="blue")
+    axes[i].set_title(f"Ground Truth: {unique_val}")
+
+fig.tight_layout()
+
 
 
 
@@ -1699,12 +1722,15 @@ val_log_dict = create_log_dict(
     ground_truths_dict=val_ground_truths_dict,
     optimizer=optimizer,
 )
-# %%
-val_log_dict
 
 # %%
-val_log_dict['val_passed_simulation_scatter']
-wandb.log(val_log_dict)
+val_log_dict_modified = {
+    f"{k}_v2": v
+    for k, v in val_log_dict.items()
+}
+
+# %%
+wandb.log(val_log_dict_modified)
 
 
 # %%

@@ -10,7 +10,7 @@ from nerf_grasping.config.grasp_metric_config import (
     GraspMetricConfig,
 )
 from typing import Optional, Literal, Union
-from nerf_grasping.config.base import WandbConfig, CONFIG_DATETIME_STR
+from nerf_grasping.config.base import WandbConfig
 
 DEFAULT_WANDB_PROJECT = "optimize_metric"
 
@@ -30,7 +30,7 @@ class OptimizationConfig:
     grasp_split: Literal["train", "val", "test"] = "val"
     wandb: Optional[WandbConfig] = field(
         default_factory=lambda: WandbConfig(
-            project=DEFAULT_WANDB_PROJECT, name=CONFIG_DATETIME_STR
+            project=DEFAULT_WANDB_PROJECT
         )
     )
     use_rich: bool = False

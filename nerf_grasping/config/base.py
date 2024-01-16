@@ -16,7 +16,7 @@ class WandbConfig:
     entity: Optional[str] = None
     """Account associated with the wandb project."""
 
-    name: Optional[str] = None
+    name: str = CONFIG_DATETIME_STR
     """Name of the run."""
 
     group: Optional[str] = None

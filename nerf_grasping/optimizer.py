@@ -94,6 +94,7 @@ class SGDOptimizer(Optimizer):
             optimizer_config: SGDOptimizerConfig object defining the optimizer configuration.
         """
         super().__init__(init_grasp_config, grasp_metric)
+        self.optimizer_config = optimizer_config
 
         # Add requires_grad to grasp config.
         init_grasp_config.wrist_pose.requires_grad = optimizer_config.opt_wrist_pose
@@ -120,8 +121,6 @@ class SGDOptimizer(Optimizer):
                 lr=optimizer_config.grasp_dir_lr,
                 # momentum=optimizer_config.momentum,
             )
-
-        self.optimizer_config = optimizer_config
 
     def step(self):
         self.joint_optimizer.zero_grad()
@@ -157,8 +156,7 @@ class CEMOptimizer(Optimizer):
             grasp_metric: Union[GraspMetric, DepthImageGraspMetric] object defining the metric to optimize.
             optimizer_config: SGDOptimizerConfig object defining the optimizer configuration.
         """
-        self.grasp_config = grasp_config
-        self.grasp_metric = grasp_metric
+        super().__init__(grasp_config, grasp_metric)
         self.optimizer_config = optimizer_config
 
     def step(self):
@@ -384,18 +382,11 @@ def main(cfg: OptimizationConfig) -> None:
             cfg.init_grasp_config_dict_path, allow_pickle=True
         ).item()
 
-        if isinstance(cfg.optimizer, SGDOptimizerConfig):
-            num_grasps = cfg.optimizer.num_grasps
-        elif isinstance(cfg.optimizer, CEMOptimizerConfig):
-            num_grasps = cfg.optimizer.num_init_samples
-        else:
-            raise ValueError(f"Invalid optimizer config: {cfg.optimizer}")
-
         init_grasp_configs = AllegroGraspConfig.from_grasp_config_dict(
             init_grasp_config_dict
         )
 
-        init_grasp_configs = init_grasp_configs[:num_grasps]
+        init_grasp_configs = init_grasp_configs[:cfg.optimizer.num_grasps]
 
         if progress is not None and task is not None:
             progress.update(task, advance=1)

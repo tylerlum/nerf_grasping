@@ -4,13 +4,12 @@ import tyro
 
 @dataclass
 class BaseOptimizerConfig:
-    pass
+    num_grasps: int = 5
 
 
 @dataclass
 class SGDOptimizerConfig(BaseOptimizerConfig):
     num_steps: int = 200
-    num_grasps: int = 10
     finger_lr: float = 1e-4
     grasp_dir_lr: float = 1e-4
     wrist_lr: float = 1e-4
@@ -21,9 +20,8 @@ class SGDOptimizerConfig(BaseOptimizerConfig):
 
 @dataclass
 class CEMOptimizerConfig(BaseOptimizerConfig):
-    num_init_samples: int = 250
-    num_samples: int = 250
-    num_elite: int = 50
+    num_samples: int = 5
+    num_elite: int = 2
     num_steps: int = 30
     min_cov_std: float = 1e-2
 

@@ -3,19 +3,21 @@ import tyro
 import pathlib
 import nerf_grasping
 from nerf_grasping.config.optimizer_config import (
-    UnionGraspOptimizerConfig,
+    SGDOptimizerConfig,
+    CEMOptimizerConfig,
 )
 from nerf_grasping.config.grasp_metric_config import (
     GraspMetricConfig,
 )
-from typing import Optional, Literal
+from typing import Optional, Literal, Union
 from nerf_grasping.config.base import WandbConfig, CONFIG_DATETIME_STR
 
+DEFAULT_WANDB_PROJECT = "optimize_metric"
 
 @dataclass
 class OptimizationConfig:
     """Top-level config for optimizing grasp metric."""
-    optimizer: UnionGraspOptimizerConfig
+    optimizer: Union[SGDOptimizerConfig, CEMOptimizerConfig]
     grasp_metric: GraspMetricConfig
     init_grasp_config_dict_path: pathlib.Path = (
         pathlib.Path(nerf_grasping.get_repo_root())
@@ -28,7 +30,7 @@ class OptimizationConfig:
     grasp_split: Literal["train", "val", "test"] = "val"
     wandb: Optional[WandbConfig] = field(
         default_factory=lambda: WandbConfig(
-            project="learned_metric", name=CONFIG_DATETIME_STR
+            project=DEFAULT_WANDB_PROJECT, name=CONFIG_DATETIME_STR
         )
     )
     use_rich: bool = False

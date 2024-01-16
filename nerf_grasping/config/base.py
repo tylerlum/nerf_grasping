@@ -27,12 +27,3 @@ class WandbConfig:
 
     resume: Literal["allow", "never"] = "never"
     """Whether to allow wandb to resume a previous run."""
-
-    @property
-    def name_with_date(self) -> str:
-        """Name of the run with the date appended."""
-        return (
-            f"{self.name}_{CONFIG_DATETIME_STR}"
-            if self.name is not None
-            else CONFIG_DATETIME_STR
-        )

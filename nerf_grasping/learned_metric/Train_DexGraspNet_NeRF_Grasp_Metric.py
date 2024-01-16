@@ -315,7 +315,7 @@ else:
 run = wandb.init(
     entity=cfg.wandb.entity,
     project=cfg.wandb.project,
-    name=cfg.wandb.name_with_date,
+    name=cfg.wandb.name,
     group=cfg.wandb.group,
     job_type=cfg.wandb.job_type,
     config=asdict(cfg),

@@ -164,20 +164,48 @@ if is_notebook():
     #     "--checkpoint-workspace.input_leaf_dir_name",
     #     "2023-11-30_15-49-25",
     # ]
+
+    # arguments = [
+    #     "grasp-cond-simple-cnn-1d-2d",
+    #     "--task-type",
+    #     "PASSED_SIMULATION",
+    #     "--nerfdata-config.output-filepath",
+    #     "data/2023-01-03_mug_one_object_smaller0-075_noise_lightshake_mid_opt/grid_dataset/dataset.h5",
+    #     "--dataloader.batch-size",
+    #     "32",
+    #     "--wandb.name",
+    #     "probe_mug_grid_graspcond",
+    #     "--checkpoint-workspace.input_leaf_dir_name",
+    #     "mug_grid_graspcond_BACKUP",
+    # ]
+
+    # arguments = [
+    #     "grasp-cond-simple-cnn-2d-1d",
+    #     "--task-type",
+    #     "PASSED_SIMULATION",
+    #     "--nerfdata-config.output-filepath",
+    #     "data/2023-01-03_mugs_smaller0-075_noise_lightshake_mid_opt/grid_dataset/dataset.h5",
+    #     "--dataloader.batch-size",
+    #     "32",
+    #     "--wandb.name",
+    #     "probe_mugs_grid_grasp-cond-simple-cnn-2d-1d",
+    #     "--checkpoint-workspace.input_leaf_dir_name",
+    #     "mugs_grid_grasp-cond-simple-cnn-2d-1d_BACKUP",
+    # ]
+
     arguments = [
-        "grasp-cond-simple-cnn-1d-2d",
+        "grasp-cond-simple-cnn-2d-1d",
         "--task-type",
         "PASSED_SIMULATION",
         "--nerfdata-config.output-filepath",
-        "data/2023-01-03_mug_one_object_smaller0-075_noise_lightshake_mid_opt/grid_dataset/dataset.h5",
+        "data/2023-01-03_mugs_smaller0-075_noise_lightshake_mid_opt/grid_dataset/val_dataset.h5",
         "--dataloader.batch-size",
         "32",
         "--wandb.name",
-        "probe_mug_grid_graspcond",
+        "probe_mugs_grid_grasp-cond-simple-cnn-2d-1d",
         "--checkpoint-workspace.input_leaf_dir_name",
-        "mug_grid_graspcond_BACKUP",
+        "mugs_grid_grasp-cond-simple-cnn-2d-1d_BACKUP",
     ]
-
 else:
     arguments = sys.argv[1:]
     print(f"arguments = {arguments}")
@@ -295,11 +323,12 @@ run = wandb.init(
 # # Dataset and Dataloader
 
 # %%
-
-input_dataset_full_path = str(cfg.nerfdata_config.output_filepath)
-if USE_DEPTH_IMAGES:
-    full_dataset = DepthImage_To_GraspSuccess_HDF5_Dataset(
-        input_hdf5_filepath=input_dataset_full_path,
+@localscope.mfc
+def create_depth_imgs_dataset(input_hdf5_filepath: str, cfg: ClassifierConfig) -> DepthImage_To_GraspSuccess_HDF5_Dataset:
+    assert isinstance(cfg.nerfdata_config, DepthImageNerfDataConfig)
+    assert cfg.nerfdata_config.fingertip_config is not None
+    return DepthImage_To_GraspSuccess_HDF5_Dataset(
+        input_hdf5_filepath=input_hdf5_filepath,
         fingertip_config=cfg.nerfdata_config.fingertip_config,
         fingertip_camera_config=cfg.nerfdata_config.fingertip_camera_config,
         max_num_data_points=cfg.data.max_num_data_points,
@@ -308,9 +337,12 @@ if USE_DEPTH_IMAGES:
         load_grasp_transforms_in_ram=cfg.dataloader.load_grasp_transforms_in_ram,
         load_nerf_configs_in_ram=cfg.dataloader.load_nerf_configs_in_ram,
     )
-else:
-    full_dataset = NeRFGrid_To_GraspSuccess_HDF5_Dataset(
-        input_hdf5_filepath=input_dataset_full_path,
+
+@localscope.mfc
+def create_grid_dataset(input_hdf5_filepath: str, cfg: ClassifierConfig) -> NeRFGrid_To_GraspSuccess_HDF5_Dataset:
+    assert cfg.nerfdata_config.fingertip_config is not None
+    return NeRFGrid_To_GraspSuccess_HDF5_Dataset(
+        input_hdf5_filepath=input_hdf5_filepath,
         fingertip_config=cfg.nerfdata_config.fingertip_config,
         max_num_data_points=cfg.data.max_num_data_points,
         load_nerf_densities_in_ram=cfg.dataloader.load_nerf_grid_inputs_in_ram,
@@ -319,11 +351,28 @@ else:
         load_nerf_configs_in_ram=cfg.dataloader.load_nerf_configs_in_ram,
     )
 
-train_dataset, val_dataset, test_dataset = random_split(
-    full_dataset,
-    [cfg.data.frac_train, cfg.data.frac_val, cfg.data.frac_test],
-    generator=torch.Generator().manual_seed(cfg.random_seed),
-)
+# %%
+input_dataset_full_path = str(cfg.actual_train_dataset_filepath)
+if cfg.create_val_test_from_train:
+    if USE_DEPTH_IMAGES:
+        full_dataset = create_depth_imgs_dataset(input_hdf5_filepath=input_dataset_full_path, cfg=cfg)
+    else:
+        full_dataset = create_grid_dataset(input_hdf5_filepath=input_dataset_full_path, cfg=cfg)
+
+    train_dataset, val_dataset, test_dataset = random_split(
+        full_dataset,
+        [cfg.data.frac_train, cfg.data.frac_val, cfg.data.frac_test],
+        generator=torch.Generator().manual_seed(cfg.random_seed),
+    )
+else:
+    if USE_DEPTH_IMAGES:
+        train_dataset = create_depth_imgs_dataset(input_hdf5_filepath=input_dataset_full_path, cfg=cfg)
+        val_dataset = create_depth_imgs_dataset(input_hdf5_filepath=str(cfg.actual_val_dataset_filepath), cfg=cfg)
+        test_dataset = create_depth_imgs_dataset(input_hdf5_filepath=str(cfg.actual_test_dataset_filepath), cfg=cfg)
+    else:
+        train_dataset = create_grid_dataset(input_hdf5_filepath=input_dataset_full_path, cfg=cfg)
+        val_dataset = create_grid_dataset(input_hdf5_filepath=str(cfg.actual_val_dataset_filepath), cfg=cfg)
+        test_dataset = create_grid_dataset(input_hdf5_filepath=str(cfg.actual_test_dataset_filepath), cfg=cfg)
 
 # %%
 print(f"Train dataset size: {len(train_dataset)}")
@@ -1480,8 +1529,9 @@ wandb.watch(classifier, log="gradients", log_freq=100)
 # %%
 @localscope.mfc
 def compute_class_weight_np(
-    train_dataset: Subset, input_dataset_full_path: str
+    train_dataset: Union[Subset, Any], input_dataset_full_path: str
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    # TODO: May break if train_dataset is not a subset, but separate val/test files
     try:
         print("Loading grasp success data for class weighting...")
         t1 = time.time()
@@ -1496,11 +1546,12 @@ def compute_class_weight_np(
 
         print("Extracting training indices...")
         t3 = time.time()
-        passed_simulations_np = passed_simulations_np[train_dataset.indices]
-        passed_penetration_threshold_np = passed_penetration_threshold_np[
-            train_dataset.indices
-        ]
-        passed_eval_np = passed_eval_np[train_dataset.indices]
+        if isinstance(train_dataset, Subset):
+            passed_simulations_np = passed_simulations_np[train_dataset.indices]
+            passed_penetration_threshold_np = passed_penetration_threshold_np[
+                train_dataset.indices
+            ]
+            passed_eval_np = passed_eval_np[train_dataset.indices]
         t4 = time.time()
         print(f"Extracted training indices in {t4 - t3:.2f} s")
 
@@ -1690,6 +1741,9 @@ import matplotlib.pyplot as plt
 # Small circles
 gaussian_noise = np.random.normal(0, 0.01, len(val_ground_truths_dict["passed_simulation"]))
 plt.scatter(val_ground_truths_dict["passed_simulation"] + gaussian_noise, val_predictions_dict["passed_simulation"], s=0.1)
+plt.xlabel("Ground Truth")
+plt.ylabel("Prediction")
+plt.title(f"passed_simulation Scatter Plot")
 plt.show()
 
 # %%
@@ -1722,6 +1776,9 @@ val_log_dict = create_log_dict(
     ground_truths_dict=val_ground_truths_dict,
     optimizer=optimizer,
 )
+
+# %%
+val_log_dict['val_loss']
 
 # %%
 val_log_dict_modified = {

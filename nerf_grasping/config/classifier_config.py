@@ -498,6 +498,9 @@ class ClassifierConfig:
     model_config: ClassifierModelConfig
     nerfdata_config: BaseNerfDataConfig
     nerfdata_config_path: Optional[pathlib.Path] = None
+    train_dataset_filepath: Optional[pathlib.Path] = None
+    val_dataset_filepath: Optional[pathlib.Path] = None
+    test_dataset_filepath: Optional[pathlib.Path] = None
     data: ClassifierDataConfig = ClassifierDataConfig()
     dataloader: ClassifierDataLoaderConfig = ClassifierDataLoaderConfig()
     training: ClassifierTrainingConfig = ClassifierTrainingConfig()
@@ -524,6 +527,38 @@ class ClassifierConfig:
             self.nerfdata_config = tyro.extras.from_yaml(
                 type(self.nerfdata_config), self.nerfdata_config_path.open()
             )
+
+        assert (
+            self.val_dataset_filepath is None and self.test_dataset_filepath is None
+        ) or (
+            self.val_dataset_filepath is not None
+            and self.test_dataset_filepath is not None
+        ), f"Must specify both val and test dataset filepaths, or neither. Got val: {self.val_dataset_filepath}, test: {self.test_dataset_filepath}"
+
+    @property
+    def actual_train_dataset_filepath(self) -> pathlib.Path:
+        if self.train_dataset_filepath is None:
+            assert self.nerfdata_config.output_filepath is not None
+            return self.nerfdata_config.output_filepath
+        return self.train_dataset_filepath
+
+    @property
+    def create_val_test_from_train(self) -> bool:
+        return (
+            self.val_dataset_filepath is None and self.test_dataset_filepath is None
+        )
+
+    @property
+    def actual_val_dataset_filepath(self) -> pathlib.Path:
+        if self.val_dataset_filepath is None:
+            raise ValueError("Must specify val dataset filepath")
+        return self.val_dataset_filepath
+
+    @property
+    def actual_test_dataset_filepath(self) -> pathlib.Path:
+        if self.test_dataset_filepath is None:
+            raise ValueError("Must specify test dataset filepath")
+        return self.test_dataset_filepath
 
 
 DEFAULTS_DICT = {

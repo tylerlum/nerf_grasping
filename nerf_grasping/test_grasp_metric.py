@@ -25,7 +25,7 @@ class Args:
         / "evaled_grasp_config_dicts"
         / "core-mug-10f6e09036350e92b3f21f1137c3c347_0_0750.npy"
     )
-    max_num_grasps: Optional[int] = 10
+    max_num_grasps: Optional[int] = 40
 
 
 def main(cfg: Args):

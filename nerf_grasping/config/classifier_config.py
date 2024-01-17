@@ -159,6 +159,9 @@ class ClassifierTrainingConfig:
     loss_fn: Literal[
         "cross_entropy",
         "l1",
+        "l2",
+        "weighted_l1",
+        "weighted_l2",
     ] = "l1"
 
 

@@ -1568,66 +1568,99 @@ wandb.watch(classifier, log="gradients", log_freq=100)
 
 
 # %%
+# Want to weight loss function because of imbalances
+# Have success rates that are unique discrete classes [0, 0.1, 0.2, ...]
+# Need to map these to classes
+@localscope.mfc
+def get_unique_classes(success_rates: np.ndarray) -> np.ndarray:
+    # [0.5, 0.2, 0.1, 0.5, 0.0, 0.0, ...] => [0, 0.1, 0.2, ...]
+    assert success_rates.ndim == 1
+    unique_classes = np.unique(success_rates)
+    return np.sort(unique_classes)
+
+
+@localscope.mfc
+def get_class_from_success_rate(
+    success_rates: np.ndarray, unique_classes: np.ndarray
+) -> int:
+    # [0.5, 0.2, 0.1, 0.5, 0.0, 0.0, ...], [0, 0.1, 0.2, ...] => [5, 2, 1, 5, 0, 0, ...]
+    assert unique_classes.ndim == 1
+    errors = np.absolute(unique_classes[None, :] - success_rates[:, None])
+    return errors.argmin(axis=-1)
+
+
+@localscope.mfc
+def _compute_class_weight(
+    success_rates: np.ndarray, unique_classes: np.ndarray
+) -> np.ndarray:
+    classes = np.arange(len(unique_classes))
+    y_classes = get_class_from_success_rate(
+        success_rates=success_rates, unique_classes=unique_classes
+    )
+    return compute_class_weight(
+        class_weight="balanced",
+        classes=classes,
+        y=y_classes,
+    )
+
+
 @localscope.mfc
 def compute_class_weight_np(
     train_dataset: Union[Subset, Any], input_dataset_full_path: str
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     # TODO: May break if train_dataset is not a subset, but separate val/test files
-    try:
-        print("Loading grasp success data for class weighting...")
-        t1 = time.time()
-        with h5py.File(input_dataset_full_path, "r") as hdf5_file:
-            passed_simulations_np = np.array(hdf5_file["/passed_simulation"][()])
-            passed_penetration_threshold_np = np.array(
-                hdf5_file["/passed_penetration_threshold"][()]
-            )
-            passed_eval_np = np.array(hdf5_file["/passed_eval"][()])
-        t2 = time.time()
-        print(f"Loaded grasp success data in {t2 - t1:.2f} s")
-
-        print("Extracting training indices...")
-        t3 = time.time()
-        if isinstance(train_dataset, Subset):
-            passed_simulations_np = passed_simulations_np[train_dataset.indices]
-            passed_penetration_threshold_np = passed_penetration_threshold_np[
-                train_dataset.indices
-            ]
-            passed_eval_np = passed_eval_np[train_dataset.indices]
-        t4 = time.time()
-        print(f"Extracted training indices in {t4 - t3:.2f} s")
-
-        print("Computing class weight with this data...")
-        t5 = time.time()
-
-        # argmax required to make binary classes
-        passed_simulation_class_weight_np = compute_class_weight(
-            class_weight="balanced",
-            classes=np.unique(passed_simulations_np.argmax(axis=-1)),
-            y=passed_simulations_np.argmax(axis=-1),
+    print("Loading grasp success data for class weighting...")
+    t1 = time.time()
+    with h5py.File(input_dataset_full_path, "r") as hdf5_file:
+        passed_simulations_np = np.array(hdf5_file["/passed_simulation"][()])
+        passed_penetration_threshold_np = np.array(
+            hdf5_file["/passed_penetration_threshold"][()]
         )
-        passed_penetration_threshold_class_weight_np = compute_class_weight(
-            class_weight="balanced",
-            classes=np.unique(passed_penetration_threshold_np.argmax(axis=-1)),
-            y=passed_penetration_threshold_np.argmax(axis=-1),
-        )
-        passed_eval_class_weight_np = compute_class_weight(
-            class_weight="balanced",
-            classes=np.unique(passed_eval_np.argmax(axis=-1)),
-            y=passed_eval_np.argmax(axis=-1),
-        )
-        t6 = time.time()
-        print(f"Computed class weight in {t6 - t5:.2f} s")
+        passed_eval_np = np.array(hdf5_file["/passed_eval"][()])
+    t2 = time.time()
+    print(f"Loaded grasp success data in {t2 - t1:.2f} s")
 
-    except Exception as e:
-        print(f"Failed to compute class weight: {e}")
-        print("Using default class weight")
-        passed_simulation_class_weight_np = np.array([1.0, 1.0])
-        passed_penetration_threshold_class_weight_np = np.array([1.0, 1.0])
-        passed_eval_class_weight_np = np.array([1.0, 1.0])
+    print("Extracting training indices...")
+    t3 = time.time()
+    if isinstance(train_dataset, Subset):
+        passed_simulations_np = passed_simulations_np[train_dataset.indices]
+        passed_penetration_threshold_np = passed_penetration_threshold_np[
+            train_dataset.indices
+        ]
+        passed_eval_np = passed_eval_np[train_dataset.indices]
+    t4 = time.time()
+    print(f"Extracted training indices in {t4 - t3:.2f} s")
+
+    print("Computing class weight with this data...")
+    t5 = time.time()
+
+    unique_passed_simulations = get_unique_classes(passed_simulations_np)
+    unique_passed_penetration_threshold = get_unique_classes(
+        passed_penetration_threshold_np
+    )
+    unique_passed_eval = get_unique_classes(passed_eval_np)
+
+    # argmax required to make binary classes
+    passed_simulation_class_weight_np = _compute_class_weight(
+        success_rates=passed_simulations_np, unique_classes=unique_passed_simulations
+    )
+    passed_penetration_threshold_class_weight_np = _compute_class_weight(
+        success_rates=passed_penetration_threshold_np,
+        unique_classes=unique_passed_penetration_threshold,
+    )
+    passed_eval_class_weight_np = _compute_class_weight(
+        success_rates=passed_eval_np, unique_classes=unique_passed_eval
+    )
+    t6 = time.time()
+    print(f"Computed class weight in {t6 - t5:.2f} s")
+
     return (
         passed_simulation_class_weight_np,
         passed_penetration_threshold_class_weight_np,
         passed_eval_class_weight_np,
+        unique_passed_simulations,
+        unique_passed_penetration_threshold,
+        unique_passed_eval,
     )
 
 
@@ -1635,6 +1668,9 @@ def compute_class_weight_np(
     passed_simulation_class_weight,
     passed_penetration_threshold_class_weight,
     passed_eval_class_weight,
+    unique_passed_simulations,
+    unique_passed_penetration_threshold,
+    unique_passed_eval,
 ) = compute_class_weight_np(
     train_dataset=train_dataset, input_dataset_full_path=input_dataset_full_path
 )
@@ -1645,11 +1681,21 @@ passed_penetration_threshold_class_weight = (
     torch.from_numpy(passed_penetration_threshold_class_weight).float().to(device)
 )
 passed_eval_class_weight = torch.from_numpy(passed_eval_class_weight).float().to(device)
+unique_passed_simulations = (
+    torch.from_numpy(unique_passed_simulations).float().to(device)
+)
+unique_passed_penetration_threshold = (
+    torch.from_numpy(unique_passed_penetration_threshold).float().to(device)
+)
+unique_passed_eval = torch.from_numpy(unique_passed_eval).float().to(device)
 print(f"passed_simulation_class_weight = {passed_simulation_class_weight}")
 print(
     f"passed_penetration_threshold_class_weight = {passed_penetration_threshold_class_weight}"
 )
 print(f"passed_eval_class_weight = {passed_eval_class_weight}")
+print(f"unique_passed_simulations = {unique_passed_simulations}")
+print(f"unique_passed_penetration_threshold = {unique_passed_penetration_threshold}")
+print(f"unique_passed_eval = {unique_passed_eval}")
 
 if cfg.training.extra_punish_false_positive_factor != 0.0:
     print(
@@ -1684,6 +1730,105 @@ class SoftmaxL1Loss(nn.Module):
         return self.l1_loss(input, target).mean(dim=-1)
 
 
+class SoftmaxL2Loss(nn.Module):
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__()
+        self.l2_loss = nn.MSELoss(*args, **kwargs)
+
+    def forward(self, input: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        input = torch.softmax(input, dim=-1)
+        return self.l2_loss(input, target).mean(dim=-1)
+
+
+class WeightedSoftmaxL1(nn.Module):
+    def __init__(
+        self,
+        unique_label_weights: torch.Tensor,
+        unique_labels: torch.Tensor,
+        *args,
+        **kwargs,
+    ) -> None:
+        super().__init__()
+        self.unique_label_weights = unique_label_weights
+        self.unique_labels = unique_labels
+
+        (N,) = self.unique_labels.shape
+        (N2,) = self.unique_label_weights.shape
+        assert_equals(N, N2)
+
+        self.l1_loss = nn.L1Loss(*args, **kwargs)
+
+    def forward(self, input: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        batch_size = input.shape[0]
+        assert_equals(input.shape, (batch_size, 2))
+        assert_equals(target.shape, (batch_size, 2))
+
+        # Compute the raw L1 losses
+        input = torch.softmax(input, dim=-1)
+        l1_losses = self.l1_loss(input, target).mean(dim=-1)
+
+        assert_equals(l1_losses.shape, (batch_size,))
+
+        # Find the closest label for each target and its index
+        target_indices = (
+            (self.unique_labels.unsqueeze(0) - target[:, 1:2]).abs().argmin(dim=1)
+        )
+
+        # Gather the weights for each sample
+        weights = self.unique_label_weights[target_indices]
+
+        # Weight the L1 losses
+        weighted_losses = weights * l1_losses
+
+        assert len(weighted_losses.shape) == 1
+        return weighted_losses
+
+
+class WeightedSoftmaxL2(nn.Module):
+    def __init__(
+        self,
+        unique_label_weights: torch.Tensor,
+        unique_labels: torch.Tensor,
+        *args,
+        **kwargs,
+    ) -> None:
+        super().__init__()
+        self.unique_label_weights = unique_label_weights
+        self.unique_labels = unique_labels
+
+        (N,) = self.unique_labels.shape
+        (N2,) = self.unique_label_weights.shape
+        assert_equals(N, N2)
+
+        self.l2_loss = nn.MSELoss(*args, **kwargs)
+
+    def forward(self, input: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        breakpoint()
+        batch_size = input.shape[0]
+        assert_equals(input.shape, (batch_size, 2))
+        assert_equals(target.shape, (batch_size, 2))
+
+        # Compute the raw L2 losses
+        input = torch.softmax(input, dim=-1)
+        l2_losses = self.l2_loss(input, target).mean(dim=-1)
+
+        assert_equals(l2_losses.shape, (batch_size,))
+
+        # Find the closest label for each target and its index
+        target_indices = (
+            (self.unique_labels.unsqueeze(0) - target[:, 1:2]).abs().argmin(dim=1)
+        )
+
+        # Gather the weights for each sample
+        weights = self.unique_label_weights[target_indices]
+
+        # Weight the L2 losses
+        weighted_losses = weights * l2_losses
+
+        assert len(weighted_losses.shape) == 1
+        return weighted_losses
+
+
 if cfg.training.loss_fn == "l1":
     print("=" * 80)
     print(f"Using L1 loss")
@@ -1691,6 +1836,52 @@ if cfg.training.loss_fn == "l1":
     passed_simulation_loss_fn = SoftmaxL1Loss(reduction="none")
     passed_penetration_threshold_loss_fn = SoftmaxL1Loss(reduction="none")
     passed_eval_loss_fn = SoftmaxL1Loss(reduction="none")
+elif cfg.training.loss_fn == "l2":
+    print("=" * 80)
+    print(f"Using L2 loss")
+    print("=" * 80 + "\n")
+    passed_simulation_loss_fn = SoftmaxL2Loss(reduction="none")
+    passed_penetration_threshold_loss_fn = SoftmaxL2Loss(reduction="none")
+    passed_eval_loss_fn = SoftmaxL2Loss(reduction="none")
+elif cfg.training.loss_fn == "weighted_l1":
+    print("=" * 80)
+    print(f"Using Weighted L1 loss")
+    print("=" * 80 + "\n")
+    passed_simulation_loss_fn = WeightedSoftmaxL1(
+        unique_label_weights=passed_simulation_class_weight,
+        unique_labels=unique_passed_simulations,
+        reduction="none",
+    )
+    passed_penetration_threshold_loss_fn = WeightedSoftmaxL1(
+        unique_label_weights=passed_penetration_threshold_class_weight,
+        unique_labels=unique_passed_penetration_threshold,
+        reduction="none",
+    )
+    passed_eval_loss_fn = WeightedSoftmaxL1(
+        unique_label_weights=passed_eval_class_weight,
+        unique_labels=unique_passed_eval,
+        reduction="none",
+    )
+elif cfg.training.loss_fn == "weighted_l2":
+    print("=" * 80)
+    print(f"Using Weighted L2 loss")
+    print("=" * 80 + "\n")
+    passed_simulation_loss_fn = WeightedSoftmaxL2(
+        unique_label_weights=passed_simulation_class_weight,
+        unique_labels=unique_passed_simulations,
+        reduction="none",
+    )
+    passed_penetration_threshold_loss_fn = WeightedSoftmaxL2(
+        unique_label_weights=passed_penetration_threshold_class_weight,
+        unique_labels=unique_passed_penetration_threshold,
+        reduction="none",
+    )
+    passed_eval_loss_fn = WeightedSoftmaxL2(
+        unique_label_weights=passed_eval_class_weight,
+        unique_labels=unique_passed_eval,
+        reduction="none",
+    )
+
 elif cfg.training.loss_fn == "cross_entropy":
     print("=" * 80)
     print(f"Using CE loss")

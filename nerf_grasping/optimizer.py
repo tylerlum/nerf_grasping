@@ -278,14 +278,13 @@ def run_optimizer_loop(
         for iter in range(optimizer_config.num_steps):
             wandb_log_dict = {}
             wandb_log_dict["optimization_step"] = iter
-            print(f"{iter}: {optimizer.grasp_loss}")
 
             if iter % print_freq == 0:
                 # console.print(
                 #     f"Iter: {iter} | Min loss: {optimizer.grasp_loss.min():.3f} | Max loss: {optimizer.grasp_loss.max():.3f} | Mean loss: {optimizer.grasp_loss.mean():.3f} | Std dev: {optimizer.grasp_loss.std():.3f}"
                 # )
                 print(
-                    f"Iter: {iter} | Min loss: {optimizer.grasp_loss.min():.3f} | Max loss: {optimizer.grasp_loss.max():.3f} | Mean loss: {optimizer.grasp_loss.mean():.3f} | Std dev: {optimizer.grasp_loss.std():.3f}"
+                    f"Iter: {iter} | Losses: {optimizer.grasp_loss.round(decimals=3).tolist()} | Min loss: {optimizer.grasp_loss.min():.3f} | Max loss: {optimizer.grasp_loss.max():.3f} | Mean loss: {optimizer.grasp_loss.mean():.3f} | Std dev: {optimizer.grasp_loss.std():.3f}"
                 )
 
             optimizer.step()

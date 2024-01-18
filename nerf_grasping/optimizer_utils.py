@@ -465,6 +465,210 @@ class AllegroGraspConfig(torch.nn.Module):
             device=self.grasp_orientations.device, dtype=self.grasp_orientations.dtype
         ).unsqueeze(0).unsqueeze(0)
 
+    @property
+    def target_joint_angles(self) -> torch.Tensor:
+        return compute_joint_angle_targets(
+            
+            grasp_orientations=self.grasp_orientations,
+        )
+
+def compute_joint_angle_targets(
+    wrist_pose: pp.LieTensor,
+    grasp_orientations: pp.LieTensor,
+) -> np.ndarray:
+    # hand model
+    hand_model = HandModel(
+        hand_model_type=args.hand_model_type, device=hand_pose.device
+    )
+    hand_model.set_parameters(hand_pose)
+
+    # Optimization
+    (
+        optimized_joint_angle_targets,
+        _,
+    ) = compute_optimized_joint_angle_targets_given_grasp_orientations(
+        joint_angles_start=hand_model.hand_pose[:, 9:],
+        hand_model=hand_model,
+        grasp_orientations=grasp_orientations,
+    )
+
+    num_joints = len(handmodeltype_to_joint_names[hand_model.hand_model_type])
+    assert optimized_joint_angle_targets.shape == (hand_model.batch_size, num_joints)
+
+    return optimized_joint_angle_targets.detach().cpu().numpy()
+
+def compute_optimized_joint_angle_targets_given_grasp_orientations(
+    joint_angles_start: torch.Tensor,
+    hand_model: HandModel,
+    grasp_orientations: torch.Tensor,
+) -> Tuple[torch.Tensor, defaultdict]:
+    # Get fingertip targets
+    fingertip_targets = compute_fingertip_targets(
+        joint_angles_start=joint_angles_start,
+        hand_model=hand_model,
+        grasp_orientations=grasp_orientations,
+    )
+
+    (
+        joint_angle_targets,
+        debug_info,
+    ) = compute_optimized_joint_angle_targets_given_fingertip_targets(
+        joint_angles_start=joint_angles_start,
+        hand_model=hand_model,
+        fingertip_targets=fingertip_targets,
+    )
+    return joint_angle_targets, debug_info
+
+def compute_optimized_joint_angle_targets_given_fingertip_targets(
+    joint_angles_start: torch.Tensor,
+    hand_model: HandModel,
+    fingertip_targets: torch.Tensor,
+) -> Tuple[torch.Tensor, defaultdict]:
+    # Sanity check
+    batch_size = hand_model.batch_size
+    num_fingers = hand_model.num_fingers
+    num_xyz = 3
+    assert fingertip_targets.shape == (batch_size, num_fingers, num_xyz)
+
+    # Store original hand pose for later
+    original_hand_pose = hand_model.hand_pose.detach().clone()
+
+    # Optimize joint angles
+    joint_angle_targets_to_optimize = (
+        joint_angles_start.detach().clone().requires_grad_(True)
+    )
+    debug_info = defaultdict(list)
+    N_ITERS = 100
+    for i in range(N_ITERS):
+        contact_points_hand_to_optimize = compute_fingertip_mean_contact_positions(
+            joint_angles=joint_angle_targets_to_optimize, hand_model=hand_model
+        )
+        loss = (
+            (fingertip_targets.detach().clone() - contact_points_hand_to_optimize)
+            .square()
+            .sum()
+        )
+        GRAD_STEP_SIZE = 5
+
+        loss.backward(retain_graph=True)
+
+        with torch.no_grad():
+            joint_angle_targets_to_optimize -= (
+                joint_angle_targets_to_optimize.grad * GRAD_STEP_SIZE
+            )
+            joint_angle_targets_to_optimize.grad.zero_()
+        debug_info["loss"].append(loss.item())
+        debug_info["fingertip_targets"].append(fingertip_targets.detach().clone())
+        debug_info["contact_points_hand"].append(
+            contact_points_hand_to_optimize.detach().clone()
+        )
+
+    # Update hand pose parameters
+    new_hand_pose = original_hand_pose.detach().clone()
+    new_hand_pose[:, 9:] = joint_angle_targets_to_optimize
+    hand_model.set_parameters(new_hand_pose)
+
+    return joint_angle_targets_to_optimize, debug_info
+
+def compute_fingertip_mean_contact_positions(
+    joint_angles: torch.Tensor,
+    hand_model: HandModel,
+) -> torch.Tensor:
+    """Get the mean position of the contact candidates for each fingertip"""
+    batch_size = joint_angles.shape[0]
+    num_fingers = hand_model.num_fingers
+
+    # Each link has a set of contact candidates
+    link_name_to_contact_candidates = _compute_link_name_to_contact_candidates(
+        joint_angles=joint_angles,
+        hand_model=hand_model,
+    )
+    # Merge contact candidates for links associated with same fingertip
+    fingertip_name_to_contact_candidates = (
+        _compute_fingertip_name_to_contact_candidates(
+            link_name_to_contact_candidates=link_name_to_contact_candidates,
+        )
+    )
+
+    # Iterate in deterministic order
+    fingertip_names = FINGERTIP_KEYWORDS
+    fingertip_mean_positions = []
+    for i, fingertip_name in enumerate(fingertip_names):
+        contact_candidates = fingertip_name_to_contact_candidates[fingertip_name]
+        num_contact_candidates_this_link = contact_candidates.shape[1]
+        assert contact_candidates.shape == (
+            batch_size,
+            num_contact_candidates_this_link,
+            3,
+        )
+
+        fingertip_mean_positions.append(contact_candidates.mean(dim=1))
+
+    fingertip_mean_positions = torch.stack(fingertip_mean_positions, dim=1)
+    assert fingertip_mean_positions.shape == (batch_size, num_fingers, 3)
+    return fingertip_mean_positions
+
+def _compute_link_name_to_contact_candidates(
+    joint_angles: torch.Tensor,
+    hand_model: HandModel,
+) -> Dict[str, torch.Tensor]:
+    batch_size = joint_angles.shape[0]
+
+    current_status = hand_model.chain.forward_kinematics(joint_angles)
+    link_name_to_contact_candidates = {}
+    for i, link_name in enumerate(hand_model.mesh):
+        # Compute contact candidates
+        untransformed_contact_candidates = hand_model.mesh[link_name][
+            "contact_candidates"
+        ]
+        if len(untransformed_contact_candidates) == 0:
+            continue
+
+        contact_candidates = (
+            current_status[link_name]
+            .transform_points(untransformed_contact_candidates)
+            .expand(batch_size, -1, 3)
+        )
+        contact_candidates = contact_candidates @ hand_model.global_rotation.transpose(
+            1, 2
+        ) + hand_model.global_translation.unsqueeze(1)
+
+        assert contact_candidates.shape == (
+            batch_size,
+            len(untransformed_contact_candidates),
+            3,
+        )
+        link_name_to_contact_candidates[link_name] = contact_candidates
+
+    return link_name_to_contact_candidates
+
+
+def _compute_fingertip_name_to_contact_candidates(
+    link_name_to_contact_candidates: Dict[str, torch.Tensor],
+) -> Dict[str, torch.Tensor]:
+    # HACK: hardcoded
+    # Merge links associated with same fingertip
+    fingertip_keywords = FINGERTIP_KEYWORDS
+    fingertip_name_to_contact_candidates = {}
+    for fingertip_keyword in fingertip_keywords:
+        merged_contact_candidates = []
+        for link_name, contact_candidates in link_name_to_contact_candidates.items():
+            batch_size, n_contact_candidates, _ = contact_candidates.shape
+            assert contact_candidates.shape == (batch_size, n_contact_candidates, 3)
+
+            if fingertip_keyword in link_name:
+                merged_contact_candidates.append(contact_candidates)
+
+        fingertip_name_to_contact_candidates[fingertip_keyword] = torch.cat(
+            merged_contact_candidates, dim=1
+        )
+    return fingertip_name_to_contact_candidates
+
+
+
+
+
+
 
 class GraspMetric(torch.nn.Module):
     """
@@ -867,5 +1071,56 @@ def batch_cov(x: torch.Tensor, dim: int = 0, keepdim=False):
         dim=dim, keepdim=keepdim
     ) / (n_dim - 1)
 
+
+def get_sorted_grasps(optimized_grasp_config_dict_filepath: pathlib.Path) -> Tuple[np.ndarray, np.ndarray,np.ndarray, np.ndarray]:
+    """
+    This function processes optimized grasping configurations in preparation for hardware tests.
+
+    It reads a given .npy file containing optimized grasps, computes target joint angles for each grasp, and sorts these grasps based on a pre-computed grasp metric, with the most favorable grasp appearing first in the list.
+
+    Parameters:
+    optimized_grasp_config_dict_filepath (pathlib.Path): The file path to the optimized grasp .npy file. This file should contain wrist poses, joint angles, grasp orientations, and loss from grasp metric.
+
+    Returns:
+    Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    - A batch of wrist translations in a numpy array of shape (B, 3), representing position in world frame
+    - A batch of wrist rotations in a numpy array of shape (B, 3, 3), representing orientation in world frame (avoid quat to be less ambiguous about order)
+    - A batch of joint angles in a numpy array of shape (B, 16)
+    - A batch of target joint angles in a numpy array of shape (B, 16)
+
+    Example:
+    >>> wrist_trans, wrist_rot, joint_angles, target_joint_angles = get_sorted_grasps(pathlib.Path("path/to/optimized_grasp_config.npy"))
+    >>> B = wrist_trans.shape[0]
+    >>> assert wrist_trans.shape == (B, 3)
+    >>> assert wrist_rot.shape == (B, 3, 3)
+    >>> assert joint_angles.shape == (B, 16)
+    >>> assert target_joint_angles.shape == (B, 16)
+    """
+    # Read in
+    grasp_config_dict = np.load(optimized_grasp_config_dict_filepath, allow_pickle=True).item()
+    grasp_configs = AllegroGraspConfig.from_grasp_config_dict(grasp_config_dict)
+    B = grasp_configs.batch_size
+
+    # Sort by loss
+    losses = grasp_config_dict['loss']
+    sorted_idxs = np.argsort(losses)
+    sorted_losses = losses[sorted_idxs]
+    sorted_grasp_configs = grasp_configs[sorted_idxs]
+    best_grasp_configs = sorted_grasp_configs[:5]
+    print(f"Best grasp configs: {best_grasp_configs}")
+    print(f"Best grasp losses: {sorted_losses[:5]}")
+
+    # Get 
+    wrist_trans = best_grasp_configs.wrist_pose.translation().detach().cpu().numpy()
+    wrist_rot = best_grasp_configs.wrist_pose.rotation().matrix().detach().cpu().numpy()
+    joint_angles = best_grasp_configs.joint_angles.detach().cpu().numpy()
+    target_joint_angles = best_grasp_configs.target_joint_angles.detach().cpu().numpy()
+
+    assert wrist_trans.shape == (B, 3)
+    assert wrist_rot.shape == (B, 3, 3)
+    assert joint_angles.shape == (B, 16)
+    assert target_joint_angles.shape == (B, 16)
+
+    return wrist_trans, wrist_rot, joint_angles, target_joint_angles
 
 # %%

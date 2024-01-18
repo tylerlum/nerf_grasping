@@ -18,7 +18,10 @@ pip install nerfstudio
 ns-install-cli
 
 # Install other dependencies
-pip install pypose numpy tyro wandb rich
+pip install pypose numpy tyro wandb rich pytorch_kinematics mujoco transforms3d torchinfo
+
+# Other dependencies for fancy things we haven't used much like transformers and learning rate scheduling
+pip install positional_encodings diffusers
 
 # Install nerf_grasping
 git clone https://github.com/tylerlum/nerf_grasping.git
@@ -73,9 +76,20 @@ python nerf_grasping/optimizer.py \
 --use-rich \
 --output-path <OUTPUT>.npy \
 --init-grasp-config-dict-path <INIT_GRASP_CONFIG_DICT>.npy \
-optimizer:sgd-optimizer-config \
 --grasp-metric.nerf-checkpoint-path <NERF_CHECKPOINT_PATH>/config.yml \
---grasp-metric.classifier-config-path <CLASSIFIER_CONFIG_PATH>/config.yaml
+--grasp-metric.classifier-config-path <CLASSIFIER_CONFIG_PATH>/config.yaml \
+optimizer:sgd-optimizer-config
+```
+
+Example:
+```
+python nerf_grasping/optimizer.py \
+--use-rich \
+--output-path OUTPUT.npy \
+--init-grasp-config-dict-path /juno/u/tylerlum/github_repos/nerf_grasping/data/2024-01-17_cube_0-03_noise_lightshake/evaled_grasp_config_dicts/cube_0_0300.npy \
+--grasp-metric.nerf-checkpoint-path /juno/u/tylerlum/github_repos/nerf_grasping/data/2024-01-17_cube_0-03_noise_lightshake/nerfcheckpoints/cube_0_0300/nerfacto/2024-01-17_134125/config.yml \
+--grasp-metric.classifier-config-path /juno/u/tylerlum/github_repos/nerf_grasping/Train_DexGraspNet_NeRF_Grasp_Metric_workspaces/cube_depth_grasp-cond-depth-cnn-2d-small_2024-01-17_13-49-08-317805/config.yaml \
+optimizer:sgd-optimizer-config
 ```
 
 However, we also will likely need to add something like `--object-centroid 0 0.2 0.7` to properly query the nerf.

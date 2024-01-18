@@ -540,7 +540,9 @@ class ClassifierConfig:
         ), f"Must specify both val and test dataset filepaths, or neither. Got val: {self.val_dataset_filepath}, test: {self.test_dataset_filepath}"
 
         # Set the name of the run if given
-        if self.name is not None:
+        # HACK: don't want to overwrite these if we're loading this config from a file
+        #       can tell if loading by file if self.checkpoint_workspace.output_dir exists
+        if self.name is not None and not self.checkpoint_workspace.output_dir.exists():
             name_with_date = f"{self.name}_{CONFIG_DATETIME_STR}"
             self.checkpoint_workspace = CheckpointWorkspaceConfig(
                 output_leaf_dir_name=name_with_date

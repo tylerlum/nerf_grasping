@@ -2,7 +2,6 @@ import torch
 import torch.nn as nn
 from typing import List, Tuple, Optional, Dict, Any, Union
 from dataclasses import dataclass, field
-from omegaconf import MISSING
 from nerf_grasping.models.FiLM_resnet import (
     resnet18,
     ResNet18_Weights,
@@ -297,9 +296,9 @@ class FiLMGenerator(nn.Module):
 
 @dataclass
 class ConvEncoder2DConfig:
-    use_pretrained: bool = MISSING
-    pooling_method: ConvOutputTo1D = MISSING
-    film_hidden_layers: Tuple[int, ...] = MISSING
+    use_pretrained: bool
+    pooling_method: ConvOutputTo1D
+    film_hidden_layers: Tuple[int, ...]
 
 
 def resnet_small(*, weights=None, progress: bool = True, **kwargs: Any):
@@ -477,17 +476,17 @@ class ConvEncoder2D(nn.Module):
 
 @dataclass
 class ConvEncoder1DConfig:
-    pooling_method: ConvOutputTo1D = MISSING
-    film_hidden_layers: Tuple[int, ...] = MISSING
-    base_filters: int = MISSING
-    kernel_size: int = MISSING
-    stride: int = MISSING
-    groups: int = MISSING
-    n_block: int = MISSING
-    downsample_gap: int = MISSING
-    increasefilter_gap: int = MISSING
-    use_batchnorm: bool = MISSING
-    use_dropout: bool = MISSING
+    pooling_method: ConvOutputTo1D
+    film_hidden_layers: Tuple[int, ...]
+    base_filters: int
+    kernel_size: int
+    stride: int
+    groups: int
+    n_block: int
+    downsample_gap: int
+    increasefilter_gap: int
+    use_batchnorm: bool
+    use_dropout: bool
 
 
 class ConvEncoder1D(nn.Module):
@@ -597,12 +596,12 @@ class ConvEncoder1D(nn.Module):
 
 @dataclass
 class TransformerEncoder1DConfig:
-    pooling_method: ConvOutputTo1D = MISSING
-    n_heads: int = MISSING
-    n_emb: int = MISSING
-    p_drop_emb: float = MISSING
-    p_drop_attn: float = MISSING
-    n_layers: int = MISSING
+    pooling_method: ConvOutputTo1D
+    n_heads: int
+    n_emb: int
+    p_drop_emb: float
+    p_drop_attn: float
+    n_layers: int
 
 
 class TransformerEncoder1D(nn.Module):

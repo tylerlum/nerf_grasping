@@ -1,7 +1,130 @@
 # Grasping with NeRFs
 
-This project focuses on performing grasping and manipulation using
-Neural Radiance Fields (NeRFs).
+This project focuses on performing precision grasp synthesis using Neural Radiance Fields (NeRFs).
+
+# Rough Installation Instructions (2024-01-17)
+
+```
+conda create -n nerf_grasping_env python=3.8
+conda activate nerf_grasping_env
+
+# Install nerf-studio https://docs.nerf.studio/quickstart/installation.html
+python -m pip install --upgrade pip
+pip uninstall torch torchvision functorch tinycudann
+pip install torch==2.1.2+cu118 torchvision==0.16.2+cu118 --extra-index-url https://download.pytorch.org/whl/cu118
+conda install -c "nvidia/label/cuda-11.8.0" cuda-toolkit
+pip install ninja git+https://github.com/NVlabs/tiny-cuda-nn/#subdirectory=bindings/torch
+pip install nerfstudio
+ns-install-cli
+
+# Install other dependencies
+pip install pypose numpy tyro wandb rich
+
+# Install nerf_grasping
+git clone https://github.com/tylerlum/nerf_grasping.git
+cd nerf_grasping
+pip install -e .
+```
+
+# How to run at inference time (Albert)
+
+## Step 1: Get Required Starting Files
+
+1. `init_grasp_config_dict_path`: file containing initial grasps from which to optimize (eg. `cube_0_0300.npy`)
+2. `classifier_config_path`: file containing config of the classifier (eg. `Train_DexGraspNet_NeRF_Grasp_Metric_workspaces/mugs_grid_grasp-cond-simple-cnn-2d-1d/config.yaml`)
+3. `classifier_checkpoint`: file containing the weights of the above classifier (eg. `Train_DexGraspNet_NeRF_Grasp_Metric_workspaces/mugs_grid_grasp-cond-simple-cnn-2d-1d/checkpoint_0080.pt`)
+
+NOTE: May need to modify `classifier_config_path`'s params to properly point to the above `classifier_checkpoint`. (eg. currently is `root_dir = Train_DexGraspNet_NeRF_Grasp_Metric_workspaces`, `output_leaf_dir = mugs_grid_grasp-cond-simple-cnn-2d-1d`, so this looks for `Train_DexGraspNet_NeRF_Grasp_Metric_workspaces/mugs_grid_grasp-cond-simple-cnn-2d-1d/*.pth`.
+
+## Step 2: Collect image data and train a NeRF model (must store output path and compute the nerf object's centroid)
+
+Should output to something like `nerfcheckpoints/core-mug-10f6e09036350e92b3f21f1137c3c347_0_0750/nerfacto/2024-01-03_235839/config.yml`
+
+Refer to `nerf_grasping/nerfstudio_train/train_nerfs.py` to see how nerfs were trained. Currently the command is:
+
+```
+command = " ".join(
+    [
+        "ns-train nerfacto",
+        f"--data {str(object_and_scale_nerfdata_path)}",
+        f"--max-num-iterations {args.max_num_iterations}",
+        f"--output-dir {str(output_nerfcheckpoints_path)}",
+        "--vis wandb",
+        "--pipeline.model.disable-scene-contraction True",
+        "--pipeline.model.background-color black",
+        "nerfstudio-data",
+        "--auto-scale-poses False",
+        "--scale-factor 1.",
+        "--scene-scale 0.2",
+        "--center-method none",
+        "--orientation-method none",
+    ]
+)
+```
+
+Refer to DexGraspnet repo's `grasp_generation/scripts/generate_nerf_data_one_object_one_scale.py` to see how image data and camera transforms are recorded.
+
+## Step 3: Run optimizer (must store output path)
+
+As of today, the command looks something like:
+
+```
+python nerf_grasping/optimizer.py \
+--use-rich \
+--output-path <OUTPUT>.npy \
+--init-grasp-config-dict-path <INIT_GRASP_CONFIG_DICT>.npy \
+optimizer:sgd-optimizer-config \
+--grasp-metric.nerf-checkpoint-path <NERF_CHECKPOINT_PATH>/config.yml \
+--grasp-metric.classifier-config-path <CLASSIFIER_CONFIG_PATH>/config.yaml
+```
+
+However, we also will likely need to add something like `--object-centroid 0 0.2 0.7` to properly query the nerf.
+
+![image](https://github.com/tylerlum/nerf_grasping/assets/26510814/3129d076-1a0b-49c3-8e80-a24196d158a7)
+
+This is because the optimizer is trained with a coordinate frame centered at the object frame O, but the real world nerf will be centered at world frame W. Thus, we first train the nerf, compute the approximate centroid (origin_O - origin_W), then use that centroid when querying from the nerf. For example, the optimizer expects (0,0,0) to be at the center of the object. However, when it queries from the nerf, we need to add the centroid to the point before querying. We assume no rotation between O and W. 
+
+## Step 4: Grasp execution
+
+We have the following API to read in the optimized grasps from above:
+
+```
+def get_sorted_grasps(optimized_grasp_config_dict_filepath: pathlib.Path) -> Tuple[List[np.ndarray], List[np.ndarray], List[np.ndarray]]:
+    """
+    This function processes optimized grasping configurations in preparation for hardware tests.
+
+    It reads a given .npy file containing optimized grasps, computes target joint angles for each grasp, and sorts these grasps based on a pre-computed grasp metric, with the most favorable grasp appearing first in the list.
+
+    Parameters:
+    optimized_grasp_config_dict_filepath (pathlib.Path): The file path to the optimized grasp .npy file. This file should contain wrist poses, joint angles, grasp orientations, and loss from grasp metric.
+
+    Returns:
+    Tuple[List[np.ndarray], List[np.ndarray], List[np.ndarray]]:
+    - A list of wrist poses in the form of 7-dimensional numpy arrays, representing position and quaternion in the world frame.
+    - A list of joint angles, each being a 16-dimensional numpy array.
+    - A list of target joint angles, also as 16-dimensional numpy arrays.
+
+    Note:
+    The shapes of the arrays in the returned lists are asserted to ensure consistency: 
+    - Wrist poses: shape (7,)
+    - Joint angles: shape (16,)
+    - Target joint angles: shape (16,)
+
+    Example:
+    >>> sorted_grasps = get_sorted_grasps(pathlib.Path("path/to/optimized_grasp_config.npy"))
+    >>> wrist_poses, joint_angles, target_joint_angles = sorted_grasps
+    >>> assert len(wrist_poses) == len(joint_angles) == len(target_joint_angles)
+    >>> for wrist_pose, joint_angle, target_joint_angle in zip(wrist_poses, joint_angles, target_joint_angles):
+    ...     assert wrist_pose.shape == (7,)
+    ...     assert joint_angle.shape == (16,)
+    ...     assert target_joint_angle.shape == (16,)
+    """
+    return wrist_pose_list, joint_angles_list, target_joint_angles_list
+```
+
+This can be imported with `from nerf_grasping.optimizer_utils import get_sorted_grasps`.
+
+Start from the beginning of the list. Check if the grasp passes collision checks. If it does, execute the grasp. If it does not, move onto the next grasp.
 
 # How to run (2023-12-04)
 

@@ -103,7 +103,7 @@ This is because the optimizer is trained with a coordinate frame centered at the
 We have the following API to read in the optimized grasps from above:
 
 ```
-def get_sorted_grasps(optimized_grasp_config_dict_filepath: pathlib.Path) -> Tuple[List[np.ndarray], List[np.ndarray], List[np.ndarray]]:
+def get_sorted_grasps(optimized_grasp_config_dict_filepath: pathlib.Path) -> Tuple[np.ndarray, np.ndarray,np.ndarray, np.ndarray]:
     """
     This function processes optimized grasping configurations in preparation for hardware tests.
 
@@ -113,27 +113,20 @@ def get_sorted_grasps(optimized_grasp_config_dict_filepath: pathlib.Path) -> Tup
     optimized_grasp_config_dict_filepath (pathlib.Path): The file path to the optimized grasp .npy file. This file should contain wrist poses, joint angles, grasp orientations, and loss from grasp metric.
 
     Returns:
-    Tuple[List[np.ndarray], List[np.ndarray], List[np.ndarray]]:
-    - A list of wrist poses in the form of 7-dimensional numpy arrays, representing position and quaternion in the world frame.
-    - A list of joint angles, each being a 16-dimensional numpy array.
-    - A list of target joint angles, also as 16-dimensional numpy arrays.
-
-    Note:
-    The shapes of the arrays in the returned lists are asserted to ensure consistency: 
-    - Wrist poses: shape (7,)
-    - Joint angles: shape (16,)
-    - Target joint angles: shape (16,)
+    Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    - A batch of wrist translations in a numpy array of shape (B, 3), representing position in world frame
+    - A batch of wrist rotations in a numpy array of shape (B, 3, 3), representing orientation in world frame (avoid quat to be less ambiguous about order)
+    - A batch of joint angles in a numpy array of shape (B, 16)
+    - A batch of target joint angles in a numpy array of shape (B, 16)
 
     Example:
-    >>> sorted_grasps = get_sorted_grasps(pathlib.Path("path/to/optimized_grasp_config.npy"))
-    >>> wrist_poses, joint_angles, target_joint_angles = sorted_grasps
-    >>> assert len(wrist_poses) == len(joint_angles) == len(target_joint_angles)
-    >>> for wrist_pose, joint_angle, target_joint_angle in zip(wrist_poses, joint_angles, target_joint_angles):
-    ...     assert wrist_pose.shape == (7,)
-    ...     assert joint_angle.shape == (16,)
-    ...     assert target_joint_angle.shape == (16,)
+    >>> wrist_trans, wrist_rot, joint_angles, target_joint_angles = get_sorted_grasps(pathlib.Path("path/to/optimized_grasp_config.npy"))
+    >>> B = wrist_trans.shape[0]
+    >>> assert wrist_trans.shape == (B, 3)
+    >>> assert wrist_rot.shape == (B, 3, 3)
+    >>> assert joint_angles.shape == (B, 16)
+    >>> assert target_joint_angles.shape == (B, 16)
     """
-    return wrist_pose_list, joint_angles_list, target_joint_angles_list
 ```
 
 This can be imported with `from nerf_grasping.optimizer_utils import get_sorted_grasps`.

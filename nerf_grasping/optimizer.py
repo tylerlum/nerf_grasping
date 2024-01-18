@@ -71,7 +71,7 @@ class Optimizer:
         self.grasp_metric = grasp_metric
 
     @property
-    def grasp_loss(self) -> torch.Tensor:
+    def grasp_losses(self) -> torch.Tensor:
         return self.grasp_metric.get_failure_probability(self.grasp_config)
 
     def step(self):
@@ -102,24 +102,48 @@ class SGDOptimizer(Optimizer):
             optimizer_config.opt_grasp_dirs
         )
 
+        # TODO: Config this
+        USE_ADAMW = True
+
         if optimizer_config.opt_wrist_pose:
-            self.wrist_optimizer = torch.optim.AdamW(
-                [self.grasp_config.wrist_pose],
-                lr=optimizer_config.wrist_lr,
-                # momentum=optimizer_config.momentum,
+            self.wrist_optimizer = (
+                torch.optim.SGD(
+                    [self.grasp_config.wrist_pose],
+                    lr=optimizer_config.wrist_lr,
+                    momentum=optimizer_config.momentum,
+                )
+                if not USE_ADAMW
+                else torch.optim.AdamW(
+                    [self.grasp_config.wrist_pose],
+                    lr=optimizer_config.wrist_lr,
+                )
             )
 
-        self.joint_optimizer = torch.optim.AdamW(
-            [self.grasp_config.joint_angles],
-            lr=optimizer_config.finger_lr,
-            # momentum=optimizer_config.momentum,
+        self.joint_optimizer = (
+            torch.optim.SGD(
+                [self.grasp_config.joint_angles],
+                lr=optimizer_config.finger_lr,
+                momentum=optimizer_config.momentum,
+            )
+            if not USE_ADAMW
+            else torch.optim.AdamW(
+                [self.grasp_config.joint_angles],
+                lr=optimizer_config.finger_lr,
+            )
         )
 
         if optimizer_config.opt_grasp_dirs:
-            self.grasp_dir_optimizer = torch.optim.AdamW(
-                [self.grasp_config.grasp_orientations],
-                lr=optimizer_config.grasp_dir_lr,
-                # momentum=optimizer_config.momentum,
+            self.grasp_dir_optimizer = (
+                torch.optim.SGD(
+                    [self.grasp_config.grasp_orientations],
+                    lr=optimizer_config.grasp_dir_lr,
+                    momentum=optimizer_config.momentum,
+                )
+                if not USE_ADAMW
+                else torch.optim.AdamW(
+                    [self.grasp_config.grasp_orientations],
+                    lr=optimizer_config.grasp_dir_lr,
+                )
             )
 
     def step(self):
@@ -128,13 +152,12 @@ class SGDOptimizer(Optimizer):
             self.wrist_optimizer.zero_grad()
         if self.optimizer_config.opt_grasp_dirs:
             self.grasp_dir_optimizer.zero_grad()
-        loss = self.grasp_loss
-        assert loss.shape == (self.grasp_config.batch_size,)
+        losses = self.grasp_losses
+        assert losses.shape == (self.grasp_config.batch_size,)
 
         # TODO(pculbert): Think about clipping joint angles
         # to feasible range.
-        loss.sum().backward()  # Should be sum so gradient magnitude is invariant to batch size.
-
+        losses.sum().backward()  # Should be sum so gradient magnitude per parameter is invariant to batch size.
 
         self.joint_optimizer.step()
         if self.optimizer_config.opt_wrist_pose:
@@ -163,7 +186,7 @@ class CEMOptimizer(Optimizer):
 
     def step(self):
         # Find the elite fraction of samples.
-        elite_inds = torch.argsort(self.grasp_loss)[: self.optimizer_config.num_elite]
+        elite_inds = torch.argsort(self.grasp_losses)[: self.optimizer_config.num_elite]
         elite_grasps = self.grasp_config[elite_inds]
 
         # Compute the mean and covariance of the grasp config.
@@ -284,7 +307,7 @@ def run_optimizer_loop(
                 #     f"Iter: {iter} | Min loss: {optimizer.grasp_loss.min():.3f} | Max loss: {optimizer.grasp_loss.max():.3f} | Mean loss: {optimizer.grasp_loss.mean():.3f} | Std dev: {optimizer.grasp_loss.std():.3f}"
                 # )
                 print(
-                    f"Iter: {iter} | Losses: {optimizer.grasp_loss.round(decimals=3).tolist()} | Min loss: {optimizer.grasp_loss.min():.3f} | Max loss: {optimizer.grasp_loss.max():.3f} | Mean loss: {optimizer.grasp_loss.mean():.3f} | Std dev: {optimizer.grasp_loss.std():.3f}"
+                    f"Iter: {iter} | Losses: {optimizer.grasp_losses.round(decimals=3).tolist()} | Min loss: {optimizer.grasp_losses.min():.3f} | Max loss: {optimizer.grasp_losses.max():.3f} | Mean loss: {optimizer.grasp_losses.mean():.3f} | Std dev: {optimizer.grasp_losses.std():.3f}"
                 )
 
             optimizer.step()
@@ -297,11 +320,11 @@ def run_optimizer_loop(
                 )
 
             # Log to wandb.
-            wandb_log_dict["loss"] = optimizer.grasp_loss.detach().cpu().numpy()
-            wandb_log_dict["min_loss"] = optimizer.grasp_loss.min().item()
-            wandb_log_dict["max_loss"] = optimizer.grasp_loss.max().item()
-            wandb_log_dict["mean_loss"] = optimizer.grasp_loss.mean().item()
-            wandb_log_dict["std_loss"] = optimizer.grasp_loss.std().item()
+            wandb_log_dict["loss_0"] = optimizer.grasp_losses[0].item()
+            wandb_log_dict["min_loss"] = optimizer.grasp_losses.min().item()
+            wandb_log_dict["max_loss"] = optimizer.grasp_losses.max().item()
+            wandb_log_dict["mean_loss"] = optimizer.grasp_losses.mean().item()
+            wandb_log_dict["std_loss"] = optimizer.grasp_losses.std().item()
 
             if wandb.run is not None:
                 wandb.log(wandb_log_dict)
@@ -309,7 +332,9 @@ def run_optimizer_loop(
             if iter % save_grasps_freq == 0:
                 # Save mid optimization grasps to file
                 grasp_config_dict = optimizer.grasp_config.as_dict()
-                grasp_config_dict["loss"] = optimizer.grasp_loss.detach().cpu().numpy()
+                grasp_config_dict["loss"] = (
+                    optimizer.grasp_losses.detach().cpu().numpy()
+                )
 
                 # To interface with mid optimization visualizer, need to create new folder (mid_optimization_folder_path)
                 # that has folders with iteration number
@@ -342,7 +367,7 @@ def run_optimizer_loop(
     optimizer.grasp_metric.eval()
 
     return (
-        optimizer.grasp_loss,
+        optimizer.grasp_losses,
         optimizer.grasp_config,
     )
 
@@ -387,7 +412,7 @@ def main(cfg: OptimizationConfig) -> None:
             init_grasp_config_dict
         )
 
-        init_grasp_configs = init_grasp_configs[:cfg.optimizer.num_grasps]
+        init_grasp_configs = init_grasp_configs[: cfg.optimizer.num_grasps]
 
         if progress is not None and task is not None:
             progress.update(task, advance=1)
@@ -423,7 +448,7 @@ def main(cfg: OptimizationConfig) -> None:
     else:
         raise ValueError(f"Invalid optimizer config: {cfg.optimizer}")
 
-    init_losses = optimizer.grasp_loss
+    init_losses = optimizer.grasp_losses
 
     table = Table(title="Grasp loss")
     table.add_column("Iteration", justify="right")
@@ -434,10 +459,10 @@ def main(cfg: OptimizationConfig) -> None:
 
     table.add_row(
         "0",
-        f"{optimizer.grasp_loss.min():.5f}",
-        f"{optimizer.grasp_loss.mean():.5f}",
-        f"{optimizer.grasp_loss.max():.5f}",
-        f"{optimizer.grasp_loss.std():.5f}",
+        f"{optimizer.grasp_losses.min():.5f}",
+        f"{optimizer.grasp_losses.mean():.5f}",
+        f"{optimizer.grasp_losses.max():.5f}",
+        f"{optimizer.grasp_losses.std():.5f}",
     )
 
     final_losses, final_grasp_configs = run_optimizer_loop(

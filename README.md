@@ -18,7 +18,7 @@ pip install nerfstudio
 ns-install-cli
 
 # Install other dependencies
-pip install pypose numpy tyro wandb rich pytorch_kinematics mujoco transforms3d torchinfo
+pip install pypose numpy tyro wandb rich pytorch_kinematics mujoco transforms3d torchinfo urdf_parser_py
 
 # Other dependencies for fancy things we haven't used much like transformers and learning rate scheduling
 pip install positional_encodings diffusers
@@ -107,7 +107,7 @@ def get_sorted_grasps(optimized_grasp_config_dict_filepath: pathlib.Path) -> Tup
     """
     This function processes optimized grasping configurations in preparation for hardware tests.
 
-    It reads a given .npy file containing optimized grasps, computes target joint angles for each grasp, and sorts these grasps based on a pre-computed grasp metric, with the most favorable grasp appearing first in the list.
+    It reads a given .npy file containing optimized grasps, computes target joint angles for each grasp, and sorts these grasps based on a pre-computed grasp metric, with the most favorable grasp appearing first in the batch dimension.
 
     Parameters:
     optimized_grasp_config_dict_filepath (pathlib.Path): The file path to the optimized grasp .npy file. This file should contain wrist poses, joint angles, grasp orientations, and loss from grasp metric.

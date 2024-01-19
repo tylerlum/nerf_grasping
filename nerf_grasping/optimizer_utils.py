@@ -197,6 +197,26 @@ class AllegroHandConfig(torch.nn.Module):
 
         return (cov_wrist_pose, cov_joint_angles)
 
+    def __repr__(self) -> str:
+        wrist_pose_repr = np.array2string(
+            self.wrist_pose.data.cpu().numpy(), separator=", "
+        )
+        joint_angles_repr = np.array2string(
+            self.joint_angles.data.cpu().numpy(), separator=", "
+        )
+        repr_parts = [
+            f"AllegroHandConfig(",
+            f"  batch_size={self.batch_size},",
+            f"  wrist_pose=(",
+            f"{wrist_pose_repr}",
+            "  ),",
+            f"  joint_angles=(",
+            f"{joint_angles_repr}",
+            "  ),",
+            f")",
+        ]
+        return "\n".join(repr_parts)
+
 
 class AllegroGraspConfig(torch.nn.Module):
     """Container defining a batch of grasps -- both pre-grasps
@@ -344,7 +364,9 @@ class AllegroGraspConfig(torch.nn.Module):
         grasp_config.set_grasp_orientations(
             # Set atol and rtol to be a bit larger than default to handle large matrices
             # (numerical errors larger affect the sanity checking)
-            pp.from_matrix(grasp_orientations, pp.SO3_type, atol=1e-4, rtol=1e-4, check=check)
+            pp.from_matrix(
+                grasp_orientations, pp.SO3_type, atol=1e-4, rtol=1e-4, check=check
+            )
         )
 
         return grasp_config
@@ -476,6 +498,23 @@ class AllegroGraspConfig(torch.nn.Module):
             device=device,
         )
         return torch.from_numpy(target_joint_angles).to(device)
+
+    def __repr__(self) -> str:
+        hand_config_repr = self.hand_config.__repr__()
+        grasp_orientations_repr = np.array2string(
+            self.grasp_orientations.data.cpu().numpy(), separator=", "
+        )
+        repr_parts = [
+            f"AllegroGraspConfig(",
+            f"  batch_size={self.batch_size},",
+            f"  hand_config={hand_config_repr},",
+            f"  grasp_orientations=(",
+            f"{grasp_orientations_repr}",
+            "),",
+            f"  num_fingers={self.num_fingers}",
+            f")",
+        ]
+        return "\n".join(repr_parts)
 
 
 def compute_joint_angle_targets(
@@ -925,7 +964,9 @@ def batch_cov(x: torch.Tensor, dim: int = 0, keepdim=False):
 
 
 def get_sorted_grasps(
-    optimized_grasp_config_dict_filepath: pathlib.Path, check: bool = True, print_best: bool = True
+    optimized_grasp_config_dict_filepath: pathlib.Path,
+    check: bool = True,
+    print_best: bool = True,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """
     This function processes optimized grasping configurations in preparation for hardware tests.
@@ -956,7 +997,9 @@ def get_sorted_grasps(
     grasp_config_dict = np.load(
         optimized_grasp_config_dict_filepath, allow_pickle=True
     ).item()
-    grasp_configs = AllegroGraspConfig.from_grasp_config_dict(grasp_config_dict, check=check)
+    grasp_configs = AllegroGraspConfig.from_grasp_config_dict(
+        grasp_config_dict, check=check
+    )
     B = grasp_configs.batch_size
 
     # Sort by loss
@@ -966,13 +1009,18 @@ def get_sorted_grasps(
     sorted_grasp_configs = grasp_configs[sorted_idxs]
 
     if print_best:
-        print(f"Best grasp configs: {sorted_grasp_configs}")
-        print(f"Best grasp losses: {sorted_losses}")
+        BEST_K = 2
+        print(f"Best grasp configs: {sorted_grasp_configs[:BEST_K]}")
+        print(f"Best grasp losses: {sorted_losses[:BEST_K]}")
 
     wrist_trans = sorted_grasp_configs.wrist_pose.translation().detach().cpu().numpy()
-    wrist_rot = sorted_grasp_configs.wrist_pose.rotation().matrix().detach().cpu().numpy()
+    wrist_rot = (
+        sorted_grasp_configs.wrist_pose.rotation().matrix().detach().cpu().numpy()
+    )
     joint_angles = sorted_grasp_configs.joint_angles.detach().cpu().numpy()
-    target_joint_angles = sorted_grasp_configs.target_joint_angles.detach().cpu().numpy()
+    target_joint_angles = (
+        sorted_grasp_configs.target_joint_angles.detach().cpu().numpy()
+    )
 
     assert wrist_trans.shape == (B, 3)
     assert wrist_rot.shape == (B, 3, 3)

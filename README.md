@@ -18,7 +18,7 @@ pip install nerfstudio
 ns-install-cli
 
 # Install other dependencies
-pip install pypose numpy tyro wandb rich pytorch_kinematics mujoco transforms3d torchinfo
+pip install pypose numpy tyro wandb rich pytorch_kinematics mujoco transforms3d torchinfo urdf_parser_py
 
 # Other dependencies for fancy things we haven't used much like transformers and learning rate scheduling
 pip install positional_encodings diffusers
@@ -103,17 +103,17 @@ This is because the optimizer is trained with a coordinate frame centered at the
 We have the following API to read in the optimized grasps from above:
 
 ```
-def get_sorted_grasps(optimized_grasp_config_dict_filepath: pathlib.Path) -> Tuple[np.ndarray, np.ndarray,np.ndarray, np.ndarray]:
+def get_sorted_grasps(optimized_grasp_config_dict_filepath: pathlib.Path) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """
     This function processes optimized grasping configurations in preparation for hardware tests.
 
-    It reads a given .npy file containing optimized grasps, computes target joint angles for each grasp, and sorts these grasps based on a pre-computed grasp metric, with the most favorable grasp appearing first in the list.
+    It reads a given .npy file containing optimized grasps, computes target joint angles for each grasp, and sorts these grasps based on a pre-computed grasp metric, with the most favorable grasp appearing first in the batch dimension.
 
     Parameters:
     optimized_grasp_config_dict_filepath (pathlib.Path): The file path to the optimized grasp .npy file. This file should contain wrist poses, joint angles, grasp orientations, and loss from grasp metric.
 
     Returns:
-    Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     - A batch of wrist translations in a numpy array of shape (B, 3), representing position in world frame
     - A batch of wrist rotations in a numpy array of shape (B, 3, 3), representing orientation in world frame (avoid quat to be less ambiguous about order)
     - A batch of joint angles in a numpy array of shape (B, 16)

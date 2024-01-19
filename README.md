@@ -113,7 +113,7 @@ def get_sorted_grasps(optimized_grasp_config_dict_filepath: pathlib.Path) -> Tup
     optimized_grasp_config_dict_filepath (pathlib.Path): The file path to the optimized grasp .npy file. This file should contain wrist poses, joint angles, grasp orientations, and loss from grasp metric.
 
     Returns:
-    Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     - A batch of wrist translations in a numpy array of shape (B, 3), representing position in world frame
     - A batch of wrist rotations in a numpy array of shape (B, 3, 3), representing orientation in world frame (avoid quat to be less ambiguous about order)
     - A batch of joint angles in a numpy array of shape (B, 16)

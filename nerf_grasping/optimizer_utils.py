@@ -476,17 +476,6 @@ class AllegroGraspConfig(torch.nn.Module):
         )
         return torch.from_numpy(target_joint_angles).to(device)
 
-from nerf_grasping.dexgraspnet_utils.hand_model import HandModel
-from nerf_grasping.dexgraspnet_utils.hand_model_type import (
-    HandModelType,
-    handmodeltype_to_joint_names,
-)
-from nerf_grasping.dexgraspnet_utils.pose_conversion import (
-    hand_config_to_pose,
-)
-from nerf_grasping.dexgraspnet_utils.joint_angle_targets import (
-    compute_optimized_joint_angle_targets_given_grasp_orientations,
-)
 
 def compute_joint_angle_targets(
     trans: np.ndarray,
@@ -495,14 +484,25 @@ def compute_joint_angle_targets(
     grasp_orientations: torch.Tensor,
     device: torch.device,
 ) -> np.ndarray:
+    # Put messy imports of dexgraspnet copied files here
+    from nerf_grasping.dexgraspnet_utils.hand_model import HandModel
+    from nerf_grasping.dexgraspnet_utils.hand_model_type import (
+        HandModelType,
+        handmodeltype_to_joint_names,
+    )
+    from nerf_grasping.dexgraspnet_utils.pose_conversion import (
+        hand_config_to_pose,
+    )
+    from nerf_grasping.dexgraspnet_utils.joint_angle_targets import (
+        compute_optimized_joint_angle_targets_given_grasp_orientations,
+    )
+
     hand_pose = hand_config_to_pose(trans, rot, joint_angles).to(device)
     hand_model_type = HandModelType.ALLEGRO_HAND
     grasp_orientations = grasp_orientations.to(device)
 
     # hand model
-    hand_model = HandModel(
-        hand_model_type=hand_model_type, device=device
-    )
+    hand_model = HandModel(hand_model_type=hand_model_type, device=device)
     hand_model.set_parameters(hand_pose)
 
     # Optimization
@@ -923,7 +923,9 @@ def batch_cov(x: torch.Tensor, dim: int = 0, keepdim=False):
     ) / (n_dim - 1)
 
 
-def get_sorted_grasps(optimized_grasp_config_dict_filepath: pathlib.Path) -> Tuple[np.ndarray, np.ndarray,np.ndarray, np.ndarray]:
+def get_sorted_grasps(
+    optimized_grasp_config_dict_filepath: pathlib.Path,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """
     This function processes optimized grasping configurations in preparation for hardware tests.
 
@@ -948,12 +950,14 @@ def get_sorted_grasps(optimized_grasp_config_dict_filepath: pathlib.Path) -> Tup
     >>> assert target_joint_angles.shape == (B, 16)
     """
     # Read in
-    grasp_config_dict = np.load(optimized_grasp_config_dict_filepath, allow_pickle=True).item()
+    grasp_config_dict = np.load(
+        optimized_grasp_config_dict_filepath, allow_pickle=True
+    ).item()
     grasp_configs = AllegroGraspConfig.from_grasp_config_dict(grasp_config_dict)
     B = grasp_configs.batch_size
 
     # Sort by loss
-    losses = grasp_config_dict['loss']
+    losses = grasp_config_dict["loss"]
     sorted_idxs = np.argsort(losses)
     sorted_losses = losses[sorted_idxs]
     sorted_grasp_configs = grasp_configs[sorted_idxs]
@@ -961,7 +965,6 @@ def get_sorted_grasps(optimized_grasp_config_dict_filepath: pathlib.Path) -> Tup
     print(f"Best grasp configs: {best_grasp_configs}")
     print(f"Best grasp losses: {sorted_losses[:5]}")
 
-    # Get 
     wrist_trans = best_grasp_configs.wrist_pose.translation().detach().cpu().numpy()
     wrist_rot = best_grasp_configs.wrist_pose.rotation().matrix().detach().cpu().numpy()
     joint_angles = best_grasp_configs.joint_angles.detach().cpu().numpy()
@@ -974,12 +977,14 @@ def get_sorted_grasps(optimized_grasp_config_dict_filepath: pathlib.Path) -> Tup
 
     return wrist_trans, wrist_rot, joint_angles, target_joint_angles
 
+
 def main() -> None:
     FILEPATH = pathlib.Path("OUTPUT.npy")
     print("STARTING")
-    wrist_trans, wrist_rot, joint_angles, target_joint_angles = get_sorted_grasps(FILEPATH)
+    wrist_trans, wrist_rot, joint_angles, target_joint_angles = get_sorted_grasps(
+        FILEPATH
+    )
     print("DONE")
-
 
 
 if __name__ == "__main__":

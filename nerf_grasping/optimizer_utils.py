@@ -101,7 +101,7 @@ class AllegroHandConfig(torch.nn.Module):
 
     @classmethod
     def from_hand_config_dict(
-        cls, hand_config_dict: Dict[str, Any]
+        cls, hand_config_dict: Dict[str, Any], check: bool = True
     ) -> AllegroHandConfig:
         trans = torch.from_numpy(hand_config_dict["trans"]).float()
         rot = torch.from_numpy(hand_config_dict["rot"]).float()
@@ -112,7 +112,7 @@ class AllegroHandConfig(torch.nn.Module):
         assert joint_angles.shape == (batch_size, 16)
 
         wrist_translation = trans
-        wrist_quat = pp.from_matrix(rot, pp.SO3_type)
+        wrist_quat = pp.from_matrix(rot, pp.SO3_type, check=check)
         wrist_pose = pp.SE3(torch.cat([wrist_translation, wrist_quat], dim=1))
 
         return cls.from_values(wrist_pose=wrist_pose, joint_angles=joint_angles)
@@ -317,6 +317,7 @@ class AllegroGraspConfig(torch.nn.Module):
         cls,
         grasp_config_dict: Dict[str, Any],
         num_fingers: int = 4,
+        check: bool = True,
     ) -> AllegroGraspConfig:
         """
         Factory method get grasp configs from grasp config_dict
@@ -329,7 +330,7 @@ class AllegroGraspConfig(torch.nn.Module):
 
         # Load hand config
         grasp_config.hand_config = AllegroHandConfig.from_hand_config_dict(
-            grasp_config_dict
+            grasp_config_dict, check=check
         )
 
         grasp_orientations = (
@@ -343,7 +344,7 @@ class AllegroGraspConfig(torch.nn.Module):
         grasp_config.set_grasp_orientations(
             # Set atol and rtol to be a bit larger than default to handle large matrices
             # (numerical errors larger affect the sanity checking)
-            pp.from_matrix(grasp_orientations, pp.SO3_type, atol=1e-4, rtol=1e-4)
+            pp.from_matrix(grasp_orientations, pp.SO3_type, atol=1e-4, rtol=1e-4, check=check)
         )
 
         return grasp_config
@@ -924,7 +925,7 @@ def batch_cov(x: torch.Tensor, dim: int = 0, keepdim=False):
 
 
 def get_sorted_grasps(
-    optimized_grasp_config_dict_filepath: pathlib.Path,
+    optimized_grasp_config_dict_filepath: pathlib.Path, check: bool = True, print_best: bool = True
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """
     This function processes optimized grasping configurations in preparation for hardware tests.
@@ -933,6 +934,8 @@ def get_sorted_grasps(
 
     Parameters:
     optimized_grasp_config_dict_filepath (pathlib.Path): The file path to the optimized grasp .npy file. This file should contain wrist poses, joint angles, grasp orientations, and loss from grasp metric.
+    check (bool): Whether to check the validity of the grasp configurations (sometimes sensitive or off manifold from optimization?). Defaults to True.
+    print_best (bool): Whether to print the best grasp configurations. Defaults to True.
 
     Returns:
     Tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -953,7 +956,7 @@ def get_sorted_grasps(
     grasp_config_dict = np.load(
         optimized_grasp_config_dict_filepath, allow_pickle=True
     ).item()
-    grasp_configs = AllegroGraspConfig.from_grasp_config_dict(grasp_config_dict)
+    grasp_configs = AllegroGraspConfig.from_grasp_config_dict(grasp_config_dict, check=check)
     B = grasp_configs.batch_size
 
     # Sort by loss
@@ -961,14 +964,15 @@ def get_sorted_grasps(
     sorted_idxs = np.argsort(losses)
     sorted_losses = losses[sorted_idxs]
     sorted_grasp_configs = grasp_configs[sorted_idxs]
-    best_grasp_configs = sorted_grasp_configs[:5]
-    print(f"Best grasp configs: {best_grasp_configs}")
-    print(f"Best grasp losses: {sorted_losses[:5]}")
 
-    wrist_trans = best_grasp_configs.wrist_pose.translation().detach().cpu().numpy()
-    wrist_rot = best_grasp_configs.wrist_pose.rotation().matrix().detach().cpu().numpy()
-    joint_angles = best_grasp_configs.joint_angles.detach().cpu().numpy()
-    target_joint_angles = best_grasp_configs.target_joint_angles.detach().cpu().numpy()
+    if print_best:
+        print(f"Best grasp configs: {sorted_grasp_configs}")
+        print(f"Best grasp losses: {sorted_losses}")
+
+    wrist_trans = sorted_grasp_configs.wrist_pose.translation().detach().cpu().numpy()
+    wrist_rot = sorted_grasp_configs.wrist_pose.rotation().matrix().detach().cpu().numpy()
+    joint_angles = sorted_grasp_configs.joint_angles.detach().cpu().numpy()
+    target_joint_angles = sorted_grasp_configs.target_joint_angles.detach().cpu().numpy()
 
     assert wrist_trans.shape == (B, 3)
     assert wrist_rot.shape == (B, 3, 3)
@@ -983,9 +987,17 @@ def main() -> None:
     assert FILEPATH.exists(), f"Filepath {FILEPATH} does not exist"
 
     print(f"Processing {FILEPATH}")
-    wrist_trans, wrist_rot, joint_angles, target_joint_angles = get_sorted_grasps(
-        FILEPATH
-    )
+
+    try:
+        wrist_trans, wrist_rot, joint_angles, target_joint_angles = get_sorted_grasps(
+            FILEPATH
+        )
+    except ValueError as e:
+        print(f"Error processing {FILEPATH}: {e}")
+        print("Try again skipping check")
+        wrist_trans, wrist_rot, joint_angles, target_joint_angles = get_sorted_grasps(
+            FILEPATH, check=False
+        )
     print(
         f"Found wrist_trans.shape = {wrist_trans.shape}, wrist_rot.shape = {wrist_rot.shape}, joint_angles.shape = {joint_angles.shape}, target_joint_angles.shape = {target_joint_angles.shape}"
     )

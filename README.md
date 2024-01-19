@@ -103,7 +103,7 @@ This is because the optimizer is trained with a coordinate frame centered at the
 We have the following API to read in the optimized grasps from above:
 
 ```
-def get_sorted_grasps(optimized_grasp_config_dict_filepath: pathlib.Path) -> Tuple[np.ndarray, np.ndarray,np.ndarray, np.ndarray]:
+def get_sorted_grasps(optimized_grasp_config_dict_filepath: pathlib.Path) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """
     This function processes optimized grasping configurations in preparation for hardware tests.
 

@@ -502,7 +502,7 @@ class AllegroGraspConfig(torch.nn.Module):
     def __repr__(self) -> str:
         hand_config_repr = self.hand_config.__repr__()
         grasp_orientations_repr = np.array2string(
-            self.grasp_orientations.data.cpu().numpy(), separator=", "
+            self.grasp_orientations.matrix().data.cpu().numpy(), separator=", "
         )
         repr_parts = [
             f"AllegroGraspConfig(",

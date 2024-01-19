@@ -980,11 +980,15 @@ def get_sorted_grasps(
 
 def main() -> None:
     FILEPATH = pathlib.Path("OUTPUT.npy")
-    print("STARTING")
+    assert FILEPATH.exists(), f"Filepath {FILEPATH} does not exist"
+
+    print(f"Processing {FILEPATH}")
     wrist_trans, wrist_rot, joint_angles, target_joint_angles = get_sorted_grasps(
         FILEPATH
     )
-    print("DONE")
+    print(
+        f"Found wrist_trans.shape = {wrist_trans.shape}, wrist_rot.shape = {wrist_rot.shape}, joint_angles.shape = {joint_angles.shape}, target_joint_angles.shape = {target_joint_angles.shape}"
+    )
 
 
 if __name__ == "__main__":

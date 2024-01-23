@@ -965,6 +965,7 @@ def batch_cov(x: torch.Tensor, dim: int = 0, keepdim=False):
 
 def get_sorted_grasps(
     optimized_grasp_config_dict_filepath: pathlib.Path,
+    error_if_no_loss: bool = True,
     check: bool = True,
     print_best: bool = True,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
@@ -975,6 +976,7 @@ def get_sorted_grasps(
 
     Parameters:
     optimized_grasp_config_dict_filepath (pathlib.Path): The file path to the optimized grasp .npy file. This file should contain wrist poses, joint angles, grasp orientations, and loss from grasp metric.
+    error_if_no_loss (bool): Whether to raise an error if the loss is not found in the grasp config dict. Defaults to True.
     check (bool): Whether to check the validity of the grasp configurations (sometimes sensitive or off manifold from optimization?). Defaults to True.
     print_best (bool): Whether to print the best grasp configurations. Defaults to True.
 
@@ -1003,7 +1005,19 @@ def get_sorted_grasps(
     B = grasp_configs.batch_size
 
     # Sort by loss
-    losses = grasp_config_dict["loss"]
+    if "loss" not in grasp_config_dict:
+        if error_if_no_loss:
+            raise ValueError(f"loss not found in grasp config dict keys: {grasp_config_dict.keys()}")
+
+        print("=" * 80)
+        print(f"loss not found in grasp config dict keys: {grasp_config_dict.keys()}")
+        print("Using dummy losses")
+        print("=" * 80 + "\n")
+        dummy_losses = np.arange(B)
+        losses = dummy_losses
+    else:
+        losses = grasp_config_dict["loss"]
+
     sorted_idxs = np.argsort(losses)
     sorted_losses = losses[sorted_idxs]
     sorted_grasp_configs = grasp_configs[sorted_idxs]

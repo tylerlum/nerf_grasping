@@ -272,6 +272,10 @@ data/2023-11-17_01-27-23/nerf_meshdata_mugs_v10/core-mug-1038e4eac0e18dcce02ae6d
 
 This can be used by DexGraspNet for baselines.
 
+# Coordinate Frames and Scales (2024-01-22)
+
+Please refer to https://github.com/tylerlum/DexGraspNet for details about the coordinate frames and scales.
+
 # System Diagram
 
 View diagrams [here](diagrams.md)

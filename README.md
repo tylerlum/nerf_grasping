@@ -143,7 +143,7 @@ This can be imported with `from nerf_grasping.optimizer_utils import get_sorted_
 
 Start from the beginning of the list. Check if the grasp passes collision checks. If it does, execute the grasp. If it does not, move onto the next grasp.
 
-TODO: Need to integrate nerf_centroid in this (I believe it currently outputs to object frame, which it assumes is world frame). We will probably treat nerf_centroid as a translation vector from world frame origin to object frame origin.
+`object_centroid_pos_world_frame` is a translation vector from world frame origin to object frame origin, which helps move the grasp from object frame to world frame.
 
 # How to run (2023-12-04)
 

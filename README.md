@@ -103,7 +103,13 @@ This is because the optimizer is trained with a coordinate frame centered at the
 We have the following API to read in the optimized grasps from above:
 
 ```
-def get_sorted_grasps(optimized_grasp_config_dict_filepath: pathlib.Path) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+def get_sorted_grasps(
+    optimized_grasp_config_dict_filepath: pathlib.Path,
+    object_centroid_pos_world_frame: Optional[np.ndarray] = None,
+    error_if_no_loss: bool = True,
+    check: bool = True,
+    print_best: bool = True,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """
     This function processes optimized grasping configurations in preparation for hardware tests.
 
@@ -111,6 +117,10 @@ def get_sorted_grasps(optimized_grasp_config_dict_filepath: pathlib.Path) -> Tup
 
     Parameters:
     optimized_grasp_config_dict_filepath (pathlib.Path): The file path to the optimized grasp .npy file. This file should contain wrist poses, joint angles, grasp orientations, and loss from grasp metric.
+    object_centroid_pos_world_frame (np.ndarray): The centroid of the object in world frame. If None, the centroid is assumed to be [0, 0, 0]. Defaults to None.
+    error_if_no_loss (bool): Whether to raise an error if the loss is not found in the grasp config dict. Defaults to True.
+    check (bool): Whether to check the validity of the grasp configurations (sometimes sensitive or off manifold from optimization?). Defaults to True.
+    print_best (bool): Whether to print the best grasp configurations. Defaults to True.
 
     Returns:
     Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:

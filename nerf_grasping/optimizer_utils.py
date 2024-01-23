@@ -965,6 +965,7 @@ def batch_cov(x: torch.Tensor, dim: int = 0, keepdim=False):
 
 def get_sorted_grasps(
     optimized_grasp_config_dict_filepath: pathlib.Path,
+    object_centroid_pos_world_frame: Optional[np.ndarray] = None,
     error_if_no_loss: bool = True,
     check: bool = True,
     print_best: bool = True,
@@ -972,16 +973,17 @@ def get_sorted_grasps(
     """
     This function processes optimized grasping configurations in preparation for hardware tests.
 
-    It reads a given .npy file containing optimized grasps, computes target joint angles for each grasp, and sorts these grasps based on a pre-computed grasp metric, with the most favorable grasp appearing first in the list.
+    It reads a given .npy file containing optimized grasps, computes target joint angles for each grasp, and sorts these grasps based on a pre-computed grasp metric, with the most favorable grasp appearing first in the batch dimension.
 
     Parameters:
     optimized_grasp_config_dict_filepath (pathlib.Path): The file path to the optimized grasp .npy file. This file should contain wrist poses, joint angles, grasp orientations, and loss from grasp metric.
+    object_centroid_pos_world_frame (np.ndarray): The centroid of the object in world frame. If None, the centroid is assumed to be [0, 0, 0]. Defaults to None.
     error_if_no_loss (bool): Whether to raise an error if the loss is not found in the grasp config dict. Defaults to True.
     check (bool): Whether to check the validity of the grasp configurations (sometimes sensitive or off manifold from optimization?). Defaults to True.
     print_best (bool): Whether to print the best grasp configurations. Defaults to True.
 
     Returns:
-    Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     - A batch of wrist translations in a numpy array of shape (B, 3), representing position in world frame
     - A batch of wrist rotations in a numpy array of shape (B, 3, 3), representing orientation in world frame (avoid quat to be less ambiguous about order)
     - A batch of joint angles in a numpy array of shape (B, 16)
@@ -1040,6 +1042,11 @@ def get_sorted_grasps(
     assert wrist_rot.shape == (B, 3, 3)
     assert joint_angles.shape == (B, 16)
     assert target_joint_angles.shape == (B, 16)
+
+    if object_centroid_pos_world_frame is not None:
+        # wrist_trans is initially in object frame, so add object centroid to get world frame
+        assert object_centroid_pos_world_frame.shape == (3,)
+        wrist_trans = wrist_trans + object_centroid_pos_world_frame
 
     return wrist_trans, wrist_rot, joint_angles, target_joint_angles
 

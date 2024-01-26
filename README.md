@@ -92,9 +92,9 @@ python nerf_grasping/optimizer.py \
 optimizer:sgd-optimizer-config
 ```
 
-However, we also will likely need to add something like `--object-centroid 0 0.2 0.7` to properly query the nerf.
+However, we also will likely need to add something like `--object-centroid 0 0.2 0.7` to properly query the nerf. TODO: probably will be a transformation matrix actually
 
-![image](https://github.com/tylerlum/nerf_grasping/assets/26510814/3129d076-1a0b-49c3-8e80-a24196d158a7)
+![image](https://github.com/tylerlum/nerf_grasping/assets/26510814/c6bdea02-68d9-46ce-bb17-72f203bc226f)
 
 This is because the optimizer is trained with a coordinate frame centered at the object frame O, but the real world nerf will be centered at world frame W. Thus, we first train the nerf, compute the approximate centroid (origin_O - origin_W), then use that centroid when querying from the nerf. For example, the optimizer expects (0,0,0) to be at the center of the object. However, when it queries from the nerf, we need to add the centroid to the point before querying. We assume no rotation between O and W. 
 
@@ -143,7 +143,7 @@ This can be imported with `from nerf_grasping.optimizer_utils import get_sorted_
 
 Start from the beginning of the list. Check if the grasp passes collision checks. If it does, execute the grasp. If it does not, move onto the next grasp.
 
-`object_centroid_pos_world_frame` is a translation vector from world frame origin to object frame origin, which helps move the grasp from object frame to world frame.
+`object_transform_world_frame` is a transformation matrix that represents the pose of the object center in world frame, which helps move the grasp from object frame to world frame.
 
 # How to run (2023-12-04)
 

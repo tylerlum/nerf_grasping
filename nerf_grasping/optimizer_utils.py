@@ -1047,16 +1047,18 @@ def get_sorted_grasps(
 
     if object_transform_world_frame is not None:
         # wrist_trans, wrist_rot is initially in object frame
+        N = wrist_trans.shape[0]
         assert object_transform_world_frame.shape == (4, 4)
-        wrist_transform_object_frame = np.eye(4)
-        wrist_transform_object_frame[:3, 3] = wrist_trans
-        wrist_transform_object_frame[:3, :3] = wrist_rot
+        wrist_transform_object_frame = np.repeat(np.eye(4)[None, ...], N, axis=0)
+
+        wrist_transform_object_frame[:, :3, 3] = wrist_trans
+        wrist_transform_object_frame[:, :3, :3] = wrist_rot
 
         wrist_transform_world_frame = (
             object_transform_world_frame @ wrist_transform_object_frame
         )
-        wrist_trans = wrist_transform_world_frame[:3, 3]
-        wrist_rot = wrist_transform_world_frame[:3, :3]
+        wrist_trans = wrist_transform_world_frame[:, :3, 3]
+        wrist_rot = wrist_transform_world_frame[:, :3, :3]
 
     return wrist_trans, wrist_rot, joint_angles, target_joint_angles
 

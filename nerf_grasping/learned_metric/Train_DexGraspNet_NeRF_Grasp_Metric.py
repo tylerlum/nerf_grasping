@@ -194,22 +194,39 @@ if is_notebook():
     #     "mugs_grid_grasp-cond-simple-cnn-2d-1d_BACKUP",
     # ]
 
+    # arguments = [
+    #     "grasp-cond-simple-cnn-2d-1d",
+    #     "--task-type",
+    #     "PASSED_SIMULATION",
+    #     "--train-dataset-filepath",
+    #     "data/2023-01-03_mugs_smaller0-075_noise_lightshake_mid_opt/grid_dataset/dataset.h5",
+    #     # "--val-dataset-filepath",
+    #     # "data/2023-01-03_mugs_smaller0-075_noise_lightshake_mid_opt/grid_dataset/val_dataset.h5",
+    #     # "--test-dataset-filepath",
+    #     # "data/2023-01-03_mugs_smaller0-075_noise_lightshake_mid_opt/grid_dataset/test_dataset.h5",
+    #     "--dataloader.batch-size",
+    #     "32",
+    #     "--wandb.name",
+    #     "probe_mugs_grid_grasp-cond-simple-cnn-2d-1d",
+    #     "--checkpoint-workspace.input_leaf_dir_name",
+    #     "mugs_grid_grasp-cond-simple-cnn-2d-1d_BACKUP",
+    # ]
     arguments = [
-        "grasp-cond-simple-cnn-2d-1d",
+        "grasp-cond-depth-cnn-2d-smaller",
         "--task-type",
         "PASSED_SIMULATION",
         "--train-dataset-filepath",
-        "data/2023-01-03_mugs_smaller0-075_noise_lightshake_mid_opt/grid_dataset/dataset.h5",
-        "--val-dataset-filepath",
-        "data/2023-01-03_mugs_smaller0-075_noise_lightshake_mid_opt/grid_dataset/val_dataset.h5",
+        "data/2024-01-07_ycb_smaller0-075_noise_lightshake/depth_image_dataset/train_dataset.h5",
+        # "--val-dataset-filepath",
+        "data/2024-01-07_ycb_smaller0-075_noise_lightshake/depth_image_dataset/val_dataset.h5",
         "--test-dataset-filepath",
-        "data/2023-01-03_mugs_smaller0-075_noise_lightshake_mid_opt/grid_dataset/test_dataset.h5",
+        "data/2024-01-07_ycb_smaller0-075_noise_lightshake/depth_image_dataset/test_dataset.h5",
         "--dataloader.batch-size",
         "32",
         "--wandb.name",
-        "probe_mugs_grid_grasp-cond-simple-cnn-2d-1d",
+        "probe_ycb2_depthimg_grasp-cond-depth-cnn-2d-smaller",
         "--checkpoint-workspace.input_leaf_dir_name",
-        "mugs_grid_grasp-cond-simple-cnn-2d-1d_BACKUP",
+        "ycb2_depthimg_grasp-cond-depth-cnn-2d-smaller",
     ]
 else:
     arguments = sys.argv[1:]
@@ -445,6 +462,30 @@ def sample_random_rotate_transforms(N: int) -> pp.LieTensor:
 
     return random_rotate_transforms
 
+@localscope.mfc(allowed=["PP_MATRIX_ATOL", "PP_MATRIX_RTOL"])
+def sample_random_rotate_transforms_only_around_y(N: int) -> pp.LieTensor:
+    # Sample big rotations in tangent space of SO(3).
+    # Choose 4 * \pi as a heuristic to get pretty evenly spaced rotations.
+    # TODO(pculbert): Figure out better uniform sampling on SO(3).
+    x_rotations = torch.zeros(N)
+    y_rotations = 4 * torch.pi * (2 * torch.rand(N) - 1)
+    z_rotations = torch.zeros(N)
+    xyz_rotations = torch.stack([x_rotations, y_rotations, z_rotations], dim=-1)
+    log_random_rotations = pp.so3(xyz_rotations)
+
+    # Return exponentiated rotations.
+    random_SO3_rotations = log_random_rotations.Exp()
+
+    # A bit annoying -- need to cast SO(3) -> SE(3).
+    random_rotate_transforms = pp.from_matrix(
+        random_SO3_rotations.matrix(),
+        pp.SE3_type,
+        atol=PP_MATRIX_ATOL,
+        rtol=PP_MATRIX_RTOL,
+    )
+
+    return random_rotate_transforms
+
 
 @localscope.mfc(allowed=["PP_MATRIX_ATOL", "PP_MATRIX_RTOL"])
 def custom_collate_fn(
@@ -480,7 +521,7 @@ def custom_collate_fn(
 
     batch_size = nerf_densities.shape[0]
     if use_random_rotations:
-        random_rotate_transform = sample_random_rotate_transforms(N=batch_size)
+        random_rotate_transform = sample_random_rotate_transforms_only_around_y(N=batch_size)
     else:
         random_rotate_transform = None
 
@@ -536,7 +577,7 @@ def depth_image_custom_collate_fn(
 
     batch_size = depth_uncertainty_images.shape[0]
     if use_random_rotations:
-        random_rotate_transform = sample_random_rotate_transforms(N=batch_size)
+        random_rotate_transform = sample_random_rotate_transforms_only_around_y(N=batch_size)
     else:
         random_rotate_transform = None
 
@@ -1933,229 +1974,236 @@ if cfg.data.debug_shuffle_labels:
         "WARNING: Shuffle labels is turned on! Random labels are being passed. Press 'c' to continue"
     )
 
-# # %% [markdown]
+# %% [markdown]
 # Debug/Analyze model
-# DEBUG_phase = Phase.VAL
-# if DEBUG_phase == Phase.EVAL_TRAIN:
-#     DEBUG_loader = train_loader
-# elif DEBUG_phase == Phase.VAL:
-#     DEBUG_loader = val_loader
-# elif DEBUG_phase == Phase.TEST:
-#     DEBUG_loader = test_loader
-# else:
-#     raise ValueError(f"Unknown phase: {DEBUG_phase}")
-#
-#
-# loop_timer = LoopTimer()
-# (
-#     DEBUG_losses_dict,
-#     DEBUG_predictions_dict,
-#     DEBUG_ground_truths_dict,
-# ) = _iterate_through_dataloader(
-#     loop_timer=loop_timer,
-#     phase=DEBUG_phase,
-#     dataloader=DEBUG_loader,
-#     classifier=classifier,
-#     device=device,
-#     loss_fns=loss_fns,
-#     task_type=cfg.task_type,
-#     max_num_batches=None,
-# )
-#
-# # %%
-# DEBUG_losses_dict.keys()
-#
-# # %%
-# DEBUG_losses_dict["passed_simulation_loss"][:10]
-#
-# # %%
-# DEBUG_predictions_dict["passed_simulation"][:10]
-#
-# # %%
-# DEBUG_ground_truths_dict["passed_simulation"][:10]
-#
-# # %%
-# DEBUG_predictions_dict
-#
-# # %%
-# import matplotlib.pyplot as plt
-#
-# # Small circles
-# gaussian_noise = np.random.normal(
-#     0, 0.01, len(DEBUG_ground_truths_dict["passed_simulation"])
-# )
-# plt.scatter(
-#     DEBUG_ground_truths_dict["passed_simulation"] + gaussian_noise,
-#     DEBUG_predictions_dict["passed_simulation"],
-#     s=0.1,
-# )
-# plt.xlabel("Ground Truth")
-# plt.ylabel("Prediction")
-# plt.title(f"passed_simulation Scatter Plot")
-# plt.show()
-#
-# # %%
-# np.unique(DEBUG_ground_truths_dict["passed_simulation"], return_counts=True)
-#
-# # %%
-# unique_labels = np.unique(DEBUG_ground_truths_dict["passed_simulation"])
-# fig, axes = plt.subplots(len(unique_labels), 1, figsize=(10, 10))
-# axes = axes.flatten()
-#
-# for i, unique_val in enumerate(unique_labels):
-#     preds = np.array(DEBUG_predictions_dict["passed_simulation"])
-#     idxs = np.array(DEBUG_ground_truths_dict["passed_simulation"]) == unique_val
-#     ground_truths = preds[idxs]
-#     axes[i].hist(ground_truths, bins=50, alpha=0.7, color="blue")
-#     axes[i].set_title(f"Ground Truth: {unique_val}")
-#
-# fig.tight_layout()
-#
-#
-# # %%
-# DEBUG_log_dict = create_log_dict(
-#     loop_timer=loop_timer,
-#     phase=DEBUG_phase,
-#     task_type=cfg.task_type,
-#     losses_dict=DEBUG_losses_dict,
-#     predictions_dict=DEBUG_predictions_dict,
-#     ground_truths_dict=DEBUG_ground_truths_dict,
-#     optimizer=optimizer,
-# )
-#
-# # %%
-# DEBUG_log_dict[f"{DEBUG_phase.name.lower()}_loss"]
-#
-# # %%
-# DEBUG_log_dict_modified = {f"{k}_v2": v for k, v in DEBUG_log_dict.items()}
-#
-# # %%
-# wandb.log(DEBUG_log_dict_modified)
-#
-#
-# # %%
-# loop_timer = LoopTimer()
-# (
-#     train_losses_dict,
-#     train_predictions_dict,
-#     train_ground_truths_dict,
-# ) = _iterate_through_dataloader(
-#     loop_timer=loop_timer,
-#     phase=Phase.EVAL_TRAIN,
-#     dataloader=train_loader,
-#     classifier=classifier,
-#     device=device,
-#     loss_fns=loss_fns,
-#     task_type=cfg.task_type,
-#     max_num_batches=10,
-# )
-#
-# # %%
-# loss_names = [
-#     "passed_simulation_loss",
-#     "passed_penetration_threshold_loss",
-# ]
-# from plotly.subplots import make_subplots
-# import plotly.graph_objects as go
-#
-# fig = make_subplots(rows=len(loss_names), cols=1, subplot_titles=loss_names)
-# for i, loss_name in enumerate(loss_names):
-#     fig.add_trace(
-#         go.Scatter(y=val_losses_dict[loss_name], name=loss_name, mode="markers"),
-#         row=i + 1,
-#         col=1,
-#     )
-# fig.show()
-#
-#
-# # %%
-# def plot_distribution(data: np.ndarray, name: str) -> None:
-#     # Calculating statistics
-#     import scipy.stats as stats
-#
-#     data = np.array(data)
-#     mean = np.mean(data)
-#     max_value = np.max(data)
-#     min_value = np.min(data)
-#     data_range = np.ptp(data)  # Range as max - min
-#     std_dev = np.std(data)
-#     median = np.median(data)
-#     mode = stats.mode(data).mode[0]
-#     iqr = stats.iqr(data)  # Interquartile range
-#     percentile_25 = np.percentile(data, 25)
-#     percentile_75 = np.percentile(data, 75)
-#
-#     import matplotlib.pyplot as plt
-#
-#     # Create histogram
-#     plt.hist(data, bins=50, alpha=0.7, color="blue", log=True)
-#
-#     # Printing results
-#     print(
-#         f"Mean: {mean}, Max: {max_value}, Min: {min_value}, Range: {data_range}, Standard Deviation: {std_dev}"
-#     )
-#     print(
-#         f"Median: {median}, Mode: {mode}, IQR: {iqr}, 25th Percentile: {percentile_25}, 75th Percentile: {percentile_75}"
-#     )
-#
-#     # Add lines for mean, median, and mode
-#     plt.axvline(
-#         mean, color="red", linestyle="dashed", linewidth=2, label=f"Mean: {mean:.4f}"
-#     )
-#     plt.axvline(
-#         median,
-#         color="green",
-#         linestyle="dashed",
-#         linewidth=2,
-#         label=f"Median: {median:.4f}",
-#     )
-#     plt.axvline(
-#         mode, color="yellow", linestyle="dashed", linewidth=2, label=f"Mode: {mode:.4f}"
-#     )
-#
-#     # Add lines for percentiles
-#     plt.axvline(
-#         percentile_25,
-#         color="orange",
-#         linestyle="dotted",
-#         linewidth=2,
-#         label=f"25th percentile: {percentile_25:.4f}",
-#     )
-#     plt.axvline(
-#         percentile_75,
-#         color="purple",
-#         linestyle="dotted",
-#         linewidth=2,
-#         label=f"75th percentile: {percentile_75:.4f}",
-#     )
-#
-#     # Add standard deviation
-#     plt.axvline(
-#         mean - std_dev,
-#         color="cyan",
-#         linestyle="dashdot",
-#         linewidth=2,
-#         label=f"Std Dev: {std_dev:.4f}",
-#     )
-#     plt.axvline(mean + std_dev, color="cyan", linestyle="dashdot", linewidth=2)
-#
-#     # Add legend
-#     plt.legend()
-#     plt.title(f"{name} histogram")
-#
-#     # Show plot
-#     plt.show()
-#
-#
-# plot_distribution(
-#     data=val_losses_dict["passed_penetration_threshold_loss"],
-#     name="passed_penetration_threshold_loss",
-# )
-#
-# # %%
-# plot_distribution(
-#     data=val_losses_dict["passed_simulation_loss"], name="passed_simulation_loss"
-# )
+
+# %%
+DEBUG_phase = Phase.VAL
+if DEBUG_phase == Phase.EVAL_TRAIN:
+    DEBUG_loader = train_loader
+elif DEBUG_phase == Phase.VAL:
+    DEBUG_loader = val_loader
+elif DEBUG_phase == Phase.TEST:
+    DEBUG_loader = test_loader
+else:
+    raise ValueError(f"Unknown phase: {DEBUG_phase}")
+
+
+loop_timer = LoopTimer()
+(
+    DEBUG_losses_dict,
+    DEBUG_predictions_dict,
+    DEBUG_ground_truths_dict,
+) = _iterate_through_dataloader(
+    loop_timer=loop_timer,
+    phase=DEBUG_phase,
+    dataloader=DEBUG_loader,
+    classifier=classifier,
+    device=device,
+    loss_fns=loss_fns,
+    task_type=cfg.task_type,
+    max_num_batches=None,
+)
+
+# %%
+DEBUG_losses_dict.keys()
+
+# %%
+DEBUG_losses_dict["passed_simulation_loss"][:10]
+
+# %%
+DEBUG_predictions_dict["passed_simulation"][:10]
+
+# %%
+DEBUG_ground_truths_dict["passed_simulation"][:10]
+
+# %%
+DEBUG_predictions_dict
+
+# %%
+import matplotlib.pyplot as plt
+
+# Small circles
+gaussian_noise = np.random.normal(
+    0, 0.01, len(DEBUG_ground_truths_dict["passed_simulation"])
+)
+plt.plot([0, 1], [0, 1], color="black", linestyle="dashed", label="Ideal")
+plt.scatter(
+    DEBUG_ground_truths_dict["passed_simulation"] + gaussian_noise,
+    DEBUG_predictions_dict["passed_simulation"],
+    s=0.1,
+    label="Predictions",
+)
+plt.xlabel("Ground Truth")
+plt.ylabel("Prediction")
+plt.legend()
+plt.title(f"passed_simulation Scatter Plot {DEBUG_phase.name.title()}")
+plt.show()
+
+# %%
+np.unique(DEBUG_ground_truths_dict["passed_simulation"], return_counts=True)
+
+# %%
+unique_labels = np.unique(DEBUG_ground_truths_dict["passed_simulation"])
+fig, axes = plt.subplots(len(unique_labels), 1, figsize=(10, 10))
+axes = axes.flatten()
+
+for i, unique_val in enumerate(unique_labels):
+    preds = np.array(DEBUG_predictions_dict["passed_simulation"])
+    idxs = np.array(DEBUG_ground_truths_dict["passed_simulation"]) == unique_val
+    ground_truths = preds[idxs]
+    axes[i].hist(ground_truths, bins=50, alpha=0.7, color="blue")
+    axes[i].set_title(f"Ground Truth: {unique_val}")
+
+# Set main title
+fig.suptitle(f"passed_simulation Histogram {DEBUG_phase.name.title()}", fontsize=16)
+fig.tight_layout()
+
+
+# %%
+DEBUG_log_dict = create_log_dict(
+    loop_timer=loop_timer,
+    phase=DEBUG_phase,
+    task_type=cfg.task_type,
+    losses_dict=DEBUG_losses_dict,
+    predictions_dict=DEBUG_predictions_dict,
+    ground_truths_dict=DEBUG_ground_truths_dict,
+    optimizer=optimizer,
+)
+
+# %%
+DEBUG_log_dict[f"{DEBUG_phase.name.lower()}_loss"]
+
+# %%
+DEBUG_log_dict_modified = {f"{k}_v2": v for k, v in DEBUG_log_dict.items()}
+
+# %%
+wandb.log(DEBUG_log_dict_modified)
+
+
+# %%
+loop_timer = LoopTimer()
+(
+    train_losses_dict,
+    train_predictions_dict,
+    train_ground_truths_dict,
+) = _iterate_through_dataloader(
+    loop_timer=loop_timer,
+    phase=Phase.EVAL_TRAIN,
+    dataloader=train_loader,
+    classifier=classifier,
+    device=device,
+    loss_fns=loss_fns,
+    task_type=cfg.task_type,
+    max_num_batches=10,
+)
+
+# %%
+loss_names = [
+    "passed_simulation_loss",
+    "passed_penetration_threshold_loss",
+]
+from plotly.subplots import make_subplots
+import plotly.graph_objects as go
+
+fig = make_subplots(rows=len(loss_names), cols=1, subplot_titles=loss_names)
+for i, loss_name in enumerate(loss_names):
+    fig.add_trace(
+        go.Scatter(y=val_losses_dict[loss_name], name=loss_name, mode="markers"),
+        row=i + 1,
+        col=1,
+    )
+fig.show()
+
+
+# %%
+def plot_distribution(data: np.ndarray, name: str) -> None:
+    # Calculating statistics
+    import scipy.stats as stats
+
+    data = np.array(data)
+    mean = np.mean(data)
+    max_value = np.max(data)
+    min_value = np.min(data)
+    data_range = np.ptp(data)  # Range as max - min
+    std_dev = np.std(data)
+    median = np.median(data)
+    mode = stats.mode(data).mode[0]
+    iqr = stats.iqr(data)  # Interquartile range
+    percentile_25 = np.percentile(data, 25)
+    percentile_75 = np.percentile(data, 75)
+
+    import matplotlib.pyplot as plt
+
+    # Create histogram
+    plt.hist(data, bins=50, alpha=0.7, color="blue", log=True)
+
+    # Printing results
+    print(
+        f"Mean: {mean}, Max: {max_value}, Min: {min_value}, Range: {data_range}, Standard Deviation: {std_dev}"
+    )
+    print(
+        f"Median: {median}, Mode: {mode}, IQR: {iqr}, 25th Percentile: {percentile_25}, 75th Percentile: {percentile_75}"
+    )
+
+    # Add lines for mean, median, and mode
+    plt.axvline(
+        mean, color="red", linestyle="dashed", linewidth=2, label=f"Mean: {mean:.4f}"
+    )
+    plt.axvline(
+        median,
+        color="green",
+        linestyle="dashed",
+        linewidth=2,
+        label=f"Median: {median:.4f}",
+    )
+    plt.axvline(
+        mode, color="yellow", linestyle="dashed", linewidth=2, label=f"Mode: {mode:.4f}"
+    )
+
+    # Add lines for percentiles
+    plt.axvline(
+        percentile_25,
+        color="orange",
+        linestyle="dotted",
+        linewidth=2,
+        label=f"25th percentile: {percentile_25:.4f}",
+    )
+    plt.axvline(
+        percentile_75,
+        color="purple",
+        linestyle="dotted",
+        linewidth=2,
+        label=f"75th percentile: {percentile_75:.4f}",
+    )
+
+    # Add standard deviation
+    plt.axvline(
+        mean - std_dev,
+        color="cyan",
+        linestyle="dashdot",
+        linewidth=2,
+        label=f"Std Dev: {std_dev:.4f}",
+    )
+    plt.axvline(mean + std_dev, color="cyan", linestyle="dashdot", linewidth=2)
+
+    # Add legend
+    plt.legend()
+    plt.title(f"{name} histogram")
+
+    # Show plot
+    plt.show()
+
+
+plot_distribution(
+    data=val_losses_dict["passed_penetration_threshold_loss"],
+    name="passed_penetration_threshold_loss",
+)
+
+# %%
+plot_distribution(
+    data=val_losses_dict["passed_simulation_loss"], name="passed_simulation_loss"
+)
 
 
 # %%

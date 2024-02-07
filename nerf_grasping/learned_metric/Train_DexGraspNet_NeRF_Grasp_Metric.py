@@ -447,6 +447,32 @@ def sample_random_rotate_transforms(N: int) -> pp.LieTensor:
 
 
 @localscope.mfc(allowed=["PP_MATRIX_ATOL", "PP_MATRIX_RTOL"])
+def sample_random_rotate_transforms_only_around_y(N: int) -> pp.LieTensor:
+    # Sample big rotations in tangent space of SO(3).
+    # Choose 4 * \pi as a heuristic to get pretty evenly spaced rotations.
+    # TODO(pculbert): Figure out better uniform sampling on SO(3).
+    x_rotations = torch.zeros(N)
+    y_rotations = 4 * torch.pi * (2 * torch.rand(N) - 1)
+    z_rotations = torch.zeros(N)
+    xyz_rotations = torch.stack([x_rotations, y_rotations, z_rotations], dim=-1)
+    log_random_rotations = pp.so3(xyz_rotations)
+
+    # Return exponentiated rotations.
+    random_SO3_rotations = log_random_rotations.Exp()
+
+    # A bit annoying -- need to cast SO(3) -> SE(3).
+    random_rotate_transforms = pp.from_matrix(
+        random_SO3_rotations.matrix(),
+        pp.SE3_type,
+        atol=PP_MATRIX_ATOL,
+        rtol=PP_MATRIX_RTOL,
+    )
+
+    return random_rotate_transforms
+
+
+
+@localscope.mfc(allowed=["PP_MATRIX_ATOL", "PP_MATRIX_RTOL"])
 def custom_collate_fn(
     batch,
     fingertip_config: BaseFingertipConfig,
@@ -480,7 +506,7 @@ def custom_collate_fn(
 
     batch_size = nerf_densities.shape[0]
     if use_random_rotations:
-        random_rotate_transform = sample_random_rotate_transforms(N=batch_size)
+        random_rotate_transform = sample_random_rotate_transforms_only_around_y(N=batch_size)
     else:
         random_rotate_transform = None
 
@@ -536,7 +562,7 @@ def depth_image_custom_collate_fn(
 
     batch_size = depth_uncertainty_images.shape[0]
     if use_random_rotations:
-        random_rotate_transform = sample_random_rotate_transforms(N=batch_size)
+        random_rotate_transform = sample_random_rotate_transforms_only_around_y(N=batch_size)
     else:
         random_rotate_transform = None
 

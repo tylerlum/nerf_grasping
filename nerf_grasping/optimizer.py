@@ -307,7 +307,7 @@ def run_optimizer_loop(
                 #     f"Iter: {iter} | Min loss: {optimizer.grasp_loss.min():.3f} | Max loss: {optimizer.grasp_loss.max():.3f} | Mean loss: {optimizer.grasp_loss.mean():.3f} | Std dev: {optimizer.grasp_loss.std():.3f}"
                 # )
                 print(
-                    f"Iter: {iter} | Losses: {optimizer.grasp_losses.round(decimals=3).tolist()} | Min loss: {optimizer.grasp_losses.min():.3f} | Max loss: {optimizer.grasp_losses.max():.3f} | Mean loss: {optimizer.grasp_losses.mean():.3f} | Std dev: {optimizer.grasp_losses.std():.3f}"
+                    f"Iter: {iter} | Losses: {np.round(optimizer.grasp_losses.tolist(), decimals=3)} | Min loss: {optimizer.grasp_losses.min():.3f} | Max loss: {optimizer.grasp_losses.max():.3f} | Mean loss: {optimizer.grasp_losses.mean():.3f} | Std dev: {optimizer.grasp_losses.std():.3f}"
                 )
 
             optimizer.step()
@@ -373,8 +373,11 @@ def run_optimizer_loop(
 
 
 def get_optimized_grasps(cfg: OptimizationConfig) -> Dict[str, np.ndarray]:
-    # Create rich.Console object.
+    print("=" * 80)
+    print(f"Config:\n{tyro.extras.to_yaml(cfg)}")
+    print("=" * 80 + "\n")
 
+    # Create rich.Console object.
     torch.random.manual_seed(0)
     np.random.seed(0)
 

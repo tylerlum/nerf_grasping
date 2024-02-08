@@ -18,7 +18,7 @@ DEFAULT_WANDB_PROJECT = "optimize_metric"
 class OptimizationConfig:
     """Top-level config for optimizing grasp metric."""
     optimizer: Union[SGDOptimizerConfig, CEMOptimizerConfig]
-    grasp_metric: GraspMetricConfig
+    grasp_metric: GraspMetricConfig = field(default_factory=GraspMetricConfig)
     init_grasp_config_dict_path: pathlib.Path = (
         pathlib.Path(nerf_grasping.get_repo_root())
         / "data"

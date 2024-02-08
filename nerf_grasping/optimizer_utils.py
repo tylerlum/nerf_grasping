@@ -963,7 +963,7 @@ def batch_cov(x: torch.Tensor, dim: int = 0, keepdim=False):
     ) / (n_dim - 1)
 
 
-def get_sorted_grasps(
+def get_sorted_grasps_from_file(
     optimized_grasp_config_dict_filepath: pathlib.Path,
     object_transform_world_frame: Optional[np.ndarray] = None,
     error_if_no_loss: bool = True,
@@ -990,7 +990,7 @@ def get_sorted_grasps(
     - A batch of target joint angles in a numpy array of shape (B, 16)
 
     Example:
-    >>> wrist_trans, wrist_rot, joint_angles, target_joint_angles = get_sorted_grasps(pathlib.Path("path/to/optimized_grasp_config.npy"))
+    >>> wrist_trans, wrist_rot, joint_angles, target_joint_angles = get_sorted_grasps_from_file(pathlib.Path("path/to/optimized_grasp_config.npy"))
     >>> B = wrist_trans.shape[0]
     >>> assert wrist_trans.shape == (B, 3)
     >>> assert wrist_rot.shape == (B, 3, 3)
@@ -1001,27 +1001,52 @@ def get_sorted_grasps(
     grasp_config_dict = np.load(
         optimized_grasp_config_dict_filepath, allow_pickle=True
     ).item()
+    return get_sorted_grasps_from_dict(
+        grasp_config_dict,
+        object_transform_world_frame=object_transform_world_frame,
+        error_if_no_loss=error_if_no_loss,
+        check=check,
+        print_best=print_best,
+    )
+
+def get_sorted_grasps_from_dict(
+    optimized_grasp_config_dict: Dict[str, np.ndarray],
+    object_transform_world_frame: Optional[np.ndarray] = None,
+    error_if_no_loss: bool = True,
+    check: bool = True,
+    print_best: bool = True,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     grasp_configs = AllegroGraspConfig.from_grasp_config_dict(
-        grasp_config_dict, check=check
+        optimized_grasp_config_dict, check=check
     )
     B = grasp_configs.batch_size
 
-    # Sort by loss
-    if "loss" not in grasp_config_dict:
+    # Look for loss or passed_eval
+    if "loss" not in optimized_grasp_config_dict:
         if error_if_no_loss:
             raise ValueError(
-                f"loss not found in grasp config dict keys: {grasp_config_dict.keys()}, if you want to skip this error, set error_if_no_loss=False"
+                f"loss not found in grasp config dict keys: {optimized_grasp_config_dict.keys()}, if you want to skip this error, set error_if_no_loss=False"
             )
-
         print("=" * 80)
-        print(f"loss not found in grasp config dict keys: {grasp_config_dict.keys()}")
-        print("Using dummy losses")
+        print(f"loss not found in grasp config dict keys: {optimized_grasp_config_dict.keys()}")
+        print("Looking for passed_eval...")
         print("=" * 80 + "\n")
-        dummy_losses = np.arange(B)
-        losses = dummy_losses
+        if "passed_eval" in optimized_grasp_config_dict:
+            print("~" * 80)
+            print("passed_eval found! Using 1 - passed_eval as loss.")
+            print("~" * 80 + "\n")
+            failed_eval = 1 - optimized_grasp_config_dict["passed_eval"]
+            losses = failed_eval
+        else:
+            print("~" * 80)
+            print("passed_eval not found! Using dummy losses.")
+            print("~" * 80 + "\n")
+            dummy_losses = np.arange(B)
+            losses = dummy_losses
     else:
-        losses = grasp_config_dict["loss"]
+        losses = optimized_grasp_config_dict["loss"]
 
+    # Sort by loss
     sorted_idxs = np.argsort(losses)
     sorted_losses = losses[sorted_idxs]
     sorted_grasp_configs = grasp_configs[sorted_idxs]
@@ -1070,13 +1095,13 @@ def main() -> None:
     print(f"Processing {FILEPATH}")
 
     try:
-        wrist_trans, wrist_rot, joint_angles, target_joint_angles = get_sorted_grasps(
+        wrist_trans, wrist_rot, joint_angles, target_joint_angles = get_sorted_grasps_from_file(
             FILEPATH
         )
     except ValueError as e:
         print(f"Error processing {FILEPATH}: {e}")
         print("Try again skipping check")
-        wrist_trans, wrist_rot, joint_angles, target_joint_angles = get_sorted_grasps(
+        wrist_trans, wrist_rot, joint_angles, target_joint_angles = get_sorted_grasps_from_file(
             FILEPATH, check=False
         )
     print(

@@ -16,7 +16,7 @@ from nerf_grasping.config.optimizer_config import (
     SGDOptimizerConfig,
     CEMOptimizerConfig,
 )
-from typing import Tuple, Union
+from typing import Tuple, Union, Dict
 import nerf_grasping
 from functools import partial
 import numpy as np
@@ -372,7 +372,7 @@ def run_optimizer_loop(
     )
 
 
-def main(cfg: OptimizationConfig) -> None:
+def get_optimized_grasps(cfg: OptimizationConfig) -> Dict[str, np.ndarray]:
     # Create rich.Console object.
 
     torch.random.manual_seed(0)
@@ -497,7 +497,11 @@ def main(cfg: OptimizationConfig) -> None:
     np.save(str(cfg.output_path), grasp_config_dict, allow_pickle=True)
 
     wandb.finish()
+    return grasp_config_dict
 
+
+def main(cfg: OptimizationConfig) -> None:
+    get_optimized_grasps(cfg)
 
 if __name__ == "__main__":
     cfg = tyro.cli(OptimizationConfig)

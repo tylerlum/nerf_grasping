@@ -7,6 +7,7 @@ from nerf_grasping.config.classifier_config import (
     ClassifierConfig,
 )
 from typing import Optional
+import numpy as np
 
 
 @dataclass
@@ -31,6 +32,7 @@ class GraspMetricConfig:
         / "2024-01-03_235839"
         / "config.yml"
     )
+    object_transform_world_frame: Optional[np.ndarray] = None
 
     def __post_init__(self):
         """
@@ -43,6 +45,9 @@ class GraspMetricConfig:
             )
         else:
             print("Loading default classifier config.")
+
+        if self.object_transform_world_frame is None:
+            self.object_transform_world_frame = np.eye(4)
 
     @property
     def object_name(self) -> str:

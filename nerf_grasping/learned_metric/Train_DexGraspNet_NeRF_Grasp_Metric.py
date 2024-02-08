@@ -1843,7 +1843,6 @@ class WeightedSoftmaxL2(nn.Module):
         self.l2_loss = nn.MSELoss(*args, **kwargs)
 
     def forward(self, input: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
-        breakpoint()
         batch_size = input.shape[0]
         assert_equals(input.shape, (batch_size, 2))
         assert_equals(target.shape, (batch_size, 2))

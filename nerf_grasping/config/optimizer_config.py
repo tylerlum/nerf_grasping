@@ -4,7 +4,7 @@ import tyro
 
 @dataclass
 class BaseOptimizerConfig:
-    num_grasps: int = 5
+    num_grasps: int = 20
     num_steps: int = 30
 
 

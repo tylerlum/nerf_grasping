@@ -480,8 +480,8 @@ def get_optimized_grasps(cfg: OptimizationConfig) -> Dict[str, np.ndarray]:
         final_losses.shape[0] == final_grasp_configs.batch_size
     ), f"{final_losses.shape[0]} != {final_grasp_configs.batch_size}"
 
-    print(f"Initial grasp loss: {init_losses}")
-    print(f"Final grasp loss: {final_losses}")
+    print(f"Initial grasp loss: {np.round(init_losses.tolist(), decimals=3)}")
+    print(f"Final grasp loss: {np.round(final_losses.tolist(), decimals=3)}")
 
     table.add_row(
         f"{cfg.optimizer.num_steps}",

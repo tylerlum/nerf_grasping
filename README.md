@@ -103,7 +103,7 @@ This is because the optimizer is trained with a coordinate frame centered at the
 We have the following API to read in the optimized grasps from above:
 
 ```
-def get_sorted_grasps(
+def get_sorted_grasps_from_file(
     optimized_grasp_config_dict_filepath: pathlib.Path,
     object_transform_world_frame: Optional[np.ndarray] = None,
     error_if_no_loss: bool = True,

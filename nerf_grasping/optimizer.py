@@ -16,7 +16,7 @@ from nerf_grasping.config.optimizer_config import (
     SGDOptimizerConfig,
     CEMOptimizerConfig,
 )
-from typing import Tuple, Union
+from typing import Tuple, Union, Dict
 import nerf_grasping
 from functools import partial
 import numpy as np
@@ -303,11 +303,12 @@ def run_optimizer_loop(
             wandb_log_dict["optimization_step"] = iter
 
             if iter % print_freq == 0:
+                losses_np = optimizer.grasp_losses.detach().cpu().numpy()
                 # console.print(
-                #     f"Iter: {iter} | Min loss: {optimizer.grasp_loss.min():.3f} | Max loss: {optimizer.grasp_loss.max():.3f} | Mean loss: {optimizer.grasp_loss.mean():.3f} | Std dev: {optimizer.grasp_loss.std():.3f}"
+                #     f"Iter: {iter} | Min loss: {grasp_loss.min():.3f} | Max loss: {grasp_loss.max():.3f} | Mean loss: {grasp_loss.mean():.3f} | Std dev: {grasp_loss.std():.3f}"
                 # )
                 print(
-                    f"Iter: {iter} | Losses: {optimizer.grasp_losses.round(decimals=3).tolist()} | Min loss: {optimizer.grasp_losses.min():.3f} | Max loss: {optimizer.grasp_losses.max():.3f} | Mean loss: {optimizer.grasp_losses.mean():.3f} | Std dev: {optimizer.grasp_losses.std():.3f}"
+                    f"Iter: {iter} | Losses: {np.round(losses_np.tolist(), decimals=3)} | Min loss: {losses_np.min():.3f} | Max loss: {losses_np.max():.3f} | Mean loss: {losses_np.mean():.3f} | Std dev: {losses_np.std():.3f}"
                 )
 
             optimizer.step()
@@ -320,11 +321,13 @@ def run_optimizer_loop(
                 )
 
             # Log to wandb.
-            wandb_log_dict["loss_0"] = optimizer.grasp_losses[0].item()
-            wandb_log_dict["min_loss"] = optimizer.grasp_losses.min().item()
-            wandb_log_dict["max_loss"] = optimizer.grasp_losses.max().item()
-            wandb_log_dict["mean_loss"] = optimizer.grasp_losses.mean().item()
-            wandb_log_dict["std_loss"] = optimizer.grasp_losses.std().item()
+            grasp_losses_np = optimizer.grasp_losses.detach().cpu().numpy()
+            for i, loss in enumerate(grasp_losses_np.tolist()):
+                wandb_log_dict[f"loss_{i}"] = loss
+            wandb_log_dict["min_loss"] = grasp_losses_np.min().item()
+            wandb_log_dict["max_loss"] = grasp_losses_np.max().item()
+            wandb_log_dict["mean_loss"] = grasp_losses_np.mean().item()
+            wandb_log_dict["std_loss"] = grasp_losses_np.std().item()
 
             if wandb.run is not None:
                 wandb.log(wandb_log_dict)
@@ -332,9 +335,7 @@ def run_optimizer_loop(
             if iter % save_grasps_freq == 0:
                 # Save mid optimization grasps to file
                 grasp_config_dict = optimizer.grasp_config.as_dict()
-                grasp_config_dict["loss"] = (
-                    optimizer.grasp_losses.detach().cpu().numpy()
-                )
+                grasp_config_dict["loss"] = grasp_losses_np
 
                 # To interface with mid optimization visualizer, need to create new folder (mid_optimization_folder_path)
                 # that has folders with iteration number
@@ -372,9 +373,12 @@ def run_optimizer_loop(
     )
 
 
-def main(cfg: OptimizationConfig) -> None:
-    # Create rich.Console object.
+def get_optimized_grasps(cfg: OptimizationConfig) -> Dict[str, np.ndarray]:
+    print("=" * 80)
+    print(f"Config:\n{tyro.extras.to_yaml(cfg)}")
+    print("=" * 80 + "\n")
 
+    # Create rich.Console object.
     torch.random.manual_seed(0)
     np.random.seed(0)
 
@@ -459,10 +463,10 @@ def main(cfg: OptimizationConfig) -> None:
 
     table.add_row(
         "0",
-        f"{optimizer.grasp_losses.min():.5f}",
-        f"{optimizer.grasp_losses.mean():.5f}",
-        f"{optimizer.grasp_losses.max():.5f}",
-        f"{optimizer.grasp_losses.std():.5f}",
+        f"{init_losses.min():.5f}",
+        f"{init_losses.mean():.5f}",
+        f"{init_losses.max():.5f}",
+        f"{init_losses.std():.5f}",
     )
 
     final_losses, final_grasp_configs = run_optimizer_loop(
@@ -477,8 +481,8 @@ def main(cfg: OptimizationConfig) -> None:
         final_losses.shape[0] == final_grasp_configs.batch_size
     ), f"{final_losses.shape[0]} != {final_grasp_configs.batch_size}"
 
-    print(f"Initial grasp loss: {init_losses}")
-    print(f"Final grasp loss: {final_losses}")
+    print(f"Initial grasp loss: {np.round(init_losses.tolist(), decimals=3)}")
+    print(f"Final grasp loss: {np.round(final_losses.tolist(), decimals=3)}")
 
     table.add_row(
         f"{cfg.optimizer.num_steps}",
@@ -497,7 +501,11 @@ def main(cfg: OptimizationConfig) -> None:
     np.save(str(cfg.output_path), grasp_config_dict, allow_pickle=True)
 
     wandb.finish()
+    return grasp_config_dict
 
+
+def main(cfg: OptimizationConfig) -> None:
+    get_optimized_grasps(cfg)
 
 if __name__ == "__main__":
     cfg = tyro.cli(OptimizationConfig)

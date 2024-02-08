@@ -194,22 +194,36 @@ if is_notebook():
     #     "mugs_grid_grasp-cond-simple-cnn-2d-1d_BACKUP",
     # ]
 
+    # arguments = [
+    #     "grasp-cond-simple-cnn-2d-1d",
+    #     "--task-type",
+    #     "PASSED_SIMULATION",
+    #     "--train-dataset-filepath",
+    #     "data/2023-01-03_mugs_smaller0-075_noise_lightshake_mid_opt/grid_dataset/dataset.h5",
+    #     "--val-dataset-filepath",
+    #     "data/2023-01-03_mugs_smaller0-075_noise_lightshake_mid_opt/grid_dataset/val_dataset.h5",
+    #     "--test-dataset-filepath",
+    #     "data/2023-01-03_mugs_smaller0-075_noise_lightshake_mid_opt/grid_dataset/test_dataset.h5",
+    #     "--dataloader.batch-size",
+    #     "32",
+    #     "--wandb.name",
+    #     "probe_mugs_grid_grasp-cond-simple-cnn-2d-1d",
+    #     "--checkpoint-workspace.input_leaf_dir_name",
+    #     "mugs_grid_grasp-cond-simple-cnn-2d-1d_BACKUP",
+    # ]
+
     arguments = [
         "grasp-cond-simple-cnn-2d-1d",
         "--task-type",
         "PASSED_SIMULATION",
         "--train-dataset-filepath",
-        "data/2023-01-03_mugs_smaller0-075_noise_lightshake_mid_opt/grid_dataset/dataset.h5",
-        "--val-dataset-filepath",
-        "data/2023-01-03_mugs_smaller0-075_noise_lightshake_mid_opt/grid_dataset/val_dataset.h5",
-        "--test-dataset-filepath",
-        "data/2023-01-03_mugs_smaller0-075_noise_lightshake_mid_opt/grid_dataset/test_dataset.h5",
+        "data/2024-02-07_softball_0-051_5random/grid_dataset/train_dataset.h5",
         "--dataloader.batch-size",
         "32",
         "--wandb.name",
-        "probe_mugs_grid_grasp-cond-simple-cnn-2d-1d",
+        "probe_DEBUG_softball9k-5random_grid_grasp-cond-simple-cnn-2d-1d_weighted-l1",
         "--checkpoint-workspace.input_leaf_dir_name",
-        "mugs_grid_grasp-cond-simple-cnn-2d-1d_BACKUP",
+        "DEBUG_softball9k-5random_grid_grasp-cond-simple-cnn-2d-1d_weighted-l1_2024-02-07_15-39-08-912606",
     ]
 else:
     arguments = sys.argv[1:]
@@ -447,6 +461,32 @@ def sample_random_rotate_transforms(N: int) -> pp.LieTensor:
 
 
 @localscope.mfc(allowed=["PP_MATRIX_ATOL", "PP_MATRIX_RTOL"])
+def sample_random_rotate_transforms_only_around_y(N: int) -> pp.LieTensor:
+    # Sample big rotations in tangent space of SO(3).
+    # Choose 4 * \pi as a heuristic to get pretty evenly spaced rotations.
+    # TODO(pculbert): Figure out better uniform sampling on SO(3).
+    x_rotations = torch.zeros(N)
+    y_rotations = 4 * torch.pi * (2 * torch.rand(N) - 1)
+    z_rotations = torch.zeros(N)
+    xyz_rotations = torch.stack([x_rotations, y_rotations, z_rotations], dim=-1)
+    log_random_rotations = pp.so3(xyz_rotations)
+
+    # Return exponentiated rotations.
+    random_SO3_rotations = log_random_rotations.Exp()
+
+    # A bit annoying -- need to cast SO(3) -> SE(3).
+    random_rotate_transforms = pp.from_matrix(
+        random_SO3_rotations.matrix(),
+        pp.SE3_type,
+        atol=PP_MATRIX_ATOL,
+        rtol=PP_MATRIX_RTOL,
+    )
+
+    return random_rotate_transforms
+
+
+
+@localscope.mfc(allowed=["PP_MATRIX_ATOL", "PP_MATRIX_RTOL"])
 def custom_collate_fn(
     batch,
     fingertip_config: BaseFingertipConfig,
@@ -480,7 +520,7 @@ def custom_collate_fn(
 
     batch_size = nerf_densities.shape[0]
     if use_random_rotations:
-        random_rotate_transform = sample_random_rotate_transforms(N=batch_size)
+        random_rotate_transform = sample_random_rotate_transforms_only_around_y(N=batch_size)
     else:
         random_rotate_transform = None
 
@@ -536,7 +576,7 @@ def depth_image_custom_collate_fn(
 
     batch_size = depth_uncertainty_images.shape[0]
     if use_random_rotations:
-        random_rotate_transform = sample_random_rotate_transforms(N=batch_size)
+        random_rotate_transform = sample_random_rotate_transforms_only_around_y(N=batch_size)
     else:
         random_rotate_transform = None
 
@@ -1934,8 +1974,8 @@ if cfg.data.debug_shuffle_labels:
     )
 
 # # %% [markdown]
-# Debug/Analyze model
-# DEBUG_phase = Phase.VAL
+# # Debug/Analyze model
+# DEBUG_phase = Phase.EVAL_TRAIN
 # if DEBUG_phase == Phase.EVAL_TRAIN:
 #     DEBUG_loader = train_loader
 # elif DEBUG_phase == Phase.VAL:
@@ -1944,8 +1984,8 @@ if cfg.data.debug_shuffle_labels:
 #     DEBUG_loader = test_loader
 # else:
 #     raise ValueError(f"Unknown phase: {DEBUG_phase}")
-#
-#
+# 
+# 
 # loop_timer = LoopTimer()
 # (
 #     DEBUG_losses_dict,
@@ -1961,25 +2001,25 @@ if cfg.data.debug_shuffle_labels:
 #     task_type=cfg.task_type,
 #     max_num_batches=None,
 # )
-#
+# 
 # # %%
 # DEBUG_losses_dict.keys()
-#
+# 
 # # %%
 # DEBUG_losses_dict["passed_simulation_loss"][:10]
-#
+# 
 # # %%
 # DEBUG_predictions_dict["passed_simulation"][:10]
-#
+# 
 # # %%
 # DEBUG_ground_truths_dict["passed_simulation"][:10]
-#
+# 
 # # %%
 # DEBUG_predictions_dict
-#
+# 
 # # %%
 # import matplotlib.pyplot as plt
-#
+# 
 # # Small circles
 # gaussian_noise = np.random.normal(
 #     0, 0.01, len(DEBUG_ground_truths_dict["passed_simulation"])
@@ -1993,25 +2033,35 @@ if cfg.data.debug_shuffle_labels:
 # plt.ylabel("Prediction")
 # plt.title(f"passed_simulation Scatter Plot")
 # plt.show()
-#
+# 
 # # %%
 # np.unique(DEBUG_ground_truths_dict["passed_simulation"], return_counts=True)
-#
+# 
 # # %%
 # unique_labels = np.unique(DEBUG_ground_truths_dict["passed_simulation"])
 # fig, axes = plt.subplots(len(unique_labels), 1, figsize=(10, 10))
 # axes = axes.flatten()
-#
+# 
+# unique_label_to_preds = {}
 # for i, unique_val in enumerate(unique_labels):
 #     preds = np.array(DEBUG_predictions_dict["passed_simulation"])
 #     idxs = np.array(DEBUG_ground_truths_dict["passed_simulation"]) == unique_val
-#     ground_truths = preds[idxs]
-#     axes[i].hist(ground_truths, bins=50, alpha=0.7, color="blue")
-#     axes[i].set_title(f"Ground Truth: {unique_val}")
-#
+#     unique_label_to_preds[unique_val] = preds[idxs]
+# 
+# for i, (unique_label, preds) in enumerate(sorted(unique_label_to_preds.items())):
+#     # axes[i].hist(preds, bins=50, alpha=0.7, color="blue", log=True)
+#     axes[i].hist(preds, bins=50, alpha=0.7, color="blue")
+#     axes[i].set_title(f"Ground Truth: {unique_label}")
+#     axes[i].set_xlim(0, 1)
+# 
+# # Matching ylims
+# max_y_val = max(ax.get_ylim()[1] for ax in axes)
+# for i in range(len(axes)):
+#     axes[i].set_ylim(0, max_y_val)
+# 
 # fig.tight_layout()
-#
-#
+# 
+# 
 # # %%
 # DEBUG_log_dict = create_log_dict(
 #     loop_timer=loop_timer,
@@ -2022,17 +2072,17 @@ if cfg.data.debug_shuffle_labels:
 #     ground_truths_dict=DEBUG_ground_truths_dict,
 #     optimizer=optimizer,
 # )
-#
+# 
 # # %%
 # DEBUG_log_dict[f"{DEBUG_phase.name.lower()}_loss"]
-#
+# 
 # # %%
 # DEBUG_log_dict_modified = {f"{k}_v2": v for k, v in DEBUG_log_dict.items()}
-#
+# 
 # # %%
 # wandb.log(DEBUG_log_dict_modified)
-#
-#
+# 
+# 
 # # %%
 # loop_timer = LoopTimer()
 # (
@@ -2049,7 +2099,7 @@ if cfg.data.debug_shuffle_labels:
 #     task_type=cfg.task_type,
 #     max_num_batches=10,
 # )
-#
+# 
 # # %%
 # loss_names = [
 #     "passed_simulation_loss",
@@ -2057,7 +2107,7 @@ if cfg.data.debug_shuffle_labels:
 # ]
 # from plotly.subplots import make_subplots
 # import plotly.graph_objects as go
-#
+# 
 # fig = make_subplots(rows=len(loss_names), cols=1, subplot_titles=loss_names)
 # for i, loss_name in enumerate(loss_names):
 #     fig.add_trace(
@@ -2066,13 +2116,13 @@ if cfg.data.debug_shuffle_labels:
 #         col=1,
 #     )
 # fig.show()
-#
-#
+# 
+# 
 # # %%
 # def plot_distribution(data: np.ndarray, name: str) -> None:
 #     # Calculating statistics
 #     import scipy.stats as stats
-#
+# 
 #     data = np.array(data)
 #     mean = np.mean(data)
 #     max_value = np.max(data)
@@ -2084,12 +2134,12 @@ if cfg.data.debug_shuffle_labels:
 #     iqr = stats.iqr(data)  # Interquartile range
 #     percentile_25 = np.percentile(data, 25)
 #     percentile_75 = np.percentile(data, 75)
-#
+# 
 #     import matplotlib.pyplot as plt
-#
+# 
 #     # Create histogram
 #     plt.hist(data, bins=50, alpha=0.7, color="blue", log=True)
-#
+# 
 #     # Printing results
 #     print(
 #         f"Mean: {mean}, Max: {max_value}, Min: {min_value}, Range: {data_range}, Standard Deviation: {std_dev}"
@@ -2097,7 +2147,7 @@ if cfg.data.debug_shuffle_labels:
 #     print(
 #         f"Median: {median}, Mode: {mode}, IQR: {iqr}, 25th Percentile: {percentile_25}, 75th Percentile: {percentile_75}"
 #     )
-#
+# 
 #     # Add lines for mean, median, and mode
 #     plt.axvline(
 #         mean, color="red", linestyle="dashed", linewidth=2, label=f"Mean: {mean:.4f}"
@@ -2112,7 +2162,7 @@ if cfg.data.debug_shuffle_labels:
 #     plt.axvline(
 #         mode, color="yellow", linestyle="dashed", linewidth=2, label=f"Mode: {mode:.4f}"
 #     )
-#
+# 
 #     # Add lines for percentiles
 #     plt.axvline(
 #         percentile_25,
@@ -2128,7 +2178,7 @@ if cfg.data.debug_shuffle_labels:
 #         linewidth=2,
 #         label=f"75th percentile: {percentile_75:.4f}",
 #     )
-#
+# 
 #     # Add standard deviation
 #     plt.axvline(
 #         mean - std_dev,
@@ -2138,25 +2188,24 @@ if cfg.data.debug_shuffle_labels:
 #         label=f"Std Dev: {std_dev:.4f}",
 #     )
 #     plt.axvline(mean + std_dev, color="cyan", linestyle="dashdot", linewidth=2)
-#
+# 
 #     # Add legend
 #     plt.legend()
 #     plt.title(f"{name} histogram")
-#
+# 
 #     # Show plot
 #     plt.show()
-#
-#
+# 
+# 
 # plot_distribution(
 #     data=val_losses_dict["passed_penetration_threshold_loss"],
 #     name="passed_penetration_threshold_loss",
 # )
-#
+# 
 # # %%
 # plot_distribution(
 #     data=val_losses_dict["passed_simulation_loss"], name="passed_simulation_loss"
 # )
-
 
 # %%
 

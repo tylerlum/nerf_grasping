@@ -572,12 +572,14 @@ class GraspMetric(torch.nn.Module):
         nerf_field: Field,
         classifier_model: Classifier,
         fingertip_config: UnionFingertipConfig,
+        object_transform_world_frame: np.ndarray,
         return_type: str = "failure_probability",
     ) -> None:
         super().__init__()
         self.nerf_field = nerf_field
         self.classifier_model = classifier_model
         self.fingertip_config = fingertip_config
+        self.object_transform_world_frame = object_transform_world_frame
         self.ray_origins_finger_frame = grasp_utils.get_ray_origins_finger_frame(
             fingertip_config
         )
@@ -587,6 +589,7 @@ class GraspMetric(torch.nn.Module):
         self,
         grasp_config: AllegroGraspConfig,
     ) -> torch.Tensor:
+        # TODO: Use object_transform_world_frame to transform grasp_frame_transforms to world frame.
         # TODO: Batch this to avoid OOM (refer to Create_DexGraspNet_NeRF_Grasps_Dataset.py)
 
         # Generate RaySamples.
@@ -636,11 +639,13 @@ class GraspMetric(torch.nn.Module):
         grasp_metric_config: GraspMetricConfig,
         console: Optional[Console] = None,
     ) -> GraspMetric:
+        assert grasp_metric_config.object_transform_world_frame is not None
         return cls.from_configs(
-            grasp_metric_config.nerf_checkpoint_path,
-            grasp_metric_config.classifier_config,
-            grasp_metric_config.classifier_checkpoint,
-            console,
+            nerf_config=grasp_metric_config.nerf_checkpoint_path,
+            classifier_config=grasp_metric_config.classifier_config,
+            object_transform_world_frame=grasp_metric_config.object_transform_world_frame,
+            classifier_checkpoint=grasp_metric_config.classifier_checkpoint,
+            console=console,
         )
 
     @classmethod
@@ -648,6 +653,7 @@ class GraspMetric(torch.nn.Module):
         cls,
         nerf_config: pathlib.Path,
         classifier_config: ClassifierConfig,
+        object_transform_world_frame: np.ndarray,
         classifier_checkpoint: int = -1,
         console: Optional[Console] = None,
     ) -> GraspMetric:
@@ -732,7 +738,10 @@ class GraspMetric(torch.nn.Module):
             classifier.eval()  # weird LSTM thing where cudnn hasn't implemented the backwards pass in eval (??)
 
         return cls(
-            nerf_field, classifier, classifier_config.nerfdata_config.fingertip_config
+            nerf_field,
+            classifier,
+            classifier_config.nerfdata_config.fingertip_config,
+            object_transform_world_frame
         )
 
 
@@ -748,6 +757,7 @@ class DepthImageGraspMetric(torch.nn.Module):
         classifier_model: DepthImageClassifier,
         fingertip_config: UnionFingertipConfig,
         camera_config: CameraConfig,
+        object_transform_world_frame: np.ndarray,
         return_type: str = "failure_probability",
     ) -> None:
         super().__init__()
@@ -755,13 +765,16 @@ class DepthImageGraspMetric(torch.nn.Module):
         self.classifier_model = classifier_model
         self.fingertip_config = fingertip_config
         self.camera_config = camera_config
+        self.object_transform_world_frame = object_transform_world_frame
         self.return_type = return_type
 
     def forward(
         self,
         grasp_config: AllegroGraspConfig,
     ) -> torch.Tensor:
+        # TODO: Use object_transform_world_frame to transform grasp_frame_transforms to world frame.
         # TODO: Batch this to avoid OOM (refer to Create_DexGraspNet_NeRF_Grasps_Dataset.py)
+
         cameras = get_cameras(
             grasp_config.grasp_frame_transforms, self.camera_config
         ).to(self.nerf_model.device)
@@ -822,11 +835,13 @@ class DepthImageGraspMetric(torch.nn.Module):
         grasp_metric_config: GraspMetricConfig,
         console: Optional[Console] = None,
     ) -> DepthImageGraspMetric:
+        assert grasp_metric_config.object_transform_world_frame is not None
         return cls.from_configs(
-            grasp_metric_config.nerf_checkpoint_path,
-            grasp_metric_config.classifier_config,
-            grasp_metric_config.classifier_checkpoint,
-            console,
+            nerf_config=grasp_metric_config.nerf_checkpoint_path,
+            classifier_config=grasp_metric_config.classifier_config,
+            object_transform_world_frame=grasp_metric_config.object_transform_world_frame,
+            classifier_checkpoint=grasp_metric_config.classifier_checkpoint,
+            console=console,
         )
 
     @classmethod
@@ -834,6 +849,7 @@ class DepthImageGraspMetric(torch.nn.Module):
         cls,
         nerf_config: pathlib.Path,
         classifier_config: ClassifierConfig,
+        object_transform_world_frame: np.ndarray,
         classifier_checkpoint: int = -1,
         console: Optional[Console] = None,
     ) -> DepthImageGraspMetric:
@@ -922,6 +938,7 @@ class DepthImageGraspMetric(torch.nn.Module):
             classifier,
             classifier_config.nerfdata_config.fingertip_config,
             classifier_config.nerfdata_config.fingertip_camera_config,
+            object_transform_world_frame,
         )
 
 

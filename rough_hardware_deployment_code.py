@@ -24,9 +24,9 @@ optimized_grasp_config_dict = TYLER_get_optimized_grasps(
         grasp_metric=GraspMetricConfig(
             nerf_checkpoint_path=nerf_checkpoint_path,
             classifier_config_path=CLASSIFIER_CONFIG_PATH,
+            object_transform_world_frame=object_transform_world_frame,
         ),
         optimizer=SGDOptimizerConfig(),
-        object_transform_world_frame=object_transform_world_frame,
     )
 )
 wrist_trans, wrist_rot, joint_angles, target_joint_angles = TYLER_get_sorted_grasps_from_dict(

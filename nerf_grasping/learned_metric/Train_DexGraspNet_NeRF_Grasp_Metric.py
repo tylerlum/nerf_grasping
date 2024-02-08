@@ -1973,240 +1973,239 @@ if cfg.data.debug_shuffle_labels:
         "WARNING: Shuffle labels is turned on! Random labels are being passed. Press 'c' to continue"
     )
 
-# %% [markdown]
-# Debug/Analyze model
-DEBUG_phase = Phase.EVAL_TRAIN
-if DEBUG_phase == Phase.EVAL_TRAIN:
-    DEBUG_loader = train_loader
-elif DEBUG_phase == Phase.VAL:
-    DEBUG_loader = val_loader
-elif DEBUG_phase == Phase.TEST:
-    DEBUG_loader = test_loader
-else:
-    raise ValueError(f"Unknown phase: {DEBUG_phase}")
-
-
-loop_timer = LoopTimer()
-(
-    DEBUG_losses_dict,
-    DEBUG_predictions_dict,
-    DEBUG_ground_truths_dict,
-) = _iterate_through_dataloader(
-    loop_timer=loop_timer,
-    phase=DEBUG_phase,
-    dataloader=DEBUG_loader,
-    classifier=classifier,
-    device=device,
-    loss_fns=loss_fns,
-    task_type=cfg.task_type,
-    max_num_batches=None,
-)
-
-# %%
-DEBUG_losses_dict.keys()
-
-# %%
-DEBUG_losses_dict["passed_simulation_loss"][:10]
-
-# %%
-DEBUG_predictions_dict["passed_simulation"][:10]
-
-# %%
-DEBUG_ground_truths_dict["passed_simulation"][:10]
-
-# %%
-DEBUG_predictions_dict
-
-# %%
-import matplotlib.pyplot as plt
-
-# Small circles
-gaussian_noise = np.random.normal(
-    0, 0.01, len(DEBUG_ground_truths_dict["passed_simulation"])
-)
-plt.scatter(
-    DEBUG_ground_truths_dict["passed_simulation"] + gaussian_noise,
-    DEBUG_predictions_dict["passed_simulation"],
-    s=0.1,
-)
-plt.xlabel("Ground Truth")
-plt.ylabel("Prediction")
-plt.title(f"passed_simulation Scatter Plot")
-plt.show()
-
-# %%
-np.unique(DEBUG_ground_truths_dict["passed_simulation"], return_counts=True)
-
-# %%
-unique_labels = np.unique(DEBUG_ground_truths_dict["passed_simulation"])
-fig, axes = plt.subplots(len(unique_labels), 1, figsize=(10, 10))
-axes = axes.flatten()
-
-unique_label_to_preds = {}
-for i, unique_val in enumerate(unique_labels):
-    preds = np.array(DEBUG_predictions_dict["passed_simulation"])
-    idxs = np.array(DEBUG_ground_truths_dict["passed_simulation"]) == unique_val
-    unique_label_to_preds[unique_val] = preds[idxs]
-
-for i, (unique_label, preds) in enumerate(sorted(unique_label_to_preds.items())):
-    # axes[i].hist(preds, bins=50, alpha=0.7, color="blue", log=True)
-    axes[i].hist(preds, bins=50, alpha=0.7, color="blue")
-    axes[i].set_title(f"Ground Truth: {unique_label}")
-    axes[i].set_xlim(0, 1)
-
-# Matching ylims
-max_y_val = max(ax.get_ylim()[1] for ax in axes)
-for i in range(len(axes)):
-    axes[i].set_ylim(0, max_y_val)
-
-fig.tight_layout()
-
-
-# %%
-DEBUG_log_dict = create_log_dict(
-    loop_timer=loop_timer,
-    phase=DEBUG_phase,
-    task_type=cfg.task_type,
-    losses_dict=DEBUG_losses_dict,
-    predictions_dict=DEBUG_predictions_dict,
-    ground_truths_dict=DEBUG_ground_truths_dict,
-    optimizer=optimizer,
-)
-
-# %%
-DEBUG_log_dict[f"{DEBUG_phase.name.lower()}_loss"]
-
-# %%
-DEBUG_log_dict_modified = {f"{k}_v2": v for k, v in DEBUG_log_dict.items()}
-
-# %%
-wandb.log(DEBUG_log_dict_modified)
-
-
-# %%
-loop_timer = LoopTimer()
-(
-    train_losses_dict,
-    train_predictions_dict,
-    train_ground_truths_dict,
-) = _iterate_through_dataloader(
-    loop_timer=loop_timer,
-    phase=Phase.EVAL_TRAIN,
-    dataloader=train_loader,
-    classifier=classifier,
-    device=device,
-    loss_fns=loss_fns,
-    task_type=cfg.task_type,
-    max_num_batches=10,
-)
-
-# %%
-loss_names = [
-    "passed_simulation_loss",
-    "passed_penetration_threshold_loss",
-]
-from plotly.subplots import make_subplots
-import plotly.graph_objects as go
-
-fig = make_subplots(rows=len(loss_names), cols=1, subplot_titles=loss_names)
-for i, loss_name in enumerate(loss_names):
-    fig.add_trace(
-        go.Scatter(y=val_losses_dict[loss_name], name=loss_name, mode="markers"),
-        row=i + 1,
-        col=1,
-    )
-fig.show()
-
-
-# %%
-def plot_distribution(data: np.ndarray, name: str) -> None:
-    # Calculating statistics
-    import scipy.stats as stats
-
-    data = np.array(data)
-    mean = np.mean(data)
-    max_value = np.max(data)
-    min_value = np.min(data)
-    data_range = np.ptp(data)  # Range as max - min
-    std_dev = np.std(data)
-    median = np.median(data)
-    mode = stats.mode(data).mode[0]
-    iqr = stats.iqr(data)  # Interquartile range
-    percentile_25 = np.percentile(data, 25)
-    percentile_75 = np.percentile(data, 75)
-
-    import matplotlib.pyplot as plt
-
-    # Create histogram
-    plt.hist(data, bins=50, alpha=0.7, color="blue", log=True)
-
-    # Printing results
-    print(
-        f"Mean: {mean}, Max: {max_value}, Min: {min_value}, Range: {data_range}, Standard Deviation: {std_dev}"
-    )
-    print(
-        f"Median: {median}, Mode: {mode}, IQR: {iqr}, 25th Percentile: {percentile_25}, 75th Percentile: {percentile_75}"
-    )
-
-    # Add lines for mean, median, and mode
-    plt.axvline(
-        mean, color="red", linestyle="dashed", linewidth=2, label=f"Mean: {mean:.4f}"
-    )
-    plt.axvline(
-        median,
-        color="green",
-        linestyle="dashed",
-        linewidth=2,
-        label=f"Median: {median:.4f}",
-    )
-    plt.axvline(
-        mode, color="yellow", linestyle="dashed", linewidth=2, label=f"Mode: {mode:.4f}"
-    )
-
-    # Add lines for percentiles
-    plt.axvline(
-        percentile_25,
-        color="orange",
-        linestyle="dotted",
-        linewidth=2,
-        label=f"25th percentile: {percentile_25:.4f}",
-    )
-    plt.axvline(
-        percentile_75,
-        color="purple",
-        linestyle="dotted",
-        linewidth=2,
-        label=f"75th percentile: {percentile_75:.4f}",
-    )
-
-    # Add standard deviation
-    plt.axvline(
-        mean - std_dev,
-        color="cyan",
-        linestyle="dashdot",
-        linewidth=2,
-        label=f"Std Dev: {std_dev:.4f}",
-    )
-    plt.axvline(mean + std_dev, color="cyan", linestyle="dashdot", linewidth=2)
-
-    # Add legend
-    plt.legend()
-    plt.title(f"{name} histogram")
-
-    # Show plot
-    plt.show()
-
-
-plot_distribution(
-    data=val_losses_dict["passed_penetration_threshold_loss"],
-    name="passed_penetration_threshold_loss",
-)
-
-# %%
-plot_distribution(
-    data=val_losses_dict["passed_simulation_loss"], name="passed_simulation_loss"
-)
-
+# # %% [markdown]
+# # Debug/Analyze model
+# DEBUG_phase = Phase.EVAL_TRAIN
+# if DEBUG_phase == Phase.EVAL_TRAIN:
+#     DEBUG_loader = train_loader
+# elif DEBUG_phase == Phase.VAL:
+#     DEBUG_loader = val_loader
+# elif DEBUG_phase == Phase.TEST:
+#     DEBUG_loader = test_loader
+# else:
+#     raise ValueError(f"Unknown phase: {DEBUG_phase}")
+# 
+# 
+# loop_timer = LoopTimer()
+# (
+#     DEBUG_losses_dict,
+#     DEBUG_predictions_dict,
+#     DEBUG_ground_truths_dict,
+# ) = _iterate_through_dataloader(
+#     loop_timer=loop_timer,
+#     phase=DEBUG_phase,
+#     dataloader=DEBUG_loader,
+#     classifier=classifier,
+#     device=device,
+#     loss_fns=loss_fns,
+#     task_type=cfg.task_type,
+#     max_num_batches=None,
+# )
+# 
+# # %%
+# DEBUG_losses_dict.keys()
+# 
+# # %%
+# DEBUG_losses_dict["passed_simulation_loss"][:10]
+# 
+# # %%
+# DEBUG_predictions_dict["passed_simulation"][:10]
+# 
+# # %%
+# DEBUG_ground_truths_dict["passed_simulation"][:10]
+# 
+# # %%
+# DEBUG_predictions_dict
+# 
+# # %%
+# import matplotlib.pyplot as plt
+# 
+# # Small circles
+# gaussian_noise = np.random.normal(
+#     0, 0.01, len(DEBUG_ground_truths_dict["passed_simulation"])
+# )
+# plt.scatter(
+#     DEBUG_ground_truths_dict["passed_simulation"] + gaussian_noise,
+#     DEBUG_predictions_dict["passed_simulation"],
+#     s=0.1,
+# )
+# plt.xlabel("Ground Truth")
+# plt.ylabel("Prediction")
+# plt.title(f"passed_simulation Scatter Plot")
+# plt.show()
+# 
+# # %%
+# np.unique(DEBUG_ground_truths_dict["passed_simulation"], return_counts=True)
+# 
+# # %%
+# unique_labels = np.unique(DEBUG_ground_truths_dict["passed_simulation"])
+# fig, axes = plt.subplots(len(unique_labels), 1, figsize=(10, 10))
+# axes = axes.flatten()
+# 
+# unique_label_to_preds = {}
+# for i, unique_val in enumerate(unique_labels):
+#     preds = np.array(DEBUG_predictions_dict["passed_simulation"])
+#     idxs = np.array(DEBUG_ground_truths_dict["passed_simulation"]) == unique_val
+#     unique_label_to_preds[unique_val] = preds[idxs]
+# 
+# for i, (unique_label, preds) in enumerate(sorted(unique_label_to_preds.items())):
+#     # axes[i].hist(preds, bins=50, alpha=0.7, color="blue", log=True)
+#     axes[i].hist(preds, bins=50, alpha=0.7, color="blue")
+#     axes[i].set_title(f"Ground Truth: {unique_label}")
+#     axes[i].set_xlim(0, 1)
+# 
+# # Matching ylims
+# max_y_val = max(ax.get_ylim()[1] for ax in axes)
+# for i in range(len(axes)):
+#     axes[i].set_ylim(0, max_y_val)
+# 
+# fig.tight_layout()
+# 
+# 
+# # %%
+# DEBUG_log_dict = create_log_dict(
+#     loop_timer=loop_timer,
+#     phase=DEBUG_phase,
+#     task_type=cfg.task_type,
+#     losses_dict=DEBUG_losses_dict,
+#     predictions_dict=DEBUG_predictions_dict,
+#     ground_truths_dict=DEBUG_ground_truths_dict,
+#     optimizer=optimizer,
+# )
+# 
+# # %%
+# DEBUG_log_dict[f"{DEBUG_phase.name.lower()}_loss"]
+# 
+# # %%
+# DEBUG_log_dict_modified = {f"{k}_v2": v for k, v in DEBUG_log_dict.items()}
+# 
+# # %%
+# wandb.log(DEBUG_log_dict_modified)
+# 
+# 
+# # %%
+# loop_timer = LoopTimer()
+# (
+#     train_losses_dict,
+#     train_predictions_dict,
+#     train_ground_truths_dict,
+# ) = _iterate_through_dataloader(
+#     loop_timer=loop_timer,
+#     phase=Phase.EVAL_TRAIN,
+#     dataloader=train_loader,
+#     classifier=classifier,
+#     device=device,
+#     loss_fns=loss_fns,
+#     task_type=cfg.task_type,
+#     max_num_batches=10,
+# )
+# 
+# # %%
+# loss_names = [
+#     "passed_simulation_loss",
+#     "passed_penetration_threshold_loss",
+# ]
+# from plotly.subplots import make_subplots
+# import plotly.graph_objects as go
+# 
+# fig = make_subplots(rows=len(loss_names), cols=1, subplot_titles=loss_names)
+# for i, loss_name in enumerate(loss_names):
+#     fig.add_trace(
+#         go.Scatter(y=val_losses_dict[loss_name], name=loss_name, mode="markers"),
+#         row=i + 1,
+#         col=1,
+#     )
+# fig.show()
+# 
+# 
+# # %%
+# def plot_distribution(data: np.ndarray, name: str) -> None:
+#     # Calculating statistics
+#     import scipy.stats as stats
+# 
+#     data = np.array(data)
+#     mean = np.mean(data)
+#     max_value = np.max(data)
+#     min_value = np.min(data)
+#     data_range = np.ptp(data)  # Range as max - min
+#     std_dev = np.std(data)
+#     median = np.median(data)
+#     mode = stats.mode(data).mode[0]
+#     iqr = stats.iqr(data)  # Interquartile range
+#     percentile_25 = np.percentile(data, 25)
+#     percentile_75 = np.percentile(data, 75)
+# 
+#     import matplotlib.pyplot as plt
+# 
+#     # Create histogram
+#     plt.hist(data, bins=50, alpha=0.7, color="blue", log=True)
+# 
+#     # Printing results
+#     print(
+#         f"Mean: {mean}, Max: {max_value}, Min: {min_value}, Range: {data_range}, Standard Deviation: {std_dev}"
+#     )
+#     print(
+#         f"Median: {median}, Mode: {mode}, IQR: {iqr}, 25th Percentile: {percentile_25}, 75th Percentile: {percentile_75}"
+#     )
+# 
+#     # Add lines for mean, median, and mode
+#     plt.axvline(
+#         mean, color="red", linestyle="dashed", linewidth=2, label=f"Mean: {mean:.4f}"
+#     )
+#     plt.axvline(
+#         median,
+#         color="green",
+#         linestyle="dashed",
+#         linewidth=2,
+#         label=f"Median: {median:.4f}",
+#     )
+#     plt.axvline(
+#         mode, color="yellow", linestyle="dashed", linewidth=2, label=f"Mode: {mode:.4f}"
+#     )
+# 
+#     # Add lines for percentiles
+#     plt.axvline(
+#         percentile_25,
+#         color="orange",
+#         linestyle="dotted",
+#         linewidth=2,
+#         label=f"25th percentile: {percentile_25:.4f}",
+#     )
+#     plt.axvline(
+#         percentile_75,
+#         color="purple",
+#         linestyle="dotted",
+#         linewidth=2,
+#         label=f"75th percentile: {percentile_75:.4f}",
+#     )
+# 
+#     # Add standard deviation
+#     plt.axvline(
+#         mean - std_dev,
+#         color="cyan",
+#         linestyle="dashdot",
+#         linewidth=2,
+#         label=f"Std Dev: {std_dev:.4f}",
+#     )
+#     plt.axvline(mean + std_dev, color="cyan", linestyle="dashdot", linewidth=2)
+# 
+#     # Add legend
+#     plt.legend()
+#     plt.title(f"{name} histogram")
+# 
+#     # Show plot
+#     plt.show()
+# 
+# 
+# plot_distribution(
+#     data=val_losses_dict["passed_penetration_threshold_loss"],
+#     name="passed_penetration_threshold_loss",
+# )
+# 
+# # %%
+# plot_distribution(
+#     data=val_losses_dict["passed_simulation_loss"], name="passed_simulation_loss"
+# )
 
 # %%
 

@@ -335,9 +335,7 @@ def run_optimizer_loop(
             if iter % save_grasps_freq == 0:
                 # Save mid optimization grasps to file
                 grasp_config_dict = optimizer.grasp_config.as_dict()
-                grasp_config_dict["loss"] = (
-                    grasp_losses_np
-                )
+                grasp_config_dict["loss"] = grasp_losses_np
 
                 # To interface with mid optimization visualizer, need to create new folder (mid_optimization_folder_path)
                 # that has folders with iteration number
@@ -465,10 +463,10 @@ def get_optimized_grasps(cfg: OptimizationConfig) -> Dict[str, np.ndarray]:
 
     table.add_row(
         "0",
-        f"{optimizer.grasp_losses.min():.5f}",
-        f"{optimizer.grasp_losses.mean():.5f}",
-        f"{optimizer.grasp_losses.max():.5f}",
-        f"{optimizer.grasp_losses.std():.5f}",
+        f"{init_losses.min():.5f}",
+        f"{init_losses.mean():.5f}",
+        f"{init_losses.max():.5f}",
+        f"{init_losses.std():.5f}",
     )
 
     final_losses, final_grasp_configs = run_optimizer_loop(

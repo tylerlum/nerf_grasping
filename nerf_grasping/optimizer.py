@@ -303,11 +303,12 @@ def run_optimizer_loop(
             wandb_log_dict["optimization_step"] = iter
 
             if iter % print_freq == 0:
+                losses_np = optimizer.grasp_losses.detach().cpu().numpy()
                 # console.print(
-                #     f"Iter: {iter} | Min loss: {optimizer.grasp_loss.min():.3f} | Max loss: {optimizer.grasp_loss.max():.3f} | Mean loss: {optimizer.grasp_loss.mean():.3f} | Std dev: {optimizer.grasp_loss.std():.3f}"
+                #     f"Iter: {iter} | Min loss: {grasp_loss.min():.3f} | Max loss: {grasp_loss.max():.3f} | Mean loss: {grasp_loss.mean():.3f} | Std dev: {grasp_loss.std():.3f}"
                 # )
                 print(
-                    f"Iter: {iter} | Losses: {np.round(optimizer.grasp_losses.tolist(), decimals=3)} | Min loss: {optimizer.grasp_losses.min():.3f} | Max loss: {optimizer.grasp_losses.max():.3f} | Mean loss: {optimizer.grasp_losses.mean():.3f} | Std dev: {optimizer.grasp_losses.std():.3f}"
+                    f"Iter: {iter} | Losses: {np.round(losses_np.tolist(), decimals=3)} | Min loss: {losses_np.min():.3f} | Max loss: {losses_np.max():.3f} | Mean loss: {losses_np.mean():.3f} | Std dev: {losses_np.std():.3f}"
                 )
 
             optimizer.step()
@@ -320,11 +321,13 @@ def run_optimizer_loop(
                 )
 
             # Log to wandb.
-            wandb_log_dict["loss_0"] = optimizer.grasp_losses[0].item()
-            wandb_log_dict["min_loss"] = optimizer.grasp_losses.min().item()
-            wandb_log_dict["max_loss"] = optimizer.grasp_losses.max().item()
-            wandb_log_dict["mean_loss"] = optimizer.grasp_losses.mean().item()
-            wandb_log_dict["std_loss"] = optimizer.grasp_losses.std().item()
+            grasp_losses_np = optimizer.grasp_losses.detach().cpu().numpy()
+            for i, loss in enumerate(grasp_losses_np.tolist()):
+                wandb_log_dict[f"loss_{i}"] = loss
+            wandb_log_dict["min_loss"] = grasp_losses_np.min().item()
+            wandb_log_dict["max_loss"] = grasp_losses_np.max().item()
+            wandb_log_dict["mean_loss"] = grasp_losses_np.mean().item()
+            wandb_log_dict["std_loss"] = grasp_losses_np.std().item()
 
             if wandb.run is not None:
                 wandb.log(wandb_log_dict)
@@ -333,7 +336,7 @@ def run_optimizer_loop(
                 # Save mid optimization grasps to file
                 grasp_config_dict = optimizer.grasp_config.as_dict()
                 grasp_config_dict["loss"] = (
-                    optimizer.grasp_losses.detach().cpu().numpy()
+                    grasp_losses_np
                 )
 
                 # To interface with mid optimization visualizer, need to create new folder (mid_optimization_folder_path)

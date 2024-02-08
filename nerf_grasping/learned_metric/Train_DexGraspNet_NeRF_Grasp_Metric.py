@@ -28,6 +28,7 @@ import nerf_grasping
 from dataclasses import asdict
 from torchinfo import summary
 from torchviz import make_dot
+import matplotlib.pyplot as plt
 from nerf_grasping.learned_metric.DexGraspNet_batch_data import (
     BatchData,
     BatchDataInput,
@@ -1382,6 +1383,42 @@ def _create_wandb_scatter_plot(
         title=title,
     )
 
+@localscope.mfc
+def _create_wandb_histogram_plot(
+    ground_truths: List[float],
+    predictions: List[float],
+    title: str,
+) -> wandb.Image:
+    unique_labels = np.unique(ground_truths)
+    fig, axes = plt.subplots(len(unique_labels), 1, figsize=(10, 10))
+    axes = axes.flatten()
+
+    # Get predictions per label
+    unique_labels_to_preds = {}
+    for i, unique_label in enumerate(unique_labels):
+        preds = np.array(predictions)
+        idxs = np.array(ground_truths) == unique_label
+        unique_labels_to_preds[unique_label] = preds[idxs]
+
+    # Plot histogram per label
+    for i, (unique_label, preds) in enumerate(
+        sorted(unique_labels_to_preds.items())
+    ):
+        axes[i].hist(preds, bins=50, alpha=0.7, color="blue")
+        axes[i].set_title(f"Ground Truth: {unique_label}")
+        axes[i].set_xlim(0, 1)
+        axes[i].set_xlabel("Prediction")
+        axes[i].set_ylabel("Count")
+
+    # Matching ylims
+    max_y_val = max(ax.get_ylim()[1] for ax in axes)
+    for i in range(len(axes)):
+        axes[i].set_ylim(0, max_y_val)
+
+    fig.suptitle(title)
+    fig.tight_layout()
+    return wandb.Image(fig)
+
 
 @localscope.mfc
 def create_log_dict(
@@ -1393,6 +1430,9 @@ def create_log_dict(
     ground_truths_dict: Dict[str, List[float]],
     optimizer: Optional[torch.optim.Optimizer] = None,
 ) -> Dict[str, Any]:
+    assert_equals(set(predictions_dict.keys()), set(ground_truths_dict.keys()))
+    assert_equals(set(predictions_dict.keys()), set(task_type.task_names))
+
     temp_log_dict = {}  # Make code cleaner by excluding phase name until the end
     if optimizer is not None:
         temp_log_dict["lr"] = optimizer.param_groups[0]["lr"]
@@ -1408,8 +1448,6 @@ def create_log_dict(
 
     with loop_timer.add_section_timer("Scatter"):
         # Make scatter plot of predicted vs ground truth
-        assert_equals(set(predictions_dict.keys()), set(ground_truths_dict.keys()))
-        assert_equals(set(predictions_dict.keys()), set(task_type.task_names))
         for task_name in task_type.task_names:
             predictions = predictions_dict[task_name]
             ground_truths = ground_truths_dict[task_name]
@@ -1419,9 +1457,16 @@ def create_log_dict(
                 title=f"{phase.name.title()} {task_name} Scatter Plot",
             )
 
+    with loop_timer.add_section_timer("Histogram"):
+        # For each task, make multiple histograms of prediction (one per label)
+        for task_name in task_type.task_names:
+            temp_log_dict[f"{task_name}_histogram"] = _create_wandb_histogram_plot(
+                ground_truths=ground_truths_dict[task_name],
+                predictions=predictions_dict[task_name],
+                title=f"{phase.name.title()} {task_name} Histogram",
+            )
+
     with loop_timer.add_section_timer("Metrics"):
-        assert_equals(set(predictions_dict.keys()), set(ground_truths_dict.keys()))
-        assert_equals(set(predictions_dict.keys()), set(task_type.task_names))
         for task_name in task_type.task_names:
             predictions = (
                 np.array(predictions_dict[task_name]).round().astype(int).tolist()
@@ -1440,8 +1485,6 @@ def create_log_dict(
                 )
 
     with loop_timer.add_section_timer("Confusion Matrix"):
-        assert_equals(set(predictions_dict.keys()), set(ground_truths_dict.keys()))
-        assert_equals(set(predictions_dict.keys()), set(task_type.task_names))
         for task_name in task_type.task_names:
             predictions = (
                 np.array(predictions_dict[task_name]).round().astype(int).tolist()

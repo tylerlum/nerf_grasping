@@ -1332,7 +1332,7 @@ def _iterate_through_dataloader(
                         )
                     wandb.log(mid_epoch_log_dict)
 
-                loop_timer.pretty_print_section_times()
+                # loop_timer.pretty_print_section_times()
 
             # Set description
             if len(losses_dict["loss"]) > 0:

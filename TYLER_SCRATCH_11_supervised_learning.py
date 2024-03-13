@@ -60,6 +60,10 @@ object_ids = np.stack(
 passed_evals = np.stack(
     [gc_dict["passed_eval"] for gc_dict in grasp_config_dicts], axis=0
 )
+ROUND_LABELS = True
+if ROUND_LABELS:
+    print(f"Rounding labels to 0 or 1")
+    passed_evals = (passed_evals > 0.5).astype(int)
 
 assert trans.shape == (N_OBJECTS, n_grasps_per_object, 3)
 assert rot.shape == (N_OBJECTS, n_grasps_per_object, 3, 3)
@@ -204,7 +208,6 @@ assert class_weight.shape == (2,)
 
 # %%
 ce_loss_fn = torch.nn.CrossEntropyLoss(weight=torch.from_numpy(class_weight).float().to(device))
-# loss_fn = ce_loss_fn
 
 # %%
 class WeightedL2Loss(torch.nn.Module):
@@ -223,7 +226,7 @@ class WeightedL2Loss(torch.nn.Module):
             self.nonzero_weight * torch.ones(len(target)).to(device),
         )
 
-        raw_loss = torch.nn.functional.mse_loss(input, target, reduction="none")
+        raw_loss = torch.nn.functional.mse_loss(torch.nn.functional.softmax(input, dim=1), target, reduction="none")
         assert raw_loss.shape == (len(target), 2)
         loss_per_sample = torch.sum(raw_loss, dim=1)
         assert loss_per_sample.shape == (len(target),)
@@ -233,7 +236,8 @@ class WeightedL2Loss(torch.nn.Module):
         return torch.mean(weighted_loss_per_sample)
 
 weighted_l2_loss_fn = WeightedL2Loss(zero_weight=class_weight[0], nonzero_weight=class_weight[1])
-loss_fn = weighted_l2_loss_fn
+# loss_fn = weighted_l2_loss_fn
+loss_fn = ce_loss_fn
 
 # %%
 @localscope.mfc
@@ -322,34 +326,6 @@ def val(
 
     return val_losses
 
-
-# %%
-for epoch in tqdm(range(cfg.n_epochs), desc="Epoch"):
-    # Train
-    train_losses = train(
-        loader=train_loader,
-        model=model,
-        optimizer=optimizer,
-        loss_fn=loss_fn,
-        device=device,
-    )
-    train_losses_per_epoch.append(np.mean(train_losses))
-
-    # Val
-    val_losses = val(loader=val_loader, model=model, loss_fn=loss_fn, device=device)
-    val_losses_per_epoch.append(np.mean(val_losses))
-
-    print(f"{epoch=}, {train_losses_per_epoch[-1]=}, {val_losses_per_epoch[-1]=}")
-
-
-# %%
-plt.plot(train_losses_per_epoch, label="Train")
-plt.plot(val_losses_per_epoch, label="Val")
-plt.xlabel("Epoch")
-plt.ylabel("Loss")
-plt.legend()
-plt.show()
-
 # %%
 @localscope.mfc
 def get_prediction_and_truths(
@@ -390,13 +366,6 @@ def get_prediction_and_truths(
             preds += torch.nn.functional.softmax(pred, dim=1)[:, 1].detach().cpu().numpy().tolist()
 
     return np.array(preds), np.array(truths)
-
-preds, truths = get_prediction_and_truths(loader=test_loader, model=model, device=device)
-# preds, truths = get_prediction_and_truths(loader=train_loader, model=model, device=device)
-
-# %%
-noise = np.random.normal(0, 0.02, len(truths))
-plt.scatter(truths + noise, preds + noise, s=1)
 # %%
 @localscope.mfc
 def _create_histogram(
@@ -437,7 +406,73 @@ def _create_histogram(
     fig.tight_layout()
     return fig
 
+
+
+
+
+# %%
+for epoch in tqdm(range(cfg.n_epochs), desc="Epoch"):
+    # Train
+    train_losses = train(
+        loader=train_loader,
+        model=model,
+        optimizer=optimizer,
+        loss_fn=loss_fn,
+        device=device,
+    )
+    train_losses_per_epoch.append(np.mean(train_losses))
+
+    # Val
+    val_losses = val(loader=val_loader, model=model, loss_fn=loss_fn, device=device)
+    val_losses_per_epoch.append(np.mean(val_losses))
+
+    # Plot
+    if epoch % 5 == 0:
+        preds, truths = get_prediction_and_truths(loader=val_loader, model=model, device=device)
+    fig = _create_histogram(ground_truths=truths, predictions=preds, title="Grasp Metric", match_ylims=False)
+
+    print(f"{epoch=}, {train_losses_per_epoch[-1]=}, {val_losses_per_epoch[-1]=}")
+
+
+# %%
+plt.plot(train_losses_per_epoch, label="Train")
+plt.plot(val_losses_per_epoch, label="Val")
+plt.xlabel("Epoch")
+plt.ylabel("Loss")
+plt.legend()
+plt.show()
+
+# %%
+preds, truths = get_prediction_and_truths(loader=train_loader, model=model, device=device)
+# preds, truths = get_prediction_and_truths(loader=train_loader, model=model, device=device)
+
+# %%
+noise = np.random.normal(0, 0.02, len(truths))
+plt.scatter(truths + noise, preds + noise, s=1)
+
+# %%
 fig = _create_histogram(ground_truths=truths, predictions=preds, title="Grasp Metric", match_ylims=False)
+
+
+# %%
+# Create confusion matrix
+from sklearn.metrics import confusion_matrix
+cm = confusion_matrix(truths > 0.5, preds > 0.5)
+print(cm)
+
+
+# %%
+# Confusion matrix plot
+from sklearn.metrics import ConfusionMatrixDisplay
+disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=["Fail", "Pass"])
+disp.plot(cmap="Blues")
+
+
+# %%
+# Confusion matrix plot with percentages
+from sklearn.metrics import ConfusionMatrixDisplay
+disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=["Fail", "Pass"])
+disp.plot(cmap="Blues", values_format=".2%")
 
 
 # %%

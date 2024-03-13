@@ -200,10 +200,40 @@ passed_evals_rounded = (passed_evals.reshape(-1) > 0.01).astype(int)
 class_weight = compute_class_weight(
     class_weight="balanced", classes=np.unique(passed_evals_rounded), y=passed_evals_rounded
 )
+assert class_weight.shape == (2,)
 
 # %%
 ce_loss_fn = torch.nn.CrossEntropyLoss(weight=torch.from_numpy(class_weight).float().to(device))
+# loss_fn = ce_loss_fn
 
+# %%
+class WeightedL2Loss(torch.nn.Module):
+    def __init__(self, zero_weight: float, nonzero_weight: float) -> None:
+        super().__init__()
+        self.zero_weight = zero_weight
+        self.nonzero_weight = nonzero_weight
+
+    def forward(self, input: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        assert input.shape == target.shape
+        assert input.shape[1] == target.shape[1] == 2
+
+        weight = torch.where(
+            target[:, 0] > 0.99, 
+            self.zero_weight * torch.ones(len(target)).to(device),
+            self.nonzero_weight * torch.ones(len(target)).to(device),
+        )
+
+        raw_loss = torch.nn.functional.mse_loss(input, target, reduction="none")
+        assert raw_loss.shape == (len(target), 2)
+        loss_per_sample = torch.sum(raw_loss, dim=1)
+        assert loss_per_sample.shape == (len(target),)
+
+        weighted_loss_per_sample = weight * loss_per_sample
+
+        return torch.mean(weighted_loss_per_sample)
+
+weighted_l2_loss_fn = WeightedL2Loss(zero_weight=class_weight[0], nonzero_weight=class_weight[1])
+loss_fn = weighted_l2_loss_fn
 
 # %%
 @localscope.mfc
@@ -300,13 +330,13 @@ for epoch in tqdm(range(cfg.n_epochs), desc="Epoch"):
         loader=train_loader,
         model=model,
         optimizer=optimizer,
-        loss_fn=ce_loss_fn,
+        loss_fn=loss_fn,
         device=device,
     )
     train_losses_per_epoch.append(np.mean(train_losses))
 
     # Val
-    val_losses = val(loader=val_loader, model=model, loss_fn=ce_loss_fn, device=device)
+    val_losses = val(loader=val_loader, model=model, loss_fn=loss_fn, device=device)
     val_losses_per_epoch.append(np.mean(val_losses))
 
     print(f"{epoch=}, {train_losses_per_epoch[-1]=}, {val_losses_per_epoch[-1]=}")
@@ -361,8 +391,8 @@ def get_prediction_and_truths(
 
     return np.array(preds), np.array(truths)
 
-# preds, truths = get_prediction_and_truths(loader=test_loader, model=model, device=device)
-preds, truths = get_prediction_and_truths(loader=train_loader, model=model, device=device)
+preds, truths = get_prediction_and_truths(loader=test_loader, model=model, device=device)
+# preds, truths = get_prediction_and_truths(loader=train_loader, model=model, device=device)
 
 # %%
 noise = np.random.normal(0, 0.02, len(truths))
@@ -409,3 +439,5 @@ def _create_histogram(
 
 fig = _create_histogram(ground_truths=truths, predictions=preds, title="Grasp Metric", match_ylims=False)
 
+
+# %%

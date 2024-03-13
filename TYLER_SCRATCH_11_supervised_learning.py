@@ -17,11 +17,13 @@ class Config:
     grasp_config_dicts_folder: pathlib.Path = pathlib.Path(
         "/juno/u/tylerlum/github_repos/nerf_grasping/data/2024-03-10_75bottle_augmented_pose_HALTON_400/evaled_grasp_config_dicts_train/"
     )
-    batch_size: int = 256
-    n_epochs: int = 100
+    batch_size: int = 512
+    n_epochs: int = 10_000
     hidden_size: List[int] = field(
         default_factory=lambda: [512, 512]
     )
+    lr: float = 1e-4
+
 
 
 # %%
@@ -60,10 +62,6 @@ object_ids = np.stack(
 passed_evals = np.stack(
     [gc_dict["passed_eval"] for gc_dict in grasp_config_dicts], axis=0
 )
-ROUND_LABELS = True
-if ROUND_LABELS:
-    print(f"Rounding labels to 0 or 1")
-    passed_evals = (passed_evals > 0.5).astype(int)
 
 assert trans.shape == (N_OBJECTS, n_grasps_per_object, 3)
 assert rot.shape == (N_OBJECTS, n_grasps_per_object, 3, 3)
@@ -76,6 +74,77 @@ assert passed_evals.shape == (N_OBJECTS, n_grasps_per_object)
 print(f"N_OBJECTS: {N_OBJECTS}")
 print(f"n_grasps_per_object: {n_grasps_per_object}")
 print(f"n_grasps: {n_grasps}")
+
+# %%
+trans = trans.reshape(n_grasps, 3)
+rot = rot.reshape(n_grasps, 3, 3)
+joint_angles = joint_angles.reshape(n_grasps, 16)
+grasp_orientations = grasp_orientations.reshape(n_grasps, 4, 3, 3)
+object_ids = object_ids.reshape(n_grasps)
+passed_evals = passed_evals.reshape(n_grasps)
+
+# HACK
+# passed_evals[:] = np.where(trans[:, 2] > 0.0, 1, 0)
+
+# %%
+plt.hist(passed_evals)
+
+# %%
+
+object_ids_onehot = torch.nn.functional.one_hot(
+    input=torch.from_numpy(object_ids).long(), num_classes=N_OBJECTS
+).float()
+batch_size = trans.shape[0]
+x = torch.cat(
+    [
+        torch.from_numpy(trans.reshape(batch_size, -1)),
+        torch.from_numpy(rot.reshape(batch_size, -1)),
+        torch.from_numpy(joint_angles.reshape(batch_size, -1)),
+        torch.from_numpy(grasp_orientations.reshape(batch_size, -1)),
+        object_ids_onehot,
+    ],
+    dim=1,
+)
+# %%
+x.shape
+
+# %%
+x.min(dim=0).values
+
+
+# %%
+x.max(dim=0).values
+# %%
+ranges = x.max(dim=0).values - x.min(dim=0).values
+means = x.mean(dim=0)
+
+# %%
+print(f"ranges: {ranges[:30]}")
+print(f"means: {means[:30]}")
+
+# %%
+object_ids_onehot
+
+
+
+# %%
+LESS_DATAPOINTS = True
+if LESS_DATAPOINTS:
+    frac = 0.001
+    n_grasps = int(n_grasps * frac)
+    print(f"Using {frac * 100}% of the data")
+    print(f"n_grasps: {n_grasps}")
+    trans = trans[:n_grasps]
+    rot = rot[:n_grasps]
+    joint_angles = joint_angles[:n_grasps]
+    grasp_orientations = grasp_orientations[:n_grasps]
+    object_ids = object_ids[:n_grasps]
+    passed_evals = passed_evals[:n_grasps]
+
+ROUND_LABELS = True
+if ROUND_LABELS:
+    print(f"Rounding labels to 0 or 1")
+    passed_evals = (passed_evals > 0.5).astype(int)
 
 
 # %%
@@ -120,12 +189,12 @@ class GraspDataset(torch.utils.data.Dataset):
 
 
 all_grasp_dataset = GraspDataset(
-    trans=trans.reshape(-1, 3),
-    rot=rot.reshape(-1, 3, 3),
-    joint_angles=joint_angles.reshape(-1, 16),
-    grasp_orientations=grasp_orientations.reshape(-1, 4, 3, 3),
-    object_ids=object_ids.reshape(-1),
-    passed_evals=passed_evals.reshape(-1),
+    trans=trans,
+    rot=rot,
+    joint_angles=joint_angles,
+    grasp_orientations=grasp_orientations,
+    object_ids=object_ids,
+    passed_evals=passed_evals,
 )
 
 # %%
@@ -193,7 +262,7 @@ model = GraspModel(hidden_size=cfg.hidden_size).to(device)
 model.train()
 
 # %%
-optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+optimizer = torch.optim.Adam(model.parameters(), lr=cfg.lr)
 train_losses_per_epoch, val_losses_per_epoch = [], []
 
 # %%
@@ -250,8 +319,9 @@ def train(
 ) -> List[float]:
     train_losses = []
     n_batches = len(loader)
-    pbar = tqdm(loader, total=n_batches, desc="Training")
-    for trans, rot, joint_angles, grasp_orientations, object_ids, passed_evals in pbar:
+    # pbar = tqdm(loader, total=n_batches, desc="Training")
+    # for trans, rot, joint_angles, grasp_orientations, object_ids, passed_evals in pbar:
+    for trans, rot, joint_angles, grasp_orientations, object_ids, passed_evals in loader:
         optimizer.zero_grad()
 
         trans = trans.to(device)
@@ -281,7 +351,7 @@ def train(
         train_losses.append(loss.item())
 
         optimizer.step()
-        pbar.set_description(f"Training, loss: {np.mean(train_losses):.4f}")
+        # pbar.set_description(f"Training, loss: {np.mean(train_losses):.4f}")
     return train_losses
 
 
@@ -294,10 +364,10 @@ def val(
 ) -> List[float]:
     val_losses = []
     n_batches = len(loader)
-    for trans, rot, joint_angles, grasp_orientations, object_ids, passed_evals in tqdm(
-        loader, total=n_batches, desc="Validation"
-    ):
-
+    # for trans, rot, joint_angles, grasp_orientations, object_ids, passed_evals in tqdm(
+    #     loader, total=n_batches, desc="Validation"
+    # ):
+    for trans, rot, joint_angles, grasp_orientations, object_ids, passed_evals in loader:
         trans = trans.to(device)
         rot = rot.to(device)
         joint_angles = joint_angles.to(device)
@@ -427,16 +497,17 @@ for epoch in tqdm(range(cfg.n_epochs), desc="Epoch"):
     val_losses_per_epoch.append(np.mean(val_losses))
 
     # Plot
-    if epoch % 5 == 0:
-        preds, truths = get_prediction_and_truths(loader=val_loader, model=model, device=device)
-    fig = _create_histogram(ground_truths=truths, predictions=preds, title="Grasp Metric", match_ylims=False)
+    # if epoch % 5 == 0:
+    #     preds, truths = get_prediction_and_truths(loader=val_loader, model=model, device=device)
+    #     fig = _create_histogram(ground_truths=truths, predictions=preds, title="Grasp Metric", match_ylims=False)
+    #     plt.show()
 
-    print(f"{epoch=}, {train_losses_per_epoch[-1]=}, {val_losses_per_epoch[-1]=}")
+    # print(f"{epoch=}, {train_losses_per_epoch[-1]=}, {val_losses_per_epoch[-1]=}")
 
 
 # %%
 plt.plot(train_losses_per_epoch, label="Train")
-plt.plot(val_losses_per_epoch, label="Val")
+# plt.plot(val_losses_per_epoch, label="Val")
 plt.xlabel("Epoch")
 plt.ylabel("Loss")
 plt.legend()
@@ -473,6 +544,110 @@ disp.plot(cmap="Blues")
 from sklearn.metrics import ConfusionMatrixDisplay
 disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=["Fail", "Pass"])
 disp.plot(cmap="Blues", values_format=".2%")
-
-
+# 
+# 
+# # %%
+# import plotly.graph_objects as go
+# fig = go.Figure()
+# fig.add_trace(go.Scatter3d(
+#     x=trans.reshape(-1, 3)[:, 0],
+#     y=trans.reshape(-1, 3)[:, 1],
+#     z=trans.reshape(-1, 3)[:, 2],
+#     # Color points by passed_eval
+#     mode="markers",
+#     marker=dict(
+#         size=2,
+#         color=passed_evals.reshape(-1),                # set color to an array/list of desired values
+#         colorscale="Viridis",   # choose a colorscale
+#         opacity=0.8
+#     )
+# 
+# ))
+# 
+# 
+# # %%
+# diffs = trans - trans.mean(axis=0)
+# plt.hist(diffs.reshape(-1), bins=50)
+# 
+# # %%
+# diffs = joint_angles - joint_angles.mean(axis=0)
+# plt.hist(diffs.reshape(-1), bins=50)
+# 
+# # %%
+# diffs = rot - rot.mean(axis=0)
+# plt.hist(diffs.reshape(-1), bins=50)
+# 
+# # %%
+# diffs = grasp_orientations - grasp_orientations.mean(axis=0)[None, ...]
+# plt.hist(diffs.reshape(-1), bins=50)
+# 
+# # %%
+# @localscope.mfc
+# def plot_labels(trans: np.ndarray, labels: np.ndarray, title: str) -> Tuple[plt.Figure, np.ndarray]:
+#     N = trans.shape[0]
+#     assert trans.shape == (N, 3)
+#     assert labels.shape == (N,)
+#     z_min, z_max = np.min(trans[:, 2]), np.max(trans[:, 2])
+#     n_plots = 10
+#     z_list = np.linspace(z_min, z_max, n_plots + 1)
+#     nrows = int(np.ceil(np.sqrt(n_plots)))
+#     ncols = int(np.ceil(n_plots / nrows))
+#     fig, axes = plt.subplots(nrows=nrows, ncols=ncols)
+#     axes = axes.flatten()
+#     for i, (z_low, z_high) in enumerate(zip(z_list[:-1], z_list[1:])):
+#         points_to_plot = np.logical_and(
+#             trans[:, 2] > z_low,
+#             trans[:, 2] < z_high,
+#         )
+#         axes[i].scatter(trans[points_to_plot, 0], trans[points_to_plot, 1], s=1, c=labels[points_to_plot])
+#         axes[i].set_title(f"z in [{z_low:.2f}, {z_high:.2f}]")
+#     fig.suptitle(title)
+#     fig.tight_layout()
+#     return fig, axes
+# 
+# # plot_labels(trans=new_data_copy["trans"][-N:], labels=new_data_copy["passed_eval"][-N:], title=new_data_path.name)
+# # %%
+# plot_labels(trans=trans.reshape(-1, 3), labels=passed_evals.reshape(-1), title="Passed Eval")
+# 
+# # %%
+# preds
+# 
+# 
+# # %%
+# 
+# object_ids_onehot = torch.nn.functional.one_hot(
+#     input=torch.from_numpy(object_ids).long(), num_classes=N_OBJECTS
+# ).float()
+# batch_size = trans.shape[0]
+# x = torch.cat(
+#     [
+#         torch.from_numpy(trans).reshape(batch_size, -1),
+#         torch.from_numpy(rot).reshape(batch_size, -1),
+#         torch.from_numpy(joint_angles).reshape(batch_size, -1),
+#         torch.from_numpy(grasp_orientations).reshape(batch_size, -1),
+#         object_ids_onehot.reshape(batch_size, -1),
+#     ],
+#     dim=1,
+# )
+# # %%
+# x.shape
+# 
+# # %%
+# x.min(dim=0).values.shape
+# 
+# 
+# # %%
+# x.max(dim=0).values
+# # %%
+# ranges = x.max(dim=0).values - x.min(dim=0).values
+# means = x.mean(dim=0)
+# 
+# # %%
+# print(f"ranges: {ranges}")
+# print(f"means: {means}")
+# 
+# # %%
+# object_ids_onehot
+# 
+# 
 # %%

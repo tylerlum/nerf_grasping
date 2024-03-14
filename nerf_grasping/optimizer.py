@@ -416,7 +416,8 @@ def get_optimized_grasps(cfg: OptimizationConfig) -> Dict[str, np.ndarray]:
             init_grasp_config_dict
         )
 
-        init_grasp_configs = init_grasp_configs[: cfg.optimizer.num_grasps]
+        # init_grasp_configs = init_grasp_configs[: cfg.optimizer.num_grasps]
+        # HACK: For now, just take the first num_grasps.
 
         if progress is not None and task is not None:
             progress.update(task, advance=1)
@@ -435,6 +436,33 @@ def get_optimized_grasps(cfg: OptimizationConfig) -> Dict[str, np.ndarray]:
             cfg.grasp_metric,
             console=console,
         )
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    grasp_metric = grasp_metric.to(device=device)
+
+    GET_BEST_GRASPS = True
+    if GET_BEST_GRASPS:
+        BATCH_SIZE = 64
+        n_batches = init_grasp_configs.batch_size // BATCH_SIZE
+        all_preds = []
+        with torch.no_grad():
+            for batch_i in tqdm(range(n_batches)):
+                preds = grasp_metric.get_failure_probability(init_grasp_configs[batch_i * BATCH_SIZE : (batch_i + 1) * BATCH_SIZE].to(device=device))
+                all_preds.append(1 - preds.detach().cpu().numpy())
+            if n_batches * BATCH_SIZE < init_grasp_configs.batch_size:
+                preds = grasp_metric.get_failure_probability(init_grasp_configs[n_batches * BATCH_SIZE:].to(device=device))
+                all_preds.append(1 - preds.detach().cpu().numpy())
+
+            all_preds = np.concatenate(all_preds, axis=0)
+            assert all_preds.shape[0] == init_grasp_configs.batch_size
+            ordered_idxs_best_first = np.argsort(all_preds)[::-1].copy()
+            init_grasp_configs = init_grasp_configs[ordered_idxs_best_first]
+        breakpoint()
+    init_grasp_configs = init_grasp_configs[:cfg.optimizer.num_grasps]
+    COPY = AllegroGraspConfig.from_values(
+        wrist_pose=init_grasp_configs.wrist_pose.clone(),
+        joint_angles=init_grasp_configs.joint_angles.clone(),
+        grasp_orientations=init_grasp_configs.grasp_orientations.clone(),
+    )
 
     # Create Optimizer.
     if isinstance(cfg.optimizer, SGDOptimizerConfig):
@@ -493,6 +521,8 @@ def get_optimized_grasps(cfg: OptimizationConfig) -> Dict[str, np.ndarray]:
     )
     console.print(table)
 
+    # HACK
+    # grasp_config_dict = COPY.as_dict()
     grasp_config_dict = final_grasp_configs.as_dict()
     grasp_config_dict["loss"] = final_losses.detach().cpu().numpy()
 

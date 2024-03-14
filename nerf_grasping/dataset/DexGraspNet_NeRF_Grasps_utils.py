@@ -257,13 +257,8 @@ def plot_mesh_and_high_density_points(
 
     fig.update_layout(
         legend_orientation="h",
-        scene=dict(
-            xaxis=dict(nticks=4, range=[-0.1, 0.1]),
-            yaxis=dict(nticks=4, range=[-0.1, 0.1]),
-            zaxis=dict(nticks=4, range=[-0.1, 0.1]),
-        ),
     )  # Avoid overlapping legend
-    fig.update_layout(scene_aspectmode="cube")
+    fig.update_layout(scene_aspectmode="data")
     return fig
 
 

@@ -15,6 +15,7 @@ class Args:
     nerf_grasping_data_path: pathlib.Path = (
         pathlib.Path(nerf_grasping.get_repo_root()).resolve() / "data"
     )
+    is_real_world: bool = False
 
 
 def print_and_run(cmd: str) -> None:
@@ -61,11 +62,11 @@ def main() -> None:
                 f"--output-dir {str(output_nerfcheckpoints_path)}",
                 "--vis wandb",
                 "--pipeline.model.disable-scene-contraction True",
-                "--pipeline.model.background-color black",
+                ("--pipeline.model.background-color black" if not args.is_real_world else ""),
                 "nerfstudio-data",
                 "--auto-scale-poses False",
                 "--scale-factor 1.",
-                "--scene-scale 0.2",
+                ("--scene-scale 0.2" if not args.is_real_world else "--scene-scale 1."),
                 "--center-method none",
                 "--orientation-method none",
             ]

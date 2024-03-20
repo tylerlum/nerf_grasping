@@ -13,7 +13,7 @@ from typing import Tuple
 @dataclass
 class Args:
     nerfcheckpoint_filepath: pathlib.Path
-    bounding_cube_half_length: float = 0.2
+    bounding_cube_half_length: float = 0.25
     density_of_0_level_set: float = 15.0
     n_pts_each_dim_marching_cubes: int = 31
     rescale: bool = True

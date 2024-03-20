@@ -589,13 +589,67 @@ class GraspMetric(torch.nn.Module):
         self,
         grasp_config: AllegroGraspConfig,
     ) -> torch.Tensor:
-        # TODO: Use object_transform_world_frame to transform grasp_frame_transforms to world frame.
+        # Let O be object frame (centroid of object)
+        # Let W be world frame (where the nerf is defined)
+        # For NeRFs trained from sim data, O and W are the same.
+        # But for real-world data, O and W are different (W is a point on the table, used as NeRF origin)
+        # When sampling from the NeRF, we must give ray samples in W frame
+        # But classifier is trained on O frame
+        # Thus, we must transform grasp_frame_transforms from O frame to W frame
+        # Let Fi be the finger frame (origin at each fingertip i)
+        # Let p_Fi be points in Fi frame
+        # self.ray_origins_finger_frame = p_Fi
+        # grasp_frame_transforms = T_{O <- Fi}
+        # object_transform_world_frame = T_{W <- O}
         # TODO: Batch this to avoid OOM (refer to Create_DexGraspNet_NeRF_Grasps_Dataset.py)
+
+        # HACK
+        self.object_transform_world_frame = np.array(
+            [[1.0000, 0.0000, 0.0000, 0.0262],
+             [0.0000, 0.0000, -1.0000, -0.0067],
+                [0.0000, 1.0000, 0.0000, 0.1244],
+                [0.0000, 0.0000, 0.0000, 1.0000]
+            ]
+        )
+# array([[ 1.00000000e+00,  0.00000000e+00,  0.00000000e+00,
+#          2.61625908e-02],
+#        [ 0.00000000e+00,  2.22044605e-16, -1.00000000e+00,
+#         -6.72090286e-03],
+#        [ 0.00000000e+00,  1.00000000e+00,  2.22044605e-16,
+#          1.24426708e-01],
+#        [ 0.00000000e+00,  0.00000000e+00,  0.00000000e+00,
+#          1.00000000e+00]])
+#         )
+
+        # Prepare transforms
+        T_O_Fi = grasp_config.grasp_frame_transforms
+        assert T_O_Fi.lshape == (grasp_config.batch_size, grasp_config.num_fingers)
+
+        assert self.object_transform_world_frame.shape == (
+            4,
+            4,
+        )
+        object_transform_world_frame_repeated = (
+            torch.from_numpy(self.object_transform_world_frame).float()
+            .unsqueeze(dim=0)
+            .repeat_interleave(
+                grasp_config.batch_size * grasp_config.num_fingers, dim=0
+            )
+            .reshape(grasp_config.batch_size, grasp_config.num_fingers, 4, 4)
+        )
+
+        T_W_O = pp.from_matrix(
+            object_transform_world_frame_repeated,
+            pp.SE3_type,
+        ).to(T_O_Fi.device)
+
+        # Transform grasp_frame_transforms to world frame
+        T_W_Fi = T_W_O @ T_O_Fi
 
         # Generate RaySamples.
         ray_samples = grasp_utils.get_ray_samples(
             self.ray_origins_finger_frame,
-            grasp_config.grasp_frame_transforms,
+            T_W_Fi,
             self.fingertip_config,
         )
 
@@ -741,7 +795,7 @@ class GraspMetric(torch.nn.Module):
             nerf_field,
             classifier,
             classifier_config.nerfdata_config.fingertip_config,
-            object_transform_world_frame
+            object_transform_world_frame,
         )
 
 
@@ -774,6 +828,10 @@ class DepthImageGraspMetric(torch.nn.Module):
     ) -> torch.Tensor:
         # TODO: Use object_transform_world_frame to transform grasp_frame_transforms to world frame.
         # TODO: Batch this to avoid OOM (refer to Create_DexGraspNet_NeRF_Grasps_Dataset.py)
+        if not np.allclose(self.object_transform_world_frame, np.eye(4)):
+            raise NotImplementedError(
+                "Transforming grasp_frame_transforms to world frame is not implemented yet"
+            )
 
         cameras = get_cameras(
             grasp_config.grasp_frame_transforms, self.camera_config
@@ -897,11 +955,11 @@ class DepthImageGraspMetric(torch.nn.Module):
 
             # (should device thing be here? probably since saved on gpu)
             device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-            classifier: DepthImageClassifier = classifier_config.model_config.get_classifier_from_camera_config(
-                camera_config=classifier_config.nerfdata_config.fingertip_camera_config,
-                n_tasks=classifier_config.task_type.n_tasks,
-            ).to(
-                device
+            classifier: DepthImageClassifier = (
+                classifier_config.model_config.get_classifier_from_camera_config(
+                    camera_config=classifier_config.nerfdata_config.fingertip_camera_config,
+                    n_tasks=classifier_config.task_type.n_tasks,
+                ).to(device)
             )
 
             # Load classifier weights
@@ -1026,6 +1084,7 @@ def get_sorted_grasps_from_file(
         print_best=print_best,
     )
 
+
 def get_sorted_grasps_from_dict(
     optimized_grasp_config_dict: Dict[str, np.ndarray],
     object_transform_world_frame: Optional[np.ndarray] = None,
@@ -1045,7 +1104,9 @@ def get_sorted_grasps_from_dict(
                 f"loss not found in grasp config dict keys: {optimized_grasp_config_dict.keys()}, if you want to skip this error, set error_if_no_loss=False"
             )
         print("=" * 80)
-        print(f"loss not found in grasp config dict keys: {optimized_grasp_config_dict.keys()}")
+        print(
+            f"loss not found in grasp config dict keys: {optimized_grasp_config_dict.keys()}"
+        )
         print("Looking for passed_eval...")
         print("=" * 80 + "\n")
         if "passed_eval" in optimized_grasp_config_dict:
@@ -1112,14 +1173,14 @@ def main() -> None:
     print(f"Processing {FILEPATH}")
 
     try:
-        wrist_trans, wrist_rot, joint_angles, target_joint_angles = get_sorted_grasps_from_file(
-            FILEPATH
+        wrist_trans, wrist_rot, joint_angles, target_joint_angles = (
+            get_sorted_grasps_from_file(FILEPATH)
         )
     except ValueError as e:
         print(f"Error processing {FILEPATH}: {e}")
         print("Try again skipping check")
-        wrist_trans, wrist_rot, joint_angles, target_joint_angles = get_sorted_grasps_from_file(
-            FILEPATH, check=False
+        wrist_trans, wrist_rot, joint_angles, target_joint_angles = (
+            get_sorted_grasps_from_file(FILEPATH, check=False)
         )
     print(
         f"Found wrist_trans.shape = {wrist_trans.shape}, wrist_rot.shape = {wrist_rot.shape}, joint_angles.shape = {joint_angles.shape}, target_joint_angles.shape = {target_joint_angles.shape}"

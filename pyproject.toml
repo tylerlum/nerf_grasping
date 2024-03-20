@@ -54,4 +54,4 @@ dependency_links = [
 ]
 
 [tool.setuptools.packages.find]
-include = ["nerf_grasping"]
+include = ["nerf_grasping*"]

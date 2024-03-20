@@ -77,6 +77,9 @@ class AllegroHandConfig(torch.nn.Module):
         )
         self.batch_size = batch_size
 
+    def __len__(self) -> int:
+        return self.batch_size
+
     @classmethod
     def from_values(
         cls,
@@ -245,6 +248,9 @@ class AllegroGraspConfig(torch.nn.Module):
             requires_grad=requires_grad,
         )
         self.num_fingers = num_fingers
+
+    def __len__(self) -> int:
+        return self.batch_size
 
     @classmethod
     def from_path(cls, path: pathlib.Path) -> AllegroGraspConfig:
@@ -604,13 +610,13 @@ class GraspMetric(torch.nn.Module):
         # TODO: Batch this to avoid OOM (refer to Create_DexGraspNet_NeRF_Grasps_Dataset.py)
 
         # HACK
-        self.object_transform_world_frame = np.array(
-            [[1.0000, 0.0000, 0.0000, 0.0262],
-             [0.0000, 0.0000, -1.0000, -0.0067],
-                [0.0000, 1.0000, 0.0000, 0.1244],
-                [0.0000, 0.0000, 0.0000, 1.0000]
-            ]
-        )
+        # self.object_transform_world_frame = np.array(
+        #     [[1.0000, 0.0000, 0.0000, 0.0262],
+        #      [0.0000, 0.0000, -1.0000, -0.0067],
+        #         [0.0000, 1.0000, 0.0000, 0.1244],
+        #         [0.0000, 0.0000, 0.0000, 1.0000]
+        #     ]
+        # )
 # array([[ 1.00000000e+00,  0.00000000e+00,  0.00000000e+00,
 #          2.61625908e-02],
 #        [ 0.00000000e+00,  2.22044605e-16, -1.00000000e+00,

@@ -5,6 +5,7 @@ from nerf_grasping.optimizer_utils import (
     AllegroGraspConfig,
 )
 from nerf_grasping.config.nerfdata_config import DepthImageNerfDataConfig
+from tqdm import tqdm
 import nerf_grasping
 import tyro
 import pathlib
@@ -25,7 +26,8 @@ class Args:
         / "evaled_grasp_config_dicts"
         / "core-mug-10f6e09036350e92b3f21f1137c3c347_0_0750.npy"
     )
-    max_num_grasps: Optional[int] = 40
+    max_num_grasps: Optional[int] = None
+    batch_size: int = 32
 
 
 def main(cfg: Args):
@@ -37,9 +39,7 @@ def main(cfg: Args):
         for key in grasp_config_dict.keys():
             grasp_config_dict[key] = grasp_config_dict[key][: cfg.max_num_grasps]
 
-    grasp_config = AllegroGraspConfig.from_grasp_config_dict(grasp_config_dict).to(
-        device
-    )
+    grasp_config = AllegroGraspConfig.from_grasp_config_dict(grasp_config_dict)
 
     # Create grasp metric
     USE_DEPTH_IMAGES = isinstance(
@@ -57,9 +57,19 @@ def main(cfg: Args):
     grasp_metric.eval()
 
     # Evaluate grasp
-    predicted_failure_prob = grasp_metric.get_failure_probability(grasp_config)
-    predicted_pass_prob = 1 - predicted_failure_prob
-    predicted_pass_prob_list = predicted_pass_prob.detach().cpu().numpy().tolist()
+    with torch.no_grad():
+        predicted_pass_prob_list = []
+        n_batches = len(grasp_config) // cfg.batch_size
+        for batch_i in tqdm(range(n_batches)):
+            batch_grasp_config = grasp_config[batch_i * cfg.batch_size : (batch_i + 1) * cfg.batch_size].to(device)
+            predicted_failure_prob = grasp_metric.get_failure_probability(batch_grasp_config)
+            predicted_pass_prob = 1 - predicted_failure_prob
+            predicted_pass_prob_list += predicted_pass_prob.detach().cpu().numpy().tolist()
+        if n_batches * cfg.batch_size < len(grasp_config):
+            batch_grasp_config = grasp_config[n_batches * cfg.batch_size :].to(device)
+            predicted_failure_prob = grasp_metric.get_failure_probability(batch_grasp_config)
+            predicted_pass_prob = 1 - predicted_failure_prob
+            predicted_pass_prob_list += predicted_pass_prob.detach().cpu().numpy().tolist()
     print(f"Grasp predicted_pass_prob_list: {predicted_pass_prob_list}")
 
     # Ensure grasp_config was not modified

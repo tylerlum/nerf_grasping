@@ -20,7 +20,7 @@ class Config:
     batch_size: int = 512
     n_epochs: int = 10_000
     hidden_size: List[int] = field(
-        default_factory=lambda: [512, 512]
+        default_factory=lambda: [512, 512, 512, 512]
     )
     lr: float = 1e-4
 
@@ -60,7 +60,9 @@ object_ids = np.stack(
     [np.zeros(n_grasps_per_object) + i for i in range(N_OBJECTS)], axis=0
 )
 passed_evals = np.stack(
-    [gc_dict["passed_eval"] for gc_dict in grasp_config_dicts], axis=0
+    # [gc_dict["passed_eval"] for gc_dict in grasp_config_dicts], axis=0
+    # HACK
+    [gc_dict["passed_new_penetration_test"] for gc_dict in grasp_config_dicts], axis=0
 )
 
 assert trans.shape == (N_OBJECTS, n_grasps_per_object, 3)
@@ -273,6 +275,7 @@ passed_evals_rounded = (passed_evals.reshape(-1) > 0.01).astype(int)
 class_weight = compute_class_weight(
     class_weight="balanced", classes=np.unique(passed_evals_rounded), y=passed_evals_rounded
 )
+print(f"class_weight: {class_weight}")
 assert class_weight.shape == (2,)
 
 # %%
@@ -502,7 +505,8 @@ for epoch in tqdm(range(cfg.n_epochs), desc="Epoch"):
     #     fig = _create_histogram(ground_truths=truths, predictions=preds, title="Grasp Metric", match_ylims=False)
     #     plt.show()
 
-    # print(f"{epoch=}, {train_losses_per_epoch[-1]=}, {val_losses_per_epoch[-1]=}")
+    if epoch % 100 == 0:
+        print(f"{epoch=}, {train_losses_per_epoch[-1]=}, {val_losses_per_epoch[-1]=}")
 
 
 # %%
@@ -650,4 +654,49 @@ disp.plot(cmap="Blues", values_format=".2%")
 # object_ids_onehot
 # 
 # 
+# %%
+idxs = np.logical_and(trans[:, 2] > 0.0, trans[:, 2] < 0.1)
+plt.scatter(trans[idxs, 0], trans[idxs, 1], s=1, c=passed_evals[idxs])
+plt.title("Ground truths")
+
+
+# %%
+copy_trans = trans[idxs].copy()
+copy_trans = copy_trans[None, ...].repeat(100, axis=0)
+copy_trans += np.random.uniform(-0.01, 0.01, size=copy_trans.shape)
+
+# %%
+copy_trans.shape
+
+# %%
+preds = []
+
+for i in range(100):
+    copy_trans_i = copy_trans[i]
+    pred = model(trans=torch.from_numpy(copy_trans_i).to(device),
+            rot=torch.from_numpy(rot[idxs]).to(device),
+            joint_angles=torch.from_numpy(joint_angles[idxs]).to(device),
+            grasp_orientations=torch.from_numpy(grasp_orientations[idxs]).to(device),
+            object_ids=torch.from_numpy(object_ids[idxs]).long().to(device),
+        ).detach().cpu().numpy()
+    preds.append(pred)
+
+# %%
+preds = np.array(preds)
+print(f"preds.shape: {preds.shape}")
+preds = preds.reshape(-1, 2)
+preds = torch.nn.functional.softmax(torch.from_numpy(preds), dim=1).detach().cpu().numpy()
+preds = preds[:, 1]
+print(f"preds.shape: {preds.shape}")
+
+# %%
+copy_trans = copy_trans.reshape(-1, 3)
+
+# %%
+# plt.scatter(copy_trans[:, 0], copy_trans[:, 1], s=1)
+
+# %%
+plt.scatter(copy_trans[:, 0], copy_trans[:, 1], s=1, c=preds)
+plt.title("Predictions")
+
 # %%

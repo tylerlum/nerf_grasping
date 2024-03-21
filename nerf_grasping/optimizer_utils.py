@@ -360,11 +360,16 @@ class AllegroGraspConfig(torch.nn.Module):
             grasp_config_dict, check=check, numpy_inputs=numpy_inputs
         )
 
-        grasp_orientations = (
-            torch.from_numpy(grasp_config_dict["grasp_orientations"])
-            .to(device)
-            .to(dtype)
-        )
+        if numpy_inputs:
+            grasp_orientations = (
+                torch.from_numpy(grasp_config_dict["grasp_orientations"])
+                .to(device)
+                .to(dtype)
+            )
+        else:
+            grasp_orientations = (
+                grasp_config_dict["grasp_orientations"].to(device).to(dtype)
+            )
         assert grasp_orientations.shape == (batch_size, num_fingers, 3, 3)
 
         # Set the grasp config's data.

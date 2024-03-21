@@ -58,14 +58,8 @@ dependency_links = [
 
 [tool.setuptools.packages.find]
 include = ["nerf_grasping*"]
-where = ["nerf_grasping"]
 
 [tool.setuptools.package-data]
 allegro_hand_description = [
-    "*.urdf",
-    "*.xacro",
-    "*.xml",
-    "*.json",
-    "*.STL",
-    "*.obj",
+    "allegro_hand_description/*"
 ]

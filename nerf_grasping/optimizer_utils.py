@@ -371,7 +371,7 @@ class AllegroGraspConfig(torch.nn.Module):
             )
         else:
             grasp_orientations = (
-                grasp_config_dict["grasp_orientations"]# .to(device).to(dtype)
+                grasp_config_dict["grasp_orientations"]
             )
         assert grasp_orientations.shape == (batch_size, num_fingers, 3, 3)
 
@@ -616,9 +616,6 @@ class GraspMetric(torch.nn.Module):
         )
 
         # Query NeRF at RaySamples.
-        # densities = self.nerf_field.get_density(ray_samples.to("cuda"))[0][
-        #     ..., 0
-        # ]  # Shape [B, 4, n_x, n_y, n_z]
         densities = self.nerf_field.get_density(ray_samples)[0][..., 0]
 
         assert densities.shape == (
@@ -629,12 +626,6 @@ class GraspMetric(torch.nn.Module):
             self.fingertip_config.num_pts_z,
         )
 
-        # batch_data_input = BatchDataInput(
-        #     nerf_densities=densities,
-        #     grasp_transforms=grasp_config.grasp_frame_transforms,
-        #     fingertip_config=self.fingertip_config,
-        #     grasp_configs=grasp_config.as_tensor(),
-        # ).to(grasp_config.hand_config.wrist_pose.device)
         batch_data_input = BatchDataInput(
             nerf_densities=densities,
             grasp_transforms=grasp_config.grasp_frame_transforms,
@@ -654,9 +645,10 @@ class GraspMetric(torch.nn.Module):
         self,
         grasp_config_transforms: torch.Tensor,
     ) -> torch.Tensor:
-        # TODO: Use object_transform_world_frame to transform grasp_frame_transforms to world frame.
-        # TODO: Batch this to avoid OOM (refer to Create_DexGraspNet_NeRF_Grasps_Dataset.py)
+        """Alternative forward pass that doesn't use the grasp_config.
 
+        The above breaks the compute graph and prevents us from getting gradients.
+        """
         # Generate RaySamples.
         ray_samples = grasp_utils.get_ray_samples(
             self.ray_origins_finger_frame,

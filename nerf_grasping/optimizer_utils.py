@@ -639,7 +639,38 @@ class GraspMetric(torch.nn.Module):
             nerf_densities=densities,
             grasp_transforms=grasp_config.grasp_frame_transforms,
             fingertip_config=self.fingertip_config,
-            grasp_configs=grasp_config.as_tensor(),
+            grasp_configs=grasp_config.as_tensor(),  # [DEBUG] this shouldn't matter?
+        )
+
+        # Pass grasp transforms, densities into classifier.
+        if self.return_type == "failure_probability":
+            return self.classifier_model.get_failure_probability(batch_data_input)
+        elif self.return_type == "failure_logits":
+            return self.classifier_model(batch_data_input)[:, -1]
+        else:
+            raise ValueError(f"return_type {self.return_type} not recognized")
+
+    def forward_alt(
+        self,
+        grasp_config_transforms: torch.Tensor,
+    ) -> torch.Tensor:
+        # TODO: Use object_transform_world_frame to transform grasp_frame_transforms to world frame.
+        # TODO: Batch this to avoid OOM (refer to Create_DexGraspNet_NeRF_Grasps_Dataset.py)
+
+        # Generate RaySamples.
+        ray_samples = grasp_utils.get_ray_samples(
+            self.ray_origins_finger_frame,
+            grasp_config_transforms,
+            self.fingertip_config,
+        )
+
+        # Query NeRF at RaySamples
+        densities = self.nerf_field.get_density(ray_samples)[0][..., 0]
+        batch_data_input = BatchDataInput(
+            nerf_densities=densities,
+            grasp_transforms=grasp_config_transforms,
+            fingertip_config=self.fingertip_config,
+            grasp_configs=torch.zeros(1),  # [DEBUG] this shouldn't matter?
         )
 
         # Pass grasp transforms, densities into classifier.

@@ -25,6 +25,7 @@ def get_ray_origins_finger_frame_helper(
     finger_width_mm: float,
     finger_height_mm: float,
     z_offset_mm: float = 0.0,
+    device: torch.device | str = "cuda",
 ) -> torch.tensor:
     gripper_finger_width_m = finger_width_mm / 1000.0
     gripper_finger_height_m = finger_height_mm / 1000.0
@@ -36,14 +37,14 @@ def get_ray_origins_finger_frame_helper(
     # Origin of transform is at center of xy at z=z_offset_mm
     # x is width, y is height, z is depth
     x_coords = torch.linspace(
-        -gripper_finger_width_m / 2, gripper_finger_width_m / 2, num_pts_x
+        -gripper_finger_width_m / 2, gripper_finger_width_m / 2, num_pts_x, device=device
     )
     y_coords = torch.linspace(
-        -gripper_finger_height_m / 2, gripper_finger_height_m / 2, num_pts_y
+        -gripper_finger_height_m / 2, gripper_finger_height_m / 2, num_pts_y, device=device
     )
 
     xx, yy = torch.meshgrid(x_coords, y_coords, indexing="ij")
-    zz = torch.zeros_like(xx) + z_offset_m
+    zz = torch.zeros_like(xx, device=device) + z_offset_m
 
     assert xx.shape == yy.shape == zz.shape == (num_pts_x, num_pts_y)
     ray_origins = torch.stack([xx, yy, zz], axis=-1)
@@ -53,12 +54,15 @@ def get_ray_origins_finger_frame_helper(
     return ray_origins
 
 
-def get_ray_origins_finger_frame(fingertip_config: BaseFingertipConfig) -> torch.tensor:
+def get_ray_origins_finger_frame(
+    fingertip_config: BaseFingertipConfig, device: torch.device | str = "cuda"
+) -> torch.tensor:
     ray_origins_finger_frame = get_ray_origins_finger_frame_helper(
         num_pts_x=fingertip_config.num_pts_x,
         num_pts_y=fingertip_config.num_pts_y,
         finger_width_mm=fingertip_config.finger_width_mm,
         finger_height_mm=fingertip_config.finger_height_mm,
+        device=device,
     )
     return ray_origins_finger_frame
 

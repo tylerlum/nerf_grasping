@@ -109,9 +109,9 @@ class AllegroHandConfig(torch.nn.Module):
             rot = torch.from_numpy(hand_config_dict["rot"]).float()
             joint_angles = torch.from_numpy(hand_config_dict["joint_angles"]).float()
         else:
-            trans = hand_config_dict["trans"].float()
-            rot = hand_config_dict["rot"].float()
-            joint_angles = hand_config_dict["joint_angles"].float()
+            trans = hand_config_dict["trans"]
+            rot = hand_config_dict["rot"]
+            joint_angles = hand_config_dict["joint_angles"]
 
         batch_size = trans.shape[0]
         assert trans.shape == (batch_size, 3)
@@ -128,7 +128,8 @@ class AllegroHandConfig(torch.nn.Module):
         assert (
             wrist_pose.shape == self.wrist_pose.shape
         ), f"New wrist pose, shape {wrist_pose.shape} does not match current wrist pose shape {self.wrist_pose.shape}"
-        self.wrist_pose.data = wrist_pose.data.clone()
+        # self.wrist_pose.data = wrist_pose.data.clone()
+        self.wrist_pose.data = wrist_pose.data
 
     def set_joint_angles(self, joint_angles: torch.Tensor) -> None:
         assert (
@@ -382,7 +383,6 @@ class AllegroGraspConfig(torch.nn.Module):
                 grasp_orientations, pp.SO3_type, atol=1e-4, rtol=1e-4, check=check
             )
         )
-
         return grasp_config
 
     def as_dict(self) -> Dict[str, Any]:
@@ -444,7 +444,8 @@ class AllegroGraspConfig(torch.nn.Module):
         assert (
             grasp_orientations.shape == self.grasp_orientations.shape
         ), f"New grasp orientations, shape {grasp_orientations.shape}, do not match current grasp orientations shape {self.grasp_orientations.shape}"
-        self.grasp_orientations.data = grasp_orientations.data.clone()
+        # self.grasp_orientations.data = grasp_orientations.data.clone()
+        self.grasp_orientations.data = grasp_orientations.data
 
     def __getitem__(self, idxs) -> AllegroGraspConfig:
         """
@@ -615,6 +616,9 @@ class GraspMetric(torch.nn.Module):
         )
 
         # Query NeRF at RaySamples.
+        # densities = self.nerf_field.get_density(ray_samples.to("cuda"))[0][
+        #     ..., 0
+        # ]  # Shape [B, 4, n_x, n_y, n_z]
         densities = self.nerf_field.get_density(ray_samples)[0][..., 0]
 
         assert densities.shape == (
@@ -625,6 +629,12 @@ class GraspMetric(torch.nn.Module):
             self.fingertip_config.num_pts_z,
         )
 
+        # batch_data_input = BatchDataInput(
+        #     nerf_densities=densities,
+        #     grasp_transforms=grasp_config.grasp_frame_transforms,
+        #     fingertip_config=self.fingertip_config,
+        #     grasp_configs=grasp_config.as_tensor(),
+        # ).to(grasp_config.hand_config.wrist_pose.device)
         batch_data_input = BatchDataInput(
             nerf_densities=densities,
             grasp_transforms=grasp_config.grasp_frame_transforms,

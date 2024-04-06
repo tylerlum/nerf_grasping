@@ -412,12 +412,16 @@ def get_optimized_grasps(cfg: OptimizationConfig) -> Dict[str, np.ndarray]:
             cfg.init_grasp_config_dict_path, allow_pickle=True
         ).item()
 
+        # HACK: For now, just take every 400th grasp.
+        # for key in init_grasp_config_dict.keys():
+        #     init_grasp_config_dict[key] = init_grasp_config_dict[key][::400]
+
         init_grasp_configs = AllegroGraspConfig.from_grasp_config_dict(
             init_grasp_config_dict
         )
 
-        # init_grasp_configs = init_grasp_configs[: cfg.optimizer.num_grasps]
         # HACK: For now, just take the first num_grasps.
+        # init_grasp_configs = init_grasp_configs[: cfg.optimizer.num_grasps]
 
         if progress is not None and task is not None:
             progress.update(task, advance=1)
@@ -455,6 +459,7 @@ def get_optimized_grasps(cfg: OptimizationConfig) -> Dict[str, np.ndarray]:
             all_preds = np.concatenate(all_preds, axis=0)
             assert all_preds.shape[0] == init_grasp_configs.batch_size
             ordered_idxs_best_first = np.argsort(all_preds)[::-1].copy()
+            breakpoint()
             init_grasp_configs = init_grasp_configs[ordered_idxs_best_first]
         breakpoint()
     init_grasp_configs = init_grasp_configs[:cfg.optimizer.num_grasps]

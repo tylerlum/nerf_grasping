@@ -39,6 +39,7 @@ class TaskType(Enum):
     PASSED_PENETRATION_THRESHOLD = auto()
     PASSED_EVAL = auto()
     PASSED_SIMULATION_AND_PENETRATION_THRESHOLD = auto()
+    PASSED_SIMULATION_AND_PENETRATION_THRESHOLD_AND_EVAL = auto()
 
     @property
     def n_tasks(self) -> int:
@@ -56,6 +57,12 @@ class TaskType(Enum):
             return [
                 "passed_simulation",
                 "passed_penetration_threshold",
+            ]
+        elif self == TaskType.PASSED_SIMULATION_AND_PENETRATION_THRESHOLD_AND_EVAL:
+            return [
+                "passed_simulation",
+                "passed_penetration_threshold",
+                "passed_eval",
             ]
         else:
             raise ValueError(f"Unknown task_type: {self}")

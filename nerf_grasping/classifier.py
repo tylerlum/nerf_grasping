@@ -50,7 +50,9 @@ class Classifier(nn.Module):
         task_probs = nn.functional.softmax(PROB_SCALING * all_logits, dim=-1)
         passed_task_probs = task_probs[..., -1]
         assert_equals(passed_task_probs.shape, (batch_data_input.batch_size, n_tasks))
-        passed_all_probs = torch.prod(passed_task_probs, dim=-1)
+        # HACK: Modify to either be product or not
+        passed_all_probs = passed_task_probs[:, 0]
+        # passed_all_probs = torch.prod(passed_task_probs, dim=-1)
         assert_equals(passed_all_probs.shape, (batch_data_input.batch_size,))
 
         # Return failure probabilities (as loss).

@@ -1232,6 +1232,12 @@ def _iterate_through_dataloader(
                         batch_data.output.passed_simulation,
                         batch_data.output.passed_penetration_threshold,
                     ]
+                elif task_type == TaskType.PASSED_SIMULATION_AND_PENETRATION_THRESHOLD_AND_EVAL:
+                    task_targets = [
+                        batch_data.output.passed_simulation,
+                        batch_data.output.passed_penetration_threshold,
+                        batch_data.output.passed_eval,
+                    ]
                 else:
                     raise ValueError(f"Unknown task_type: {task_type}")
 
@@ -1388,6 +1394,7 @@ def _create_wandb_histogram_plot(
     ground_truths: List[float],
     predictions: List[float],
     title: str,
+    match_ylims: bool = False,
 ) -> wandb.Image:
     unique_labels = np.unique(ground_truths)
     fig, axes = plt.subplots(len(unique_labels), 1, figsize=(10, 10))
@@ -1411,9 +1418,10 @@ def _create_wandb_histogram_plot(
         axes[i].set_ylabel("Count")
 
     # Matching ylims
-    max_y_val = max(ax.get_ylim()[1] for ax in axes)
-    for i in range(len(axes)):
-        axes[i].set_ylim(0, max_y_val)
+    if match_ylims:
+        max_y_val = max(ax.get_ylim()[1] for ax in axes)
+        for i in range(len(axes)):
+            axes[i].set_ylim(0, max_y_val)
 
     fig.suptitle(title)
     fig.tight_layout()
@@ -1996,6 +2004,12 @@ elif cfg.task_type == TaskType.PASSED_SIMULATION_AND_PENETRATION_THRESHOLD:
     loss_fns = [
         passed_simulation_loss_fn,
         passed_penetration_threshold_loss_fn,
+    ]
+elif cfg.task_type == TaskType.PASSED_SIMULATION_AND_PENETRATION_THRESHOLD_AND_EVAL:
+    loss_fns = [
+        passed_simulation_loss_fn,
+        passed_penetration_threshold_loss_fn,
+        passed_eval_loss_fn,
     ]
 else:
     raise ValueError(f"Unknown task_type: {cfg.task_type}")

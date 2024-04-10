@@ -265,9 +265,9 @@ print(f"Found {len(nerf_configs)} nerf configs")
 assert (
     cfg.evaled_grasp_config_dicts_path.exists()
 ), f"{cfg.evaled_grasp_config_dicts_path} does not exist"
-evaled_grasp_config_dict_filepaths = list(
+evaled_grasp_config_dict_filepaths = sorted(list(
     cfg.evaled_grasp_config_dicts_path.glob("*.npy")
-)
+))
 
 # from glob import glob
 # evaled_grasp_config_dict_filepaths = [
@@ -703,6 +703,13 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
         dynamic_ncols=True,
     )
     for evaled_grasp_config_dict_filepath in pbar:
+        # HACK: weird fragmentation issues slightly resolved by emptying cache
+        torch.cuda.empty_cache()
+
+        # HACK: debugging memory leaks
+        print("START OF LOOP")
+        print(torch.cuda.memory_summary())
+
         pbar.set_description(f"Processing {evaled_grasp_config_dict_filepath}")
         try:
             with loop_timer.add_section_timer("prepare to read in data"):
@@ -902,7 +909,13 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
 
                 # May not be max_num_data_points if nan grasps
                 hdf5_file.attrs["num_data_points"] = current_idx
+
+            # HACK: debugging memory leaks
+            print("End of loop before del")
+            print(torch.cuda.memory_summary())
             del nerf_pipeline
+            print("End of loop")
+            print(torch.cuda.memory_summary())
         except Exception as e:
             print("\n" + "-" * 80)
             print(f"WARNING: Failed to process {evaled_grasp_config_dict_filepath}")

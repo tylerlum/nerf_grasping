@@ -498,10 +498,17 @@ def get_depth_and_uncertainty_images(
     loop_timer: LoopTimer,
     cfg: BaseNerfDataConfig,
     grasp_frame_transforms: pp.LieTensor,
-    nerf_model: Model,
+    nerf_config: pathlib.Path,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     assert cfg.fingertip_config is not None
     assert isinstance(cfg, DepthImageNerfDataConfig)
+
+    # Load nerf pipeline
+    # Note: I don't like that we are mixing IO and computation here, but it seems to avoid OOM better
+    #       if IO in main code, I believe it causes weird memory leak having nerf_pipeline in global scope
+    # Note: for some reason this seems to help avoid GPU memory leak
+    #       whereas loading nerf_model or nerf_field directly causes GPU memory leak
+    nerf_pipeline = load_nerf_pipeline(nerf_config)
 
     with loop_timer.add_section_timer("get_cameras"):
         cameras = get_cameras(grasp_frame_transforms, cfg.fingertip_camera_config)
@@ -544,7 +551,7 @@ def get_depth_and_uncertainty_images(
         ):
             curr_cameras = cameras[curr_ind:next_ind].to("cuda")
             curr_depth, curr_uncertainty = render(
-                curr_cameras, nerf_model, "median", far_plane=0.15
+                curr_cameras, nerf_pipeline.model, "median", far_plane=0.15
             )
             assert (
                 curr_depth.shape
@@ -572,7 +579,7 @@ def get_nerf_densities(
     cfg: BaseNerfDataConfig,
     grasp_frame_transforms: pp.LieTensor,
     ray_origins_finger_frame: torch.Tensor,
-    nerf_field: Field,
+    nerf_config: pathlib.Path,
     compute_query_points: bool = True,
 ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
     assert cfg.fingertip_config is not None
@@ -589,6 +596,13 @@ def get_nerf_densities(
 
     # Create density grid for grid dataset.
     assert isinstance(cfg, GridNerfDataConfig)
+
+    # Load nerf pipeline
+    # Note: I don't like that we are mixing IO and computation here, but it seems to avoid OOM better
+    #       if IO in main code, I believe it causes weird memory leak having nerf_pipeline in global scope
+    # Note: for some reason this seems to help avoid GPU memory leak
+    #       whereas loading nerf_model or nerf_field directly causes GPU memory leak
+    nerf_pipeline = load_nerf_pipeline(nerf_config)
 
     # Transform query points
     with loop_timer.add_section_timer("get_ray_samples"):
@@ -624,7 +638,7 @@ def get_nerf_densities(
         ):
             curr_ray_samples = ray_samples[curr_ind:next_ind].to("cuda")
             curr_nerf_densities = (
-                nerf_field.get_density(curr_ray_samples)[0]
+                nerf_pipeline.model.field.get_density(curr_ray_samples)[0]
                 .reshape(
                     -1,
                     cfg.fingertip_config.n_fingers,
@@ -707,7 +721,6 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
         torch.cuda.empty_cache()
 
         # HACK: debugging memory leaks
-        print("START OF LOOP")
         print(torch.cuda.memory_summary())
 
         pbar.set_description(f"Processing {evaled_grasp_config_dict_filepath}")
@@ -728,13 +741,6 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                 assert os.path.exists(
                     evaled_grasp_config_dict_filepath
                 ), f"evaled_grasp_config_dict_filepath {evaled_grasp_config_dict_filepath} does not exist"
-
-            # Read in data
-            with loop_timer.add_section_timer("load_nerf"):
-                # Load nerf pipeline
-                # Note: for some reason this helps avoid GPU memory leak
-                #       whereas loading nerf_model or nerf_field directly causes GPU memory leak
-                nerf_pipeline = load_nerf_pipeline(nerf_config)
 
             with loop_timer.add_section_timer("load grasp data"):
                 evaled_grasp_config_dict: Dict[str, Any] = np.load(
@@ -823,7 +829,7 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                     cfg=cfg,
                     grasp_frame_transforms=grasp_frame_transforms,
                     ray_origins_finger_frame=ray_origins_finger_frame,
-                    nerf_field=nerf_pipeline.model.field,
+                    nerf_config=nerf_config,
                     compute_query_points=cfg.plot_only_one,
                 )
                 if nerf_densities.isnan().any():
@@ -840,7 +846,7 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                     loop_timer=loop_timer,
                     cfg=cfg,
                     grasp_frame_transforms=grasp_frame_transforms,
-                    nerf_model=nerf_pipeline.model,
+                    nerf_config=nerf_config,
                 )
                 if depth_images.isnan().any():
                     print("\n" + "-" * 80)
@@ -911,9 +917,6 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                 hdf5_file.attrs["num_data_points"] = current_idx
 
             # HACK: debugging memory leaks
-            print("End of loop before del")
-            print(torch.cuda.memory_summary())
-            del nerf_pipeline
             print("End of loop")
             print(torch.cuda.memory_summary())
         except Exception as e:

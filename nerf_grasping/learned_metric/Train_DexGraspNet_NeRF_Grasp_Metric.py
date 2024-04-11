@@ -673,6 +673,7 @@ def print_shapes(batch_data: BatchData) -> None:
         print(
             f"nerf_alphas_with_coords.shape = {batch_data.input.nerf_alphas_with_coords.shape}"
         )
+        print(f"nerf_alphas_with_coords_v2.shape = {batch_data.input.nerf_alphas_with_coords_v2.shape}")
     elif isinstance(batch_data.input, DepthImageBatchDataInput):
         print(
             f"depth_uncertainty_images.shape: {batch_data.input.depth_uncertainty_images.shape}"

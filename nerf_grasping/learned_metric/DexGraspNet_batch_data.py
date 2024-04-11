@@ -252,10 +252,19 @@ class BatchDataInput:
             NUM_XYZ,
         )
 
-        wrist_poses_wrt_object = pp.SE3(grasp_configs[..., :7])
+        assert grasp_configs[..., :7].shape == (
+            self.batch_size,
+            self.fingertip_config.n_fingers,
+            7,
+        )
+        wrist_poses_wrt_object = pp.SE3(grasp_configs[:, :, None, None, None, :7])
+
         assert wrist_poses_wrt_object.lshape == (
             self.batch_size,
             self.fingertip_config.n_fingers,
+            1,
+            1,
+            1,
         )
 
         T_wrist_object = wrist_poses_wrt_object.Inv()

@@ -83,6 +83,33 @@ class Classifier(nn.Module):
         return 2
 
 
+class CNN_3D_XYZY_Classifier(Classifier):
+    def __init__(
+        self,
+        input_shape: Iterable[int],
+        conv_channels: Iterable[int],
+        mlp_hidden_layers: Iterable[int],
+        n_fingers: int,
+        n_tasks: int,
+    ) -> None:
+        super().__init__()
+        self.model = CNN_3D_Model(
+            input_shape=input_shape,
+            conv_channels=conv_channels,
+            mlp_hidden_layers=mlp_hidden_layers,
+            n_fingers=n_fingers,
+            n_tasks=n_tasks,
+        )
+
+    def forward(self, batch_data_input: BatchDataInput) -> torch.Tensor:
+        # Run model
+        all_logits = self.model.get_all_logits(
+            batch_data_input.nerf_alphas_with_augmented_coords_v3
+        )
+        return all_logits
+
+
+
 class CNN_3D_XYZXYZY_Classifier(Classifier):
     def __init__(
         self,

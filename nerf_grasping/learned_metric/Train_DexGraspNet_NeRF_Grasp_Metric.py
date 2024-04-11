@@ -504,6 +504,7 @@ def custom_collate_fn(
         grasp_transforms,
         nerf_configs,
         grasp_configs,
+        object_scales,
     ) = batch
 
     if debug_shuffle_labels:
@@ -533,6 +534,7 @@ def custom_collate_fn(
             fingertip_config=fingertip_config,
             nerf_density_threshold_value=nerf_density_threshold_value,
             grasp_configs=grasp_configs,
+            object_scales=object_scales,
         ),
         output=BatchDataOutput(
             passed_simulation=passed_simulation,
@@ -560,6 +562,7 @@ def depth_image_custom_collate_fn(
         grasp_transforms,
         nerf_configs,
         grasp_configs,
+        _,
     ) = batch
 
     if debug_shuffle_labels:

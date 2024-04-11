@@ -113,6 +113,12 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
                 else None
             )
 
+            self.object_scales = (
+                torch.from_numpy(hdf5_file["/object_scale"][()]).float()
+                if False
+                else None
+            )
+
     def _set_length(
         self, hdf5_file: h5py.File, max_num_data_points: Optional[int]
     ) -> int:
@@ -203,6 +209,11 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
             if self.grasp_configs is None
             else self.grasp_configs[idx]
         )
+        object_scales = (
+            torch.from_numpy(self.hdf5_file["/object_scale"][idx]).float()
+            if self.object_scales is None
+            else self.object_scales[idx]
+        )
 
         assert_equals(
             nerf_densities.shape,
@@ -214,6 +225,7 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
         assert_equals(passed_eval.shape, (NUM_CLASSES,))
         assert_equals(grasp_transforms.shape, (self.NUM_FINGERS, 4, 4))
         assert_equals(grasp_configs.shape, (self.NUM_FINGERS, 7 + 16 + 4))
+        assert_equals(object_scales.shape, ())
 
         return (
             nerf_densities,
@@ -223,6 +235,7 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
             grasp_transforms,
             nerf_config,
             grasp_configs,
+            object_scales,
         )
 
     @property
@@ -354,6 +367,12 @@ class DepthImage_To_GraspSuccess_HDF5_Dataset(Dataset):
                 else None
             )
 
+            self.object_scales = (
+                torch.from_numpy(hdf5_file["/object_scale"][()]).float()
+                if False
+                else None
+            )
+
     def _set_length(
         self, hdf5_file: h5py.File, max_num_data_points: Optional[int]
     ) -> int:
@@ -452,6 +471,11 @@ class DepthImage_To_GraspSuccess_HDF5_Dataset(Dataset):
             if self.grasp_configs is None
             else self.grasp_configs[idx]
         )
+        object_scales = (
+            torch.from_numpy(self.hdf5_file["/object_scale"][idx]).float()
+            if self.object_scales is None
+            else self.object_scales[idx]
+        )
 
         assert_equals(
             depth_uncertainty_images.shape,
@@ -468,6 +492,7 @@ class DepthImage_To_GraspSuccess_HDF5_Dataset(Dataset):
         assert_equals(passed_eval.shape, (NUM_CLASSES,))
         assert_equals(grasp_transforms.shape, (self.NUM_FINGERS, 4, 4))
         assert_equals(grasp_configs.shape, (self.NUM_FINGERS, 7 + 16 + 4))
+        assert_equals(object_scales.shape, ())
 
         return (
             depth_uncertainty_images,
@@ -477,6 +502,7 @@ class DepthImage_To_GraspSuccess_HDF5_Dataset(Dataset):
             grasp_transforms,
             nerf_config,
             grasp_configs,
+            object_scales,
         )
 
     @property

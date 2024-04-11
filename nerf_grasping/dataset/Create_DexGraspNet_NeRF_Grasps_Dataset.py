@@ -21,6 +21,34 @@
 # The purpose of this script is to iterate through each NeRF object and evaled grasp config, sample densities in the grasp trajectory, and store the data
 
 # %%
+import subprocess
+
+def get_gpu_memory():
+    """
+    Executes the nvidia-smi command to get the current GPU memory usage.
+
+    Returns:
+        A tuple containing total, used, and free GPU memory in megabytes.
+    """
+    try:
+        # Define the nvidia-smi command
+        command = "nvidia-smi --query-gpu=memory.total,memory.used,memory.free --format=csv,nounits,noheader"
+        
+        # Execute the command
+        output = subprocess.check_output(command, shell=True)
+        
+        # Decode the output and split it to extract memory values
+        decoded_output = output.decode('utf-8').strip()
+        memory_values = decoded_output.split(', ')
+        
+        # Convert memory values to integers and return
+        total_memory_mb, used_memory_mb, free_memory_mb = map(int, memory_values)
+        return total_memory_mb, used_memory_mb, free_memory_mb
+    except subprocess.CalledProcessError as e:
+        print(f"An error occurred while executing nvidia-smi: {e}")
+        return None
+
+# %%
 import sys
 import pathlib
 import h5py
@@ -572,10 +600,11 @@ def get_nerf_densities(
     cfg: BaseNerfDataConfig,
     grasp_frame_transforms: pp.LieTensor,
     ray_origins_finger_frame: torch.Tensor,
-    nerf_field: Field,
+    nerf_config: pathlib.Path,
     compute_query_points: bool = True,
 ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
     assert cfg.fingertip_config is not None
+    nerf_pipeline = load_nerf_pipeline(nerf_config)
 
     # Shape check grasp_frame_transforms
     batch_size = grasp_frame_transforms.shape[0]
@@ -624,7 +653,7 @@ def get_nerf_densities(
         ):
             curr_ray_samples = ray_samples[curr_ind:next_ind].to("cuda")
             curr_nerf_densities = (
-                nerf_field.get_density(curr_ray_samples)[0]
+                nerf_pipeline.model.field.get_density(curr_ray_samples)[0]
                 .reshape(
                     -1,
                     cfg.fingertip_config.n_fingers,
@@ -634,7 +663,7 @@ def get_nerf_densities(
                 )
                 .cpu()
             )
-            curr_ray_samples.to("cpu")
+            del curr_ray_samples
             nerf_densities[curr_ind:next_ind] = curr_nerf_densities
 
     with loop_timer.add_section_timer("frustums.get_positions"):
@@ -699,19 +728,29 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
     # Iterate through all
     loop_timer = LoopTimer()
     pbar = tqdm(
-        evaled_grasp_config_dict_filepaths,
+        enumerate(evaled_grasp_config_dict_filepaths),
         dynamic_ncols=True,
+        total=len(evaled_grasp_config_dict_filepaths),
     )
-    for evaled_grasp_config_dict_filepath in pbar:
+    for i, evaled_grasp_config_dict_filepath in pbar:
         # HACK: weird fragmentation issues slightly resolved by emptying cache
         torch.cuda.empty_cache()
 
         # HACK: debugging memory leaks
         print("START OF LOOP")
+        print(f"i={i} evaled_grasp_config_dict_filepath={evaled_grasp_config_dict_filepath}")
+        print(get_gpu_memory())
         print(torch.cuda.memory_summary())
+        total, used, free = get_gpu_memory()
+        if used > 10_000:
+            HIGH_GPU_MEMORY = True
+        else:
+            HIGH_GPU_MEMORY = False
+
 
         pbar.set_description(f"Processing {evaled_grasp_config_dict_filepath}")
         try:
+            print(f"{get_gpu_memory()} 1")
             with loop_timer.add_section_timer("prepare to read in data"):
                 object_code_and_scale_str = evaled_grasp_config_dict_filepath.stem
                 object_code, object_scale = parse_object_code_and_scale(
@@ -728,13 +767,20 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                 assert os.path.exists(
                     evaled_grasp_config_dict_filepath
                 ), f"evaled_grasp_config_dict_filepath {evaled_grasp_config_dict_filepath} does not exist"
+            print(f"{get_gpu_memory()} 2")
 
             # Read in data
             with loop_timer.add_section_timer("load_nerf"):
                 # Load nerf pipeline
                 # Note: for some reason this helps avoid GPU memory leak
                 #       whereas loading nerf_model or nerf_field directly causes GPU memory leak
-                nerf_pipeline = load_nerf_pipeline(nerf_config)
+                # nerf_pipeline = load_nerf_pipeline(nerf_config)
+                # if not HIGH_GPU_MEMORY:
+                #     nerf_pipeline = load_nerf_pipeline(nerf_config)
+                # else:
+                #     nerf_pipeline = None
+                pass
+            print(f"{get_gpu_memory()} 3")
 
             with loop_timer.add_section_timer("load grasp data"):
                 evaled_grasp_config_dict: Dict[str, Any] = np.load(
@@ -745,6 +791,7 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
             grasp_configs = AllegroGraspConfig.from_grasp_config_dict(
                 evaled_grasp_config_dict
             )
+            print(f"{get_gpu_memory()} 4")
             passed_evals = evaled_grasp_config_dict["passed_eval"]
             passed_simulations = evaled_grasp_config_dict["passed_simulation"]
             passed_penetration_thresholds = evaled_grasp_config_dict[
@@ -794,6 +841,7 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                 ]
             grasp_frame_transforms = grasp_configs.grasp_frame_transforms
             grasp_config_tensors = grasp_configs.as_tensor().detach().cpu().numpy()
+            print(f"{get_gpu_memory()} 5")
 
             assert_equals(passed_evals.shape, (grasp_configs.batch_size,))
             assert_equals(passed_simulations.shape, (grasp_configs.batch_size,))
@@ -818,14 +866,52 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
 
             if isinstance(cfg, GridNerfDataConfig):
                 # Process batch of grasp data.
+                print(f"{get_gpu_memory()} 6")
+                # if not HIGH_GPU_MEMORY:
+                #     nerf_densities, query_points = get_nerf_densities(
+                #         loop_timer=loop_timer,
+                #         cfg=cfg,
+                #         grasp_frame_transforms=grasp_frame_transforms,
+                #         ray_origins_finger_frame=ray_origins_finger_frame,
+                #         nerf_field=nerf_pipeline.model.field,
+                #         compute_query_points=cfg.plot_only_one,
+                #     )
+                # else:
+                #     batch_size = grasp_frame_transforms.shape[0]
+                #     nerf_densities = torch.zeros(
+                #         (
+                #             batch_size,
+                #             cfg.fingertip_config.n_fingers,
+                #             cfg.fingertip_config.num_pts_x,
+                #             cfg.fingertip_config.num_pts_y,
+                #             cfg.fingertip_config.num_pts_z,
+                #         ),
+                #         dtype=torch.float,
+                #         device="cpu",
+                #     )
+                #     query_points = None
+                # batch_size = grasp_frame_transforms.shape[0]
+                # nerf_densities = torch.zeros(
+                #     (
+                #         batch_size,
+                #         cfg.fingertip_config.n_fingers,
+                #         cfg.fingertip_config.num_pts_x,
+                #         cfg.fingertip_config.num_pts_y,
+                #         cfg.fingertip_config.num_pts_z,
+                #     ),
+                #     dtype=torch.float,
+                #     device="cpu",
+                # )
+                # query_points = None
                 nerf_densities, query_points = get_nerf_densities(
                     loop_timer=loop_timer,
                     cfg=cfg,
                     grasp_frame_transforms=grasp_frame_transforms,
                     ray_origins_finger_frame=ray_origins_finger_frame,
-                    nerf_field=nerf_pipeline.model.field,
+                    nerf_config=nerf_config,
                     compute_query_points=cfg.plot_only_one,
                 )
+                print(f"{get_gpu_memory()} 7")
                 if nerf_densities.isnan().any():
                     print("\n" + "-" * 80)
                     print(
@@ -840,7 +926,7 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                     loop_timer=loop_timer,
                     cfg=cfg,
                     grasp_frame_transforms=grasp_frame_transforms,
-                    nerf_model=nerf_pipeline.model,
+                    nerf_config=nerf_config,
                 )
                 if depth_images.isnan().any():
                     print("\n" + "-" * 80)
@@ -869,6 +955,7 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                 continue
 
             with loop_timer.add_section_timer("save values"):
+                print(f"{get_gpu_memory()} 8")
                 prev_idx = current_idx
                 current_idx += grasp_configs.batch_size
                 passed_eval_dataset[prev_idx:current_idx] = passed_evals
@@ -891,10 +978,13 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                 )
 
                 if isinstance(cfg, GridNerfDataConfig):
+                    print(f"{get_gpu_memory()} 9")
                     nerf_densities_dataset[prev_idx:current_idx] = (
                         nerf_densities.detach().cpu().numpy()
                     )
+                    print(f"{get_gpu_memory()} 10")
                     del nerf_densities
+                    print(f"{get_gpu_memory()} 11")
 
                 if isinstance(cfg, DepthImageNerfDataConfig):
                     depth_images_dataset[prev_idx:current_idx] = (
@@ -906,14 +996,16 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                     del depth_images, uncertainty_images
 
                 grasp_configs_dataset[prev_idx:current_idx] = grasp_config_tensors
+                print(f"{get_gpu_memory()} 12")
 
                 # May not be max_num_data_points if nan grasps
                 hdf5_file.attrs["num_data_points"] = current_idx
 
             # HACK: debugging memory leaks
+            print(f"{get_gpu_memory()} 13")
             print("End of loop before del")
             print(torch.cuda.memory_summary())
-            del nerf_pipeline
+            print(f"{get_gpu_memory()} 14")
             print("End of loop")
             print(torch.cuda.memory_summary())
         except Exception as e:

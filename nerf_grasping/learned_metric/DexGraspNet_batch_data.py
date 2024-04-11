@@ -120,6 +120,14 @@ class BatchDataInput:
         return self._nerf_alphas_with_coords_helper(self.coords)
 
     @property
+    def nerf_alphas_with_coords_v2(self) -> torch.Tensor:
+        return self._nerf_alphas_with_coords_v2_helper(
+            self.coords,
+            self.coords_wrt_wrist,
+            self.y_coords_wrt_table,
+        )
+
+    @property
     def nerf_alphas_with_augmented_coords(self) -> torch.Tensor:
         return self._nerf_alphas_with_coords_helper(self.augmented_coords)
 

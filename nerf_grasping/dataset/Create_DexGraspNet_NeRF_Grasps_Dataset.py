@@ -768,7 +768,7 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                 # "passed_penetration_threshold"
                 "passed_new_penetration_test"
             ]
-            object_state = evaled_grasp_config_dict["object_state"]
+            object_state = evaled_grasp_config_dict["object_states_before_grasp"]
 
             # If plot_only_one is True, slice out the grasp index we want to visualize.
             if cfg.plot_only_one:

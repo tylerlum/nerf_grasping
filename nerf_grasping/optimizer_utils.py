@@ -679,7 +679,7 @@ class GraspMetric(torch.nn.Module):
             grasp_transforms=grasp_config.grasp_frame_transforms,
             fingertip_config=self.fingertip_config,
             grasp_configs=grasp_config.as_tensor(),
-            object_scales=1,
+            object_y_wrt_table=None,  # ?
         ).to(grasp_config.hand_config.wrist_pose.device)
 
         # Pass grasp transforms, densities into classifier.

@@ -51,7 +51,7 @@ class BatchDataInput:
     grasp_transforms: pp.LieTensor
     fingertip_config: BaseFingertipConfig  # have to take this because all these shape checks used to use hardcoded constants.
     grasp_configs: torch.Tensor
-    object_scales: torch.Tensor
+    object_y_wrt_table: Optional[torch.Tensor]
     random_rotate_transform: Optional[pp.LieTensor] = None
     nerf_density_threshold_value: Optional[float] = None
 
@@ -64,7 +64,8 @@ class BatchDataInput:
             else None
         )
         self.grasp_configs = self.grasp_configs.to(device)
-        self.object_scales = self.object_scales.to(device)
+        if self.object_y_wrt_table is not None:
+            self.object_y_wrt_table = self.object_y_wrt_table.to(device)
         return self
 
     @property
@@ -339,14 +340,13 @@ class BatchDataInput:
             self.fingertip_config.num_pts_z,
         )
 
-        # BRITTLE: hardcoding buffer and table thickness
-        BUFFER = 1.2
-        OBJ_MAX_EXTENT_FROM_ORIGIN = 1.0 * self.object_scales * BUFFER
-        TABLE_THICKNESS = 0.1
-        y_offset = OBJ_MAX_EXTENT_FROM_ORIGIN + TABLE_THICKNESS / 2
-        assert y_offset.shape == (self.batch_size,)
+        assert self.object_y_wrt_table is not None, "object_y_wrt_table is None"
+        assert self.object_y_wrt_table.shape == (
+            self.batch_size,
+        )
+        assert torch.all(self.object_y_wrt_table >= 0)
         y_coords_wrt_table = (
-            y_coords_wrt_object + y_offset[..., None, None, None, None, None]
+            y_coords_wrt_object + self.object_y_wrt_table[..., None, None, None, None]
         )
         return y_coords_wrt_table
 

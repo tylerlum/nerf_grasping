@@ -504,7 +504,7 @@ def custom_collate_fn(
         grasp_transforms,
         nerf_configs,
         grasp_configs,
-        object_scales,
+        object_y_wrt_table,
     ) = batch
 
     if debug_shuffle_labels:
@@ -534,7 +534,7 @@ def custom_collate_fn(
             fingertip_config=fingertip_config,
             nerf_density_threshold_value=nerf_density_threshold_value,
             grasp_configs=grasp_configs,
-            object_scales=object_scales,
+            object_y_wrt_table=object_y_wrt_table,
         ),
         output=BatchDataOutput(
             passed_simulation=passed_simulation,

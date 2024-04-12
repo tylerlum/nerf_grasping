@@ -367,6 +367,9 @@ def create_grid_dataset(
     object_scale_dataset = hdf5_file.create_dataset(
         "/object_scale", shape=(max_num_datapoints,), dtype="f"
     )
+    object_state_dataset = hdf5_file.create_dataset(
+        "/object_state", shape=(max_num_datapoints, 13,), dtype="f"
+    )
     grasp_idx_dataset = hdf5_file.create_dataset(
         "/grasp_idx", shape=(max_num_datapoints,), dtype="i"
     )
@@ -393,6 +396,7 @@ def create_grid_dataset(
         nerf_config_dataset,
         object_code_dataset,
         object_scale_dataset,
+        object_state_dataset,
         grasp_idx_dataset,
         grasp_transforms_dataset,
         grasp_configs_dataset,
@@ -459,6 +463,9 @@ def create_depth_image_dataset(
     object_scale_dataset = hdf5_file.create_dataset(
         "/object_scale", shape=(max_num_datapoints,), dtype="f"
     )
+    object_state_dataset = hdf5_file.create_dataset(
+        "/object_state", shape=(max_num_datapoints, 13,), dtype="f"
+    )
     grasp_idx_dataset = hdf5_file.create_dataset(
         "/grasp_idx", shape=(max_num_datapoints,), dtype="i"
     )
@@ -486,6 +493,7 @@ def create_depth_image_dataset(
         nerf_config_dataset,
         object_code_dataset,
         object_scale_dataset,
+        object_state_dataset,
         grasp_idx_dataset,
         grasp_transforms_dataset,
         grasp_configs_dataset,
@@ -679,6 +687,7 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
             nerf_config_dataset,
             object_code_dataset,
             object_scale_dataset,
+            object_state_dataset,
             grasp_idx_dataset,
             grasp_transforms_dataset,
             grasp_configs_dataset,
@@ -693,6 +702,7 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
             nerf_config_dataset,
             object_code_dataset,
             object_scale_dataset,
+            object_state_dataset,
             grasp_idx_dataset,
             grasp_transforms_dataset,
             grasp_configs_dataset,
@@ -758,6 +768,7 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                 # "passed_penetration_threshold"
                 "passed_new_penetration_test"
             ]
+            object_state = evaled_grasp_config_dict["object_state"]
 
             # If plot_only_one is True, slice out the grasp index we want to visualize.
             if cfg.plot_only_one:
@@ -771,11 +782,13 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                 passed_evals = passed_evals[
                     cfg.grasp_visualize_index : cfg.grasp_visualize_index + 1
                 ]
-
                 passed_simulations = passed_simulations[
                     cfg.grasp_visualize_index : cfg.grasp_visualize_index + 1
                 ]
                 passed_penetration_thresholds = passed_penetration_thresholds[
+                    cfg.grasp_visualize_index : cfg.grasp_visualize_index + 1
+                ]
+                object_state = object_state[
                     cfg.grasp_visualize_index : cfg.grasp_visualize_index + 1
                 ]
 
@@ -798,6 +811,8 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                 passed_penetration_thresholds = passed_penetration_thresholds[
                     :cfg.max_num_data_points_per_file
                 ]
+                object_state = object_state[:cfg.max_num_data_points_per_file]
+
             grasp_frame_transforms = grasp_configs.grasp_frame_transforms
             grasp_config_tensors = grasp_configs.as_tensor().detach().cpu().numpy()
 
@@ -821,6 +836,11 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                     + 4,  # wrist pose, joint angles, grasp orientations (as quats)
                 ),
             )
+            # Annoying hack because I stored all the object states for multiple noise runs, only need 1
+            assert len(object_state.shape) == 3
+            n_runs = object_state.shape[1]
+            assert_equals(object_state.shape, (grasp_configs.batch_size, n_runs, 13))
+            object_state = object_state[:, 0]
 
             if isinstance(cfg, GridNerfDataConfig):
                 # Process batch of grasp data.
@@ -889,6 +909,7 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                     current_idx - prev_idx
                 )
                 object_scale_dataset[prev_idx:current_idx] = object_scale
+                object_state_dataset[prev_idx:current_idx] = object_state
                 grasp_idx_dataset[prev_idx:current_idx] = np.arange(
                     0, current_idx - prev_idx
                 )

@@ -346,7 +346,7 @@ class BatchDataInput:
         )
         assert torch.all(self.object_y_wrt_table >= 0)
         y_coords_wrt_table = (
-            y_coords_wrt_object + self.object_y_wrt_table[..., None, None, None, None]
+            y_coords_wrt_object + self.object_y_wrt_table[..., None, None, None, None, None]
         )
         return y_coords_wrt_table
 

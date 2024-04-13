@@ -65,6 +65,155 @@ from localscope import localscope
 from nerfstudio.fields.base_field import Field
 from nerfstudio.models.base_model import Model
 
+# %%
+
+# %%
+@localscope.mfc(allowed=["cfg"])
+def get_stuff(evaled_grasp_config_dict_filepath: pathlib.Path):
+    with loop_timer.add_section_timer("prepare to read in data"):
+        object_code_and_scale_str = evaled_grasp_config_dict_filepath.stem
+        object_code, object_scale = parse_object_code_and_scale(
+            object_code_and_scale_str
+        )
+
+        # Get nerf config
+        nerf_config = get_closest_matching_nerf_config(
+            target_object_code_and_scale_str=object_code_and_scale_str,
+            nerf_configs=nerf_configs,
+        )
+
+        # Check that mesh and grasp dataset exist
+        assert os.path.exists(
+            evaled_grasp_config_dict_filepath
+        ), f"evaled_grasp_config_dict_filepath {evaled_grasp_config_dict_filepath} does not exist"
+
+    with loop_timer.add_section_timer("load grasp data"):
+        evaled_grasp_config_dict: Dict[str, Any] = np.load(
+            evaled_grasp_config_dict_filepath, allow_pickle=True
+        ).item()
+
+    # Extract useful parts of grasp data
+    grasp_configs = AllegroGraspConfig.from_grasp_config_dict(
+        evaled_grasp_config_dict
+    )
+    passed_evals = evaled_grasp_config_dict["passed_eval"]
+    passed_simulations = evaled_grasp_config_dict["passed_simulation"]
+    passed_penetration_thresholds = evaled_grasp_config_dict[
+        # TODO: Choose which label to use
+        # "passed_penetration_threshold"
+        "passed_new_penetration_test"
+    ]
+    object_state = evaled_grasp_config_dict["object_states_before_grasp"]
+
+    # If plot_only_one is True, slice out the grasp index we want to visualize.
+    if cfg.plot_only_one:
+        assert cfg.grasp_visualize_index is not None
+        assert (
+            cfg.grasp_visualize_index < grasp_configs.batch_size
+        ), f"{cfg.grasp_visualize_index} out of bounds for batch size {grasp_configs.batch_size}"
+        grasp_configs = grasp_configs[
+            cfg.grasp_visualize_index : cfg.grasp_visualize_index + 1
+        ]
+        passed_evals = passed_evals[
+            cfg.grasp_visualize_index : cfg.grasp_visualize_index + 1
+        ]
+        passed_simulations = passed_simulations[
+            cfg.grasp_visualize_index : cfg.grasp_visualize_index + 1
+        ]
+        passed_penetration_thresholds = passed_penetration_thresholds[
+            cfg.grasp_visualize_index : cfg.grasp_visualize_index + 1
+        ]
+        object_state = object_state[
+            cfg.grasp_visualize_index : cfg.grasp_visualize_index + 1
+        ]
+
+    print(f"grasp_configs.batch_size = {grasp_configs.batch_size}")
+    if (
+        cfg.max_num_data_points_per_file is not None
+        and grasp_configs.batch_size > cfg.max_num_data_points_per_file
+    ):
+        print(
+            "WARNING: Too many grasp configs, dropping some datapoints from NeRF dataset."
+        )
+        print(
+            f"batch_size = {grasp_configs.batch_size}, cfg.max_num_data_points_per_file = {cfg.max_num_data_points_per_file}"
+        )
+
+        grasp_configs = grasp_configs[:cfg.max_num_data_points_per_file]
+
+        passed_evals = passed_evals[:cfg.max_num_data_points_per_file]
+        passed_simulations = passed_simulations[:cfg.max_num_data_points_per_file]
+        passed_penetration_thresholds = passed_penetration_thresholds[
+            :cfg.max_num_data_points_per_file
+        ]
+        object_state = object_state[:cfg.max_num_data_points_per_file]
+
+    grasp_frame_transforms = grasp_configs.grasp_frame_transforms
+    grasp_config_tensors = grasp_configs.as_tensor().detach().cpu().numpy()
+
+    assert_equals(passed_evals.shape, (grasp_configs.batch_size,))
+    assert_equals(passed_simulations.shape, (grasp_configs.batch_size,))
+    assert_equals(passed_penetration_thresholds.shape, (grasp_configs.batch_size,))
+    assert_equals(
+        grasp_frame_transforms.lshape,
+        (
+            grasp_configs.batch_size,
+            cfg.fingertip_config.n_fingers,
+        ),
+    )
+    assert_equals(
+        grasp_config_tensors.shape,
+        (
+            grasp_configs.batch_size,
+            cfg.fingertip_config.n_fingers,
+            7
+            + 16
+            + 4,  # wrist pose, joint angles, grasp orientations (as quats)
+        ),
+    )
+    # Annoying hack because I stored all the object states for multiple noise runs, only need 1
+    assert len(object_state.shape) == 3
+    n_runs = object_state.shape[1]
+    assert_equals(object_state.shape, (grasp_configs.batch_size, n_runs, 13))
+    object_state = object_state[:, 0]
+
+    if isinstance(cfg, GridNerfDataConfig):
+        # Process batch of grasp data.
+        nerf_densities, query_points = get_nerf_densities(
+            loop_timer=loop_timer,
+            cfg=cfg,
+            grasp_frame_transforms=grasp_frame_transforms,
+            ray_origins_finger_frame=ray_origins_finger_frame,
+            nerf_config=nerf_config,
+            compute_query_points=cfg.plot_only_one,
+        )
+    elif isinstance(cfg, DepthImageNerfDataConfig):
+        depth_images, uncertainty_images = get_depth_and_uncertainty_images(
+            loop_timer=loop_timer,
+            cfg=cfg,
+            grasp_frame_transforms=grasp_frame_transforms,
+            nerf_config=nerf_config,
+        )
+    return (
+        nerf_densities,
+        query_points,
+        depth_images,
+        uncertainty_images,
+        passed_evals,
+        passed_simulations,
+        passed_penetration_thresholds,
+        nerf_config,
+        object_code,
+        object_scale,
+        object_state,
+        grasp_idx,
+        grasp_transforms,
+        grasp_configs,
+    )
+
+
+# %%
+
 
 # %%
 def assert_equals(a, b):
@@ -727,226 +876,106 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
         dynamic_ncols=True,
     )
     for evaled_grasp_config_dict_filepath in pbar:
+        pbar.set_description(f"Processing {evaled_grasp_config_dict_filepath}")
         # HACK: weird fragmentation issues slightly resolved by emptying cache
         torch.cuda.empty_cache()
 
         # HACK: debugging memory leaks
         print(torch.cuda.memory_summary())
 
-        pbar.set_description(f"Processing {evaled_grasp_config_dict_filepath}")
-        try:
-            with loop_timer.add_section_timer("prepare to read in data"):
-                object_code_and_scale_str = evaled_grasp_config_dict_filepath.stem
-                object_code, object_scale = parse_object_code_and_scale(
-                    object_code_and_scale_str
-                )
+        (nerf_densities,
+        query_points,
+        depth_images,
+        uncertainty_images,
+        passed_evals,
+        passed_simulations,
+        passed_penetration_thresholds,
+        nerf_config,
+        object_code,
+        object_scale,
+        object_state,
+        grasp_idx,
+        grasp_transforms,
+        grasp_configs,) = get_stuff(evaled_grasp_config_dict_filepath)
 
-                # Get nerf config
-                nerf_config = get_closest_matching_nerf_config(
-                    target_object_code_and_scale_str=object_code_and_scale_str,
-                    nerf_configs=nerf_configs,
-                )
-
-                # Check that mesh and grasp dataset exist
-                assert os.path.exists(
-                    evaled_grasp_config_dict_filepath
-                ), f"evaled_grasp_config_dict_filepath {evaled_grasp_config_dict_filepath} does not exist"
-
-            with loop_timer.add_section_timer("load grasp data"):
-                evaled_grasp_config_dict: Dict[str, Any] = np.load(
-                    evaled_grasp_config_dict_filepath, allow_pickle=True
-                ).item()
-
-            # Extract useful parts of grasp data
-            grasp_configs = AllegroGraspConfig.from_grasp_config_dict(
-                evaled_grasp_config_dict
-            )
-            passed_evals = evaled_grasp_config_dict["passed_eval"]
-            passed_simulations = evaled_grasp_config_dict["passed_simulation"]
-            passed_penetration_thresholds = evaled_grasp_config_dict[
-                # TODO: Choose which label to use
-                # "passed_penetration_threshold"
-                "passed_new_penetration_test"
-            ]
-            object_state = evaled_grasp_config_dict["object_states_before_grasp"]
-
-            # If plot_only_one is True, slice out the grasp index we want to visualize.
-            if cfg.plot_only_one:
-                assert cfg.grasp_visualize_index is not None
-                assert (
-                    cfg.grasp_visualize_index < grasp_configs.batch_size
-                ), f"{cfg.grasp_visualize_index} out of bounds for batch size {grasp_configs.batch_size}"
-                grasp_configs = grasp_configs[
-                    cfg.grasp_visualize_index : cfg.grasp_visualize_index + 1
-                ]
-                passed_evals = passed_evals[
-                    cfg.grasp_visualize_index : cfg.grasp_visualize_index + 1
-                ]
-                passed_simulations = passed_simulations[
-                    cfg.grasp_visualize_index : cfg.grasp_visualize_index + 1
-                ]
-                passed_penetration_thresholds = passed_penetration_thresholds[
-                    cfg.grasp_visualize_index : cfg.grasp_visualize_index + 1
-                ]
-                object_state = object_state[
-                    cfg.grasp_visualize_index : cfg.grasp_visualize_index + 1
-                ]
-
-            print(f"grasp_configs.batch_size = {grasp_configs.batch_size}")
-            if (
-                cfg.max_num_data_points_per_file is not None
-                and grasp_configs.batch_size > cfg.max_num_data_points_per_file
-            ):
-                print(
-                    "WARNING: Too many grasp configs, dropping some datapoints from NeRF dataset."
-                )
-                print(
-                    f"batch_size = {grasp_configs.batch_size}, cfg.max_num_data_points_per_file = {cfg.max_num_data_points_per_file}"
-                )
-
-                grasp_configs = grasp_configs[:cfg.max_num_data_points_per_file]
-
-                passed_evals = passed_evals[:cfg.max_num_data_points_per_file]
-                passed_simulations = passed_simulations[:cfg.max_num_data_points_per_file]
-                passed_penetration_thresholds = passed_penetration_thresholds[
-                    :cfg.max_num_data_points_per_file
-                ]
-                object_state = object_state[:cfg.max_num_data_points_per_file]
-
-            grasp_frame_transforms = grasp_configs.grasp_frame_transforms
-            grasp_config_tensors = grasp_configs.as_tensor().detach().cpu().numpy()
-
-            assert_equals(passed_evals.shape, (grasp_configs.batch_size,))
-            assert_equals(passed_simulations.shape, (grasp_configs.batch_size,))
-            assert_equals(passed_penetration_thresholds.shape, (grasp_configs.batch_size,))
-            assert_equals(
-                grasp_frame_transforms.lshape,
-                (
-                    grasp_configs.batch_size,
-                    cfg.fingertip_config.n_fingers,
-                ),
-            )
-            assert_equals(
-                grasp_config_tensors.shape,
-                (
-                    grasp_configs.batch_size,
-                    cfg.fingertip_config.n_fingers,
-                    7
-                    + 16
-                    + 4,  # wrist pose, joint angles, grasp orientations (as quats)
-                ),
-            )
-            # Annoying hack because I stored all the object states for multiple noise runs, only need 1
-            assert len(object_state.shape) == 3
-            n_runs = object_state.shape[1]
-            assert_equals(object_state.shape, (grasp_configs.batch_size, n_runs, 13))
-            object_state = object_state[:, 0]
-
-            if isinstance(cfg, GridNerfDataConfig):
-                # Process batch of grasp data.
-                nerf_densities, query_points = get_nerf_densities(
-                    loop_timer=loop_timer,
-                    cfg=cfg,
-                    grasp_frame_transforms=grasp_frame_transforms,
-                    ray_origins_finger_frame=ray_origins_finger_frame,
-                    nerf_config=nerf_config,
-                    compute_query_points=cfg.plot_only_one,
-                )
-                if nerf_densities.isnan().any():
-                    print("\n" + "-" * 80)
-                    print(
-                        f"WARNING: Found {nerf_densities.isnan().sum()} nerf density nans in {nerf_config}"
-                    )
-                    print("Skipping this one...")
-                    print("-" * 80 + "\n")
-                    continue
-
-            elif isinstance(cfg, DepthImageNerfDataConfig):
-                depth_images, uncertainty_images = get_depth_and_uncertainty_images(
-                    loop_timer=loop_timer,
-                    cfg=cfg,
-                    grasp_frame_transforms=grasp_frame_transforms,
-                    nerf_config=nerf_config,
-                )
-                if depth_images.isnan().any():
-                    print("\n" + "-" * 80)
-                    print(
-                        f"WARNING: Found {depth_images.isnan().sum()} depth image nans in {nerf_config}"
-                    )
-                    print("Skipping this one...")
-                    print("-" * 80 + "\n")
-                    continue
-
-            if cfg.plot_only_one:
-                break
-
-            # Ensure no nans (most likely come from weird grasp transforms)
-            if grasp_frame_transforms.isnan().any():
-                print("\n" + "-" * 80)
-                print(
-                    f"WARNING: Found {grasp_frame_transforms.isnan().sum()} transform nans in {evaled_grasp_config_dict_filepath}"
-                )
-                print("Skipping this one...")
-                print("-" * 80 + "\n")
-                continue
-
-            # Save values
-            if not cfg.save_dataset:
-                continue
-
-            with loop_timer.add_section_timer("save values"):
-                prev_idx = current_idx
-                current_idx += grasp_configs.batch_size
-                passed_eval_dataset[prev_idx:current_idx] = passed_evals
-                passed_simulation_dataset[prev_idx:current_idx] = passed_simulations
-                passed_penetration_threshold_dataset[
-                    prev_idx:current_idx
-                ] = passed_penetration_thresholds
-                nerf_config_dataset[prev_idx:current_idx] = [str(nerf_config)] * (
-                    current_idx - prev_idx
-                )
-                object_code_dataset[prev_idx:current_idx] = [object_code] * (
-                    current_idx - prev_idx
-                )
-                object_scale_dataset[prev_idx:current_idx] = object_scale
-                object_state_dataset[prev_idx:current_idx] = object_state
-                grasp_idx_dataset[prev_idx:current_idx] = np.arange(
-                    0, current_idx - prev_idx
-                )
-                grasp_transforms_dataset[prev_idx:current_idx] = (
-                    grasp_frame_transforms.matrix().cpu().detach().numpy()
-                )
-
-                if isinstance(cfg, GridNerfDataConfig):
-                    nerf_densities_dataset[prev_idx:current_idx] = (
-                        nerf_densities.detach().cpu().numpy()
-                    )
-                    del nerf_densities
-
-                if isinstance(cfg, DepthImageNerfDataConfig):
-                    depth_images_dataset[prev_idx:current_idx] = (
-                        depth_images.detach().cpu().numpy()
-                    )
-                    uncertainty_images_dataset[prev_idx:current_idx] = (
-                        uncertainty_images.detach().cpu().numpy()
-                    )
-                    del depth_images, uncertainty_images
-
-                grasp_configs_dataset[prev_idx:current_idx] = grasp_config_tensors
-
-                # May not be max_num_data_points if nan grasps
-                hdf5_file.attrs["num_data_points"] = current_idx
-
-            # HACK: debugging memory leaks
-            print("End of loop")
-            print(torch.cuda.memory_summary())
-        except Exception as e:
+        if nerf_densities.isnan().any():
             print("\n" + "-" * 80)
-            print(f"WARNING: Failed to process {evaled_grasp_config_dict_filepath}")
-            print(f"Exception: {e}")
+            print(
+                f"WARNING: Found {nerf_densities.isnan().sum()} nerf density nans in {nerf_config}"
+            )
+            print("Skipping this one...")
+            print("-" * 80 + "\n")
+            raise ValueError("Nerf density nans")
+
+        if depth_images.isnan().any():
+            print("\n" + "-" * 80)
+            print(
+                f"WARNING: Found {depth_images.isnan().sum()} depth image nans in {nerf_config}"
+            )
+            print("Skipping this one...")
+            print("-" * 80 + "\n")
+            raise ValueError("Depth image nans")
+
+        # Ensure no nans (most likely come from weird grasp transforms)
+        if grasp_transforms.isnan().any():
+            print("\n" + "-" * 80)
+            print(
+                f"WARNING: Found {grasp_transforms.isnan().sum()} transform nans in {evaled_grasp_config_dict_filepath}"
+            )
             print("Skipping this one...")
             print("-" * 80 + "\n")
             continue
+
+        # Save values
+        if not cfg.save_dataset:
+            continue
+
+        with loop_timer.add_section_timer("save values"):
+            prev_idx = current_idx
+            current_idx += grasp_configs.batch_size
+            passed_eval_dataset[prev_idx:current_idx] = passed_evals
+            passed_simulation_dataset[prev_idx:current_idx] = passed_simulations
+            passed_penetration_threshold_dataset[
+                prev_idx:current_idx
+            ] = passed_penetration_thresholds
+            nerf_config_dataset[prev_idx:current_idx] = [str(nerf_config)] * (
+                current_idx - prev_idx
+            )
+            object_code_dataset[prev_idx:current_idx] = [object_code] * (
+                current_idx - prev_idx
+            )
+            object_scale_dataset[prev_idx:current_idx] = object_scale
+            object_state_dataset[prev_idx:current_idx] = object_state
+            grasp_idx_dataset[prev_idx:current_idx] = np.arange(
+                0, current_idx - prev_idx
+            )
+            grasp_transforms_dataset[prev_idx:current_idx] = (
+                grasp_transforms.matrix().cpu().detach().numpy()
+            )
+
+            if isinstance(cfg, GridNerfDataConfig):
+                nerf_densities_dataset[prev_idx:current_idx] = (
+                    nerf_densities.detach().cpu().numpy()
+                )
+                del nerf_densities
+
+            if isinstance(cfg, DepthImageNerfDataConfig):
+                depth_images_dataset[prev_idx:current_idx] = (
+                    depth_images.detach().cpu().numpy()
+                )
+                uncertainty_images_dataset[prev_idx:current_idx] = (
+                    uncertainty_images.detach().cpu().numpy()
+                )
+                del depth_images, uncertainty_images
+
+            grasp_configs_dataset[prev_idx:current_idx] = grasp_config_tensors
+
+            # May not be max_num_data_points if nan grasps
+            hdf5_file.attrs["num_data_points"] = current_idx
+
+        # HACK: debugging memory leaks
+        print("End of loop")
+        print(torch.cuda.memory_summary())
 
         if cfg.print_timing:
             loop_timer.pretty_print_section_times()
@@ -957,8 +986,8 @@ if not cfg.plot_only_one:
     print("Done!")
     sys.exit()
 
-grasp_frame_transforms = (
-    grasp_frame_transforms.matrix().cpu().detach().numpy()[cfg.grasp_visualize_index]
+grasp_transforms = (
+    grasp_transforms.matrix().cpu().detach().numpy()[cfg.grasp_visualize_index]
 )
 # Plot
 delta = (
@@ -989,7 +1018,7 @@ if "nerf_densities" in globals():
 fig2 = plot_mesh_and_transforms(
     mesh=mesh,
     transforms=[
-        grasp_frame_transforms[i] for i in range(cfg.fingertip_config.n_fingers)
+        grasp_transforms[i] for i in range(cfg.fingertip_config.n_fingers)
     ],
     num_fingers=cfg.fingertip_config.n_fingers,
     title=f"Mesh and Transforms, Success: {passed_evals[cfg.grasp_visualize_index]}",
@@ -1135,3 +1164,11 @@ if "depth_images" in globals():
     plt.show(block=True)
 
 assert False, "cfg.plot_only_one is True"
+
+
+# %%
+Mu = 1
+
+@localscope.mfc
+def compute_gaussian(x, mu, std):
+    return np.exp(-0.5 * ((x - Mu) / std) ** 2) / (std * np.sqrt(2 * np.pi))

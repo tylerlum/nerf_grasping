@@ -1685,7 +1685,7 @@ def get_class_from_success_rate(
 
 
 @localscope.mfc
-def _compute_class_weight(
+def _compute_class_weights_success_rates(
     success_rates: np.ndarray, unique_classes: np.ndarray
 ) -> np.ndarray:
     classes = np.arange(len(unique_classes))
@@ -1736,16 +1736,29 @@ def compute_class_weight_np(
     unique_passed_eval = get_unique_classes(passed_eval_np)
 
     # argmax required to make binary classes
-    passed_simulation_class_weight_np = _compute_class_weight(
-        success_rates=passed_simulations_np, unique_classes=unique_passed_simulations
-    )
-    passed_penetration_threshold_class_weight_np = _compute_class_weight(
-        success_rates=passed_penetration_threshold_np,
-        unique_classes=unique_passed_penetration_threshold,
-    )
-    passed_eval_class_weight_np = _compute_class_weight(
-        success_rates=passed_eval_np, unique_classes=unique_passed_eval
-    )
+    # passed_simulation_class_weight_np = _compute_class_weights_success_rates(
+    #     success_rates=passed_simulations_np, unique_classes=unique_passed_simulations
+    # )
+    # passed_penetration_threshold_class_weight_np = _compute_class_weights_success_rates(
+    #     success_rates=passed_penetration_threshold_np,
+    #     unique_classes=unique_passed_penetration_threshold,
+    # )
+    # passed_eval_class_weight_np = _compute_class_weights_success_rates(
+    #     success_rates=passed_eval_np, unique_classes=unique_passed_eval
+    # )
+
+    # With soft labels, the counts of labels are a bit weird
+    # Instead, let's say num of label 0 is sum(1 - label)
+    # and num of label 1 is sum(label)
+    # This would be same as count if we had hard labels
+    # class_weight = n_samples / (n_classes * np.bincount(y)) https://scikit-learn.org/stable/modules/generated/sklearn.utils.class_weight.compute_class_weight.html
+    assert passed_simulations_np.ndim == passed_penetration_threshold_np.ndim == passed_eval_np.ndim == 1
+    passed_simulation_class_weight_np = np.array([passed_simulations_np.shape[0] / (2 * (1 - passed_simulations_np).sum()),
+                                                  passed_simulations_np.shape[0] / (2 * passed_simulations_np.sum())])
+    passed_penetration_threshold_class_weight_np = np.array([passed_penetration_threshold_np.shape[0] / (2 * (1 - passed_penetration_threshold_np).sum()),
+                                                                passed_penetration_threshold_np.shape[0] / (2 * passed_penetration_threshold_np.sum())])
+    passed_eval_class_weight_np = np.array([passed_eval_np.shape[0] / (2 * (1 - passed_eval_np).sum()),
+                                            passed_eval_np.shape[0] / (2 * passed_eval_np.sum())])
     t6 = time.time()
     print(f"Computed class weight in {t6 - t5:.2f} s")
 

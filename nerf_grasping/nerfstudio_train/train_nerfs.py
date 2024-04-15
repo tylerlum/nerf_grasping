@@ -4,6 +4,7 @@ import pathlib
 from dataclasses import dataclass
 import nerf_grasping
 from tqdm import tqdm
+from typing import Optional
 
 
 @dataclass
@@ -16,6 +17,7 @@ class Args:
         pathlib.Path(nerf_grasping.get_repo_root()).resolve() / "data"
     )
     is_real_world: bool = False
+    randomize_order_seed: Optional[int] = None
 
 
 def print_and_run(cmd: str) -> None:
@@ -41,8 +43,15 @@ def main() -> None:
     output_nerfcheckpoints_path = experiment_path / args.output_nerfcheckpoints_name
     output_nerfcheckpoints_path.mkdir(exist_ok=True)
 
+    object_and_scale_nerfdata_paths = sorted(list(nerfdata_path.iterdir()))
+
+    if args.randomize_order_seed is not None:
+        import random
+        print(f"Randomizing order with seed {args.randomize_order_seed}")
+        random.Random(args.randomize_order_seed).shuffle(object_and_scale_nerfdata_paths)
+
     for object_and_scale_nerfdata_path in tqdm(
-        nerfdata_path.iterdir(), dynamic_ncols=True, desc="Training NERF"
+        object_and_scale_nerfdata_paths, dynamic_ncols=True, desc="Training NERF"
     ):
         if not object_and_scale_nerfdata_path.is_dir():
             continue

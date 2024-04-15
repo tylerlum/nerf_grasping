@@ -64,7 +64,7 @@ def nerf_to_mesh(
     min_len: Optional[float] = None,
     flip_faces: bool = True,
     save_path: Optional[Path] = None,
-) -> None:
+) -> trimesh.Trimesh:
     """Takes a nerfstudio pipeline field and plots or saves a mesh.
 
     Parameters
@@ -88,6 +88,11 @@ def nerf_to_mesh(
         (it appears that the faces are flipped inside out by default)
     save_path : Optional[Path], default=None
         The save path. If None, shows a plot instead.
+
+    Returns
+    -------
+    mesh : trimesh.Trimesh
+        The mesh.
     """
     # marching cubes
     sdf = lambda x: field.density_fn(x).cpu().detach().numpy() - level
@@ -126,6 +131,7 @@ def nerf_to_mesh(
         plt.show()
     else:
         mesh.export(save_path)
+    return mesh
 
 
 if __name__ == "__main__":

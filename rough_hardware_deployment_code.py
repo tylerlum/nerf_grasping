@@ -25,7 +25,10 @@ class Args:
     experiment_name: str
     init_grasp_config_dict_path: pathlib.Path
     classifier_config_path: pathlib.Path
+    object_name: str
     experiments_folder: pathlib.Path = pathlib.Path("experiments")
+    is_real_world: bool = False
+    density_levelset_threshold: float = 15.0
 
     def __post_init__(self) -> None:
         assert (
@@ -64,17 +67,21 @@ def rough_hardware_deployment_code(args: Args) -> None:
     )
     print("X_A_B represents 4x4 transformation matrix of frame B wrt A")
     X_W_N = trimesh.transformations.translation_matrix([0.7, 0, 0])  # TODO: Check this
-    # X_O_Oy = trimesh.transformations.rotation_matrix(
-    #     np.pi / 2, [1, 0, 0]
-    # )  # TODO: Check this
-    # lb_N = np.array([-0.25, -0.25, 0.0])
-    # ub_N = np.array([0.25, 0.25, 0.3])
-    X_O_Oy = trimesh.transformations.rotation_matrix(
-        0, [1, 0, 0]
-    )  # TODO: Check this
-    lb_N = np.array([-0.25, 0.0, -0.25])
-    ub_N = np.array([0.25, 0.3, 0.25])
-    density_levelset_threshold = 15
+
+    # TODO: Change this
+    if args.is_real_world:
+        # Z-up
+        X_O_Oy = trimesh.transformations.rotation_matrix(
+            np.pi / 2, [1, 0, 0]
+        )  # TODO: Check this
+        lb_N = np.array([-0.25, -0.25, 0.0])
+        ub_N = np.array([0.25, 0.25, 0.3])
+    else:
+        X_O_Oy = trimesh.transformations.rotation_matrix(
+            0, [1, 0, 0]
+        )  # TODO: Check this
+        lb_N = np.array([-0.25, 0.0, -0.25])
+        ub_N = np.array([0.25, 0.3, 0.25])
 
     experiment_folder = args.experiments_folder / args.experiment_name
     print(f"Creating a new experiment folder at {experiment_folder}")
@@ -98,7 +105,7 @@ def rough_hardware_deployment_code(args: Args) -> None:
         train_nerfs.Args(
             experiment_name=args.experiment_name,
             nerf_grasping_data_path=args.experiments_folder,
-            is_real_world=False,
+            is_real_world=args.is_real_world,
         )
     )
     assert nerf_checkpoint_path.exists(), f"{nerf_checkpoint_path} does not exist"
@@ -118,10 +125,10 @@ def rough_hardware_deployment_code(args: Args) -> None:
     nerf_to_mesh_folder.mkdir(parents=True, exist_ok=True)
     mesh = nerf_to_mesh(
         field=nerf_pipeline.model.field,
-        level=density_levelset_threshold,
+        level=args.density_levelset_threshold,
         lb=lb_N,
         ub=ub_N,
-        save_path=nerf_to_mesh_folder / "mesh.obj",
+        save_path=nerf_to_mesh_folder / f"{args.object_name}.obj",
     )  # TODO: Maybe tune other default params, but prefer not to need to
 
     print("\n" + "=" * 80)
@@ -134,7 +141,7 @@ def rough_hardware_deployment_code(args: Args) -> None:
         nerf_pipeline.model.field,
         lb=lb_N,
         ub=ub_N,
-        level=density_levelset_threshold,
+        level=args.density_levelset_threshold,
         num_pts_x=100,
         num_pts_y=100,
         num_pts_z=100,
@@ -168,12 +175,17 @@ def rough_hardware_deployment_code(args: Args) -> None:
                 grasp_dir_lr=1e-4,
                 wrist_lr=1e-4,
             ),
-            output_path=pathlib.Path(experiment_folder / "optimized_grasp_config_dicts" / "optimized_grasp_config_dict.npy"),
+            output_path=pathlib.Path(
+                experiment_folder
+                / "optimized_grasp_config_dicts"
+                / f"{args.object_name}.npy"
+            ),
         )
     )
 
     print("\n" + "=" * 80)
     print("Step 6: Compute best grasps in W frame")
+    print("=" * 80 + "\n")
     X_Oy_H_array, joint_angles_array, target_joint_angles_array = (
         get_sorted_grasps_from_dict(
             optimized_grasp_config_dict=optimized_grasp_config_dict,
@@ -187,6 +199,9 @@ def rough_hardware_deployment_code(args: Args) -> None:
     assert joint_angles_array.shape == (num_grasps, 16)
     assert target_joint_angles_array.shape == (num_grasps, 16)
 
+    print("\n" + "=" * 80)
+    print("Step 7: Execute best grasps")
+    print("=" * 80 + "\n")
     for i in range(num_grasps):
         print(f"Trying grasp {i} / {num_grasps}")
 

@@ -128,7 +128,7 @@ def rough_hardware_deployment_code(args: Args) -> None:
     print(
         "Step 4: Compute X_N_Oy (transformation of the object y-up frame wrt the nerf frame)"
     )
-    USE_MESH = True
+    USE_MESH = False
     mesh_centroid = mesh.centroid
     nerf_centroid = compute_centroid_from_nerf(
         nerf_pipeline.model.field,

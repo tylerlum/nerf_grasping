@@ -7,6 +7,9 @@ from nerf_grasping.config.optimizer_config import SGDOptimizerConfig
 from nerf_grasping.config.grasp_metric_config import GraspMetricConfig
 from nerf_grasping.nerfstudio_train import train_nerfs
 from nerf_grasping.baselines.nerf_to_mesh import nerf_to_mesh
+from nerf_grasping.nerf_utils import (
+    compute_centroid_from_nerf,
+)
 import trimesh
 import nerf_grasping
 import pathlib
@@ -68,7 +71,7 @@ def rough_hardware_deployment_code(args: Args) -> None:
     print("=" * 80 + "\n")
     nerfdata_folder = pathlib.Path(f"{args.experiment_name}/nerfdata")
     nerfdata_folder.mkdir(parents=True, exist_ok=False)
-    nerf_data = ALBERT_run_hardware_nerf_data_collection(nerfdata_folder)
+    ALBERT_run_hardware_nerf_data_collection(nerfdata_folder)
     assert nerfdata_folder.exists(), f"{nerfdata_folder} does not exist"
 
     print("\n" + "=" * 80)
@@ -99,7 +102,7 @@ def rough_hardware_deployment_code(args: Args) -> None:
     mesh = nerf_to_mesh(
         field=nerf_pipeline.model.field,
         level=15,
-        lb=np.array([-0.25, 0.25, 0.0]),
+        lb=np.array([-0.25, -0.25, 0.0]),
         ub=np.array([0.25, 0.25, 0.3]),
     )  # TODO: Maybe tune other default params, but prefer not to need to
 
@@ -112,10 +115,17 @@ def rough_hardware_deployment_code(args: Args) -> None:
     )  # TODO: Check this
 
     USE_MESH = True
-    if USE_MESH:
-        centroid = mesh.centroid
-    else:
-        centroid = compute_centroid_from_nerf(nerf_pipeline.model.field)
+    mesh_centroid = mesh.centroid
+    nerf_centroid = compute_centroid_from_nerf(
+        nerf_pipeline.model.field,
+        lb=np.array([-0.25, -0.25, 0.0]),
+        ub=np.array([0.25, 0.25, 0.3]),
+        level=15,
+        num_pts_x=100,
+        num_pts_y=100,
+        num_pts_z=100,
+    )
+    centroid = mesh_centroid if USE_MESH else nerf_centroid
     assert centroid.shape == (3,), f"centroid.shape is {centroid.shape}, not (3,)"
     X_N_O = trimesh.transformations.translation_matrix(centroid)  # TODO: Check this
 

@@ -91,7 +91,7 @@ def main() -> None:
     print("=" * 80)
     print(f"{pathlib.Path(__file__).name} args: {args}")
     print("=" * 80 + "\n")
-    return train_nerfs(args)
+    train_nerfs(args)
 
 
 if __name__ == "__main__":

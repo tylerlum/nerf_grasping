@@ -25,6 +25,7 @@ class Args:
     experiment_name: str
     init_grasp_config_dict_path: pathlib.Path
     classifier_config_path: pathlib.Path
+    experiments_folder: pathlib.Path = pathlib.Path("experiments")
 
     def __post_init__(self) -> None:
         assert (
@@ -41,9 +42,9 @@ class Args:
             self.classifier_config_path.is_file()
         ), f"{self.classifier_config_path} is not a file"
 
-        assert self.init_grasp_config_dict_path.suffix == ".npy"(
-            f"{self.init_grasp_config_dict_path} does not have a .npy suffix"
-        )
+        assert (
+            self.init_grasp_config_dict_path.suffix == ".npy"
+        ), f"{self.init_grasp_config_dict_path} does not have a .npy suffix"
         assert self.classifier_config_path.suffix in [
             ".yml",
             ".yaml",
@@ -63,14 +64,32 @@ def rough_hardware_deployment_code(args: Args) -> None:
     )
     print("X_A_B represents 4x4 transformation matrix of frame B wrt A")
     X_W_N = trimesh.transformations.translation_matrix([0.7, 0, 0])  # TODO: Check this
+    # X_O_Oy = trimesh.transformations.rotation_matrix(
+    #     np.pi / 2, [1, 0, 0]
+    # )  # TODO: Check this
+    # lb_N = np.array([-0.25, -0.25, 0.0])
+    # ub_N = np.array([0.25, 0.25, 0.3])
+    X_O_Oy = trimesh.transformations.rotation_matrix(
+        0, [1, 0, 0]
+    )  # TODO: Check this
+    lb_N = np.array([-0.25, 0.0, -0.25])
+    ub_N = np.array([0.25, 0.3, 0.25])
+    density_levelset_threshold = 15
+
+    experiment_folder = args.experiments_folder / args.experiment_name
+    print(f"Creating a new experiment folder at {experiment_folder}")
+    experiment_folder.mkdir(parents=True, exist_ok=True)
 
     print("\n" + "=" * 80)
     print("Step 1: Collect NERF data")
     print("=" * 80 + "\n")
     nerfdata_folder = pathlib.Path(f"{args.experiment_name}/nerfdata")
-    nerfdata_folder.mkdir(parents=True, exist_ok=False)
-    ALBERT_run_hardware_nerf_data_collection(nerfdata_folder)
-    assert nerfdata_folder.exists(), f"{nerfdata_folder} does not exist"
+    if not nerfdata_folder.exists():
+        nerfdata_folder.mkdir(parents=True)
+        ALBERT_run_hardware_nerf_data_collection(nerfdata_folder)
+        assert nerfdata_folder.exists(), f"{nerfdata_folder} does not exist"
+    else:
+        print(f"{nerfdata_folder} already exists, skipping data collection")
 
     print("\n" + "=" * 80)
     print("Step 2: Train NERF")
@@ -78,11 +97,8 @@ def rough_hardware_deployment_code(args: Args) -> None:
     nerf_checkpoint_path = train_nerfs.train_nerfs(
         train_nerfs.Args(
             experiment_name=args.experiment_name,
-            nerf_grasping_data_path=pathlib.Path(
-                nerf_grasping.get_repo_root()
-            ).resolve()
-            / "data",
-            is_real_world=True,
+            nerf_grasping_data_path=args.experiments_folder,
+            is_real_world=False,
         )
     )
     assert nerf_checkpoint_path.exists(), f"{nerf_checkpoint_path} does not exist"
@@ -92,38 +108,41 @@ def rough_hardware_deployment_code(args: Args) -> None:
     print("=" * 80 + "\n")
     nerf_configs = get_nerf_configs(str(nerf_checkpoint_path))
     assert len(nerf_configs) == 1, f"len(nerf_configs) is {len(nerf_configs)}, not 1"
-    nerf_pipeline = load_nerf_pipeline(nerf_configs[0])
+    nerf_config = nerf_configs[0]
+    nerf_pipeline = load_nerf_pipeline(nerf_config)
 
     print("\n" + "=" * 80)
     print("Step 3: Convert NeRF to mesh")
     print("=" * 80 + "\n")
+    nerf_to_mesh_folder = experiment_folder / "nerf_to_mesh"
+    nerf_to_mesh_folder.mkdir(parents=True, exist_ok=True)
     mesh = nerf_to_mesh(
         field=nerf_pipeline.model.field,
-        level=15,
-        lb=np.array([-0.25, -0.25, 0.0]),
-        ub=np.array([0.25, 0.25, 0.3]),
+        level=density_levelset_threshold,
+        lb=lb_N,
+        ub=ub_N,
+        save_path=nerf_to_mesh_folder / "mesh.obj",
     )  # TODO: Maybe tune other default params, but prefer not to need to
 
     print("\n" + "=" * 80)
     print(
         "Step 4: Compute X_N_Oy (transformation of the object y-up frame wrt the nerf frame)"
     )
-    X_O_Oy = trimesh.transformations.rotation_matrix(
-        np.pi / 2, [1, 0, 0]
-    )  # TODO: Check this
-
     USE_MESH = True
     mesh_centroid = mesh.centroid
     nerf_centroid = compute_centroid_from_nerf(
         nerf_pipeline.model.field,
-        lb=np.array([-0.25, -0.25, 0.0]),
-        ub=np.array([0.25, 0.25, 0.3]),
-        level=15,
+        lb=lb_N,
+        ub=ub_N,
+        level=density_levelset_threshold,
         num_pts_x=100,
         num_pts_y=100,
         num_pts_z=100,
     )
+    print(f"mesh_centroid: {mesh_centroid}")
+    print(f"nerf_centroid: {nerf_centroid}")
     centroid = mesh_centroid if USE_MESH else nerf_centroid
+    print(f"USE_MESH: {USE_MESH}, centroid: {centroid}")
     assert centroid.shape == (3,), f"centroid.shape is {centroid.shape}, not (3,)"
     X_N_O = trimesh.transformations.translation_matrix(centroid)  # TODO: Check this
 
@@ -138,17 +157,18 @@ def rough_hardware_deployment_code(args: Args) -> None:
             use_rich=True,
             init_grasp_config_dict_path=args.init_grasp_config_dict_path,
             grasp_metric=GraspMetricConfig(
-                nerf_checkpoint_path=nerf_checkpoint_path,
+                nerf_checkpoint_path=nerf_config,
                 classifier_config_path=args.classifier_config_path,
                 X_N_Oy=X_N_Oy,
             ),
             optimizer=SGDOptimizerConfig(
                 num_grasps=32,
-                num_steps=200,
+                num_steps=0,
                 finger_lr=1e-4,
                 grasp_dir_lr=1e-4,
                 wrist_lr=1e-4,
             ),
+            output_path=pathlib.Path(experiment_folder / "optimized_grasp_config_dicts" / "optimized_grasp_config_dict.npy"),
         )
     )
 
@@ -157,8 +177,8 @@ def rough_hardware_deployment_code(args: Args) -> None:
     X_Oy_H_array, joint_angles_array, target_joint_angles_array = (
         get_sorted_grasps_from_dict(
             optimized_grasp_config_dict=optimized_grasp_config_dict,
-            error_if_no_loss=False,
-            check=True,
+            error_if_no_loss=True,
+            check=False,
             print_best=True,
         )
     )
@@ -176,11 +196,11 @@ def rough_hardware_deployment_code(args: Args) -> None:
 
         X_W_H = X_W_N @ X_N_Oy @ X_Oy_H
 
-        if not ALBERT_is_feasible(X_Oy_H, joint_angles):
+        if not ALBERT_is_feasible(X_Oy_H, joint_angles, mesh):
             print(f"Grasp {i} is infeasible")
             continue
 
-        ALBERT_execute_grasp(X_W_H, joint_angles, target_joint_angles)
+        ALBERT_execute_grasp(X_W_H, joint_angles, target_joint_angles, mesh)
 
 
 def main() -> None:

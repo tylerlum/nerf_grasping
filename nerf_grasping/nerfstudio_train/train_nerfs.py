@@ -42,8 +42,11 @@ def train_nerfs(args: Args) -> pathlib.Path:
 
     if args.randomize_order_seed is not None:
         import random
+
         print(f"Randomizing order with seed {args.randomize_order_seed}")
-        random.Random(args.randomize_order_seed).shuffle(object_and_scale_nerfdata_paths)
+        random.Random(args.randomize_order_seed).shuffle(
+            object_and_scale_nerfdata_paths
+        )
 
     for object_and_scale_nerfdata_path in tqdm(
         object_and_scale_nerfdata_paths, dynamic_ncols=True, desc="Training NERF"
@@ -66,7 +69,11 @@ def train_nerfs(args: Args) -> pathlib.Path:
                 f"--output-dir {str(output_nerfcheckpoints_path)}",
                 "--vis wandb",
                 "--pipeline.model.disable-scene-contraction True",
-                ("--pipeline.model.background-color black" if not args.is_real_world else ""),
+                (
+                    "--pipeline.model.background-color black"
+                    if not args.is_real_world
+                    else ""
+                ),
                 "nerfstudio-data",
                 "--auto-scale-poses False",
                 "--scale-factor 1.",
@@ -76,7 +83,7 @@ def train_nerfs(args: Args) -> pathlib.Path:
             ]
         )
         print_and_run(command)
-
+    return output_nerfcheckpoints_path
 
 
 def main() -> None:
@@ -85,6 +92,7 @@ def main() -> None:
     print(f"{pathlib.Path(__file__).name} args: {args}")
     print("=" * 80 + "\n")
     return train_nerfs(args)
+
 
 if __name__ == "__main__":
     main()

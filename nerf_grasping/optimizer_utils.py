@@ -655,14 +655,14 @@ class GraspMetric(torch.nn.Module):
             self.fingertip_config.num_pts_z,
         )
 
-        # HACK
-        raise NotImplementedError("Need to implement this object scale")
+        # HACK: NOT SURE HOW TO FILL THIS
+        # raise NotImplementedError("Need to implement this object scale")
         batch_data_input = BatchDataInput(
             nerf_densities=densities,
             grasp_transforms=grasp_config.grasp_frame_transforms,
             fingertip_config=self.fingertip_config,
             grasp_configs=grasp_config.as_tensor(),
-            object_y_wrt_table=None,  # ?
+            object_y_wrt_table=None,  # ? NEED TO PASS THIS IN?
         ).to(grasp_config.hand_config.wrist_pose.device)
 
         # Pass grasp transforms, densities into classifier.

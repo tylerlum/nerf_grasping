@@ -25,12 +25,7 @@ def print_and_run(cmd: str) -> None:
     subprocess.run(cmd, shell=True, check=True)
 
 
-def main() -> None:
-    args = tyro.cli(Args)
-    print("=" * 80)
-    print(f"{pathlib.Path(__file__).name} args: {args}")
-    print("=" * 80 + "\n")
-
+def train_nerfs(args: Args) -> pathlib.Path:
     assert (
         args.nerf_grasping_data_path.exists()
     ), f"{args.nerf_grasping_data_path} does not exist"
@@ -82,6 +77,14 @@ def main() -> None:
         )
         print_and_run(command)
 
+
+
+def main() -> None:
+    args = tyro.cli(Args)
+    print("=" * 80)
+    print(f"{pathlib.Path(__file__).name} args: {args}")
+    print("=" * 80 + "\n")
+    return train_nerfs(args)
 
 if __name__ == "__main__":
     main()

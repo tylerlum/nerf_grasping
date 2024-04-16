@@ -1,7 +1,5 @@
-from nerf_grasping.optimizer import get_optimized_grasps as TYLER_get_optimized_grasps
-from nerf_grasping.optimizer_utils import (
-    get_sorted_grasps_from_dict as TYLER_get_sorted_grasps_from_dict,
-)
+from nerf_grasping.optimizer import get_optimized_grasps
+from nerf_grasping.optimizer_utils import get_sorted_grasps_from_dict
 from nerf_grasping.config.optimization_config import OptimizationConfig
 from nerf_grasping.config.optimizer_config import SGDOptimizerConfig
 from nerf_grasping.config.grasp_metric_config import GraspMetricConfig
@@ -135,7 +133,7 @@ def rough_hardware_deployment_code(args: Args) -> None:
     print("\n" + "=" * 80)
     print("Step 5: Load grasp metric and init grasps, optimize")
     print("=" * 80 + "\n")
-    optimized_grasp_config_dict = TYLER_get_optimized_grasps(
+    optimized_grasp_config_dict = get_optimized_grasps(
         OptimizationConfig(
             use_rich=True,
             init_grasp_config_dict_path=args.init_grasp_config_dict_path,
@@ -144,16 +142,21 @@ def rough_hardware_deployment_code(args: Args) -> None:
                 classifier_config_path=args.classifier_config_path,
                 X_N_Oy=X_N_Oy,
             ),
-            optimizer=SGDOptimizerConfig(),
+            optimizer=SGDOptimizerConfig(
+                num_grasps=32,
+                num_steps=200,
+                finger_lr=1e-4,
+                grasp_dir_lr=1e-4,
+                wrist_lr=1e-4,
+            ),
         )
     )
 
     print("\n" + "=" * 80)
     print("Step 6: Compute best grasps in W frame")
     X_Oy_H_array, joint_angles_array, target_joint_angles_array = (
-        TYLER_get_sorted_grasps_from_dict(
+        get_sorted_grasps_from_dict(
             optimized_grasp_config_dict=optimized_grasp_config_dict,
-            X_N_Oy=X_N_Oy,
             error_if_no_loss=False,
             check=True,
             print_best=True,
@@ -185,7 +188,7 @@ def main() -> None:
     print("=" * 80)
     print(f"{pathlib.Path(__file__).name} args: {args}")
     print("=" * 80 + "\n")
-    return rough_hardware_deployment_code(args)
+    rough_hardware_deployment_code(args)
 
 
 if __name__ == "__main__":

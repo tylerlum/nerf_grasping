@@ -578,14 +578,14 @@ class GraspMetric(torch.nn.Module):
         nerf_field: Field,
         classifier_model: Classifier,
         fingertip_config: UnionFingertipConfig,
-        object_transform_world_frame: np.ndarray,
+        X_N_Oy: np.ndarray,
         return_type: str = "failure_probability",
     ) -> None:
         super().__init__()
         self.nerf_field = nerf_field
         self.classifier_model = classifier_model
         self.fingertip_config = fingertip_config
-        self.object_transform_world_frame = object_transform_world_frame
+        self.X_N_Oy = X_N_Oy
         self.ray_origins_finger_frame = grasp_utils.get_ray_origins_finger_frame(
             fingertip_config
         )
@@ -595,48 +595,31 @@ class GraspMetric(torch.nn.Module):
         self,
         grasp_config: AllegroGraspConfig,
     ) -> torch.Tensor:
-        # Let O be object frame (centroid of object)
-        # Let W be world frame (where the nerf is defined)
-        # For NeRFs trained from sim data, O and W are the same.
-        # But for real-world data, O and W are different (W is a point on the table, used as NeRF origin)
-        # When sampling from the NeRF, we must give ray samples in W frame
-        # But classifier is trained on O frame
-        # Thus, we must transform grasp_frame_transforms from O frame to W frame
+        # Let Oy be object yup frame (centroid of object)
+        # Let N be nerf frame (where the nerf is defined)
+        # For NeRFs trained from sim data, Oy and N are the same.
+        # But for real-world data, Oy and N are different (N is a point on the table, used as NeRF origin)
+        # When sampling from the NeRF, we must give ray samples in N frame
+        # But classifier is trained on Oy frame
+        # Thus, we must transform grasp_frame_transforms from Oy frame to N frame
         # Let Fi be the finger frame (origin at each fingertip i)
         # Let p_Fi be points in Fi frame
         # self.ray_origins_finger_frame = p_Fi
-        # grasp_frame_transforms = T_{O <- Fi}
-        # object_transform_world_frame = T_{W <- O}
+        # grasp_frame_transforms = T_{Oy <- Fi}
+        # X_N_Oy = T_{N <- Oy}
         # TODO: Batch this to avoid OOM (refer to Create_DexGraspNet_NeRF_Grasps_Dataset.py)
 
-        # HACK
-        # self.object_transform_world_frame = np.array(
-        #     [[1.0000, 0.0000, 0.0000, 0.0262],
-        #      [0.0000, 0.0000, -1.0000, -0.0067],
-        #         [0.0000, 1.0000, 0.0000, 0.1244],
-        #         [0.0000, 0.0000, 0.0000, 1.0000]
-        #     ]
-        # )
-# array([[ 1.00000000e+00,  0.00000000e+00,  0.00000000e+00,
-#          2.61625908e-02],
-#        [ 0.00000000e+00,  2.22044605e-16, -1.00000000e+00,
-#         -6.72090286e-03],
-#        [ 0.00000000e+00,  1.00000000e+00,  2.22044605e-16,
-#          1.24426708e-01],
-#        [ 0.00000000e+00,  0.00000000e+00,  0.00000000e+00,
-#          1.00000000e+00]])
-#         )
-
         # Prepare transforms
-        T_O_Fi = grasp_config.grasp_frame_transforms
-        assert T_O_Fi.lshape == (grasp_config.batch_size, grasp_config.num_fingers)
+        T_Oy_Fi = grasp_config.grasp_frame_transforms
+        assert T_Oy_Fi.lshape == (grasp_config.batch_size, grasp_config.num_fingers)
 
-        assert self.object_transform_world_frame.shape == (
+        assert self.X_N_Oy.shape == (
             4,
             4,
         )
-        object_transform_world_frame_repeated = (
-            torch.from_numpy(self.object_transform_world_frame).float()
+        X_N_Oy_repeated = (
+            torch.from_numpy(self.X_N_Oy)
+            .float()
             .unsqueeze(dim=0)
             .repeat_interleave(
                 grasp_config.batch_size * grasp_config.num_fingers, dim=0
@@ -644,18 +627,18 @@ class GraspMetric(torch.nn.Module):
             .reshape(grasp_config.batch_size, grasp_config.num_fingers, 4, 4)
         )
 
-        T_W_O = pp.from_matrix(
-            object_transform_world_frame_repeated,
+        T_N_Oy = pp.from_matrix(
+            X_N_Oy_repeated,
             pp.SE3_type,
-        ).to(T_O_Fi.device)
+        ).to(T_Oy_Fi.device)
 
-        # Transform grasp_frame_transforms to world frame
-        T_W_Fi = T_W_O @ T_O_Fi
+        # Transform grasp_frame_transforms to nerf frame
+        T_N_Fi = T_N_Oy @ T_Oy_Fi
 
         # Generate RaySamples.
         ray_samples = grasp_utils.get_ray_samples(
             self.ray_origins_finger_frame,
-            T_W_Fi,
+            T_N_Fi,
             self.fingertip_config,
         )
 
@@ -702,11 +685,11 @@ class GraspMetric(torch.nn.Module):
         grasp_metric_config: GraspMetricConfig,
         console: Optional[Console] = None,
     ) -> GraspMetric:
-        assert grasp_metric_config.object_transform_world_frame is not None
+        assert grasp_metric_config.X_N_Oy is not None
         return cls.from_configs(
             nerf_config=grasp_metric_config.nerf_checkpoint_path,
             classifier_config=grasp_metric_config.classifier_config,
-            object_transform_world_frame=grasp_metric_config.object_transform_world_frame,
+            X_N_Oy=grasp_metric_config.X_N_Oy,
             classifier_checkpoint=grasp_metric_config.classifier_checkpoint,
             console=console,
         )
@@ -716,7 +699,7 @@ class GraspMetric(torch.nn.Module):
         cls,
         nerf_config: pathlib.Path,
         classifier_config: ClassifierConfig,
-        object_transform_world_frame: np.ndarray,
+        X_N_Oy: np.ndarray,
         classifier_checkpoint: int = -1,
         console: Optional[Console] = None,
     ) -> GraspMetric:
@@ -804,7 +787,7 @@ class GraspMetric(torch.nn.Module):
             nerf_field,
             classifier,
             classifier_config.nerfdata_config.fingertip_config,
-            object_transform_world_frame,
+            X_N_Oy,
         )
 
 
@@ -820,7 +803,7 @@ class DepthImageGraspMetric(torch.nn.Module):
         classifier_model: DepthImageClassifier,
         fingertip_config: UnionFingertipConfig,
         camera_config: CameraConfig,
-        object_transform_world_frame: np.ndarray,
+        X_N_Oy: np.ndarray,
         return_type: str = "failure_probability",
     ) -> None:
         super().__init__()
@@ -828,18 +811,18 @@ class DepthImageGraspMetric(torch.nn.Module):
         self.classifier_model = classifier_model
         self.fingertip_config = fingertip_config
         self.camera_config = camera_config
-        self.object_transform_world_frame = object_transform_world_frame
+        self.X_N_Oy = X_N_Oy
         self.return_type = return_type
 
     def forward(
         self,
         grasp_config: AllegroGraspConfig,
     ) -> torch.Tensor:
-        # TODO: Use object_transform_world_frame to transform grasp_frame_transforms to world frame.
+        # TODO: Use X_N_Oy to transform grasp_frame_transforms to nerf frame.
         # TODO: Batch this to avoid OOM (refer to Create_DexGraspNet_NeRF_Grasps_Dataset.py)
-        if not np.allclose(self.object_transform_world_frame, np.eye(4)):
+        if not np.allclose(self.X_N_Oy, np.eye(4)):
             raise NotImplementedError(
-                "Transforming grasp_frame_transforms to world frame is not implemented yet"
+                "Transforming grasp_frame_transforms to nerf frame is not implemented yet"
             )
 
         cameras = get_cameras(
@@ -902,11 +885,11 @@ class DepthImageGraspMetric(torch.nn.Module):
         grasp_metric_config: GraspMetricConfig,
         console: Optional[Console] = None,
     ) -> DepthImageGraspMetric:
-        assert grasp_metric_config.object_transform_world_frame is not None
+        assert grasp_metric_config.X_N_Oy is not None
         return cls.from_configs(
             nerf_config=grasp_metric_config.nerf_checkpoint_path,
             classifier_config=grasp_metric_config.classifier_config,
-            object_transform_world_frame=grasp_metric_config.object_transform_world_frame,
+            X_N_Oy=grasp_metric_config.X_N_Oy,
             classifier_checkpoint=grasp_metric_config.classifier_checkpoint,
             console=console,
         )
@@ -916,7 +899,7 @@ class DepthImageGraspMetric(torch.nn.Module):
         cls,
         nerf_config: pathlib.Path,
         classifier_config: ClassifierConfig,
-        object_transform_world_frame: np.ndarray,
+        X_N_Oy: np.ndarray,
         classifier_checkpoint: int = -1,
         console: Optional[Console] = None,
     ) -> DepthImageGraspMetric:
@@ -1005,7 +988,7 @@ class DepthImageGraspMetric(torch.nn.Module):
             classifier,
             classifier_config.nerfdata_config.fingertip_config,
             classifier_config.nerfdata_config.fingertip_camera_config,
-            object_transform_world_frame,
+            X_N_Oy,
         )
 
 
@@ -1049,11 +1032,10 @@ def batch_cov(x: torch.Tensor, dim: int = 0, keepdim=False):
 
 def get_sorted_grasps_from_file(
     optimized_grasp_config_dict_filepath: pathlib.Path,
-    object_transform_world_frame: Optional[np.ndarray] = None,
     error_if_no_loss: bool = True,
     check: bool = True,
     print_best: bool = True,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     This function processes optimized grasping configurations in preparation for hardware tests.
 
@@ -1061,25 +1043,22 @@ def get_sorted_grasps_from_file(
 
     Parameters:
     optimized_grasp_config_dict_filepath (pathlib.Path): The file path to the optimized grasp .npy file. This file should contain wrist poses, joint angles, grasp orientations, and loss from grasp metric.
-    object_transform_world_frame (np.ndarray): Transformation matrix representing the object's pose in world frame. Defaults to None.
     error_if_no_loss (bool): Whether to raise an error if the loss is not found in the grasp config dict. Defaults to True.
     check (bool): Whether to check the validity of the grasp configurations (sometimes sensitive or off manifold from optimization?). Defaults to True.
     print_best (bool): Whether to print the best grasp configurations. Defaults to True.
 
     Returns:
-    Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    - A batch of wrist translations in a numpy array of shape (B, 3), representing position in world frame
-    - A batch of wrist rotations in a numpy array of shape (B, 3, 3), representing orientation in world frame (avoid quat to be less ambiguous about order)
+    Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    - A batch of wrist transformations of object yup frame wrt nerf frame in a numpy array of shape (B, 4, 4), representing pose in nerf frame (avoid quat to be less ambiguous about order)
     - A batch of joint angles in a numpy array of shape (B, 16)
     - A batch of target joint angles in a numpy array of shape (B, 16)
 
     Example:
-    >>> wrist_trans, wrist_rot, joint_angles, target_joint_angles = get_sorted_grasps_from_file(pathlib.Path("path/to/optimized_grasp_config.npy"))
-    >>> B = wrist_trans.shape[0]
-    >>> assert wrist_trans.shape == (B, 3)
-    >>> assert wrist_rot.shape == (B, 3, 3)
-    >>> assert joint_angles.shape == (B, 16)
-    >>> assert target_joint_angles.shape == (B, 16)
+    >>> X_Oy_H_array, joint_angles_array, target_joint_angles_array = get_sorted_grasps_from_file(pathlib.Path("path/to/optimized_grasp_config.npy"))
+    >>> B = X_Oy_H_array.shape[0]
+    >>> assert X_Oy_H_array.shape == (B, 4, 4)
+    >>> assert joint_angles_array.shape == (B, 16)
+    >>> assert target_joint_angles_array.shape == (B, 16)
     """
     # Read in
     grasp_config_dict = np.load(
@@ -1087,7 +1066,6 @@ def get_sorted_grasps_from_file(
     ).item()
     return get_sorted_grasps_from_dict(
         grasp_config_dict,
-        object_transform_world_frame=object_transform_world_frame,
         error_if_no_loss=error_if_no_loss,
         check=check,
         print_best=print_best,
@@ -1096,11 +1074,10 @@ def get_sorted_grasps_from_file(
 
 def get_sorted_grasps_from_dict(
     optimized_grasp_config_dict: Dict[str, np.ndarray],
-    object_transform_world_frame: Optional[np.ndarray] = None,
     error_if_no_loss: bool = True,
     check: bool = True,
     print_best: bool = True,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     grasp_configs = AllegroGraspConfig.from_grasp_config_dict(
         optimized_grasp_config_dict, check=check
     )
@@ -1143,36 +1120,29 @@ def get_sorted_grasps_from_dict(
         print(f"Best grasp configs: {sorted_grasp_configs[:BEST_K]}")
         print(f"Best grasp losses: {sorted_losses[:BEST_K]}")
 
-    wrist_trans = sorted_grasp_configs.wrist_pose.translation().detach().cpu().numpy()
-    wrist_rot = (
+    wrist_trans_array = (
+        sorted_grasp_configs.wrist_pose.translation().detach().cpu().numpy()
+    )
+    wrist_rot_array = (
         sorted_grasp_configs.wrist_pose.rotation().matrix().detach().cpu().numpy()
     )
-    joint_angles = sorted_grasp_configs.joint_angles.detach().cpu().numpy()
-    target_joint_angles = (
+    joint_angles_array = sorted_grasp_configs.joint_angles.detach().cpu().numpy()
+    target_joint_angles_array = (
         sorted_grasp_configs.target_joint_angles.detach().cpu().numpy()
     )
 
-    assert wrist_trans.shape == (B, 3)
-    assert wrist_rot.shape == (B, 3, 3)
-    assert joint_angles.shape == (B, 16)
-    assert target_joint_angles.shape == (B, 16)
+    assert wrist_trans_array.shape == (B, 3)
+    assert wrist_rot_array.shape == (B, 3, 3)
+    assert joint_angles_array.shape == (B, 16)
+    assert target_joint_angles_array.shape == (B, 16)
 
-    if object_transform_world_frame is not None:
-        # wrist_trans, wrist_rot is initially in object frame
-        N = wrist_trans.shape[0]
-        assert object_transform_world_frame.shape == (4, 4)
-        wrist_transform_object_frame = np.repeat(np.eye(4)[None, ...], N, axis=0)
+    # Put into transforms X_Oy_H_array
+    X_Oy_H_array = np.repeat(np.eye(4)[None, ...], B, axis=0)
+    assert X_Oy_H_array.shape == (B, 4, 4)
+    X_Oy_H_array[:, :3, :3] = wrist_rot_array
+    X_Oy_H_array[:, :3, 3] = wrist_trans_array
 
-        wrist_transform_object_frame[:, :3, 3] = wrist_trans
-        wrist_transform_object_frame[:, :3, :3] = wrist_rot
-
-        wrist_transform_world_frame = (
-            object_transform_world_frame @ wrist_transform_object_frame
-        )
-        wrist_trans = wrist_transform_world_frame[:, :3, 3]
-        wrist_rot = wrist_transform_world_frame[:, :3, :3]
-
-    return wrist_trans, wrist_rot, joint_angles, target_joint_angles
+    return X_Oy_H_array, joint_angles_array, target_joint_angles_array
 
 
 def main() -> None:

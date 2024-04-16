@@ -93,7 +93,7 @@ def rough_hardware_deployment_code(args: Args) -> None:
     nerfdata_folder = pathlib.Path(f"{args.experiment_name}/nerfdata")
     if not nerfdata_folder.exists():
         nerfdata_folder.mkdir(parents=True)
-        ALBERT_run_hardware_nerf_data_collection(nerfdata_folder)
+        ALBERT_run_hardware_nerf_data_collection(nerfdata_folder, args.object_name)
         assert nerfdata_folder.exists(), f"{nerfdata_folder} does not exist"
     else:
         print(f"{nerfdata_folder} already exists, skipping data collection")

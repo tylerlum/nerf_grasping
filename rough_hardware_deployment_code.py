@@ -1,23 +1,26 @@
 from nerf_grasping.optimizer import get_optimized_grasps
-from nerf_grasping.optimizer_utils import get_sorted_grasps_from_dict
+from nerf_grasping.optimizer_utils import (
+    get_sorted_grasps_from_dict,
+    GraspMetric,
+    DepthImageGraspMetric,
+    load_classifier,
+    load_depth_image_classifier,
+)
+from nerf_grasping.config.nerfdata_config import DepthImageNerfDataConfig
 from nerf_grasping.config.optimization_config import OptimizationConfig
 from nerf_grasping.config.optimizer_config import SGDOptimizerConfig
 from nerf_grasping.config.grasp_metric_config import GraspMetricConfig
-from nerf_grasping.nerfstudio_train import train_nerfs
+from nerf_grasping.nerfstudio_train import train_nerfs_return_trainer
 from nerf_grasping.baselines.nerf_to_mesh import nerf_to_mesh
 from nerf_grasping.nerf_utils import (
     compute_centroid_from_nerf,
 )
+from nerf_grasping.config.classifier_config import ClassifierConfig
 import trimesh
-import nerf_grasping
 import pathlib
 import tyro
 import numpy as np
 from dataclasses import dataclass
-from nerf_grasping.grasp_utils import (
-    get_nerf_configs,
-    load_nerf_pipeline,
-)
 
 
 @dataclass
@@ -90,33 +93,30 @@ def rough_hardware_deployment_code(args: Args) -> None:
     print("\n" + "=" * 80)
     print("Step 1: Collect NERF data")
     print("=" * 80 + "\n")
-    nerfdata_folder = pathlib.Path(f"{args.experiment_name}/nerfdata")
-    if not nerfdata_folder.exists():
-        nerfdata_folder.mkdir(parents=True)
-        ALBERT_run_hardware_nerf_data_collection(nerfdata_folder, args.object_name)
-        assert nerfdata_folder.exists(), f"{nerfdata_folder} does not exist"
+    object_nerfdata_folder = experiment_folder / "nerfdata" / args.object_name
+    if not object_nerfdata_folder.exists():
+        object_nerfdata_folder.mkdir(parents=True)
+        ALBERT_run_hardware_nerf_data_collection(object_nerfdata_folder)
+        assert (
+            object_nerfdata_folder.exists()
+        ), f"{object_nerfdata_folder} does not exist"
     else:
-        print(f"{nerfdata_folder} already exists, skipping data collection")
+        print(f"{object_nerfdata_folder} already exists, skipping data collection")
 
     print("\n" + "=" * 80)
     print("Step 2: Train NERF")
     print("=" * 80 + "\n")
-    nerf_checkpoint_path = train_nerfs.train_nerfs(
-        train_nerfs.Args(
-            experiment_name=args.experiment_name,
-            nerf_grasping_data_path=args.experiments_folder,
-            is_real_world=args.is_real_world,
+    nerf_trainer = train_nerfs_return_trainer.train_nerf(
+        args=train_nerfs_return_trainer.Args(
+            nerfdata_folder=object_nerfdata_folder,
+            nerfcheckpoints_folder=experiment_folder / "nerfcheckpoints",
+            is_real_world=False,
         )
     )
-    assert nerf_checkpoint_path.exists(), f"{nerf_checkpoint_path} does not exist"
-
-    print("\n" + "=" * 80)
-    print("Step 3: Load NERF")
-    print("=" * 80 + "\n")
-    nerf_configs = get_nerf_configs(str(nerf_checkpoint_path))
-    assert len(nerf_configs) == 1, f"len(nerf_configs) is {len(nerf_configs)}, not 1"
-    nerf_config = nerf_configs[0]
-    nerf_pipeline = load_nerf_pipeline(nerf_config)
+    nerf_model = nerf_trainer.pipeline.model
+    nerf_field = nerf_model.field
+    nerf_config = nerf_trainer.config.get_base_dir() / "config.yml"
+    assert nerf_config.exists(), f"{nerf_config} does not exist"
 
     print("\n" + "=" * 80)
     print("Step 3: Convert NeRF to mesh")
@@ -124,7 +124,7 @@ def rough_hardware_deployment_code(args: Args) -> None:
     nerf_to_mesh_folder = experiment_folder / "nerf_to_mesh"
     nerf_to_mesh_folder.mkdir(parents=True, exist_ok=True)
     mesh = nerf_to_mesh(
-        field=nerf_pipeline.model.field,
+        field=nerf_field,
         level=args.density_levelset_threshold,
         lb=lb_N,
         ub=ub_N,
@@ -138,7 +138,7 @@ def rough_hardware_deployment_code(args: Args) -> None:
     USE_MESH = False
     mesh_centroid = mesh.centroid
     nerf_centroid = compute_centroid_from_nerf(
-        nerf_pipeline.model.field,
+        nerf_field,
         lb=lb_N,
         ub=ub_N,
         level=args.density_levelset_threshold,
@@ -159,15 +159,41 @@ def rough_hardware_deployment_code(args: Args) -> None:
     print("\n" + "=" * 80)
     print("Step 5: Load grasp metric and init grasps, optimize")
     print("=" * 80 + "\n")
+    print(f"Loading classifier config from {args.classifier_config_path}")
+    classifier_config = tyro.extras.from_yaml(
+        ClassifierConfig, args.classifier_config_path.open()
+    )
+
+    USE_DEPTH_IMAGES = isinstance(
+        classifier_config.nerfdata_config, DepthImageNerfDataConfig
+    )
+    if USE_DEPTH_IMAGES:
+        classifier_model = load_depth_image_classifier(classifier=classifier_config)
+        grasp_metric = DepthImageGraspMetric(
+            nerf_model=nerf_model,
+            classifier_model=classifier_model,
+            fingertip_config=classifier_config.nerfdata_config.fingertip_config,
+            camera_config=classifier_config.nerfdata_config.fingertip_camera_config,
+            X_N_Oy=X_N_Oy,
+        )
+    else:
+        classifier_model = load_classifier(classifier_config=classifier_config)
+        grasp_metric = GraspMetric(
+            nerf_field=nerf_field,
+            classifier_model=classifier_model,
+            fingertip_config=classifier_config.nerfdata_config.fingertip_config,
+            X_N_Oy=X_N_Oy,
+        )
+
     optimized_grasp_config_dict = get_optimized_grasps(
-        OptimizationConfig(
+        cfg=OptimizationConfig(
             use_rich=True,
             init_grasp_config_dict_path=args.init_grasp_config_dict_path,
             grasp_metric=GraspMetricConfig(
                 nerf_checkpoint_path=nerf_config,
                 classifier_config_path=args.classifier_config_path,
                 X_N_Oy=X_N_Oy,
-            ),
+            ),  # This is not used because we are passing in a grasp_metric
             optimizer=SGDOptimizerConfig(
                 num_grasps=32,
                 num_steps=0,
@@ -180,7 +206,8 @@ def rough_hardware_deployment_code(args: Args) -> None:
                 / "optimized_grasp_config_dicts"
                 / f"{args.object_name}.npy"
             ),
-        )
+        ),
+        grasp_metric=grasp_metric,
     )
 
     print("\n" + "=" * 80)

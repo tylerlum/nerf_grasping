@@ -595,6 +595,43 @@ class GraspMetric(torch.nn.Module):
         self,
         grasp_config: AllegroGraspConfig,
     ) -> torch.Tensor:
+        ray_samples = self.compute_ray_samples(grasp_config)
+
+        # Query NeRF at RaySamples.
+        densities = self.compute_nerf_densities(
+            ray_samples,
+        )
+
+        assert densities.shape == (
+            grasp_config.batch_size,
+            4,
+            self.fingertip_config.num_pts_x,
+            self.fingertip_config.num_pts_y,
+            self.fingertip_config.num_pts_z,
+        )
+
+        # HACK: NOT SURE HOW TO FILL THIS
+        # raise NotImplementedError("Need to implement this object scale")
+        batch_data_input = BatchDataInput(
+            nerf_densities=densities,
+            grasp_transforms=grasp_config.grasp_frame_transforms,
+            fingertip_config=self.fingertip_config,
+            grasp_configs=grasp_config.as_tensor(),
+            object_y_wrt_table=None,  # ? NEED TO PASS THIS IN?
+        ).to(grasp_config.hand_config.wrist_pose.device)
+
+        # Pass grasp transforms, densities into classifier.
+        if self.return_type == "failure_probability":
+            return self.classifier_model.get_failure_probability(batch_data_input)
+        elif self.return_type == "failure_logits":
+            return self.classifier_model(batch_data_input)[:, -1]
+        else:
+            raise ValueError(f"return_type {self.return_type} not recognized")
+
+    def compute_ray_samples(
+        self,
+        grasp_config: AllegroGraspConfig,
+    ) -> torch.Tensor:
         # Let Oy be object yup frame (centroid of object)
         # Let N be nerf frame (where the nerf is defined)
         # For NeRFs trained from sim data, Oy and N are the same.
@@ -641,37 +678,17 @@ class GraspMetric(torch.nn.Module):
             T_N_Fi,
             self.fingertip_config,
         )
+        return ray_samples
 
+    def compute_nerf_densities(
+        self,
+        ray_samples,
+    ) -> torch.Tensor:
         # Query NeRF at RaySamples.
         densities = self.nerf_field.get_density(ray_samples.to("cuda"))[0][
             ..., 0
         ]  # Shape [B, 4, n_x, n_y, n_z]
-
-        assert densities.shape == (
-            grasp_config.batch_size,
-            4,
-            self.fingertip_config.num_pts_x,
-            self.fingertip_config.num_pts_y,
-            self.fingertip_config.num_pts_z,
-        )
-
-        # HACK: NOT SURE HOW TO FILL THIS
-        # raise NotImplementedError("Need to implement this object scale")
-        batch_data_input = BatchDataInput(
-            nerf_densities=densities,
-            grasp_transforms=grasp_config.grasp_frame_transforms,
-            fingertip_config=self.fingertip_config,
-            grasp_configs=grasp_config.as_tensor(),
-            object_y_wrt_table=None,  # ? NEED TO PASS THIS IN?
-        ).to(grasp_config.hand_config.wrist_pose.device)
-
-        # Pass grasp transforms, densities into classifier.
-        if self.return_type == "failure_probability":
-            return self.classifier_model.get_failure_probability(batch_data_input)
-        elif self.return_type == "failure_logits":
-            return self.classifier_model(batch_data_input)[:, -1]
-        else:
-            raise ValueError(f"return_type {self.return_type} not recognized")
+        return densities
 
     def get_failure_probability(
         self,

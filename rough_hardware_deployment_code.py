@@ -78,13 +78,11 @@ def rough_hardware_deployment_code(args: Args) -> None:
             np.pi / 2, [1, 0, 0]
         )  # TODO: Check this
         lb_N = np.array([-0.25, -0.25, 0.0])
-        ub_N = np.array([0.25, 0.25, 0.3])
+        ub_N = np.array([0.25, 0.25, 0.5])
     else:
-        X_O_Oy = trimesh.transformations.rotation_matrix(
-            0, [1, 0, 0]
-        )  # TODO: Check this
-        lb_N = np.array([-0.25, 0.0, -0.25])
-        ub_N = np.array([0.25, 0.3, 0.25])
+        X_O_Oy = np.eye(4)
+        lb_N = np.array([-0.25, -0.25, -0.25])
+        ub_N = np.array([0.25, 0.25, 0.25])
 
     experiment_folder = args.experiments_folder / args.experiment_name
     print(f"Creating a new experiment folder at {experiment_folder}")
@@ -110,7 +108,7 @@ def rough_hardware_deployment_code(args: Args) -> None:
         args=train_nerfs_return_trainer.Args(
             nerfdata_folder=object_nerfdata_folder,
             nerfcheckpoints_folder=experiment_folder / "nerfcheckpoints",
-            is_real_world=False,
+            is_real_world=args.is_real_world,
         )
     )
     nerf_model = nerf_trainer.pipeline.model

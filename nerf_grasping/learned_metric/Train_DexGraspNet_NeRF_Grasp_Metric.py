@@ -28,6 +28,7 @@ import nerf_grasping
 from dataclasses import asdict
 from torchinfo import summary
 from torchviz import make_dot
+import matplotlib.pyplot as plt
 from nerf_grasping.learned_metric.DexGraspNet_batch_data import (
     BatchData,
     BatchDataInput,
@@ -503,6 +504,7 @@ def custom_collate_fn(
         grasp_transforms,
         nerf_configs,
         grasp_configs,
+        object_y_wrt_table,
     ) = batch
 
     if debug_shuffle_labels:
@@ -532,6 +534,7 @@ def custom_collate_fn(
             fingertip_config=fingertip_config,
             nerf_density_threshold_value=nerf_density_threshold_value,
             grasp_configs=grasp_configs,
+            object_y_wrt_table=object_y_wrt_table,
         ),
         output=BatchDataOutput(
             passed_simulation=passed_simulation,
@@ -559,6 +562,7 @@ def depth_image_custom_collate_fn(
         grasp_transforms,
         nerf_configs,
         grasp_configs,
+        _,
     ) = batch
 
     if debug_shuffle_labels:
@@ -669,6 +673,7 @@ def print_shapes(batch_data: BatchData) -> None:
         print(
             f"nerf_alphas_with_coords.shape = {batch_data.input.nerf_alphas_with_coords.shape}"
         )
+        print(f"nerf_alphas_with_coords_v2.shape = {batch_data.input.nerf_alphas_with_coords_v2.shape}")
     elif isinstance(batch_data.input, DepthImageBatchDataInput):
         print(
             f"depth_uncertainty_images.shape: {batch_data.input.depth_uncertainty_images.shape}"
@@ -1231,6 +1236,12 @@ def _iterate_through_dataloader(
                         batch_data.output.passed_simulation,
                         batch_data.output.passed_penetration_threshold,
                     ]
+                elif task_type == TaskType.PASSED_SIMULATION_AND_PENETRATION_THRESHOLD_AND_EVAL:
+                    task_targets = [
+                        batch_data.output.passed_simulation,
+                        batch_data.output.passed_penetration_threshold,
+                        batch_data.output.passed_eval,
+                    ]
                 else:
                     raise ValueError(f"Unknown task_type: {task_type}")
 
@@ -1331,7 +1342,7 @@ def _iterate_through_dataloader(
                         )
                     wandb.log(mid_epoch_log_dict)
 
-                loop_timer.pretty_print_section_times()
+                # loop_timer.pretty_print_section_times()
 
             # Set description
             if len(losses_dict["loss"]) > 0:
@@ -1382,6 +1393,44 @@ def _create_wandb_scatter_plot(
         title=title,
     )
 
+@localscope.mfc
+def _create_wandb_histogram_plot(
+    ground_truths: List[float],
+    predictions: List[float],
+    title: str,
+    match_ylims: bool = False,
+) -> wandb.Image:
+    unique_labels = np.unique(ground_truths)
+    fig, axes = plt.subplots(len(unique_labels), 1, figsize=(10, 10))
+    axes = axes.flatten()
+
+    # Get predictions per label
+    unique_labels_to_preds = {}
+    for i, unique_label in enumerate(unique_labels):
+        preds = np.array(predictions)
+        idxs = np.array(ground_truths) == unique_label
+        unique_labels_to_preds[unique_label] = preds[idxs]
+
+    # Plot histogram per label
+    for i, (unique_label, preds) in enumerate(
+        sorted(unique_labels_to_preds.items())
+    ):
+        axes[i].hist(preds, bins=50, alpha=0.7, color="blue")
+        axes[i].set_title(f"Ground Truth: {unique_label}")
+        axes[i].set_xlim(0, 1)
+        axes[i].set_xlabel("Prediction")
+        axes[i].set_ylabel("Count")
+
+    # Matching ylims
+    if match_ylims:
+        max_y_val = max(ax.get_ylim()[1] for ax in axes)
+        for i in range(len(axes)):
+            axes[i].set_ylim(0, max_y_val)
+
+    fig.suptitle(title)
+    fig.tight_layout()
+    return wandb.Image(fig)
+
 
 @localscope.mfc
 def create_log_dict(
@@ -1393,6 +1442,9 @@ def create_log_dict(
     ground_truths_dict: Dict[str, List[float]],
     optimizer: Optional[torch.optim.Optimizer] = None,
 ) -> Dict[str, Any]:
+    assert_equals(set(predictions_dict.keys()), set(ground_truths_dict.keys()))
+    assert_equals(set(predictions_dict.keys()), set(task_type.task_names))
+
     temp_log_dict = {}  # Make code cleaner by excluding phase name until the end
     if optimizer is not None:
         temp_log_dict["lr"] = optimizer.param_groups[0]["lr"]
@@ -1408,8 +1460,6 @@ def create_log_dict(
 
     with loop_timer.add_section_timer("Scatter"):
         # Make scatter plot of predicted vs ground truth
-        assert_equals(set(predictions_dict.keys()), set(ground_truths_dict.keys()))
-        assert_equals(set(predictions_dict.keys()), set(task_type.task_names))
         for task_name in task_type.task_names:
             predictions = predictions_dict[task_name]
             ground_truths = ground_truths_dict[task_name]
@@ -1419,9 +1469,16 @@ def create_log_dict(
                 title=f"{phase.name.title()} {task_name} Scatter Plot",
             )
 
+    with loop_timer.add_section_timer("Histogram"):
+        # For each task, make multiple histograms of prediction (one per label)
+        for task_name in task_type.task_names:
+            temp_log_dict[f"{task_name}_histogram"] = _create_wandb_histogram_plot(
+                ground_truths=ground_truths_dict[task_name],
+                predictions=predictions_dict[task_name],
+                title=f"{phase.name.title()} {task_name} Histogram",
+            )
+
     with loop_timer.add_section_timer("Metrics"):
-        assert_equals(set(predictions_dict.keys()), set(ground_truths_dict.keys()))
-        assert_equals(set(predictions_dict.keys()), set(task_type.task_names))
         for task_name in task_type.task_names:
             predictions = (
                 np.array(predictions_dict[task_name]).round().astype(int).tolist()
@@ -1440,8 +1497,6 @@ def create_log_dict(
                 )
 
     with loop_timer.add_section_timer("Confusion Matrix"):
-        assert_equals(set(predictions_dict.keys()), set(ground_truths_dict.keys()))
-        assert_equals(set(predictions_dict.keys()), set(task_type.task_names))
         for task_name in task_type.task_names:
             predictions = (
                 np.array(predictions_dict[task_name]).round().astype(int).tolist()
@@ -1630,7 +1685,7 @@ def get_class_from_success_rate(
 
 
 @localscope.mfc
-def _compute_class_weight(
+def _compute_class_weights_success_rates(
     success_rates: np.ndarray, unique_classes: np.ndarray
 ) -> np.ndarray:
     classes = np.arange(len(unique_classes))
@@ -1681,16 +1736,29 @@ def compute_class_weight_np(
     unique_passed_eval = get_unique_classes(passed_eval_np)
 
     # argmax required to make binary classes
-    passed_simulation_class_weight_np = _compute_class_weight(
-        success_rates=passed_simulations_np, unique_classes=unique_passed_simulations
-    )
-    passed_penetration_threshold_class_weight_np = _compute_class_weight(
-        success_rates=passed_penetration_threshold_np,
-        unique_classes=unique_passed_penetration_threshold,
-    )
-    passed_eval_class_weight_np = _compute_class_weight(
-        success_rates=passed_eval_np, unique_classes=unique_passed_eval
-    )
+    # passed_simulation_class_weight_np = _compute_class_weights_success_rates(
+    #     success_rates=passed_simulations_np, unique_classes=unique_passed_simulations
+    # )
+    # passed_penetration_threshold_class_weight_np = _compute_class_weights_success_rates(
+    #     success_rates=passed_penetration_threshold_np,
+    #     unique_classes=unique_passed_penetration_threshold,
+    # )
+    # passed_eval_class_weight_np = _compute_class_weights_success_rates(
+    #     success_rates=passed_eval_np, unique_classes=unique_passed_eval
+    # )
+
+    # With soft labels, the counts of labels are a bit weird
+    # Instead, let's say num of label 0 is sum(1 - label)
+    # and num of label 1 is sum(label)
+    # This would be same as count if we had hard labels
+    # class_weight = n_samples / (n_classes * np.bincount(y)) https://scikit-learn.org/stable/modules/generated/sklearn.utils.class_weight.compute_class_weight.html
+    assert passed_simulations_np.ndim == passed_penetration_threshold_np.ndim == passed_eval_np.ndim == 1
+    passed_simulation_class_weight_np = np.array([passed_simulations_np.shape[0] / (2 * (1 - passed_simulations_np).sum()),
+                                                  passed_simulations_np.shape[0] / (2 * passed_simulations_np.sum())])
+    passed_penetration_threshold_class_weight_np = np.array([passed_penetration_threshold_np.shape[0] / (2 * (1 - passed_penetration_threshold_np).sum()),
+                                                                passed_penetration_threshold_np.shape[0] / (2 * passed_penetration_threshold_np.sum())])
+    passed_eval_class_weight_np = np.array([passed_eval_np.shape[0] / (2 * (1 - passed_eval_np).sum()),
+                                            passed_eval_np.shape[0] / (2 * passed_eval_np.sum())])
     t6 = time.time()
     print(f"Computed class weight in {t6 - t5:.2f} s")
 
@@ -1953,6 +2021,12 @@ elif cfg.task_type == TaskType.PASSED_SIMULATION_AND_PENETRATION_THRESHOLD:
     loss_fns = [
         passed_simulation_loss_fn,
         passed_penetration_threshold_loss_fn,
+    ]
+elif cfg.task_type == TaskType.PASSED_SIMULATION_AND_PENETRATION_THRESHOLD_AND_EVAL:
+    loss_fns = [
+        passed_simulation_loss_fn,
+        passed_penetration_threshold_loss_fn,
+        passed_eval_loss_fn,
     ]
 else:
     raise ValueError(f"Unknown task_type: {cfg.task_type}")

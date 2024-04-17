@@ -7,7 +7,6 @@ from nerf_grasping.optimizer_utils import (
 from dataclasses import asdict
 from nerf_grasping.config.optimization_config import OptimizationConfig
 import pathlib
-import grasp_utils
 import torch
 from nerf_grasping.classifier import Classifier, Simple_CNN_LSTM_Classifier
 from nerf_grasping.config.classifier_config import ClassifierConfig
@@ -271,6 +270,8 @@ def run_optimizer_loop(
     optimizer_config: Union[SGDOptimizerConfig, CEMOptimizerConfig],
     print_freq: int,
     save_grasps_freq: int,
+    output_path: pathlib.Path,
+    use_rich: bool = False,
     console=Console(),
 ) -> Tuple[torch.Tensor, AllegroGraspConfig]:
     """
@@ -286,7 +287,7 @@ def run_optimizer_loop(
             TimeElapsedColumn(),
             console=console,
         )
-        if cfg.use_rich
+        if use_rich
         else nullcontext()
     ) as progress:
         task_id = (
@@ -339,7 +340,7 @@ def run_optimizer_loop(
 
                 # To interface with mid optimization visualizer, need to create new folder (mid_optimization_folder_path)
                 # that has folders with iteration number
-                # TODO: Decide if this should just store in cfg.output_path.parent (does this cause issues?) or store in new folder
+                # TODO: Decide if this should just store in output_path.parent (does this cause issues?) or store in new folder
                 # <mid_optimization_folder_path>
                 #    - 0
                 #        - <object_code_and_scale_str>.py
@@ -350,8 +351,8 @@ def run_optimizer_loop(
                 #    - 3x
                 #        - <object_code_and_scale_str>.py
                 main_output_folder_path, filename = (
-                    cfg.output_path.parent,
-                    cfg.output_path.name,
+                    output_path.parent,
+                    output_path.name,
                 )
                 mid_optimization_folder_path = (
                     main_output_folder_path / "mid_optimization"
@@ -373,7 +374,10 @@ def run_optimizer_loop(
     )
 
 
-def get_optimized_grasps(cfg: OptimizationConfig) -> Dict[str, np.ndarray]:
+def get_optimized_grasps(
+    cfg: OptimizationConfig,
+    grasp_metric: Union[GraspMetric, DepthImageGraspMetric] = None,
+) -> Dict[str, np.ndarray]:
     print("=" * 80)
     print(f"Config:\n{tyro.extras.to_yaml(cfg)}")
     print("=" * 80 + "\n")
@@ -412,29 +416,66 @@ def get_optimized_grasps(cfg: OptimizationConfig) -> Dict[str, np.ndarray]:
             cfg.init_grasp_config_dict_path, allow_pickle=True
         ).item()
 
+        # HACK: For now, just take every 400th grasp.
+        # for key in init_grasp_config_dict.keys():
+        #     init_grasp_config_dict[key] = init_grasp_config_dict[key][::400]
+
         init_grasp_configs = AllegroGraspConfig.from_grasp_config_dict(
             init_grasp_config_dict
         )
 
-        init_grasp_configs = init_grasp_configs[: cfg.optimizer.num_grasps]
+        # HACK: For now, just take the first num_grasps.
+        # init_grasp_configs = init_grasp_configs[: cfg.optimizer.num_grasps]
 
         if progress is not None and task is not None:
             progress.update(task, advance=1)
 
     # Create grasp metric
-    USE_DEPTH_IMAGES = isinstance(
-        cfg.grasp_metric.classifier_config.nerfdata_config, DepthImageNerfDataConfig
-    )
-    if USE_DEPTH_IMAGES:
-        grasp_metric = DepthImageGraspMetric.from_config(
-            cfg.grasp_metric,
-            console=console,
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if grasp_metric is None:
+        print(f"Loading classifier config from {cfg.grasp_metric.classifier_config_path}")
+        USE_DEPTH_IMAGES = isinstance(
+            cfg.grasp_metric.classifier_config.nerfdata_config, DepthImageNerfDataConfig
         )
+        if USE_DEPTH_IMAGES:
+            grasp_metric = DepthImageGraspMetric.from_config(
+                cfg.grasp_metric,
+                console=console,
+            )
+        else:
+            grasp_metric = GraspMetric.from_config(
+                cfg.grasp_metric,
+                console=console,
+            )
     else:
-        grasp_metric = GraspMetric.from_config(
-            cfg.grasp_metric,
-            console=console,
-        )
+        print("Using provided grasp metric.")
+    grasp_metric = grasp_metric.to(device=device)
+
+    GET_BEST_GRASPS = True
+    if GET_BEST_GRASPS:
+        BATCH_SIZE = 64
+        n_batches = init_grasp_configs.batch_size // BATCH_SIZE
+        all_preds = []
+        with torch.no_grad():
+            for batch_i in tqdm(range(n_batches)):
+                preds = grasp_metric.get_failure_probability(
+                    init_grasp_configs[
+                        batch_i * BATCH_SIZE : (batch_i + 1) * BATCH_SIZE
+                    ].to(device=device)
+                )
+                all_preds.append(1 - preds.detach().cpu().numpy())
+            if n_batches * BATCH_SIZE < init_grasp_configs.batch_size:
+                preds = grasp_metric.get_failure_probability(
+                    init_grasp_configs[n_batches * BATCH_SIZE :].to(device=device)
+                )
+                all_preds.append(1 - preds.detach().cpu().numpy())
+
+            all_preds = np.concatenate(all_preds, axis=0)
+            assert all_preds.shape[0] == init_grasp_configs.batch_size
+            ordered_idxs_best_first = np.argsort(all_preds)[::-1].copy()
+            # breakpoint()  # TODO: Debug here
+            init_grasp_configs = init_grasp_configs[ordered_idxs_best_first]
+    init_grasp_configs = init_grasp_configs[: cfg.optimizer.num_grasps]
 
     # Create Optimizer.
     if isinstance(cfg.optimizer, SGDOptimizerConfig):
@@ -474,6 +515,8 @@ def get_optimized_grasps(cfg: OptimizationConfig) -> Dict[str, np.ndarray]:
         optimizer_config=cfg.optimizer,
         print_freq=cfg.print_freq,
         save_grasps_freq=cfg.save_grasps_freq,
+        output_path=cfg.output_path,
+        use_rich=cfg.use_rich,
         console=console,
     )
 
@@ -493,6 +536,8 @@ def get_optimized_grasps(cfg: OptimizationConfig) -> Dict[str, np.ndarray]:
     )
     console.print(table)
 
+    # HACK
+    # grasp_config_dict = COPY.as_dict()
     grasp_config_dict = final_grasp_configs.as_dict()
     grasp_config_dict["loss"] = final_losses.detach().cpu().numpy()
 
@@ -504,9 +549,10 @@ def get_optimized_grasps(cfg: OptimizationConfig) -> Dict[str, np.ndarray]:
     return grasp_config_dict
 
 
-def main(cfg: OptimizationConfig) -> None:
+def main() -> None:
+    cfg = tyro.cli(OptimizationConfig)
     get_optimized_grasps(cfg)
 
+
 if __name__ == "__main__":
-    cfg = tyro.cli(OptimizationConfig)
-    main(cfg)
+    main()

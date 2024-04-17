@@ -4,6 +4,7 @@ import pathlib
 from dataclasses import dataclass
 import nerf_grasping
 from tqdm import tqdm
+from typing import Optional
 
 
 @dataclass
@@ -15,6 +16,8 @@ class Args:
     nerf_grasping_data_path: pathlib.Path = (
         pathlib.Path(nerf_grasping.get_repo_root()).resolve() / "data"
     )
+    is_real_world: bool = False
+    randomize_order_seed: Optional[int] = None
 
 
 def print_and_run(cmd: str) -> None:
@@ -22,12 +25,7 @@ def print_and_run(cmd: str) -> None:
     subprocess.run(cmd, shell=True, check=True)
 
 
-def main() -> None:
-    args = tyro.cli(Args)
-    print("=" * 80)
-    print(f"{pathlib.Path(__file__).name} args: {args}")
-    print("=" * 80 + "\n")
-
+def train_nerfs(args: Args) -> pathlib.Path:
     assert (
         args.nerf_grasping_data_path.exists()
     ), f"{args.nerf_grasping_data_path} does not exist"
@@ -40,8 +38,18 @@ def main() -> None:
     output_nerfcheckpoints_path = experiment_path / args.output_nerfcheckpoints_name
     output_nerfcheckpoints_path.mkdir(exist_ok=True)
 
+    object_and_scale_nerfdata_paths = sorted(list(nerfdata_path.iterdir()))
+
+    if args.randomize_order_seed is not None:
+        import random
+
+        print(f"Randomizing order with seed {args.randomize_order_seed}")
+        random.Random(args.randomize_order_seed).shuffle(
+            object_and_scale_nerfdata_paths
+        )
+
     for object_and_scale_nerfdata_path in tqdm(
-        nerfdata_path.iterdir(), dynamic_ncols=True, desc="Training NERF"
+        object_and_scale_nerfdata_paths, dynamic_ncols=True, desc="Training NERF"
     ):
         if not object_and_scale_nerfdata_path.is_dir():
             continue
@@ -61,16 +69,29 @@ def main() -> None:
                 f"--output-dir {str(output_nerfcheckpoints_path)}",
                 "--vis wandb",
                 "--pipeline.model.disable-scene-contraction True",
-                "--pipeline.model.background-color black",
+                (
+                    "--pipeline.model.background-color black"
+                    if not args.is_real_world
+                    else ""
+                ),
                 "nerfstudio-data",
                 "--auto-scale-poses False",
                 "--scale-factor 1.",
-                "--scene-scale 0.2",
+                ("--scene-scale 0.2" if not args.is_real_world else "--scene-scale 1."),
                 "--center-method none",
                 "--orientation-method none",
             ]
         )
         print_and_run(command)
+    return output_nerfcheckpoints_path
+
+
+def main() -> None:
+    args = tyro.cli(Args)
+    print("=" * 80)
+    print(f"{pathlib.Path(__file__).name} args: {args}")
+    print("=" * 80 + "\n")
+    train_nerfs(args)
 
 
 if __name__ == "__main__":

@@ -50,7 +50,11 @@ class Classifier(nn.Module):
         task_probs = nn.functional.softmax(PROB_SCALING * all_logits, dim=-1)
         passed_task_probs = task_probs[..., -1]
         assert_equals(passed_task_probs.shape, (batch_data_input.batch_size, n_tasks))
-        passed_all_probs = torch.prod(passed_task_probs, dim=-1)
+
+        # HACK: Modify to either be product or not
+        # passed_all_probs = passed_task_probs[:, 0]
+        passed_all_probs = passed_task_probs[:, -1]
+        # passed_all_probs = torch.prod(passed_task_probs, dim=-1)
         assert_equals(passed_all_probs.shape, (batch_data_input.batch_size,))
 
         # Return failure probabilities (as loss).
@@ -77,6 +81,85 @@ class Classifier(nn.Module):
     @property
     def n_classes(self) -> int:
         return 2
+
+
+class CNN_3D_XYZY_Classifier(Classifier):
+    def __init__(
+        self,
+        input_shape: Iterable[int],
+        conv_channels: Iterable[int],
+        mlp_hidden_layers: Iterable[int],
+        n_fingers: int,
+        n_tasks: int,
+    ) -> None:
+        super().__init__()
+        self.model = CNN_3D_Model(
+            input_shape=input_shape,
+            conv_channels=conv_channels,
+            mlp_hidden_layers=mlp_hidden_layers,
+            n_fingers=n_fingers,
+            n_tasks=n_tasks,
+        )
+
+    def forward(self, batch_data_input: BatchDataInput) -> torch.Tensor:
+        # Run model
+        all_logits = self.model.get_all_logits(
+            batch_data_input.nerf_alphas_with_augmented_coords_v3
+        )
+        return all_logits
+
+
+
+class CNN_3D_XYZXYZY_Classifier(Classifier):
+    def __init__(
+        self,
+        input_shape: Iterable[int],
+        conv_channels: Iterable[int],
+        mlp_hidden_layers: Iterable[int],
+        n_fingers: int,
+        n_tasks: int,
+    ) -> None:
+        super().__init__()
+        self.model = CNN_3D_Model(
+            input_shape=input_shape,
+            conv_channels=conv_channels,
+            mlp_hidden_layers=mlp_hidden_layers,
+            n_fingers=n_fingers,
+            n_tasks=n_tasks,
+        )
+
+    def forward(self, batch_data_input: BatchDataInput) -> torch.Tensor:
+        # Run model
+        all_logits = self.model.get_all_logits(
+            batch_data_input.nerf_alphas_with_augmented_coords_v2
+        )
+        return all_logits
+
+
+class CNN_3D_XYZXYZ_Classifier(Classifier):
+    def __init__(
+        self,
+        input_shape: Iterable[int],
+        conv_channels: Iterable[int],
+        mlp_hidden_layers: Iterable[int],
+        n_fingers: int,
+        n_tasks: int,
+    ) -> None:
+        super().__init__()
+        self.model = CNN_3D_Model(
+            input_shape=input_shape,
+            conv_channels=conv_channels,
+            mlp_hidden_layers=mlp_hidden_layers,
+            n_fingers=n_fingers,
+            n_tasks=n_tasks,
+        )
+
+    def forward(self, batch_data_input: BatchDataInput) -> torch.Tensor:
+        # Run model
+        all_logits = self.model.get_all_logits(
+            batch_data_input.nerf_alphas_with_augmented_coords_v4
+        )
+        return all_logits
 
 
 class CNN_3D_XYZ_Classifier(Classifier):

@@ -265,9 +265,9 @@ print(f"Found {len(nerf_configs)} nerf configs")
 assert (
     cfg.evaled_grasp_config_dicts_path.exists()
 ), f"{cfg.evaled_grasp_config_dicts_path} does not exist"
-evaled_grasp_config_dict_filepaths = list(
+evaled_grasp_config_dict_filepaths = sorted(list(
     cfg.evaled_grasp_config_dicts_path.glob("*.npy")
-)
+))
 
 # from glob import glob
 # evaled_grasp_config_dict_filepaths = [
@@ -367,6 +367,9 @@ def create_grid_dataset(
     object_scale_dataset = hdf5_file.create_dataset(
         "/object_scale", shape=(max_num_datapoints,), dtype="f"
     )
+    object_state_dataset = hdf5_file.create_dataset(
+        "/object_state", shape=(max_num_datapoints, 13,), dtype="f"
+    )
     grasp_idx_dataset = hdf5_file.create_dataset(
         "/grasp_idx", shape=(max_num_datapoints,), dtype="i"
     )
@@ -393,6 +396,7 @@ def create_grid_dataset(
         nerf_config_dataset,
         object_code_dataset,
         object_scale_dataset,
+        object_state_dataset,
         grasp_idx_dataset,
         grasp_transforms_dataset,
         grasp_configs_dataset,
@@ -459,6 +463,9 @@ def create_depth_image_dataset(
     object_scale_dataset = hdf5_file.create_dataset(
         "/object_scale", shape=(max_num_datapoints,), dtype="f"
     )
+    object_state_dataset = hdf5_file.create_dataset(
+        "/object_state", shape=(max_num_datapoints, 13,), dtype="f"
+    )
     grasp_idx_dataset = hdf5_file.create_dataset(
         "/grasp_idx", shape=(max_num_datapoints,), dtype="i"
     )
@@ -486,6 +493,7 @@ def create_depth_image_dataset(
         nerf_config_dataset,
         object_code_dataset,
         object_scale_dataset,
+        object_state_dataset,
         grasp_idx_dataset,
         grasp_transforms_dataset,
         grasp_configs_dataset,
@@ -498,10 +506,17 @@ def get_depth_and_uncertainty_images(
     loop_timer: LoopTimer,
     cfg: BaseNerfDataConfig,
     grasp_frame_transforms: pp.LieTensor,
-    nerf_model: Model,
+    nerf_config: pathlib.Path,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     assert cfg.fingertip_config is not None
     assert isinstance(cfg, DepthImageNerfDataConfig)
+
+    # Load nerf pipeline
+    # Note: I don't like that we are mixing IO and computation here, but it seems to avoid OOM better
+    #       if IO in main code, I believe it causes weird memory leak having nerf_pipeline in global scope
+    # Note: for some reason this seems to help avoid GPU memory leak
+    #       whereas loading nerf_model or nerf_field directly causes GPU memory leak
+    nerf_pipeline = load_nerf_pipeline(nerf_config)
 
     with loop_timer.add_section_timer("get_cameras"):
         cameras = get_cameras(grasp_frame_transforms, cfg.fingertip_camera_config)
@@ -544,7 +559,7 @@ def get_depth_and_uncertainty_images(
         ):
             curr_cameras = cameras[curr_ind:next_ind].to("cuda")
             curr_depth, curr_uncertainty = render(
-                curr_cameras, nerf_model, "median", far_plane=0.15
+                curr_cameras, nerf_pipeline.model, "median", far_plane=0.15
             )
             assert (
                 curr_depth.shape
@@ -572,7 +587,7 @@ def get_nerf_densities(
     cfg: BaseNerfDataConfig,
     grasp_frame_transforms: pp.LieTensor,
     ray_origins_finger_frame: torch.Tensor,
-    nerf_field: Field,
+    nerf_config: pathlib.Path,
     compute_query_points: bool = True,
 ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
     assert cfg.fingertip_config is not None
@@ -589,6 +604,13 @@ def get_nerf_densities(
 
     # Create density grid for grid dataset.
     assert isinstance(cfg, GridNerfDataConfig)
+
+    # Load nerf pipeline
+    # Note: I don't like that we are mixing IO and computation here, but it seems to avoid OOM better
+    #       if IO in main code, I believe it causes weird memory leak having nerf_pipeline in global scope
+    # Note: for some reason this seems to help avoid GPU memory leak
+    #       whereas loading nerf_model or nerf_field directly causes GPU memory leak
+    nerf_pipeline = load_nerf_pipeline(nerf_config)
 
     # Transform query points
     with loop_timer.add_section_timer("get_ray_samples"):
@@ -624,7 +646,7 @@ def get_nerf_densities(
         ):
             curr_ray_samples = ray_samples[curr_ind:next_ind].to("cuda")
             curr_nerf_densities = (
-                nerf_field.get_density(curr_ray_samples)[0]
+                nerf_pipeline.model.field.get_density(curr_ray_samples)[0]
                 .reshape(
                     -1,
                     cfg.fingertip_config.n_fingers,
@@ -665,6 +687,7 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
             nerf_config_dataset,
             object_code_dataset,
             object_scale_dataset,
+            object_state_dataset,
             grasp_idx_dataset,
             grasp_transforms_dataset,
             grasp_configs_dataset,
@@ -679,6 +702,7 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
             nerf_config_dataset,
             object_code_dataset,
             object_scale_dataset,
+            object_state_dataset,
             grasp_idx_dataset,
             grasp_transforms_dataset,
             grasp_configs_dataset,
@@ -703,6 +727,12 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
         dynamic_ncols=True,
     )
     for evaled_grasp_config_dict_filepath in pbar:
+        # HACK: weird fragmentation issues slightly resolved by emptying cache
+        torch.cuda.empty_cache()
+
+        # HACK: debugging memory leaks
+        print(torch.cuda.memory_summary())
+
         pbar.set_description(f"Processing {evaled_grasp_config_dict_filepath}")
         try:
             with loop_timer.add_section_timer("prepare to read in data"):
@@ -722,13 +752,6 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                     evaled_grasp_config_dict_filepath
                 ), f"evaled_grasp_config_dict_filepath {evaled_grasp_config_dict_filepath} does not exist"
 
-            # Read in data
-            with loop_timer.add_section_timer("load_nerf"):
-                # Load nerf pipeline
-                # Note: for some reason this helps avoid GPU memory leak
-                #       whereas loading nerf_model or nerf_field directly causes GPU memory leak
-                nerf_pipeline = load_nerf_pipeline(nerf_config)
-
             with loop_timer.add_section_timer("load grasp data"):
                 evaled_grasp_config_dict: Dict[str, Any] = np.load(
                     evaled_grasp_config_dict_filepath, allow_pickle=True
@@ -745,6 +768,7 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                 # "passed_penetration_threshold"
                 "passed_new_penetration_test"
             ]
+            object_state = evaled_grasp_config_dict["object_states_before_grasp"]
 
             # If plot_only_one is True, slice out the grasp index we want to visualize.
             if cfg.plot_only_one:
@@ -758,11 +782,13 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                 passed_evals = passed_evals[
                     cfg.grasp_visualize_index : cfg.grasp_visualize_index + 1
                 ]
-
                 passed_simulations = passed_simulations[
                     cfg.grasp_visualize_index : cfg.grasp_visualize_index + 1
                 ]
                 passed_penetration_thresholds = passed_penetration_thresholds[
+                    cfg.grasp_visualize_index : cfg.grasp_visualize_index + 1
+                ]
+                object_state = object_state[
                     cfg.grasp_visualize_index : cfg.grasp_visualize_index + 1
                 ]
 
@@ -785,6 +811,8 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                 passed_penetration_thresholds = passed_penetration_thresholds[
                     :cfg.max_num_data_points_per_file
                 ]
+                object_state = object_state[:cfg.max_num_data_points_per_file]
+
             grasp_frame_transforms = grasp_configs.grasp_frame_transforms
             grasp_config_tensors = grasp_configs.as_tensor().detach().cpu().numpy()
 
@@ -808,6 +836,11 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                     + 4,  # wrist pose, joint angles, grasp orientations (as quats)
                 ),
             )
+            # Annoying hack because I stored all the object states for multiple noise runs, only need 1
+            assert len(object_state.shape) == 3
+            n_runs = object_state.shape[1]
+            assert_equals(object_state.shape, (grasp_configs.batch_size, n_runs, 13))
+            object_state = object_state[:, 0]
 
             if isinstance(cfg, GridNerfDataConfig):
                 # Process batch of grasp data.
@@ -816,7 +849,7 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                     cfg=cfg,
                     grasp_frame_transforms=grasp_frame_transforms,
                     ray_origins_finger_frame=ray_origins_finger_frame,
-                    nerf_field=nerf_pipeline.model.field,
+                    nerf_config=nerf_config,
                     compute_query_points=cfg.plot_only_one,
                 )
                 if nerf_densities.isnan().any():
@@ -833,7 +866,7 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                     loop_timer=loop_timer,
                     cfg=cfg,
                     grasp_frame_transforms=grasp_frame_transforms,
-                    nerf_model=nerf_pipeline.model,
+                    nerf_config=nerf_config,
                 )
                 if depth_images.isnan().any():
                     print("\n" + "-" * 80)
@@ -876,6 +909,7 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                     current_idx - prev_idx
                 )
                 object_scale_dataset[prev_idx:current_idx] = object_scale
+                object_state_dataset[prev_idx:current_idx] = object_state
                 grasp_idx_dataset[prev_idx:current_idx] = np.arange(
                     0, current_idx - prev_idx
                 )
@@ -902,7 +936,10 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
 
                 # May not be max_num_data_points if nan grasps
                 hdf5_file.attrs["num_data_points"] = current_idx
-            del nerf_pipeline
+
+            # HACK: debugging memory leaks
+            print("End of loop")
+            print(torch.cuda.memory_summary())
         except Exception as e:
             print("\n" + "-" * 80)
             print(f"WARNING: Failed to process {evaled_grasp_config_dict_filepath}")

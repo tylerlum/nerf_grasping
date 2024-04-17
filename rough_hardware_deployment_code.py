@@ -1,49 +1,258 @@
-from nerf_grasping.optimizer import get_optimized_grasps as TYLER_get_optimized_grasps
-from nerf_grasping.optimizer_utils import get_sorted_grasps_from_dict as TYLER_get_sorted_grasps_from_dict
+from nerf_grasping.optimizer import get_optimized_grasps
+from nerf_grasping.optimizer_utils import (
+    get_sorted_grasps_from_dict,
+    GraspMetric,
+    DepthImageGraspMetric,
+    load_classifier,
+    load_depth_image_classifier,
+)
+from nerf_grasping.config.nerfdata_config import DepthImageNerfDataConfig
 from nerf_grasping.config.optimization_config import OptimizationConfig
 from nerf_grasping.config.optimizer_config import SGDOptimizerConfig
 from nerf_grasping.config.grasp_metric_config import GraspMetricConfig
+from nerf_grasping.nerfstudio_train import train_nerfs_return_trainer
+from nerf_grasping.baselines.nerf_to_mesh import nerf_to_mesh
+from nerf_grasping.nerf_utils import (
+    compute_centroid_from_nerf,
+)
+from nerf_grasping.config.classifier_config import ClassifierConfig
+import trimesh
 import pathlib
+import tyro
+import numpy as np
+from dataclasses import dataclass
 
-nerf_data = ALBERT_run_hardware_nerf_data_collection()
-nerf_checkpoint_path = ALBERT_run_hardware_nerf_training(nerf_data)
-object_transform_world_frame = get_object_transform_world_frame(nerf_data)
 
-assert nerf_checkpoint_path.exists(), f"{nerf_checkpoint_path} does not exist"
-assert nerf_checkpoint_path.suffix == ".yml", f"{nerf_checkpoint_path} is not a .yml file"
-assert object_transform_world_frame.shape == (4, 4), f"object_transform_world_frame.shape is {object_transform_world_frame.shape}, not (4, 4)"
+@dataclass
+class Args:
+    experiment_name: str
+    init_grasp_config_dict_path: pathlib.Path
+    classifier_config_path: pathlib.Path
+    object_name: str
+    experiments_folder: pathlib.Path = pathlib.Path("experiments")
+    is_real_world: bool = False
+    density_levelset_threshold: float = 15.0
 
-INIT_GRASP_CONFIG_DICT_PATH = pathlib.Path("/path/to/init.npy")
-NERF_CHECKPOINT_PATH = pathlib.Path("/path/to/nerfcheckpoints/config.yml")
-CLASSIFIER_CONFIG_PATH = pathlib.Path("/path/to/classifier/config.yml")
+    def __post_init__(self) -> None:
+        assert (
+            self.init_grasp_config_dict_path.exists()
+        ), f"{self.init_grasp_config_dict_path} does not exist"
+        assert (
+            self.classifier_config_path.exists()
+        ), f"{self.classifier_config_path} does not exist"
 
-optimized_grasp_config_dict = TYLER_get_optimized_grasps(
-    OptimizationConfig(
-        use_rich=True,
-        init_grasp_config_dict_path=INIT_GRASP_CONFIG_DICT_PATH,
-        grasp_metric=GraspMetricConfig(
-            nerf_checkpoint_path=nerf_checkpoint_path,
-            classifier_config_path=CLASSIFIER_CONFIG_PATH,
-            object_transform_world_frame=object_transform_world_frame,
-        ),
-        optimizer=SGDOptimizerConfig(),
+        assert (
+            self.init_grasp_config_dict_path.is_file()
+        ), f"{self.init_grasp_config_dict_path} is not a file"
+        assert (
+            self.classifier_config_path.is_file()
+        ), f"{self.classifier_config_path} is not a file"
+
+        assert (
+            self.init_grasp_config_dict_path.suffix == ".npy"
+        ), f"{self.init_grasp_config_dict_path} does not have a .npy suffix"
+        assert self.classifier_config_path.suffix in [
+            ".yml",
+            ".yaml",
+        ], f"{self.classifier_config_path} does not have a .yml or .yaml suffix"
+
+
+def rough_hardware_deployment_code(args: Args) -> None:
+    print("=" * 80)
+    print("Step 0: Figuring out frames")
+    print("=" * 80 + "\n")
+    print("Frames are W = world, N = nerf, O = object, Oy = object y-up, H = hand")
+    print(
+        "W is centered at the robot base. N is centered where origin of NeRF data collection is. O is centered at the object centroid. Oy is centered at the object centroid. H is centered at the base of the middle finger"
     )
-)
-wrist_trans, wrist_rot, joint_angles, target_joint_angles = TYLER_get_sorted_grasps_from_dict(
-    optimized_grasp_config_dict=optimized_grasp_config_dict,
-    object_transform_world_frame=object_transform_world_frame,
-    error_if_no_loss=False,
-    check=True,
-    print_best=True,
-)
+    print(
+        "W, N, O are z-up frames. Oy is y-up. H has z-up along finger and x-up along palm normal"
+    )
+    print("X_A_B represents 4x4 transformation matrix of frame B wrt A")
+    X_W_N = trimesh.transformations.translation_matrix([0.7, 0, 0])  # TODO: Check this
 
-num_grasps = wrist_trans.shape[0]
+    # TODO: Change this
+    if args.is_real_world:
+        # Z-up
+        X_O_Oy = trimesh.transformations.rotation_matrix(
+            np.pi / 2, [1, 0, 0]
+        )  # TODO: Check this
+        lb_N = np.array([-0.25, -0.25, 0.0])
+        ub_N = np.array([0.25, 0.25, 0.5])
+    else:
+        X_O_Oy = np.eye(4)
+        lb_N = np.array([-0.25, -0.25, -0.25])
+        ub_N = np.array([0.25, 0.25, 0.25])
 
-for i in range(num_grasps):
-    print(f"Trying grasp {i} / {num_grasps}")
+    experiment_folder = args.experiments_folder / args.experiment_name
+    print(f"Creating a new experiment folder at {experiment_folder}")
+    experiment_folder.mkdir(parents=True, exist_ok=True)
 
-    if not ALBERT_is_feasible(wrist_trans[i], wrist_rot[i], joint_angles[i]):
-        print(f"Grasp {i} is infeasible")
-        continue
+    print("\n" + "=" * 80)
+    print("Step 1: Collect NERF data")
+    print("=" * 80 + "\n")
+    object_nerfdata_folder = experiment_folder / "nerfdata" / args.object_name
+    if not object_nerfdata_folder.exists():
+        object_nerfdata_folder.mkdir(parents=True)
+        ALBERT_run_hardware_nerf_data_collection(object_nerfdata_folder)
+        assert (
+            object_nerfdata_folder.exists()
+        ), f"{object_nerfdata_folder} does not exist"
+    else:
+        print(f"{object_nerfdata_folder} already exists, skipping data collection")
 
-    ALBERT_execute_grasp(wrist_trans[i], wrist_rot[i], joint_angles[i], target_joint_angles[i])
+    print("\n" + "=" * 80)
+    print("Step 2: Train NERF")
+    print("=" * 80 + "\n")
+    nerf_trainer = train_nerfs_return_trainer.train_nerf(
+        args=train_nerfs_return_trainer.Args(
+            nerfdata_folder=object_nerfdata_folder,
+            nerfcheckpoints_folder=experiment_folder / "nerfcheckpoints",
+            is_real_world=args.is_real_world,
+        )
+    )
+    nerf_model = nerf_trainer.pipeline.model
+    nerf_field = nerf_model.field
+    nerf_config = nerf_trainer.config.get_base_dir() / "config.yml"
+    assert nerf_config.exists(), f"{nerf_config} does not exist"
+
+    print("\n" + "=" * 80)
+    print("Step 3: Convert NeRF to mesh")
+    print("=" * 80 + "\n")
+    nerf_to_mesh_folder = experiment_folder / "nerf_to_mesh"
+    nerf_to_mesh_folder.mkdir(parents=True, exist_ok=True)
+    mesh = nerf_to_mesh(
+        field=nerf_field,
+        level=args.density_levelset_threshold,
+        lb=lb_N,
+        ub=ub_N,
+        save_path=nerf_to_mesh_folder / f"{args.object_name}.obj",
+    )  # TODO: Maybe tune other default params, but prefer not to need to
+
+    print("\n" + "=" * 80)
+    print(
+        "Step 4: Compute X_N_Oy (transformation of the object y-up frame wrt the nerf frame)"
+    )
+    USE_MESH = False
+    mesh_centroid = mesh.centroid
+    nerf_centroid = compute_centroid_from_nerf(
+        nerf_field,
+        lb=lb_N,
+        ub=ub_N,
+        level=args.density_levelset_threshold,
+        num_pts_x=100,
+        num_pts_y=100,
+        num_pts_z=100,
+    )
+    print(f"mesh_centroid: {mesh_centroid}")
+    print(f"nerf_centroid: {nerf_centroid}")
+    centroid = mesh_centroid if USE_MESH else nerf_centroid
+    print(f"USE_MESH: {USE_MESH}, centroid: {centroid}")
+    assert centroid.shape == (3,), f"centroid.shape is {centroid.shape}, not (3,)"
+    X_N_O = trimesh.transformations.translation_matrix(centroid)  # TODO: Check this
+
+    X_N_Oy = X_N_O @ X_O_Oy
+    assert X_N_Oy.shape == (4, 4), f"X_N_Oy.shape is {X_N_Oy.shape}, not (4, 4)"
+
+    print("\n" + "=" * 80)
+    print("Step 5: Load grasp metric")
+    print("=" * 80 + "\n")
+    print(f"Loading classifier config from {args.classifier_config_path}")
+    classifier_config = tyro.extras.from_yaml(
+        ClassifierConfig, args.classifier_config_path.open()
+    )
+
+    USE_DEPTH_IMAGES = isinstance(
+        classifier_config.nerfdata_config, DepthImageNerfDataConfig
+    )
+    if USE_DEPTH_IMAGES:
+        classifier_model = load_depth_image_classifier(classifier=classifier_config)
+        grasp_metric = DepthImageGraspMetric(
+            nerf_model=nerf_model,
+            classifier_model=classifier_model,
+            fingertip_config=classifier_config.nerfdata_config.fingertip_config,
+            camera_config=classifier_config.nerfdata_config.fingertip_camera_config,
+            X_N_Oy=X_N_Oy,
+        )
+    else:
+        classifier_model = load_classifier(classifier_config=classifier_config)
+        grasp_metric = GraspMetric(
+            nerf_field=nerf_field,
+            classifier_model=classifier_model,
+            fingertip_config=classifier_config.nerfdata_config.fingertip_config,
+            X_N_Oy=X_N_Oy,
+        )
+
+    print("\n" + "=" * 80)
+    print("Step 6: Optimize grasps")
+    print("=" * 80 + "\n")
+    optimized_grasp_config_dict = get_optimized_grasps(
+        cfg=OptimizationConfig(
+            use_rich=True,
+            init_grasp_config_dict_path=args.init_grasp_config_dict_path,
+            grasp_metric=GraspMetricConfig(
+                nerf_checkpoint_path=nerf_config,
+                classifier_config_path=args.classifier_config_path,
+                X_N_Oy=X_N_Oy,
+            ),  # This is not used because we are passing in a grasp_metric
+            optimizer=SGDOptimizerConfig(
+                num_grasps=32,
+                num_steps=0,
+                finger_lr=1e-4,
+                grasp_dir_lr=1e-4,
+                wrist_lr=1e-4,
+            ),
+            output_path=pathlib.Path(
+                experiment_folder
+                / "optimized_grasp_config_dicts"
+                / f"{args.object_name}.npy"
+            ),
+        ),
+        grasp_metric=grasp_metric,
+    )
+
+    print("\n" + "=" * 80)
+    print("Step 7: Convert optimized grasps to joint angles")
+    print("=" * 80 + "\n")
+    X_Oy_H_array, joint_angles_array, target_joint_angles_array = (
+        get_sorted_grasps_from_dict(
+            optimized_grasp_config_dict=optimized_grasp_config_dict,
+            error_if_no_loss=True,
+            check=False,
+            print_best=True,
+        )
+    )
+    num_grasps = X_Oy_H_array.shape[0]
+    assert X_Oy_H_array.shape == (num_grasps, 4, 4)
+    assert joint_angles_array.shape == (num_grasps, 16)
+    assert target_joint_angles_array.shape == (num_grasps, 16)
+
+    print("\n" + "=" * 80)
+    print("Step 8: Execute best grasps")
+    print("=" * 80 + "\n")
+    for i in range(num_grasps):
+        print(f"Trying grasp {i} / {num_grasps}")
+
+        X_Oy_H = X_Oy_H_array[i]
+        joint_angles = joint_angles_array[i]
+        target_joint_angles = target_joint_angles_array[i]
+
+        X_W_H = X_W_N @ X_N_Oy @ X_Oy_H
+
+        if not ALBERT_is_feasible(X_Oy_H, joint_angles, mesh):
+            print(f"Grasp {i} is infeasible")
+            continue
+
+        ALBERT_execute_grasp(X_W_H, joint_angles, target_joint_angles, mesh)
+
+
+def main() -> None:
+    args = tyro.cli(Args)
+    print("=" * 80)
+    print(f"{pathlib.Path(__file__).name} args: {args}")
+    print("=" * 80 + "\n")
+    rough_hardware_deployment_code(args)
+
+
+if __name__ == "__main__":
+    main()

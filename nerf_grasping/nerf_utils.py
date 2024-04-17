@@ -1,21 +1,28 @@
 """
 Utils for rendering depth / uncertainty images from the NeRF.
 """
+
 from nerf_grasping.config.camera_config import CameraConfig
 from nerfstudio.cameras.cameras import Cameras, CameraType
 from nerfstudio.cameras.rays import RayBundle
 from nerfstudio.models.base_model import Model
+from nerfstudio.fields.base_field import Field
 from nerfstudio.data.scene_box import SceneBox
 from collections import defaultdict
 import numpy as np
 import pypose as pp
 import torch
 from typing import Literal, Dict, Tuple
+from nerf_grasping.dataset.DexGraspNet_NeRF_Grasps_utils import (
+    get_ray_samples_in_region,
+)
 
 GRASP_TO_OPENCV = pp.euler2SO3([np.pi, 0, 0]).unsqueeze(0)
 
+
 def assert_equals(a, b):
     assert a == b, f"{a} != {b}"
+
 
 def get_cameras(
     grasp_transforms: pp.LieTensor,
@@ -114,7 +121,9 @@ def get_ray_samples(
 
 
 def _render_depth_and_uncertainty_for_camera_ray_bundle(
-    nerf_model: Model, camera_ray_bundle: RayBundle, depth_mode: Literal["median", "expected"]
+    nerf_model: Model,
+    camera_ray_bundle: RayBundle,
+    depth_mode: Literal["median", "expected"],
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """Takes in camera parameters and computes the output of the model.
 
@@ -193,3 +202,64 @@ def _render_depth_and_uncertainty_for_single_ray_bundle(
         raise ValueError(f"Invalid depth mode {depth_mode}")
 
     return depth, depth_variance
+
+
+def compute_centroid_from_nerf(
+    field: Field,
+    lb: np.ndarray,
+    ub: np.ndarray,
+    level: float,
+    num_pts_x: int,
+    num_pts_y: int,
+    num_pts_z: int,
+) -> np.ndarray:
+    """
+    Compute the centroid of the field.
+    """
+    x_min, y_min, z_min = lb
+    x_max, y_max, z_max = ub
+    ray_samples_in_region = get_ray_samples_in_region(
+        x_min=x_min,
+        x_max=x_max,
+        y_min=y_min,
+        y_max=y_max,
+        z_min=z_min,
+        z_max=z_max,
+        num_pts_x=num_pts_x,
+        num_pts_y=num_pts_y,
+        num_pts_z=num_pts_z,
+    )
+    query_points_in_region = np.copy(
+        ray_samples_in_region.frustums.get_positions()
+        .cpu()
+        .numpy()
+        .reshape(
+            num_pts_x,
+            num_pts_y,
+            num_pts_z,
+            3,
+        )
+    )
+    nerf_densities_in_region = (
+        field.get_density(ray_samples_in_region.to("cuda"))[0]
+        .detach()
+        .cpu()
+        .numpy()
+        .reshape(
+            num_pts_x,
+            num_pts_y,
+            num_pts_z,
+        )
+    )
+
+    points_to_keep_with_nans = np.where(
+        (nerf_densities_in_region > 15)[..., None].repeat(3, axis=-1),
+        query_points_in_region,
+        np.nan,
+    )
+    # Check there are some non-nan
+    assert not np.all(np.isnan(points_to_keep_with_nans))
+
+    avg_point_no_nans = np.nanmean(points_to_keep_with_nans.reshape(-1, 3), axis=0)
+    assert avg_point_no_nans.shape == (3,)
+    return avg_point_no_nans

@@ -378,9 +378,9 @@ def get_optimized_grasps(
     cfg: OptimizationConfig,
     grasp_metric: Union[GraspMetric, DepthImageGraspMetric] = None,
 ) -> Dict[str, np.ndarray]:
-    print("=" * 80)
-    print(f"Config:\n{tyro.extras.to_yaml(cfg)}")
-    print("=" * 80 + "\n")
+    # print("=" * 80)
+    # print(f"Config:\n{tyro.extras.to_yaml(cfg)}")
+    # print("=" * 80 + "\n")
 
     # Create rich.Console object.
     torch.random.manual_seed(0)

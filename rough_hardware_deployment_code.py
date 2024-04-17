@@ -207,6 +207,15 @@ def rough_hardware_deployment_code(args: Args) -> None:
     X_Oy_N = np.linalg.inv(X_N_Oy)
     assert X_N_Oy.shape == (4, 4), f"X_N_Oy.shape is {X_N_Oy.shape}, not (4, 4)"
 
+    # For debugging
+    mesh_Oy = trimesh.Trimesh(vertices=mesh_N.vertices, faces=mesh_N.faces)
+    mesh_Oy.apply_transform(X_Oy_N)
+    nerf_to_mesh_Oy_folder = experiment_folder / "nerf_to_mesh_Oy"
+    nerf_to_mesh_Oy_folder.mkdir(parents=True, exist_ok=True)
+    mesh_Oy.export(nerf_to_mesh_Oy_folder / f"{args.object_name}.obj",)
+    mesh_centroid_Oy = transform_point(X_Oy_N, centroid_N)
+    nerf_centroid_Oy = transform_point(X_Oy_N, centroid_N)
+
     VISUALIZE = True
     if VISUALIZE:
         # Visualize N
@@ -249,10 +258,6 @@ def rough_hardware_deployment_code(args: Args) -> None:
         fig_N.show()
 
         # Visualize Oy
-        mesh_Oy = trimesh.Trimesh(vertices=mesh_N.vertices, faces=mesh_N.faces)
-        mesh_Oy.apply_transform(X_Oy_N)
-        mesh_centroid_Oy = transform_point(X_Oy_N, centroid_N)
-        nerf_centroid_Oy = transform_point(X_Oy_N, centroid_N)
         fig_Oy = go.Figure()
         fig_Oy.add_trace(
             go.Mesh3d(

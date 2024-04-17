@@ -144,6 +144,12 @@ def rough_hardware_deployment_code(args: Args) -> None:
         ), f"{object_nerfdata_folder} does not exist"
     else:
         print(f"{object_nerfdata_folder} already exists, skipping data collection")
+    assert (object_nerfdata_folder / "transforms.json").exists(), (
+        f"{object_nerfdata_folder / 'transforms.json'} does not exist"
+    )
+    assert (object_nerfdata_folder / "images").exists(), (
+        f"{object_nerfdata_folder / 'images'} does not exist"
+    )
 
     print("\n" + "=" * 80)
     print("Step 2: Train NERF")
@@ -178,6 +184,7 @@ def rough_hardware_deployment_code(args: Args) -> None:
     print(
         "Step 4: Compute X_N_Oy (transformation of the object y-up frame wrt the nerf frame)"
     )
+    print("=" * 80 + "\n")
     USE_MESH = False
     mesh_centroid_N = mesh_N.centroid
     nerf_centroid_N = compute_centroid_from_nerf(

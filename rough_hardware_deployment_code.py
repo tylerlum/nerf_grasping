@@ -157,7 +157,7 @@ def rough_hardware_deployment_code(args: Args) -> None:
     assert X_N_Oy.shape == (4, 4), f"X_N_Oy.shape is {X_N_Oy.shape}, not (4, 4)"
 
     print("\n" + "=" * 80)
-    print("Step 5: Load grasp metric and init grasps, optimize")
+    print("Step 5: Load grasp metric")
     print("=" * 80 + "\n")
     print(f"Loading classifier config from {args.classifier_config_path}")
     classifier_config = tyro.extras.from_yaml(
@@ -185,6 +185,9 @@ def rough_hardware_deployment_code(args: Args) -> None:
             X_N_Oy=X_N_Oy,
         )
 
+    print("\n" + "=" * 80)
+    print("Step 6: Optimize grasps")
+    print("=" * 80 + "\n")
     optimized_grasp_config_dict = get_optimized_grasps(
         cfg=OptimizationConfig(
             use_rich=True,
@@ -211,7 +214,7 @@ def rough_hardware_deployment_code(args: Args) -> None:
     )
 
     print("\n" + "=" * 80)
-    print("Step 6: Compute best grasps in W frame")
+    print("Step 7: Convert optimized grasps to joint angles")
     print("=" * 80 + "\n")
     X_Oy_H_array, joint_angles_array, target_joint_angles_array = (
         get_sorted_grasps_from_dict(
@@ -227,7 +230,7 @@ def rough_hardware_deployment_code(args: Args) -> None:
     assert target_joint_angles_array.shape == (num_grasps, 16)
 
     print("\n" + "=" * 80)
-    print("Step 7: Execute best grasps")
+    print("Step 8: Execute best grasps")
     print("=" * 80 + "\n")
     for i in range(num_grasps):
         print(f"Trying grasp {i} / {num_grasps}")

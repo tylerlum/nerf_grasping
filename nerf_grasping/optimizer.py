@@ -374,7 +374,10 @@ def run_optimizer_loop(
     )
 
 
-def get_optimized_grasps(cfg: OptimizationConfig) -> Dict[str, np.ndarray]:
+def get_optimized_grasps(
+    cfg: OptimizationConfig,
+    grasp_metric: Union[GraspMetric, DepthImageGraspMetric] = None,
+) -> Dict[str, np.ndarray]:
     print("=" * 80)
     print(f"Config:\n{tyro.extras.to_yaml(cfg)}")
     print("=" * 80 + "\n")
@@ -428,20 +431,24 @@ def get_optimized_grasps(cfg: OptimizationConfig) -> Dict[str, np.ndarray]:
             progress.update(task, advance=1)
 
     # Create grasp metric
-    USE_DEPTH_IMAGES = isinstance(
-        cfg.grasp_metric.classifier_config.nerfdata_config, DepthImageNerfDataConfig
-    )
-    if USE_DEPTH_IMAGES:
-        grasp_metric = DepthImageGraspMetric.from_config(
-            cfg.grasp_metric,
-            console=console,
-        )
-    else:
-        grasp_metric = GraspMetric.from_config(
-            cfg.grasp_metric,
-            console=console,
-        )
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if grasp_metric is None:
+        print(f"Loading classifier config from {cfg.grasp_metric.classifier_config_path}")
+        USE_DEPTH_IMAGES = isinstance(
+            cfg.grasp_metric.classifier_config.nerfdata_config, DepthImageNerfDataConfig
+        )
+        if USE_DEPTH_IMAGES:
+            grasp_metric = DepthImageGraspMetric.from_config(
+                cfg.grasp_metric,
+                console=console,
+            )
+        else:
+            grasp_metric = GraspMetric.from_config(
+                cfg.grasp_metric,
+                console=console,
+            )
+    else:
+        print("Using provided grasp metric.")
     grasp_metric = grasp_metric.to(device=device)
 
     GET_BEST_GRASPS = True

@@ -208,7 +208,7 @@ def compute_centroid_from_nerf(
     field: Field,
     lb: np.ndarray,
     ub: np.ndarray,
-    level: int,
+    level: float,
     num_pts_x: int,
     num_pts_y: int,
     num_pts_z: int,

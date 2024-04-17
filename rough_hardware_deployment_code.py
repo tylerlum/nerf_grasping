@@ -21,6 +21,7 @@ import pathlib
 import tyro
 import numpy as np
 from dataclasses import dataclass
+import plotly.graph_objects as go
 
 
 @dataclass
@@ -55,6 +56,44 @@ class Args:
             ".yml",
             ".yaml",
         ], f"{self.classifier_config_path} does not have a .yml or .yaml suffix"
+
+
+def transform_point(transform_matrix: np.ndarray, point: np.ndarray) -> np.ndarray:
+    assert transform_matrix.shape == (4, 4), f"{transform_matrix.shape} is not (4, 4)"
+    assert point.shape == (3,), f"{point.shape} is not (3,)"
+    point = np.append(point, 1)
+    return np.dot(transform_matrix, point)[:3]
+
+
+def add_transform_matrix_traces(
+    fig: go.Figure, transform_matrix: np.ndarray, length: float = 0.1
+) -> None:
+    assert transform_matrix.shape == (4, 4), f"{transform_matrix.shape} is not (4, 4)"
+    origin = np.array([0, 0, 0])
+    x_axis = np.array([length, 0, 0])
+    y_axis = np.array([0, length, 0])
+    z_axis = np.array([0, 0, length])
+
+    origin_transformed = transform_point(transform_matrix, origin)
+    x_axis_transformed = transform_point(transform_matrix, x_axis)
+    y_axis_transformed = transform_point(transform_matrix, y_axis)
+    z_axis_transformed = transform_point(transform_matrix, z_axis)
+
+    for axis, color, name in zip(
+        [x_axis_transformed, y_axis_transformed, z_axis_transformed],
+        ["red", "green", "blue"],
+        ["x", "y", "z"],
+    ):
+        fig.add_trace(
+            go.Scatter3d(
+                x=[origin_transformed[0], axis[0]],
+                y=[origin_transformed[1], axis[1]],
+                z=[origin_transformed[2], axis[2]],
+                mode="lines",
+                line=dict(color=color, width=5),
+                name=name,
+            )
+        )
 
 
 def rough_hardware_deployment_code(args: Args) -> None:
@@ -115,13 +154,14 @@ def rough_hardware_deployment_code(args: Args) -> None:
     nerf_field = nerf_model.field
     nerf_config = nerf_trainer.config.get_base_dir() / "config.yml"
     assert nerf_config.exists(), f"{nerf_config} does not exist"
+    print(f"NERF config saved at {nerf_config}")
 
     print("\n" + "=" * 80)
     print("Step 3: Convert NeRF to mesh")
     print("=" * 80 + "\n")
     nerf_to_mesh_folder = experiment_folder / "nerf_to_mesh"
     nerf_to_mesh_folder.mkdir(parents=True, exist_ok=True)
-    mesh = nerf_to_mesh(
+    mesh_N = nerf_to_mesh(
         field=nerf_field,
         level=args.density_levelset_threshold,
         lb=lb_N,
@@ -134,8 +174,8 @@ def rough_hardware_deployment_code(args: Args) -> None:
         "Step 4: Compute X_N_Oy (transformation of the object y-up frame wrt the nerf frame)"
     )
     USE_MESH = False
-    mesh_centroid = mesh.centroid
-    nerf_centroid = compute_centroid_from_nerf(
+    mesh_centroid_N = mesh_N.centroid
+    nerf_centroid_N = compute_centroid_from_nerf(
         nerf_field,
         lb=lb_N,
         ub=ub_N,
@@ -144,15 +184,58 @@ def rough_hardware_deployment_code(args: Args) -> None:
         num_pts_y=100,
         num_pts_z=100,
     )
-    print(f"mesh_centroid: {mesh_centroid}")
-    print(f"nerf_centroid: {nerf_centroid}")
-    centroid = mesh_centroid if USE_MESH else nerf_centroid
-    print(f"USE_MESH: {USE_MESH}, centroid: {centroid}")
-    assert centroid.shape == (3,), f"centroid.shape is {centroid.shape}, not (3,)"
-    X_N_O = trimesh.transformations.translation_matrix(centroid)  # TODO: Check this
+    print(f"mesh_centroid_N: {mesh_centroid_N}")
+    print(f"nerf_centroid_N: {nerf_centroid_N}")
+    centroid_N = mesh_centroid_N if USE_MESH else nerf_centroid_N
+    print(f"USE_MESH: {USE_MESH}, centroid_N: {centroid_N}")
+    assert centroid_N.shape == (3,), f"centroid_N.shape is {centroid_N.shape}, not (3,)"
+    X_N_O = trimesh.transformations.translation_matrix(centroid_N)  # TODO: Check this
 
     X_N_Oy = X_N_O @ X_O_Oy
+    X_Oy_N = np.linalg.inv(X_N_Oy)
     assert X_N_Oy.shape == (4, 4), f"X_N_Oy.shape is {X_N_Oy.shape}, not (4, 4)"
+
+    # Visualize
+    mesh_Oy = trimesh.Trimesh(vertices=mesh_N.vertices, faces=mesh_N.faces)
+    mesh_Oy.apply_transform(X_Oy_N)
+    mesh_centroid_Oy = transform_point(X_Oy_N, centroid_N)
+    nerf_centroid_Oy = transform_point(X_Oy_N, centroid_N)
+    fig = go.Figure()
+    fig.add_trace(
+        go.Mesh3d(
+            x=mesh_Oy.vertices[:, 0],
+            y=mesh_Oy.vertices[:, 1],
+            z=mesh_Oy.vertices[:, 2],
+            i=mesh_Oy.faces[:, 0],
+            j=mesh_Oy.faces[:, 1],
+            k=mesh_Oy.faces[:, 2],
+            color="lightblue",
+            name="Mesh",
+        )
+    )
+    fig.add_trace(
+        go.Scatter3d(
+            x=[mesh_centroid_Oy[0]],
+            y=[mesh_centroid_Oy[1]],
+            z=[mesh_centroid_Oy[2]],
+            mode="markers",
+            marker=dict(size=10, color="red"),
+            name="Mesh centroid",
+        )
+    )
+    fig.add_trace(
+        go.Scatter3d(
+            x=[nerf_centroid_Oy[0]],
+            y=[nerf_centroid_Oy[1]],
+            z=[nerf_centroid_Oy[2]],
+            mode="markers",
+            marker=dict(size=10, color="green"),
+            name="NeRF centroid",
+        )
+    )
+    fig.update_layout(title="Mesh in object y-up frame")
+    add_transform_matrix_traces(fig=fig, transform_matrix=np.eye(4), length=0.1)
+    fig.show()
 
     print("\n" + "=" * 80)
     print("Step 5: Load grasp metric")
@@ -219,7 +302,7 @@ def rough_hardware_deployment_code(args: Args) -> None:
             optimized_grasp_config_dict=optimized_grasp_config_dict,
             error_if_no_loss=True,
             check=False,
-            print_best=True,
+            print_best=False,
         )
     )
     num_grasps = X_Oy_H_array.shape[0]
@@ -230,6 +313,8 @@ def rough_hardware_deployment_code(args: Args) -> None:
     print("\n" + "=" * 80)
     print("Step 8: Execute best grasps")
     print("=" * 80 + "\n")
+    mesh_W = trimesh.Trimesh(vertices=mesh_N.vertices, faces=mesh_N.faces)
+    mesh_W.apply_transform(X_W_N)
     for i in range(num_grasps):
         print(f"Trying grasp {i} / {num_grasps}")
 
@@ -239,11 +324,11 @@ def rough_hardware_deployment_code(args: Args) -> None:
 
         X_W_H = X_W_N @ X_N_Oy @ X_Oy_H
 
-        if not ALBERT_is_feasible(X_Oy_H, joint_angles, mesh):
+        if not ALBERT_is_feasible(X_Oy_H, joint_angles, mesh_W):
             print(f"Grasp {i} is infeasible")
             continue
 
-        ALBERT_execute_grasp(X_W_H, joint_angles, target_joint_angles, mesh)
+        ALBERT_execute_grasp(X_W_H, joint_angles, target_joint_angles, mesh_W)
 
 
 def main() -> None:

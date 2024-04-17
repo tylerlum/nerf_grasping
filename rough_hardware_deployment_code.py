@@ -108,18 +108,23 @@ def rough_hardware_deployment_code(args: Args) -> None:
         "W, N, O are z-up frames. Oy is y-up. H has z-up along finger and x-up along palm normal"
     )
     print("X_A_B represents 4x4 transformation matrix of frame B wrt A")
-    X_W_N = trimesh.transformations.translation_matrix([0.7, 0, 0])  # TODO: Check this
+    X_W_N = trimesh.transformations.translation_matrix([0.7, 0, 0])
 
-    # TODO: Change this
     if args.is_real_world:
         # Z-up
         X_O_Oy = trimesh.transformations.rotation_matrix(
             np.pi / 2, [1, 0, 0]
-        )  # TODO: Check this
+        )
         lb_N = np.array([-0.25, -0.25, 0.0])
         ub_N = np.array([0.25, 0.25, 0.5])
     else:
-        X_O_Oy = np.eye(4)
+        IS_Y_UP = True
+        if IS_Y_UP:
+            X_O_Oy = np.eye(4)
+        else:
+            X_O_Oy = trimesh.transformations.rotation_matrix(
+                np.pi / 2, [1, 0, 0]
+            )
         lb_N = np.array([-0.25, -0.25, -0.25])
         ub_N = np.array([0.25, 0.25, 0.25])
 
@@ -189,53 +194,95 @@ def rough_hardware_deployment_code(args: Args) -> None:
     centroid_N = mesh_centroid_N if USE_MESH else nerf_centroid_N
     print(f"USE_MESH: {USE_MESH}, centroid_N: {centroid_N}")
     assert centroid_N.shape == (3,), f"centroid_N.shape is {centroid_N.shape}, not (3,)"
-    X_N_O = trimesh.transformations.translation_matrix(centroid_N)  # TODO: Check this
+    X_N_O = trimesh.transformations.translation_matrix(centroid_N)
 
     X_N_Oy = X_N_O @ X_O_Oy
     X_Oy_N = np.linalg.inv(X_N_Oy)
     assert X_N_Oy.shape == (4, 4), f"X_N_Oy.shape is {X_N_Oy.shape}, not (4, 4)"
 
-    # Visualize
-    mesh_Oy = trimesh.Trimesh(vertices=mesh_N.vertices, faces=mesh_N.faces)
-    mesh_Oy.apply_transform(X_Oy_N)
-    mesh_centroid_Oy = transform_point(X_Oy_N, centroid_N)
-    nerf_centroid_Oy = transform_point(X_Oy_N, centroid_N)
-    fig = go.Figure()
-    fig.add_trace(
-        go.Mesh3d(
-            x=mesh_Oy.vertices[:, 0],
-            y=mesh_Oy.vertices[:, 1],
-            z=mesh_Oy.vertices[:, 2],
-            i=mesh_Oy.faces[:, 0],
-            j=mesh_Oy.faces[:, 1],
-            k=mesh_Oy.faces[:, 2],
-            color="lightblue",
-            name="Mesh",
+    VISUALIZE = True
+    if VISUALIZE:
+        # Visualize N
+        fig_N = go.Figure()
+        fig_N.add_trace(
+            go.Mesh3d(
+                x=mesh_N.vertices[:, 0],
+                y=mesh_N.vertices[:, 1],
+                z=mesh_N.vertices[:, 2],
+                i=mesh_N.faces[:, 0],
+                j=mesh_N.faces[:, 1],
+                k=mesh_N.faces[:, 2],
+                color="lightblue",
+                name="Mesh",
+                opacity=0.5,
+            )
         )
-    )
-    fig.add_trace(
-        go.Scatter3d(
-            x=[mesh_centroid_Oy[0]],
-            y=[mesh_centroid_Oy[1]],
-            z=[mesh_centroid_Oy[2]],
-            mode="markers",
-            marker=dict(size=10, color="red"),
-            name="Mesh centroid",
+        fig_N.add_trace(
+            go.Scatter3d(
+                x=[mesh_centroid_N[0]],
+                y=[mesh_centroid_N[1]],
+                z=[mesh_centroid_N[2]],
+                mode="markers",
+                marker=dict(size=10, color="red"),
+                name="Mesh centroid",
+            )
         )
-    )
-    fig.add_trace(
-        go.Scatter3d(
-            x=[nerf_centroid_Oy[0]],
-            y=[nerf_centroid_Oy[1]],
-            z=[nerf_centroid_Oy[2]],
-            mode="markers",
-            marker=dict(size=10, color="green"),
-            name="NeRF centroid",
+        fig_N.add_trace(
+            go.Scatter3d(
+                x=[nerf_centroid_N[0]],
+                y=[nerf_centroid_N[1]],
+                z=[nerf_centroid_N[2]],
+                mode="markers",
+                marker=dict(size=10, color="green"),
+                name="NeRF centroid",
+            )
         )
-    )
-    fig.update_layout(title="Mesh in object y-up frame")
-    add_transform_matrix_traces(fig=fig, transform_matrix=np.eye(4), length=0.1)
-    fig.show()
+        fig_N.update_layout(title="Mesh in nerf frame")
+        add_transform_matrix_traces(fig=fig_N, transform_matrix=np.eye(4), length=0.1)
+        fig_N.show()
+
+        # Visualize Oy
+        mesh_Oy = trimesh.Trimesh(vertices=mesh_N.vertices, faces=mesh_N.faces)
+        mesh_Oy.apply_transform(X_Oy_N)
+        mesh_centroid_Oy = transform_point(X_Oy_N, centroid_N)
+        nerf_centroid_Oy = transform_point(X_Oy_N, centroid_N)
+        fig_Oy = go.Figure()
+        fig_Oy.add_trace(
+            go.Mesh3d(
+                x=mesh_Oy.vertices[:, 0],
+                y=mesh_Oy.vertices[:, 1],
+                z=mesh_Oy.vertices[:, 2],
+                i=mesh_Oy.faces[:, 0],
+                j=mesh_Oy.faces[:, 1],
+                k=mesh_Oy.faces[:, 2],
+                color="lightblue",
+                name="Mesh",
+                opacity=0.5,
+            )
+        )
+        fig_Oy.add_trace(
+            go.Scatter3d(
+                x=[mesh_centroid_Oy[0]],
+                y=[mesh_centroid_Oy[1]],
+                z=[mesh_centroid_Oy[2]],
+                mode="markers",
+                marker=dict(size=10, color="red"),
+                name="Mesh centroid",
+            )
+        )
+        fig_Oy.add_trace(
+            go.Scatter3d(
+                x=[nerf_centroid_Oy[0]],
+                y=[nerf_centroid_Oy[1]],
+                z=[nerf_centroid_Oy[2]],
+                mode="markers",
+                marker=dict(size=10, color="green"),
+                name="NeRF centroid",
+            )
+        )
+        fig_Oy.update_layout(title="Mesh in object y-up frame")
+        add_transform_matrix_traces(fig=fig_Oy, transform_matrix=np.eye(4), length=0.1)
+        fig_Oy.show()
 
     print("\n" + "=" * 80)
     print("Step 5: Load grasp metric")

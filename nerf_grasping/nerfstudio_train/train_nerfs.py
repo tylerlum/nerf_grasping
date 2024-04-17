@@ -16,7 +16,6 @@ class Args:
     nerf_grasping_data_path: pathlib.Path = (
         pathlib.Path(nerf_grasping.get_repo_root()).resolve() / "data"
     )
-    is_real_world: bool = False
     randomize_order_seed: Optional[int] = None
 
 
@@ -69,15 +68,9 @@ def train_nerfs(args: Args) -> pathlib.Path:
                 f"--output-dir {str(output_nerfcheckpoints_path)}",
                 "--vis wandb",
                 "--pipeline.model.disable-scene-contraction True",
-                (
-                    "--pipeline.model.background-color black"
-                    if not args.is_real_world
-                    else ""
-                ),
                 "nerfstudio-data",
                 "--auto-scale-poses False",
                 "--scale-factor 1.",
-                ("--scene-scale 0.2" if not args.is_real_world else "--scene-scale 1."),
                 "--center-method none",
                 "--orientation-method none",
             ]

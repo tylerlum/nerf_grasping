@@ -27,6 +27,12 @@ pip install positional_encodings diffusers
 git clone https://github.com/tylerlum/nerf_grasping.git
 cd nerf_grasping
 pip install -e .
+
+# Install pytorch3d
+mkdir thirdparty
+cd thirdparty
+git clone https://github.com/facebookresearch/pytorch3d.git
+cd pytorch3d && pip install -e .
 ```
 
 # How to run at inference time (Albert)

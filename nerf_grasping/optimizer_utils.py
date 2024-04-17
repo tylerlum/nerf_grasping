@@ -730,58 +730,11 @@ class GraspMetric(torch.nn.Module):
                 progress.update(task, advance=1)
 
         # Load classifier
-        with (
-            Progress(
-                SpinnerColumn(),
-                TextColumn("[bold blue]{task.description} "),
-                console=console,
-            )
-            if console is not None
-            else nullcontext()
-        ) as progress:
-            task = (
-                progress.add_task("Loading classifier", total=1)
-                if progress is not None
-                else None
-            )
-
-            # (should device thing be here? probably since saved on gpu)
-            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-            classifier = (
-                classifier_config.model_config.get_classifier_from_fingertip_config(
-                    fingertip_config=classifier_config.nerfdata_config.fingertip_config,
-                    n_tasks=classifier_config.task_type.n_tasks,
-                )
-            ).to(device)
-
-            # Load classifier weights
-            assert (
-                classifier_config.checkpoint_workspace.output_dir.exists()
-            ), f"checkpoint_workspace.output_dir does not exist at {classifier_config.checkpoint_workspace.output_dir}"
-            print(
-                f"Loading checkpoint ({classifier_config.checkpoint_workspace.output_dir})..."
-            )
-
-            output_checkpoint_paths = (
-                classifier_config.checkpoint_workspace.output_checkpoint_paths
-            )
-            assert (
-                len(output_checkpoint_paths) > 0
-            ), f"No checkpoints found in {classifier_config.checkpoint_workspace.output_checkpoint_paths}"
-            assert classifier_checkpoint < len(
-                output_checkpoint_paths
-            ), f"Requested checkpoint {classifier_checkpoint} does not exist in {classifier_config.checkpoint_workspace.output_checkpoint_paths}"
-            checkpoint_path = output_checkpoint_paths[classifier_checkpoint]
-
-            checkpoint = torch.load(checkpoint_path)
-            classifier.load_state_dict(checkpoint["classifier"])
-            classifier.load_state_dict(torch.load(checkpoint_path)["classifier"])
-
-            if progress is not None and task is not None:
-                progress.update(task, advance=1)
-
-        if not isinstance(classifier, Simple_CNN_LSTM_Classifier):
-            classifier.eval()  # weird LSTM thing where cudnn hasn't implemented the backwards pass in eval (??)
+        classifier = load_classifier(
+            classifier_config=classifier_config,
+            classifier_checkpoint=classifier_checkpoint,
+            console=console,
+        )
 
         return cls(
             nerf_field,
@@ -789,6 +742,68 @@ class GraspMetric(torch.nn.Module):
             classifier_config.nerfdata_config.fingertip_config,
             X_N_Oy,
         )
+
+
+def load_classifier(
+    classifier_config: ClassifierConfig,
+    classifier_checkpoint: int = -1,
+    console: Optional[Console] = None,
+) -> Classifier:
+    # Load classifier
+    with (
+        Progress(
+            SpinnerColumn(),
+            TextColumn("[bold blue]{task.description} "),
+            console=console,
+        )
+        if console is not None
+        else nullcontext()
+    ) as progress:
+        task = (
+            progress.add_task("Loading classifier", total=1)
+            if progress is not None
+            else None
+        )
+
+        # (should device thing be here? probably since saved on gpu)
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        classifier = (
+            classifier_config.model_config.get_classifier_from_fingertip_config(
+                fingertip_config=classifier_config.nerfdata_config.fingertip_config,
+                n_tasks=classifier_config.task_type.n_tasks,
+            )
+        ).to(device)
+
+        # Load classifier weights
+        assert (
+            classifier_config.checkpoint_workspace.output_dir.exists()
+        ), f"checkpoint_workspace.output_dir does not exist at {classifier_config.checkpoint_workspace.output_dir}"
+        print(
+            f"Loading checkpoint ({classifier_config.checkpoint_workspace.output_dir})..."
+        )
+
+        output_checkpoint_paths = (
+            classifier_config.checkpoint_workspace.output_checkpoint_paths
+        )
+        assert (
+            len(output_checkpoint_paths) > 0
+        ), f"No checkpoints found in {classifier_config.checkpoint_workspace.output_checkpoint_paths}"
+        assert classifier_checkpoint < len(
+            output_checkpoint_paths
+        ), f"Requested checkpoint {classifier_checkpoint} does not exist in {classifier_config.checkpoint_workspace.output_checkpoint_paths}"
+        checkpoint_path = output_checkpoint_paths[classifier_checkpoint]
+
+        checkpoint = torch.load(checkpoint_path)
+        classifier.load_state_dict(checkpoint["classifier"])
+        classifier.load_state_dict(torch.load(checkpoint_path)["classifier"])
+
+        if progress is not None and task is not None:
+            progress.update(task, advance=1)
+
+    if not isinstance(classifier, Simple_CNN_LSTM_Classifier):
+        classifier.eval()  # weird LSTM thing where cudnn hasn't implemented the backwards pass in eval (??)
+
+    return classifier
 
 
 class DepthImageGraspMetric(torch.nn.Module):
@@ -930,58 +945,11 @@ class DepthImageGraspMetric(torch.nn.Module):
                 progress.update(task, advance=1)
 
         # Load classifier
-        with (
-            Progress(
-                SpinnerColumn(),
-                TextColumn("[bold blue]{task.description} "),
-                console=console,
-            )
-            if console is not None
-            else nullcontext()
-        ) as progress:
-            task = (
-                progress.add_task("Loading classifier", total=1)
-                if progress is not None
-                else None
-            )
-
-            # (should device thing be here? probably since saved on gpu)
-            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-            classifier: DepthImageClassifier = (
-                classifier_config.model_config.get_classifier_from_camera_config(
-                    camera_config=classifier_config.nerfdata_config.fingertip_camera_config,
-                    n_tasks=classifier_config.task_type.n_tasks,
-                ).to(device)
-            )
-
-            # Load classifier weights
-            assert (
-                classifier_config.checkpoint_workspace.output_dir.exists()
-            ), f"checkpoint_workspace.output_dir does not exist at {classifier_config.checkpoint_workspace.output_dir}"
-            print(
-                f"Loading checkpoint ({classifier_config.checkpoint_workspace.output_dir})..."
-            )
-
-            output_checkpoint_paths = (
-                classifier_config.checkpoint_workspace.output_checkpoint_paths
-            )
-            assert (
-                len(output_checkpoint_paths) > 0
-            ), f"No checkpoints found in {classifier_config.checkpoint_workspace.output_checkpoint_paths}"
-            assert classifier_checkpoint < len(
-                output_checkpoint_paths
-            ), f"Requested checkpoint {classifier_checkpoint} does not exist in {classifier_config.checkpoint_workspace.output_checkpoint_paths}"
-            checkpoint_path = output_checkpoint_paths[classifier_checkpoint]
-
-            checkpoint = torch.load(checkpoint_path)
-            classifier.load_state_dict(checkpoint["classifier"])
-            classifier.load_state_dict(torch.load(checkpoint_path)["classifier"])
-
-            if progress is not None and task is not None:
-                progress.update(task, advance=1)
-
-        if not isinstance(classifier, Simple_CNN_LSTM_Classifier):
-            classifier.eval()  # weird LSTM thing where cudnn hasn't implemented the backwards pass in eval (??)
+        classifier: DepthImageClassifier = load_depth_image_classifier(
+            classifier_config=classifier_config,
+            classifier_checkpoint=classifier_checkpoint,
+            console=console,
+        )
 
         return cls(
             nerf_model,
@@ -990,6 +958,67 @@ class DepthImageGraspMetric(torch.nn.Module):
             classifier_config.nerfdata_config.fingertip_camera_config,
             X_N_Oy,
         )
+
+
+def load_depth_image_classifier(
+    classifier_config: ClassifierConfig,
+    classifier_checkpoint: int = -1,
+    console: Optional[Console] = None,
+) -> DepthImageClassifier:
+    # Load classifier
+    with (
+        Progress(
+            SpinnerColumn(),
+            TextColumn("[bold blue]{task.description} "),
+            console=console,
+        )
+        if console is not None
+        else nullcontext()
+    ) as progress:
+        task = (
+            progress.add_task("Loading classifier", total=1)
+            if progress is not None
+            else None
+        )
+
+        # (should device thing be here? probably since saved on gpu)
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        classifier: DepthImageClassifier = (
+            classifier_config.model_config.get_classifier_from_camera_config(
+                camera_config=classifier_config.nerfdata_config.fingertip_camera_config,
+                n_tasks=classifier_config.task_type.n_tasks,
+            ).to(device)
+        )
+
+        # Load classifier weights
+        assert (
+            classifier_config.checkpoint_workspace.output_dir.exists()
+        ), f"checkpoint_workspace.output_dir does not exist at {classifier_config.checkpoint_workspace.output_dir}"
+        print(
+            f"Loading checkpoint ({classifier_config.checkpoint_workspace.output_dir})..."
+        )
+
+        output_checkpoint_paths = (
+            classifier_config.checkpoint_workspace.output_checkpoint_paths
+        )
+        assert (
+            len(output_checkpoint_paths) > 0
+        ), f"No checkpoints found in {classifier_config.checkpoint_workspace.output_checkpoint_paths}"
+        assert classifier_checkpoint < len(
+            output_checkpoint_paths
+        ), f"Requested checkpoint {classifier_checkpoint} does not exist in {classifier_config.checkpoint_workspace.output_checkpoint_paths}"
+        checkpoint_path = output_checkpoint_paths[classifier_checkpoint]
+
+        checkpoint = torch.load(checkpoint_path)
+        classifier.load_state_dict(checkpoint["classifier"])
+        classifier.load_state_dict(torch.load(checkpoint_path)["classifier"])
+
+        if progress is not None and task is not None:
+            progress.update(task, advance=1)
+
+    if not isinstance(classifier, Simple_CNN_LSTM_Classifier):
+        classifier.eval()  # weird LSTM thing where cudnn hasn't implemented the backwards pass in eval (??)
+    return classifier
 
 
 class IndexingDataset(torch.utils.data.Dataset):

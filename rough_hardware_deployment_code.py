@@ -387,7 +387,7 @@ def rough_hardware_deployment_code(args: Args) -> None:
             print(f"Grasp {i} is infeasible")
             continue
 
-        ALBERT_execute_grasp(X_W_H=X_W_H, joint_angles=joint_angles, mesh_W=mesh_W)
+        ALBERT_execute_grasp(X_W_H=X_W_H, joint_angles=joint_angles, target_joint_angles=target_joint_angles, mesh_W=mesh_W)
 
 
 def main() -> None:

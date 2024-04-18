@@ -52,9 +52,18 @@ class Classifier(nn.Module):
         assert_equals(passed_task_probs.shape, (batch_data_input.batch_size, n_tasks))
 
         # HACK: Modify to either be product or not
-        # passed_all_probs = passed_task_probs[:, 0]
-        passed_all_probs = passed_task_probs[:, -1]
-        # passed_all_probs = torch.prod(passed_task_probs, dim=-1)
+        # BRITTLE IDXING
+        MODE = "PASSED_SIM"
+        if MODE == "PRODUCT":
+            passed_all_probs = torch.prod(passed_task_probs, dim=-1)
+        elif MODE == "PASSED_SIM":
+            PASSED_SIM_IDX = 0
+            passed_all_probs = passed_task_probs[:, PASSED_SIM_IDX]
+        elif MODE == "PASSED_EVAL":
+            PASSED_EVAL_IDX = -1
+            passed_all_probs = passed_task_probs[:, PASSED_EVAL_IDX]
+        else:
+            raise ValueError(f"Invalid MODE: {MODE}")
         assert_equals(passed_all_probs.shape, (batch_data_input.batch_size,))
 
         # Return failure probabilities (as loss).

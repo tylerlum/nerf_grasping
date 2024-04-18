@@ -7,7 +7,12 @@ import json
 import pathlib
 import copy
 import subprocess
-from nerf_grasping.grasp_utils import load_nerf_field, get_nerf_configs, get_ray_samples, get_ray_origins_finger_frame
+from nerf_grasping.grasp_utils import (
+    load_nerf_field,
+    get_nerf_configs,
+    get_ray_samples,
+    get_ray_origins_finger_frame,
+)
 import matplotlib.pyplot as plt
 import plotly.graph_objects as go
 import trimesh
@@ -30,7 +35,9 @@ from nerf_grasping.optimizer_utils import (
 NUM_FINGERS = 4
 
 # %%
-experiment_folder = pathlib.Path("/juno/u/tylerlum/github_repos/nerf_grasping/experiments/2024-04-16_DEBUG")
+experiment_folder = pathlib.Path(
+    "/juno/u/tylerlum/github_repos/nerf_grasping/experiments/2024-04-16_DEBUG"
+)
 object_name = "sem-Vase-3a275e00d69810c62600e861c93ad9cc_0_0846"
 assert experiment_folder.exists()
 
@@ -38,7 +45,9 @@ assert experiment_folder.exists()
 nerfdata_folder = experiment_folder / "nerfdata" / object_name
 nerf_to_mesh_obj = experiment_folder / "nerf_to_mesh" / f"{object_name}.obj"
 nerfcheckpoint_folder = experiment_folder / "nerfcheckpoints" / object_name
-optimized_grasps_file = experiment_folder / "optimized_grasp_config_dicts" / f"{object_name}.npy"
+optimized_grasps_file = (
+    experiment_folder / "optimized_grasp_config_dicts" / f"{object_name}.npy"
+)
 assert nerfdata_folder.exists()
 assert nerf_to_mesh_obj.exists()
 assert nerfcheckpoint_folder.exists()
@@ -58,6 +67,7 @@ axs = axs.flatten()
 axs[0].imshow(plt.imread(nerfdata_images[0]))
 axs[1].imshow(plt.imread(nerfdata_images[-1]))
 
+
 # %%
 def transform_point(transform_matrix, point):
     point = np.append(point, 1)
@@ -75,7 +85,11 @@ def add_transform_matrix_traces(fig, transform_matrix, length=0.1):
     y_axis_transformed = transform_point(transform_matrix, y_axis)
     z_axis_transformed = transform_point(transform_matrix, z_axis)
 
-    for axis, color, name in zip([x_axis_transformed, y_axis_transformed, z_axis_transformed], ["red", "green", "blue"], ["x", "y", "z"]):
+    for axis, color, name in zip(
+        [x_axis_transformed, y_axis_transformed, z_axis_transformed],
+        ["red", "green", "blue"],
+        ["x", "y", "z"],
+    ):
         fig.add_trace(
             go.Scatter3d(
                 x=[origin_transformed[0], axis[0]],
@@ -86,6 +100,7 @@ def add_transform_matrix_traces(fig, transform_matrix, length=0.1):
                 name=name,
             )
         )
+
 
 # %%
 mesh = trimesh.load_mesh(nerf_to_mesh_obj)
@@ -270,9 +285,7 @@ fig.show()
 
 # %%
 evaled_grasp_config_dict = np.load(optimized_grasps_file, allow_pickle=True).item()
-grasp_configs = AllegroGraspConfig.from_grasp_config_dict(
-    evaled_grasp_config_dict
-)
+grasp_configs = AllegroGraspConfig.from_grasp_config_dict(evaled_grasp_config_dict)
 grasp_frame_transforms = grasp_configs.grasp_frame_transforms
 loss = evaled_grasp_config_dict["loss"]
 print(f"Loss: {loss}")
@@ -288,7 +301,9 @@ grasp_frame_transform_matrices.shape, grasp_frame_transform_matrices.device
 
 # %%
 GRASP_IDX = 0
-grasp_frame_transform_matrices_np = grasp_frame_transform_matrices.detach().cpu().numpy()[GRASP_IDX]
+grasp_frame_transform_matrices_np = (
+    grasp_frame_transform_matrices.detach().cpu().numpy()[GRASP_IDX]
+)
 
 # %%
 grasp_frame_transform_matrices_np.shape
@@ -297,7 +312,12 @@ grasp_frame_transform_matrices_np.shape
 # %%
 fig = plot_mesh_and_transforms(
     mesh=mesh_Oy,
-    transforms=[grasp_frame_transform_matrices_np[0], grasp_frame_transform_matrices_np[1], grasp_frame_transform_matrices_np[2], grasp_frame_transform_matrices_np[3]],
+    transforms=[
+        grasp_frame_transform_matrices_np[0],
+        grasp_frame_transform_matrices_np[1],
+        grasp_frame_transform_matrices_np[2],
+        grasp_frame_transform_matrices_np[3],
+    ],
     num_fingers=NUM_FINGERS,
     title="Mesh and Transforms",
     highlight_idx=0,
@@ -307,7 +327,9 @@ add_transform_matrix_traces(fig, np.eye(4))
 fig.show()
 
 # %%
-classifier_config_path = pathlib.Path("/juno/u/tylerlum/github_repos/nerf_grasping/Train_DexGraspNet_NeRF_Grasp_Metric_workspaces/1700rotated_augmented_pose_HALTON_50_cnn-3d-xyz_l2_all_2024-04-10_10-14-17-971253/config.yaml")
+classifier_config_path = pathlib.Path(
+    "/juno/u/tylerlum/github_repos/nerf_grasping/Train_DexGraspNet_NeRF_Grasp_Metric_workspaces/1700rotated_augmented_pose_HALTON_50_cnn-3d-xyz_l2_all_2024-04-10_10-14-17-971253/config.yaml"
+)
 classifier_config = tyro.extras.from_yaml(
     ClassifierConfig, classifier_config_path.open()
 )
@@ -331,7 +353,9 @@ query_points.shape, densities.shape
 
 # %%
 num_pts_x, num_pts_y, num_pts_z = densities.shape[-3:]
-query_points_np = query_points[GRASP_IDX].reshape(NUM_FINGERS, -1, 3).detach().cpu().numpy()
+query_points_np = (
+    query_points[GRASP_IDX].reshape(NUM_FINGERS, -1, 3).detach().cpu().numpy()
+)
 densities_np = densities[GRASP_IDX].reshape(NUM_FINGERS, -1).detach().cpu().numpy()
 
 # %%
@@ -340,14 +364,25 @@ query_points_np.shape, densities_np.shape
 # %%
 fig = plot_mesh_and_query_points(
     mesh=mesh,
-    query_points_list=[query_points_np[0], query_points_np[1], query_points_np[2], query_points_np[3]],
-    query_points_colors_list=[densities_np[0], densities_np[1], densities_np[2], densities_np[3]],
+    query_points_list=[
+        query_points_np[0],
+        query_points_np[1],
+        query_points_np[2],
+        query_points_np[3],
+    ],
+    query_points_colors_list=[
+        densities_np[0],
+        densities_np[1],
+        densities_np[2],
+        densities_np[3],
+    ],
     num_fingers=NUM_FINGERS,
     title="Mesh and Query Points",
 )
 add_transform_matrix_traces(fig, np.eye(4))
 fig.update_layout(title="N frame")
 fig.show()
+
 
 # %%
 def transform_points(transform_matrix: np.ndarray, points: np.ndarray) -> np.ndarray:
@@ -358,13 +393,21 @@ def transform_points(transform_matrix: np.ndarray, points: np.ndarray) -> np.nda
     transformed_points = transformed_points_H[..., :3]
     return transformed_points
 
+
 fig = plot_mesh_and_query_points(
     mesh=mesh_Oy,
-    query_points_list=[transform_points( X_Oy_N, query_points_np[0]),
-                          transform_points( X_Oy_N, query_points_np[1]),
-                          transform_points( X_Oy_N, query_points_np[2]),
-                          transform_points( X_Oy_N, query_points_np[3])],
-    query_points_colors_list=[densities_np[0], densities_np[1], densities_np[2], densities_np[3]],
+    query_points_list=[
+        transform_points(X_Oy_N, query_points_np[0]),
+        transform_points(X_Oy_N, query_points_np[1]),
+        transform_points(X_Oy_N, query_points_np[2]),
+        transform_points(X_Oy_N, query_points_np[3]),
+    ],
+    query_points_colors_list=[
+        densities_np[0],
+        densities_np[1],
+        densities_np[2],
+        densities_np[3],
+    ],
     num_fingers=NUM_FINGERS,
     title="Mesh and Query Points",
 )
@@ -375,7 +418,9 @@ fig.show()
 # %%
 
 delta = (
-    classifier_config.nerfdata_config.fingertip_config.grasp_depth_mm / 1000 / (classifier_config.nerfdata_config.fingertip_config.num_pts_z - 1)
+    classifier_config.nerfdata_config.fingertip_config.grasp_depth_mm
+    / 1000
+    / (classifier_config.nerfdata_config.fingertip_config.num_pts_z - 1)
 )
 nrows, ncols = NUM_FINGERS, 1
 fig4, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=(10, 10))
@@ -383,11 +428,14 @@ fig4, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=(10, 10))
 axes = axes.flatten()
 for i in range(nrows):
     ax = axes[i]
-    finger_alphas = 1 - np.exp(-delta * densities_np[i].reshape(
-        classifier_config.nerfdata_config.fingertip_config.num_pts_x,
-        classifier_config.nerfdata_config.fingertip_config.num_pts_y,
-        classifier_config.nerfdata_config.fingertip_config.num_pts_z,
-    ))
+    finger_alphas = 1 - np.exp(
+        -delta
+        * densities_np[i].reshape(
+            classifier_config.nerfdata_config.fingertip_config.num_pts_x,
+            classifier_config.nerfdata_config.fingertip_config.num_pts_y,
+            classifier_config.nerfdata_config.fingertip_config.num_pts_z,
+        )
+    )
     finger_alphas_maxes = np.max(finger_alphas, axis=(0, 1))
     finger_alphas_means = np.mean(finger_alphas, axis=(0, 1))
     ax.plot(finger_alphas_maxes, label="max")
@@ -400,7 +448,7 @@ for i in range(nrows):
 fig4.tight_layout()
 fig4.show()
 
-#%%
+# %%
 num_images = 5
 nrows, ncols = NUM_FINGERS, num_images
 fig5, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=(10, 10))

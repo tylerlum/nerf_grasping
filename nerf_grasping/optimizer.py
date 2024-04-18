@@ -464,7 +464,7 @@ def get_optimized_grasps(
         all_grasp_configs = []
         all_predicted_in_collision = []
         with torch.no_grad():
-            N_SAMPLES = 10
+            N_SAMPLES = 1
             for i in range(N_SAMPLES):
                 temp_preds = []
 
@@ -530,13 +530,17 @@ def get_optimized_grasps(
                 all_grasp_configs.batch_size
                 == original_grasp_configs.batch_size * N_SAMPLES
             )
-            new_all_preds = np.where(
-                all_predicted_in_collision,
-                np.zeros_like(all_preds),
-                all_preds,
-            )
+            CHECK_COLLISION = True
+            if CHECK_COLLISION:
+                new_all_preds = np.where(
+                    all_predicted_in_collision,
+                    np.zeros_like(all_preds),
+                    all_preds,
+                )
+            else:
+                new_all_preds = all_preds
             ordered_idxs_best_first = np.argsort(new_all_preds)[::-1].copy()
-            # breakpoint()  # TODO: Debug here
+            breakpoint()  # TODO: Debug here
             all_grasp_configs = all_grasp_configs[ordered_idxs_best_first]
     init_grasp_configs = all_grasp_configs[: cfg.optimizer.num_grasps]
 

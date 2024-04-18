@@ -6,6 +6,8 @@ from nerf_grasping.optimizer_utils import (
     GraspMetric,
     DepthImageGraspMetric,
     predict_in_collision_with_object,
+    predict_in_collision_with_table,
+    get_hand_surface_points_Oy,
 )
 from dataclasses import asdict
 from nerf_grasping.config.optimization_config import OptimizationConfig
@@ -458,63 +460,116 @@ def get_optimized_grasps(
 
     GET_BEST_GRASPS = True
     if GET_BEST_GRASPS:
+        IS_REAL_WORLD = True
+        if IS_REAL_WORLD:
+            print("Assuming table is at z = 0 in nerf frame")
+            table_y_Oy = -grasp_metric.X_N_Oy[2, 3]
+        else:
+            print("Using ground truth table mesh to get table height")
+            # If in sim, assume it is a parsable object_code_and_scale_str that we can get ground truth mesh of to get the table height
+            # This isn't cheating because in real world we would know the table height in advance
+            import trimesh
+            from nerf_grasping.dataset.DexGraspNet_NeRF_Grasps_utils import (
+                parse_object_code_and_scale,
+            )
+            try:
+                object_code, object_scale = parse_object_code_and_scale(cfg.grasp_metric.object_name)
+                meshdata_folder = pathlib.Path("/juno/u/tylerlum/github_repos/DexGraspNet/data/rotated_meshdata")
+                assert meshdata_folder.exists(), f"{meshdata_folder} does not exist"
+                true_mesh_Oy = trimesh.load(meshdata_folder / object_code / "coacd" / "decomposed.obj")
+                true_mesh_Oy.apply_scale(object_scale)
+            except Exception as e:
+                print(f"ERROR: {e}")
+                raise NotImplementedError("Need to implement this")
+            true_mesh_Oy_min_bounds, _ = true_mesh_Oy.bounds
+            _, true_mesh_Oy_min_y, _ = true_mesh_Oy_min_bounds
+            table_y_Oy = true_mesh_Oy_min_y
+        print(f"table_y_Oy: {table_y_Oy}")
+
+
         BATCH_SIZE = 64
         n_batches = init_grasp_configs.batch_size // BATCH_SIZE
         all_preds = []
         all_grasp_configs = []
-        all_predicted_in_collision = []
+        all_predicted_in_collision_object = []
+        all_predicted_in_collision_table = []
         with torch.no_grad():
-            N_SAMPLES = 10
+            N_SAMPLES = 5
             for i in range(N_SAMPLES):
                 temp_preds = []
 
-                original_grasp_configs = AllegroGraspConfig.from_grasp_config_dict(
+                new_grasp_configs = AllegroGraspConfig.from_grasp_config_dict(
                     init_grasp_config_dict
                 )
                 if i != 0:
                     random_rotate_transforms = (
                         sample_random_rotate_transforms_only_around_y(
-                            original_grasp_configs.batch_size
+                            new_grasp_configs.batch_size
                         )
                     )
-                    original_grasp_configs.hand_config.set_wrist_pose(
+                    new_grasp_configs.hand_config.set_wrist_pose(
                         random_rotate_transforms
-                        @ original_grasp_configs.hand_config.wrist_pose
+                        @ new_grasp_configs.hand_config.wrist_pose
                     )
 
                 for batch_i in tqdm(range(n_batches)):
                     preds = grasp_metric.get_failure_probability(
-                        original_grasp_configs[
+                        new_grasp_configs[
                             batch_i * BATCH_SIZE : (batch_i + 1) * BATCH_SIZE
                         ].to(device=device)
                     )
                     temp_preds.append(1 - preds.detach().cpu().numpy())
-                if n_batches * BATCH_SIZE < original_grasp_configs.batch_size:
+                if n_batches * BATCH_SIZE < new_grasp_configs.batch_size:
                     preds = grasp_metric.get_failure_probability(
-                        original_grasp_configs[n_batches * BATCH_SIZE :].to(
-                            device=device
-                        )
+                        new_grasp_configs[n_batches * BATCH_SIZE :].to(device=device)
                     )
                     temp_preds.append(1 - preds.detach().cpu().numpy())
-                all_grasp_configs.append(original_grasp_configs)
+                all_grasp_configs.append(new_grasp_configs)
                 all_preds.append(np.concatenate(temp_preds, axis=0))
 
-                predicted_in_collision = predict_in_collision_with_object(
-                    nerf_field=grasp_metric.nerf_field,
-                    grasp_config=original_grasp_configs.to(device),
+                # Check if the hand is in collision with the object or table
+                hand_surface_points_Oy = get_hand_surface_points_Oy(
+                    grasp_config=new_grasp_configs.to(device),
                 )
-                all_predicted_in_collision.append(predicted_in_collision)
+
+                predicted_in_collision_object = predict_in_collision_with_object(
+                    nerf_field=grasp_metric.nerf_field,
+                    hand_surface_points_Oy=hand_surface_points_Oy,
+                    X_N_Oy=grasp_metric.X_N_Oy,
+                )
+                predicted_in_collision_table = predict_in_collision_with_table(
+                    table_y_Oy=table_y_Oy,
+                    hand_surface_points_Oy=hand_surface_points_Oy,
+                )
+
+                all_predicted_in_collision_object.append(predicted_in_collision_object)
+                all_predicted_in_collision_table.append(predicted_in_collision_table)
 
             all_preds = np.array(all_preds)
-            assert all_preds.shape == (N_SAMPLES, original_grasp_configs.batch_size)
+            assert all_preds.shape == (N_SAMPLES, new_grasp_configs.batch_size)
             all_preds = all_preds.reshape(-1)
 
-            all_predicted_in_collision = np.array(all_predicted_in_collision)
-            assert all_predicted_in_collision.shape == (
-                N_SAMPLES,
-                original_grasp_configs.batch_size,
+            all_predicted_in_collision_object = np.array(
+                all_predicted_in_collision_object
             )
-            all_predicted_in_collision = all_predicted_in_collision.reshape(-1)
+            assert all_predicted_in_collision_object.shape == (
+                N_SAMPLES,
+                new_grasp_configs.batch_size,
+            )
+            all_predicted_in_collision_object = (
+                all_predicted_in_collision_object.reshape(-1)
+            )
+
+            all_predicted_in_collision_table = np.array(
+                all_predicted_in_collision_table
+            )
+            assert all_predicted_in_collision_table.shape == (
+                N_SAMPLES,
+                new_grasp_configs.batch_size,
+            )
+            all_predicted_in_collision_table = all_predicted_in_collision_table.reshape(
+                -1
+            )
 
             all_grasp_config_dicts = defaultdict(list)
             for i in range(N_SAMPLES):
@@ -527,14 +582,21 @@ def get_optimized_grasps(
                 all_grasp_config_dicts
             )
             assert (
-                all_grasp_configs.batch_size
-                == original_grasp_configs.batch_size * N_SAMPLES
+                all_grasp_configs.batch_size == new_grasp_configs.batch_size * N_SAMPLES
             )
-            new_all_preds = np.where(
-                all_predicted_in_collision,
-                np.zeros_like(all_preds),
-                all_preds,
-            )
+
+            USE_PREDICTED_COLLISIONS = False
+            if USE_PREDICTED_COLLISIONS:
+                new_all_preds = np.where(
+                    np.logical_or(
+                        all_predicted_in_collision_object,
+                        all_predicted_in_collision_table,
+                    ),
+                    np.zeros_like(all_preds),
+                    all_preds,
+                )
+            else:
+                new_all_preds = all_preds
             ordered_idxs_best_first = np.argsort(new_all_preds)[::-1].copy()
             # breakpoint()  # TODO: Debug here
             all_grasp_configs = all_grasp_configs[ordered_idxs_best_first]

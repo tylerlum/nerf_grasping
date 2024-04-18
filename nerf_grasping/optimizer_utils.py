@@ -1038,9 +1038,80 @@ def load_depth_image_classifier(
     return classifier
 
 
+def transform_points(T: np.ndarray, points: torch.Tensor) -> torch.Tensor:
+    """
+    Transform points by a homogeneous transformation matrix.
+    """
+    assert T.shape == (4, 4)
+    assert points.shape[-1] == 3
+
+    T = torch.from_numpy(T).to(points.device, points.dtype)
+
+    orig_shape = points.shape
+    points = points.reshape(-1, 3)
+    n_pts = points.shape[0]
+
+    points_h = torch.cat(
+        [points, torch.ones(n_pts, 1, device=points.device, dtype=points.dtype)], dim=1
+    )  # shape [N, 4]
+
+    new_points = (T @ points_h.T).T[:, :3]
+    assert new_points.shape == (n_pts, 3)
+    return new_points.reshape(orig_shape)
+
 def predict_in_collision_with_object(
     nerf_field: Field,
+    hand_surface_points_Oy: torch.Tensor,
+    X_N_Oy: np.ndarray,
+    max_density_threshold: float = 8.5,
+) -> np.ndarray:
+    from nerf_grasping.nerf_utils import (
+        get_density,
+    )
+    assert hand_surface_points_Oy.shape[-1] == 3
+    assert X_N_Oy.shape == (4, 4)
+    num_grasps, num_points_per_grasp, _ = hand_surface_points_Oy.shape
+
+    hand_surface_points_N = transform_points(T=X_N_Oy, points=hand_surface_points_Oy)
+
+    densities = (
+        get_density(
+            field=nerf_field,
+            positions=hand_surface_points_N,
+        )[0]
+        .squeeze(dim=-1)
+        .detach()
+        .cpu()
+        .numpy()
+    )
+    assert densities.shape == (num_grasps, num_points_per_grasp)
+    max_densities = densities.max(axis=-1)
+
+    predict_penetrations = max_densities > max_density_threshold
+    assert predict_penetrations.shape == (num_grasps,)
+    return predict_penetrations
+
+
+def predict_in_collision_with_table(
+    table_y_Oy: float,
+    hand_surface_points_Oy: torch.Tensor,
+    buffer: float = 0.0,
+) -> np.ndarray:
+    assert hand_surface_points_Oy.shape[-1] == 3
+    num_grasps, num_points_per_grasp, _ = hand_surface_points_Oy.shape
+
+    hand_surface_points_Oy = hand_surface_points_Oy.detach().cpu().numpy()
+
+    predict_penetrations = hand_surface_points_Oy[..., 1].min(
+        axis=-1
+    ) < table_y_Oy + buffer
+    assert predict_penetrations.shape == (num_grasps,)
+    return predict_penetrations
+
+
+def get_hand_surface_points_Oy(
     grasp_config: AllegroGraspConfig,
+    n_surface_points: int = 1000,
 ) -> torch.Tensor:
     from nerf_grasping.dexgraspnet_utils.hand_model import HandModel
     from nerf_grasping.dexgraspnet_utils.hand_model_type import (
@@ -1049,13 +1120,6 @@ def predict_in_collision_with_object(
     from nerf_grasping.dexgraspnet_utils.pose_conversion import (
         hand_config_to_pose,
     )
-    from nerf_grasping.nerf_utils import (
-        get_density,
-    )
-
-    N_SURFACE_POINTS = 1000
-    MAX_DENSITY_THRESHOLD = 8.5
-
     device = grasp_config.hand_config.wrist_pose.device
 
     translation = grasp_config.wrist_pose.translation().detach().cpu().numpy()
@@ -1065,28 +1129,13 @@ def predict_in_collision_with_object(
     hand_model = HandModel(
         hand_model_type=hand_model_type,
         device=device,
-        n_surface_points=N_SURFACE_POINTS,
+        n_surface_points=n_surface_points,
     )
     hand_pose = hand_config_to_pose(translation, rotation, joint_angles).to(device)
     hand_model.set_parameters(hand_pose)
     surface_points = hand_model.get_surface_points()
-    assert surface_points.shape == (grasp_config.batch_size, N_SURFACE_POINTS, 3)
-
-    densities = (
-        get_density(
-            field=nerf_field,
-            positions=surface_points,
-        )[0]
-        .squeeze(dim=-1)
-        .detach()
-        .cpu()
-        .numpy()
-    )
-    assert densities.shape == (grasp_config.batch_size, N_SURFACE_POINTS)
-    max_densities = densities.max(axis=-1)
-
-    predict_penetrations = max_densities > MAX_DENSITY_THRESHOLD
-    return predict_penetrations
+    assert surface_points.shape == (grasp_config.batch_size, n_surface_points, 3)
+    return surface_points
 
 
 class IndexingDataset(torch.utils.data.Dataset):

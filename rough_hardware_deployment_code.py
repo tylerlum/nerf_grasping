@@ -6,6 +6,9 @@ from nerf_grasping.optimizer_utils import (
     load_classifier,
     load_depth_image_classifier,
 )
+from nerf_grasping.dataset.DexGraspNet_NeRF_Grasps_utils import (
+    parse_object_code_and_scale,
+)
 from nerf_grasping.config.nerfdata_config import DepthImageNerfDataConfig
 from nerf_grasping.config.optimization_config import OptimizationConfig
 from nerf_grasping.config.optimizer_config import SGDOptimizerConfig
@@ -96,6 +99,32 @@ def add_transform_matrix_traces(
         )
 
 
+def get_hacky_table_mesh(table_y_Oy: float, W: float = 0.5, H: float = 0.5) -> trimesh.Trimesh:
+    table_pos_Oy = np.array([0, table_y_Oy, 0])
+    table_normal_Oy = np.array([0, 1, 0])
+    table_parallel_Oy = np.array([1, 0, 0])
+    assert table_pos_Oy.shape == table_normal_Oy.shape == (3,)
+
+    table_parallel_2_Oy = np.cross(table_normal_Oy, table_parallel_Oy)
+    corner1 = table_pos_Oy + W / 2 * table_parallel_Oy + H / 2 * table_parallel_2_Oy
+    corner2 = table_pos_Oy + W / 2 * table_parallel_Oy - H / 2 * table_parallel_2_Oy
+    corner3 = table_pos_Oy - W / 2 * table_parallel_Oy + H / 2 * table_parallel_2_Oy
+    corner4 = table_pos_Oy - W / 2 * table_parallel_Oy - H / 2 * table_parallel_2_Oy
+
+    x = np.array([corner1[0], corner2[0], corner3[0], corner4[0]])
+    y = np.array([corner1[1], corner2[1], corner3[1], corner4[1]])
+    z = np.array([corner1[2], corner2[2], corner3[2], corner4[2]])
+
+    i = [0, 0, 1]
+    j = [1, 2, 2]
+    k = [2, 3, 3]
+
+    table_mesh = trimesh.Trimesh(
+        vertices=np.stack([x, y, z], axis=1), faces=np.stack([i, j, k], axis=1)
+    )
+    return table_mesh
+
+
 def rough_hardware_deployment_code(args: Args) -> None:
     print("=" * 80)
     print("Step 0: Figuring out frames")
@@ -112,9 +141,7 @@ def rough_hardware_deployment_code(args: Args) -> None:
 
     if args.is_real_world:
         # Z-up
-        X_O_Oy = trimesh.transformations.rotation_matrix(
-            np.pi / 2, [1, 0, 0]
-        )
+        X_O_Oy = trimesh.transformations.rotation_matrix(np.pi / 2, [1, 0, 0])
         lb_N = np.array([-0.25, -0.25, 0.0])
         ub_N = np.array([0.25, 0.25, 0.5])
     else:
@@ -122,9 +149,7 @@ def rough_hardware_deployment_code(args: Args) -> None:
         if IS_Y_UP:
             X_O_Oy = np.eye(4)
         else:
-            X_O_Oy = trimesh.transformations.rotation_matrix(
-                np.pi / 2, [1, 0, 0]
-            )
+            X_O_Oy = trimesh.transformations.rotation_matrix(np.pi / 2, [1, 0, 0])
         lb_N = np.array([-0.25, -0.25, -0.25])
         ub_N = np.array([0.25, 0.25, 0.25])
 
@@ -144,12 +169,12 @@ def rough_hardware_deployment_code(args: Args) -> None:
         ), f"{object_nerfdata_folder} does not exist"
     else:
         print(f"{object_nerfdata_folder} already exists, skipping data collection")
-    assert (object_nerfdata_folder / "transforms.json").exists(), (
-        f"{object_nerfdata_folder / 'transforms.json'} does not exist"
-    )
-    assert (object_nerfdata_folder / "images").exists(), (
-        f"{object_nerfdata_folder / 'images'} does not exist"
-    )
+    assert (
+        object_nerfdata_folder / "transforms.json"
+    ).exists(), f"{object_nerfdata_folder / 'transforms.json'} does not exist"
+    assert (
+        object_nerfdata_folder / "images"
+    ).exists(), f"{object_nerfdata_folder / 'images'} does not exist"
 
     print("\n" + "=" * 80)
     print("Step 2: Train NERF")
@@ -211,9 +236,34 @@ def rough_hardware_deployment_code(args: Args) -> None:
     mesh_Oy.apply_transform(X_Oy_N)
     nerf_to_mesh_Oy_folder = experiment_folder / "nerf_to_mesh_Oy"
     nerf_to_mesh_Oy_folder.mkdir(parents=True, exist_ok=True)
-    mesh_Oy.export(nerf_to_mesh_Oy_folder / f"{args.object_name}.obj",)
+    mesh_Oy.export(
+        nerf_to_mesh_Oy_folder / f"{args.object_name}.obj",
+    )
     mesh_centroid_Oy = transform_point(X_Oy_N, centroid_N)
     nerf_centroid_Oy = transform_point(X_Oy_N, centroid_N)
+
+    if args.is_real_world:
+        print("Assuming table is at z = 0 in nerf frame")
+        _, _, centroid_z_N = centroid_N
+        table_y_Oy = -centroid_z_N
+    else:
+        print("Using ground truth table mesh bounding box min y to get table height")
+        # If in sim, assume it is a parsable object_code_and_scale_str that we can get ground truth mesh of to get the table height
+        # This isn't cheating because in real world we would know the table height in advance
+        try:
+            object_code, object_scale = parse_object_code_and_scale(args.object_name)
+            meshdata_folder = pathlib.Path("/juno/u/tylerlum/github_repos/DexGraspNet/data/rotated_meshdata")
+            assert meshdata_folder.exists(), f"{meshdata_folder} does not exist"
+            true_mesh_Oy = trimesh.load(meshdata_folder / object_code / "coacd" / "decomposed.obj")
+            true_mesh_Oy.apply_scale(object_scale)
+        except Exception as e:
+            print(f"ERROR: {e}")
+            print("Using nerf mesh as ground truth table mesh")
+            true_mesh_Oy = mesh_Oy
+        true_mesh_Oy_min_bounds, _ = true_mesh_Oy.bounds
+        _, true_mesh_Oy_min_y, _ = true_mesh_Oy_min_bounds
+        table_y_Oy = true_mesh_Oy_min_y
+    print(f"table_y_Oy: {table_y_Oy}")
 
     VISUALIZE = True
     if VISUALIZE:
@@ -293,6 +343,22 @@ def rough_hardware_deployment_code(args: Args) -> None:
         )
         fig_Oy.update_layout(title="Mesh in object y-up frame")
         add_transform_matrix_traces(fig=fig_Oy, transform_matrix=np.eye(4), length=0.1)
+
+        table_mesh_Oy = get_hacky_table_mesh(table_y_Oy)
+        table_vertices = table_mesh_Oy.vertices
+        fig_Oy.add_trace(
+            go.Mesh3d(
+                x=table_vertices[:, 0],
+                y=table_vertices[:, 1],
+                z=table_vertices[:, 2],
+                i=table_mesh_Oy.faces[:, 0],
+                j=table_mesh_Oy.faces[:, 1],
+                k=table_mesh_Oy.faces[:, 2],
+                color="green",
+                opacity=0.1,
+                name="table",
+            )
+        )
         fig_Oy.show()
 
     print("\n" + "=" * 80)
@@ -382,11 +448,18 @@ def rough_hardware_deployment_code(args: Args) -> None:
 
         X_W_H = X_W_N @ X_N_Oy @ X_Oy_H
 
-        if not ALBERT_is_feasible(X_W_H=X_W_H, joint_angles=joint_angles, mesh_W=mesh_W):
+        if not ALBERT_is_feasible(
+            X_W_H=X_W_H, joint_angles=joint_angles, mesh_W=mesh_W
+        ):
             print(f"Grasp {i} is infeasible")
             continue
 
-        ALBERT_execute_grasp(X_W_H=X_W_H, joint_angles=joint_angles, target_joint_angles=target_joint_angles, mesh_W=mesh_W)
+        ALBERT_execute_grasp(
+            X_W_H=X_W_H,
+            joint_angles=joint_angles,
+            target_joint_angles=target_joint_angles,
+            mesh_W=mesh_W,
+        )
 
 
 def main() -> None:

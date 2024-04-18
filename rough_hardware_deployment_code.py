@@ -158,7 +158,6 @@ def rough_hardware_deployment_code(args: Args) -> None:
         args=train_nerfs_return_trainer.Args(
             nerfdata_folder=object_nerfdata_folder,
             nerfcheckpoints_folder=experiment_folder / "nerfcheckpoints",
-            is_real_world=args.is_real_world,
         )
     )
     nerf_model = nerf_trainer.pipeline.model

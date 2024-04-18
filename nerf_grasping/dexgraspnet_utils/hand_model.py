@@ -13,8 +13,6 @@ import torch
 from nerf_grasping.dexgraspnet_utils.rot6d import robust_compute_rotation_matrix_from_ortho6d
 import pytorch_kinematics as pk
 import plotly.graph_objects as go
-# import pytorch3d.structures
-# import pytorch3d.ops
 import trimesh as tm
 # from torchsdf import index_vertices_by_faces, compute_sdf
 
@@ -445,18 +443,21 @@ class HandModel:
                     [], dtype=torch.float, device=device
                 ).reshape(0, 3)
                 continue
-            # mesh = pytorch3d.structures.Meshes(
-            #     self.mesh[link_name]["vertices"].unsqueeze(0),
-            #     self.mesh[link_name]["faces"].unsqueeze(0),
-            # )
-            # dense_point_cloud = pytorch3d.ops.sample_points_from_meshes(
-            #     mesh, num_samples=100 * num_samples[link_name]
-            # )
-            # surface_points = pytorch3d.ops.sample_farthest_points(
-            #     dense_point_cloud, K=num_samples[link_name]
-            # )[0][0]
-            # surface_points.to(dtype=float, device=device)
-            # self.mesh[link_name]["surface_points"] = surface_points
+            import pytorch3d.structures
+            import pytorch3d.ops
+
+            mesh = pytorch3d.structures.Meshes(
+                self.mesh[link_name]["vertices"].unsqueeze(0),
+                self.mesh[link_name]["faces"].unsqueeze(0),
+            )
+            dense_point_cloud = pytorch3d.ops.sample_points_from_meshes(
+                mesh, num_samples=100 * num_samples[link_name]
+            )
+            surface_points = pytorch3d.ops.sample_farthest_points(
+                dense_point_cloud, K=num_samples[link_name]
+            )[0][0]
+            surface_points.to(dtype=float, device=device)
+            self.mesh[link_name]["surface_points"] = surface_points
 
     def sample_contact_points(self, total_batch_size: int, n_contacts_per_finger: int):
         # Ensure that each finger gets sampled at least once

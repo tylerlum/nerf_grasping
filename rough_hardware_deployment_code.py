@@ -137,6 +137,7 @@ def rough_hardware_deployment_code(args: Args) -> None:
     print("=" * 80 + "\n")
     object_nerfdata_folder = experiment_folder / "nerfdata" / args.object_name
     if not object_nerfdata_folder.exists():
+        assert args.is_real_world, "NeRF data must be collected in the real world"
         object_nerfdata_folder.mkdir(parents=True)
         ALBERT_run_hardware_nerf_data_collection(object_nerfdata_folder)
         assert (
@@ -177,7 +178,7 @@ def rough_hardware_deployment_code(args: Args) -> None:
         lb=lb_N,
         ub=ub_N,
         save_path=nerf_to_mesh_folder / f"{args.object_name}.obj",
-    )  # TODO: Maybe tune other default params, but prefer not to need to
+    )
 
     print("\n" + "=" * 80)
     print(
@@ -371,22 +372,26 @@ def rough_hardware_deployment_code(args: Args) -> None:
     print("\n" + "=" * 80)
     print("Step 8: Execute best grasps")
     print("=" * 80 + "\n")
-    mesh_W = trimesh.Trimesh(vertices=mesh_N.vertices, faces=mesh_N.faces)
-    mesh_W.apply_transform(X_W_N)
-    for i in range(num_grasps):
-        print(f"Trying grasp {i} / {num_grasps}")
+    if args.is_real_world:
+        mesh_W = trimesh.Trimesh(vertices=mesh_N.vertices, faces=mesh_N.faces)
+        mesh_W.apply_transform(X_W_N)
+        for i in range(num_grasps):
+            print(f"Trying grasp {i} / {num_grasps}")
 
-        X_Oy_H = X_Oy_H_array[i]
-        joint_angles = joint_angles_array[i]
-        target_joint_angles = target_joint_angles_array[i]
+            X_Oy_H = X_Oy_H_array[i]
+            joint_angles = joint_angles_array[i]
+            target_joint_angles = target_joint_angles_array[i]
 
-        X_W_H = X_W_N @ X_N_Oy @ X_Oy_H
+            X_W_H = X_W_N @ X_N_Oy @ X_Oy_H
 
-        if not ALBERT_is_feasible(X_W_H=X_W_H, joint_angles=joint_angles, mesh_W=mesh_W):
-            print(f"Grasp {i} is infeasible")
-            continue
+            if not ALBERT_is_feasible(X_W_H=X_W_H, joint_angles=joint_angles, mesh_W=mesh_W):
+                print(f"Grasp {i} is infeasible")
+                continue
 
-        ALBERT_execute_grasp(X_W_H=X_W_H, joint_angles=joint_angles, target_joint_angles=target_joint_angles, mesh_W=mesh_W)
+            ALBERT_execute_grasp(X_W_H=X_W_H, joint_angles=joint_angles, target_joint_angles=target_joint_angles, mesh_W=mesh_W)
+    else:
+        print("Skipping execution because is_real_world is False, evaluate with DexGraspNet sim using")
+        print(f"CUDA_VISIBLE_DEVICES=0 python scripts/eval_grasp_config_dict.py --hand_model_type ALLEGRO_HAND --validation_type GRAVITY_AND_TABLE --gpu 0 --meshdata_root_path ../data/rotated_meshdata --input_grasp_config_dicts_path {str(experiment_folder.absolute() / 'optimized_grasp_config_dicts')} --output_evaled_grasp_config_dicts_path {str(experiment_folder.absolute() / 'evaled_optimized_grasp_config_dicts')} --object_code_and_scale_str {args.object_name} --max_grasps_per_batch 5000 --num_random_pose_noise_samples_per_grasp 5")
 
 
 def main() -> None:

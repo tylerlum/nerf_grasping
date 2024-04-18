@@ -10,7 +10,6 @@ class Args:
     nerfdata_folder: pathlib.Path
     nerfcheckpoints_folder: pathlib.Path
     max_num_iterations: int = 200
-    is_real_world: bool = False
 
 
 def train_loop_return_trainer(
@@ -50,15 +49,10 @@ def train_nerf(
     config.max_num_iterations = args.max_num_iterations
     config.output_dir = args.nerfcheckpoints_folder
     config.vis = "wandb"
+
     config.pipeline.model.disable_scene_contraction = True
-    config.pipeline.model.background_color = (
-        "black" if not args.is_real_world else "last_sample"
-    )
     config.pipeline.datamanager.dataparser.auto_scale_poses = False
     config.pipeline.datamanager.dataparser.scale_factor = 1.0
-    config.pipeline.datamanager.dataparser.scene_scale = (
-        0.2 if not args.is_real_world else 1.0
-    )
     config.pipeline.datamanager.dataparser.center_method = "none"
     config.pipeline.datamanager.dataparser.orientation_method = "none"
 
@@ -81,7 +75,6 @@ def main() -> None:
         nerfcheckpoints_folder=pathlib.Path(
             "experiments/2024-04-15_DEBUG/nerfcheckpoints/"
         ),
-        is_real_world=False,
     )
     train_nerf(args)
 

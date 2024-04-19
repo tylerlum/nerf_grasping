@@ -1093,6 +1093,23 @@ def predict_in_collision_with_object(
     return predict_penetrations
 
 
+def predict_in_collision_with_table(
+    table_y_Oy: float,
+    hand_surface_points_Oy: torch.Tensor,
+    buffer: float = 0.02,
+) -> np.ndarray:
+    assert hand_surface_points_Oy.shape[-1] == 3
+    num_grasps, num_points_per_grasp, _ = hand_surface_points_Oy.shape
+
+    hand_surface_points_Oy = hand_surface_points_Oy.detach().cpu().numpy()
+
+    predict_penetrations = (
+        hand_surface_points_Oy[:, :, 1].min(axis=-1) < table_y_Oy + buffer
+    )
+    assert predict_penetrations.shape == (num_grasps,)
+    return predict_penetrations
+
+
 def get_hand_surface_points_Oy(
     grasp_config: AllegroGraspConfig,
     n_surface_points: int = 1000,

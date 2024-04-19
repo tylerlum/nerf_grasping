@@ -1041,7 +1041,7 @@ def load_depth_image_classifier(
 def predict_in_collision_with_object(
     nerf_field: Field,
     grasp_config: AllegroGraspConfig,
-) -> torch.Tensor:
+) -> np.ndarray:
     from nerf_grasping.dexgraspnet_utils.hand_model import HandModel
     from nerf_grasping.dexgraspnet_utils.hand_model_type import (
         HandModelType,

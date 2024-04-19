@@ -1065,7 +1065,7 @@ def predict_in_collision_with_object(
     hand_surface_points_Oy: torch.Tensor,
     X_N_Oy: np.ndarray,
     max_density_threshold: float = 8.5,
-) -> torch.Tensor:
+) -> np.ndarray:
     from nerf_grasping.nerf_utils import (
         get_density,
     )

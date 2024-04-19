@@ -33,6 +33,7 @@ class Args:
     experiments_folder: pathlib.Path = pathlib.Path("experiments")
     is_real_world: bool = False
     density_levelset_threshold: float = 15.0
+    visualize: bool = False
 
     def __post_init__(self) -> None:
         assert (
@@ -216,8 +217,7 @@ def rough_hardware_deployment_code(args: Args) -> None:
     mesh_centroid_Oy = transform_point(X_Oy_N, centroid_N)
     nerf_centroid_Oy = transform_point(X_Oy_N, centroid_N)
 
-    VISUALIZE = True
-    if VISUALIZE:
+    if args.visualize:
         # Visualize N
         fig_N = go.Figure()
         fig_N.add_trace(

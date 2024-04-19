@@ -200,14 +200,20 @@ def rough_hardware_deployment_code(args: Args) -> None:
     print("\n" + "=" * 80)
     print("Step 3: Convert NeRF to mesh")
     print("=" * 80 + "\n")
-    nerf_to_mesh_folder = experiment_folder / "nerf_to_mesh"
-    nerf_to_mesh_folder.mkdir(parents=True, exist_ok=True)
+    nerf_to_mesh_file = (
+        experiment_folder
+        / "nerf_to_mesh"
+        / args.object_name
+        / "coacd"
+        / "decomposed.obj"
+    )
+    nerf_to_mesh_file.mkdir(parents=True, exist_ok=True)
     mesh_N = nerf_to_mesh(
         field=nerf_field,
         level=args.density_levelset_threshold,
         lb=lb_N,
         ub=ub_N,
-        save_path=nerf_to_mesh_folder / args.object_name / "coacd" / "decomposed.obj",
+        save_path=nerf_to_mesh_file,
     )
 
     print("\n" + "=" * 80)
@@ -240,11 +246,15 @@ def rough_hardware_deployment_code(args: Args) -> None:
     # For debugging
     mesh_Oy = trimesh.Trimesh(vertices=mesh_N.vertices, faces=mesh_N.faces)
     mesh_Oy.apply_transform(X_Oy_N)
-    nerf_to_mesh_Oy_folder = experiment_folder / "nerf_to_mesh_Oy"
-    nerf_to_mesh_Oy_folder.mkdir(parents=True, exist_ok=True)
-    mesh_Oy.export(
-        nerf_to_mesh_Oy_folder / args.object_name / "coacd" / "decomposed.obj"
+    nerf_to_mesh_Oy_file = (
+        experiment_folder
+        / "nerf_to_mesh_Oy"
+        / args.object_name
+        / "coacd"
+        / "decomposed.obj"
     )
+    nerf_to_mesh_Oy_file.parent.mkdir(parents=True, exist_ok=True)
+    mesh_Oy.export(nerf_to_mesh_Oy_file)
     mesh_centroid_Oy = transform_point(X_Oy_N, centroid_N)
     nerf_centroid_Oy = transform_point(X_Oy_N, centroid_N)
 

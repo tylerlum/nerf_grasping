@@ -602,7 +602,7 @@ def get_optimized_grasps(
             else:
                 new_all_preds = all_preds
             ordered_idxs_best_first = np.argsort(new_all_preds)[::-1].copy()
-            breakpoint()  # TODO: Debug here
+            # breakpoint()  # TODO: Debug here
             all_grasp_configs = all_grasp_configs[ordered_idxs_best_first]
     init_grasp_configs = all_grasp_configs[: cfg.optimizer.num_grasps]
 

@@ -101,7 +101,9 @@ def add_transform_matrix_traces(
 
 
 def get_hacky_table_mesh(
-    table_y_Oy: float, W: float = 0.25, H: float = 0.25,
+    table_y_Oy: float,
+    W: float = 0.25,
+    H: float = 0.25,
 ) -> trimesh.Trimesh:
     table_pos_Oy = np.array([0, table_y_Oy, 0])
     table_normal_Oy = np.array([0, 1, 0])
@@ -205,7 +207,7 @@ def rough_hardware_deployment_code(args: Args) -> None:
         level=args.density_levelset_threshold,
         lb=lb_N,
         ub=ub_N,
-        save_path=nerf_to_mesh_folder / f"{args.object_name}.obj",
+        save_path=nerf_to_mesh_folder / args.object_name / "coacd" / "decomposed.obj",
     )
 
     print("\n" + "=" * 80)
@@ -241,7 +243,7 @@ def rough_hardware_deployment_code(args: Args) -> None:
     nerf_to_mesh_Oy_folder = experiment_folder / "nerf_to_mesh_Oy"
     nerf_to_mesh_Oy_folder.mkdir(parents=True, exist_ok=True)
     mesh_Oy.export(
-        nerf_to_mesh_Oy_folder / f"{args.object_name}.obj",
+        nerf_to_mesh_Oy_folder / args.object_name / "coacd" / "decomposed.obj"
     )
     mesh_centroid_Oy = transform_point(X_Oy_N, centroid_N)
     nerf_centroid_Oy = transform_point(X_Oy_N, centroid_N)

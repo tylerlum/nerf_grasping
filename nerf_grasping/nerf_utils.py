@@ -1,21 +1,29 @@
 """
 Utils for rendering depth / uncertainty images from the NeRF.
 """
+
 from nerf_grasping.config.camera_config import CameraConfig
 from nerfstudio.cameras.cameras import Cameras, CameraType
 from nerfstudio.cameras.rays import RayBundle
 from nerfstudio.models.base_model import Model
+from nerfstudio.fields.base_field import Field
 from nerfstudio.data.scene_box import SceneBox
+from nerfstudio.field_components.activations import trunc_exp
 from collections import defaultdict
 import numpy as np
 import pypose as pp
 import torch
 from typing import Literal, Dict, Tuple
+from nerf_grasping.dataset.DexGraspNet_NeRF_Grasps_utils import (
+    get_ray_samples_in_region,
+)
 
 GRASP_TO_OPENCV = pp.euler2SO3([np.pi, 0, 0]).unsqueeze(0)
 
+
 def assert_equals(a, b):
     assert a == b, f"{a} != {b}"
+
 
 def get_cameras(
     grasp_transforms: pp.LieTensor,
@@ -114,7 +122,9 @@ def get_ray_samples(
 
 
 def _render_depth_and_uncertainty_for_camera_ray_bundle(
-    nerf_model: Model, camera_ray_bundle: RayBundle, depth_mode: Literal["median", "expected"]
+    nerf_model: Model,
+    camera_ray_bundle: RayBundle,
+    depth_mode: Literal["median", "expected"],
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """Takes in camera parameters and computes the output of the model.
 
@@ -193,3 +203,102 @@ def _render_depth_and_uncertainty_for_single_ray_bundle(
         raise ValueError(f"Invalid depth mode {depth_mode}")
 
     return depth, depth_variance
+
+
+def compute_centroid_from_nerf(
+    field: Field,
+    lb: np.ndarray,
+    ub: np.ndarray,
+    level: float,
+    num_pts_x: int,
+    num_pts_y: int,
+    num_pts_z: int,
+) -> np.ndarray:
+    """
+    Compute the centroid of the field.
+    """
+    x_min, y_min, z_min = lb
+    x_max, y_max, z_max = ub
+    ray_samples_in_region = get_ray_samples_in_region(
+        x_min=x_min,
+        x_max=x_max,
+        y_min=y_min,
+        y_max=y_max,
+        z_min=z_min,
+        z_max=z_max,
+        num_pts_x=num_pts_x,
+        num_pts_y=num_pts_y,
+        num_pts_z=num_pts_z,
+    )
+    query_points_in_region = np.copy(
+        ray_samples_in_region.frustums.get_positions()
+        .cpu()
+        .numpy()
+        .reshape(
+            num_pts_x,
+            num_pts_y,
+            num_pts_z,
+            3,
+        )
+    )
+    nerf_densities_in_region = (
+        field.get_density(ray_samples_in_region.to("cuda"))[0]
+        .detach()
+        .cpu()
+        .numpy()
+        .reshape(
+            num_pts_x,
+            num_pts_y,
+            num_pts_z,
+        )
+    )
+
+    points_to_keep_with_nans = np.where(
+        (nerf_densities_in_region > 15)[..., None].repeat(3, axis=-1),
+        query_points_in_region,
+        np.nan,
+    )
+    # Check there are some non-nan
+    assert not np.all(np.isnan(points_to_keep_with_nans))
+
+    avg_point_no_nans = np.nanmean(points_to_keep_with_nans.reshape(-1, 3), axis=0)
+    assert avg_point_no_nans.shape == (3,)
+    return avg_point_no_nans
+
+
+def get_density(
+    field: Field,
+    positions: torch.Tensor,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Computes and returns the densities.
+    Should be same as nerfacto.get_density, but takes in a positions tensor instead of a ray_samples
+    """
+    assert positions.shape[-1] == 3
+
+    if field.spatial_distortion is not None:
+        positions = field.spatial_distortion(positions)
+        positions = (positions + 2.0) / 4.0
+    else:
+        positions = SceneBox.get_normalized_positions(positions, field.aabb)
+    # Make sure the tcnn gets inputs between 0 and 1.
+    selector = ((positions > 0.0) & (positions < 1.0)).all(dim=-1)
+    positions = positions * selector[..., None]
+    field._sample_locations = positions
+    if not field._sample_locations.requires_grad:
+        field._sample_locations.requires_grad = True
+    positions_flat = positions.view(-1, 3)
+    h = field.mlp_base(positions_flat).view(*positions.shape[:-1], -1)
+    assert h.shape[-1] == 1 + field.geo_feat_dim
+    density_before_activation, base_mlp_out = torch.split(
+        h, [1, field.geo_feat_dim], dim=-1
+    )
+    field._density_before_activation = density_before_activation
+
+    # Rectifying the density with an exponential is much more stable than a ReLU or
+    # softplus, because it enables high post-activation (float32) density outputs
+    # from smaller internal (float16) parameters.
+    density = field.average_init_density * trunc_exp(
+        density_before_activation.to(positions)
+    )
+    density = density * selector[..., None]
+    return density, base_mlp_out

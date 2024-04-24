@@ -53,6 +53,7 @@ class BatchDataInput:
     grasp_transforms: pp.LieTensor
     fingertip_config: BaseFingertipConfig  # have to take this because all these shape checks used to use hardcoded constants.
     grasp_configs: torch.Tensor
+    object_y_wrt_table: Optional[torch.Tensor]
     random_rotate_transform: Optional[pp.LieTensor] = None
     nerf_density_threshold_value: Optional[float] = None
 
@@ -65,6 +66,8 @@ class BatchDataInput:
             else None
         )
         self.grasp_configs = self.grasp_configs.to(device)
+        if self.object_y_wrt_table is not None:
+            self.object_y_wrt_table = self.object_y_wrt_table.to(device)
         return self
 
     @property
@@ -98,12 +101,74 @@ class BatchDataInput:
         return self._coords_helper(self.augmented_grasp_transforms)
 
     @property
+    def coords_wrt_wrist(self) -> torch.Tensor:
+        return self._coords_wrt_wrist_helper(self.coords, self.grasp_configs)
+
+    @property
+    def augmented_coords_wrt_wrist(self) -> torch.Tensor:
+        return self._coords_wrt_wrist_helper(
+            self.augmented_coords, self.augmented_grasp_configs
+        )
+
+    @property
+    def y_coords_wrt_table(self) -> torch.Tensor:
+        return self._y_coords_wrt_table_helper(self.coords)
+
+    @property
+    def augmented_y_coords_wrt_table(self) -> torch.Tensor:
+        return self._y_coords_wrt_table_helper(self.augmented_coords)
+
+    @property
     def nerf_alphas_with_coords(self) -> torch.Tensor:
         return self._nerf_alphas_with_coords_helper(self.coords)
 
     @property
+    def nerf_alphas_with_coords_v2(self) -> torch.Tensor:
+        return self._nerf_alphas_with_coords_v2_helper(
+            self.coords,
+            self.coords_wrt_wrist,
+            self.y_coords_wrt_table,
+        )
+
+    @property
+    def nerf_alphas_with_coords_v3(self) -> torch.Tensor:
+        return self._nerf_alphas_with_coords_v3_helper(
+            self.coords,
+            self.y_coords_wrt_table,
+        )
+
+    @property
+    def nerf_alphas_with_coords_v4(self) -> torch.Tensor:
+        return self._nerf_alphas_with_coords_v4_helper(
+            self.coords,
+            self.coords_wrt_wrist,
+        )
+
+    @property
     def nerf_alphas_with_augmented_coords(self) -> torch.Tensor:
         return self._nerf_alphas_with_coords_helper(self.augmented_coords)
+
+    @property
+    def nerf_alphas_with_augmented_coords_v2(self) -> torch.Tensor:
+        return self._nerf_alphas_with_coords_v2_helper(
+            self.augmented_coords,
+            self.augmented_coords_wrt_wrist,
+            self.augmented_y_coords_wrt_table,
+        )
+
+    @property
+    def nerf_alphas_with_augmented_coords_v3(self) -> torch.Tensor:
+        return self._nerf_alphas_with_coords_v3_helper(
+            self.augmented_coords,
+            self.augmented_y_coords_wrt_table,
+        )
+
+    @property
+    def nerf_alphas_with_augmented_coords_v4(self) -> torch.Tensor:
+        return self._nerf_alphas_with_coords_v4_helper(
+            self.augmented_coords,
+            self.augmented_coords_wrt_wrist,
+        )
 
     @property
     def augmented_grasp_transforms(self) -> pp.LieTensor:
@@ -195,6 +260,96 @@ class BatchDataInput:
         )
         return all_query_points
 
+    def _coords_wrt_wrist_helper(
+        self, coords_wrt_object: torch.Tensor, grasp_configs: torch.Tensor
+    ) -> torch.Tensor:
+        assert coords_wrt_object.shape == (
+            self.batch_size,
+            self.fingertip_config.n_fingers,
+            NUM_XYZ,
+            self.fingertip_config.num_pts_x,
+            self.fingertip_config.num_pts_y,
+            self.fingertip_config.num_pts_z,
+        )
+        coords_wrt_object = coords_wrt_object.permute(0, 1, 3, 4, 5, 2)
+        assert coords_wrt_object.shape == (
+            self.batch_size,
+            self.fingertip_config.n_fingers,
+            self.fingertip_config.num_pts_x,
+            self.fingertip_config.num_pts_y,
+            self.fingertip_config.num_pts_z,
+            NUM_XYZ,
+        )
+
+        assert grasp_configs[..., :7].shape == (
+            self.batch_size,
+            self.fingertip_config.n_fingers,
+            7,
+        )
+        wrist_poses_wrt_object = pp.SE3(grasp_configs[:, :, None, None, None, :7])
+
+        assert wrist_poses_wrt_object.lshape == (
+            self.batch_size,
+            self.fingertip_config.n_fingers,
+            1,
+            1,
+            1,
+        )
+
+        T_wrist_object = wrist_poses_wrt_object.Inv()
+
+        coords_wrt_wrist = T_wrist_object @ coords_wrt_object
+        assert coords_wrt_wrist.shape == (
+            self.batch_size,
+            self.fingertip_config.n_fingers,
+            self.fingertip_config.num_pts_x,
+            self.fingertip_config.num_pts_y,
+            self.fingertip_config.num_pts_z,
+            NUM_XYZ,
+        )
+        coords_wrt_wrist = coords_wrt_wrist.permute(0, 1, 5, 2, 3, 4)
+        assert coords_wrt_wrist.shape == (
+            self.batch_size,
+            self.fingertip_config.n_fingers,
+            NUM_XYZ,
+            self.fingertip_config.num_pts_x,
+            self.fingertip_config.num_pts_y,
+            self.fingertip_config.num_pts_z,
+        )
+
+        return coords_wrt_wrist
+
+    def _y_coords_wrt_table_helper(
+        self, coords_wrt_object: torch.Tensor
+    ) -> torch.Tensor:
+        assert coords_wrt_object.shape == (
+            self.batch_size,
+            self.fingertip_config.n_fingers,
+            NUM_XYZ,
+            self.fingertip_config.num_pts_x,
+            self.fingertip_config.num_pts_y,
+            self.fingertip_config.num_pts_z,
+        )
+        y_coords_wrt_object = coords_wrt_object[:, :, 1:2]
+        assert y_coords_wrt_object.shape == (
+            self.batch_size,
+            self.fingertip_config.n_fingers,
+            1,
+            self.fingertip_config.num_pts_x,
+            self.fingertip_config.num_pts_y,
+            self.fingertip_config.num_pts_z,
+        )
+
+        assert self.object_y_wrt_table is not None, "object_y_wrt_table is None"
+        assert self.object_y_wrt_table.shape == (
+            self.batch_size,
+        )
+        assert torch.all(self.object_y_wrt_table >= 0)
+        y_coords_wrt_table = (
+            y_coords_wrt_object + self.object_y_wrt_table[..., None, None, None, None, None]
+        )
+        return y_coords_wrt_table
+
     def _nerf_alphas_with_coords_helper(self, coords: torch.Tensor) -> torch.Tensor:
         assert coords.shape == (
             self.batch_size,
@@ -223,6 +378,162 @@ class BatchDataInput:
             self.batch_size,
             self.fingertip_config.n_fingers,
             NUM_XYZ + 1,
+            self.fingertip_config.num_pts_x,
+            self.fingertip_config.num_pts_y,
+            self.fingertip_config.num_pts_z,
+        )
+        return return_value
+
+    def _nerf_alphas_with_coords_v2_helper(
+        self,
+        coords: torch.Tensor,
+        coords_wrt_wrist: torch.Tensor,
+        y_coords_wrt_table: torch.Tensor,
+    ) -> torch.Tensor:
+        NUM_Y = 1
+        assert coords.shape == (
+            self.batch_size,
+            self.fingertip_config.n_fingers,
+            NUM_XYZ,
+            self.fingertip_config.num_pts_x,
+            self.fingertip_config.num_pts_y,
+            self.fingertip_config.num_pts_z,
+        )
+        assert coords_wrt_wrist.shape == (
+            self.batch_size,
+            self.fingertip_config.n_fingers,
+            NUM_XYZ,
+            self.fingertip_config.num_pts_x,
+            self.fingertip_config.num_pts_y,
+            self.fingertip_config.num_pts_z,
+        )
+        assert y_coords_wrt_table.shape == (
+            self.batch_size,
+            self.fingertip_config.n_fingers,
+            NUM_Y,
+            self.fingertip_config.num_pts_x,
+            self.fingertip_config.num_pts_y,
+            self.fingertip_config.num_pts_z,
+        )
+
+        reshaped_nerf_alphas = self.nerf_alphas.reshape(
+            self.batch_size,
+            self.fingertip_config.n_fingers,
+            1,
+            self.fingertip_config.num_pts_x,
+            self.fingertip_config.num_pts_y,
+            self.fingertip_config.num_pts_z,
+        )
+        return_value = torch.cat(
+            [
+                reshaped_nerf_alphas,
+                coords,
+                coords_wrt_wrist,
+                y_coords_wrt_table,
+            ],
+            dim=2,
+        )
+        assert return_value.shape == (
+            self.batch_size,
+            self.fingertip_config.n_fingers,
+            NUM_XYZ + 1 + NUM_XYZ + NUM_Y,
+            self.fingertip_config.num_pts_x,
+            self.fingertip_config.num_pts_y,
+            self.fingertip_config.num_pts_z,
+        )
+        return return_value
+
+    def _nerf_alphas_with_coords_v3_helper(
+        self,
+        coords: torch.Tensor,
+        y_coords_wrt_table: torch.Tensor,
+    ) -> torch.Tensor:
+        NUM_Y = 1
+        assert coords.shape == (
+            self.batch_size,
+            self.fingertip_config.n_fingers,
+            NUM_XYZ,
+            self.fingertip_config.num_pts_x,
+            self.fingertip_config.num_pts_y,
+            self.fingertip_config.num_pts_z,
+        )
+        assert y_coords_wrt_table.shape == (
+            self.batch_size,
+            self.fingertip_config.n_fingers,
+            NUM_Y,
+            self.fingertip_config.num_pts_x,
+            self.fingertip_config.num_pts_y,
+            self.fingertip_config.num_pts_z,
+        )
+
+        reshaped_nerf_alphas = self.nerf_alphas.reshape(
+            self.batch_size,
+            self.fingertip_config.n_fingers,
+            1,
+            self.fingertip_config.num_pts_x,
+            self.fingertip_config.num_pts_y,
+            self.fingertip_config.num_pts_z,
+        )
+        return_value = torch.cat(
+            [
+                reshaped_nerf_alphas,
+                coords,
+                y_coords_wrt_table,
+            ],
+            dim=2,
+        )
+        assert return_value.shape == (
+            self.batch_size,
+            self.fingertip_config.n_fingers,
+            NUM_XYZ + 1 + NUM_Y,
+            self.fingertip_config.num_pts_x,
+            self.fingertip_config.num_pts_y,
+            self.fingertip_config.num_pts_z,
+        )
+        return return_value
+
+    def _nerf_alphas_with_coords_v4_helper(
+        self,
+        coords: torch.Tensor,
+        coords_wrt_wrist: torch.Tensor,
+    ) -> torch.Tensor:
+        assert coords.shape == (
+            self.batch_size,
+            self.fingertip_config.n_fingers,
+            NUM_XYZ,
+            self.fingertip_config.num_pts_x,
+            self.fingertip_config.num_pts_y,
+            self.fingertip_config.num_pts_z,
+        )
+        assert coords_wrt_wrist.shape == (
+            self.batch_size,
+            self.fingertip_config.n_fingers,
+            NUM_XYZ,
+            self.fingertip_config.num_pts_x,
+            self.fingertip_config.num_pts_y,
+            self.fingertip_config.num_pts_z,
+        )
+
+        reshaped_nerf_alphas = self.nerf_alphas.reshape(
+            self.batch_size,
+            self.fingertip_config.n_fingers,
+            1,
+            self.fingertip_config.num_pts_x,
+            self.fingertip_config.num_pts_y,
+            self.fingertip_config.num_pts_z,
+        )
+        return_value = torch.cat(
+            [
+                reshaped_nerf_alphas,
+                coords,
+                coords_wrt_wrist,
+            ],
+            dim=2,
+        )
+        assert return_value.shape == (
+            self.batch_size,
+            self.fingertip_config.n_fingers,
+            NUM_XYZ + 1 + NUM_XYZ,
             self.fingertip_config.num_pts_x,
             self.fingertip_config.num_pts_y,
             self.fingertip_config.num_pts_z,

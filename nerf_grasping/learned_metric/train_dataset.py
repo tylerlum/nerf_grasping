@@ -113,6 +113,17 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
                 else None
             )
 
+            self.object_scale = (
+                torch.from_numpy(hdf5_file["/object_scale"][()]).float()
+                if False
+                else None
+            )
+            self.object_state = (
+                torch.from_numpy(hdf5_file["/object_state"][()]).float()
+                if False
+                else None
+            )
+
     def _set_length(
         self, hdf5_file: h5py.File, max_num_data_points: Optional[int]
     ) -> int:
@@ -203,6 +214,16 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
             if self.grasp_configs is None
             else self.grasp_configs[idx]
         )
+        object_scale = (
+            torch.from_numpy(self.hdf5_file["/object_scale"][idx:idx+1]).float()
+            if self.object_scale is None
+            else self.object_scale[idx:idx+1]
+        )[0]
+        object_state = (
+            torch.from_numpy(self.hdf5_file["/object_state"][idx]).float()
+            if self.object_state is None
+            else self.object_state[idx]
+        )
 
         assert_equals(
             nerf_densities.shape,
@@ -214,6 +235,16 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
         assert_equals(passed_eval.shape, (NUM_CLASSES,))
         assert_equals(grasp_transforms.shape, (self.NUM_FINGERS, 4, 4))
         assert_equals(grasp_configs.shape, (self.NUM_FINGERS, 7 + 16 + 4))
+        assert_equals(object_scale.shape, ())
+        assert_equals(object_state.shape, (13,))
+
+        # BRITTLE: hardcoding buffer, exclude table thickness, so this is wrt table surface
+        BUFFER = 1.2
+        OBJ_MAX_EXTENT_FROM_ORIGIN = 1.0 * object_scale * BUFFER
+        y_offset = OBJ_MAX_EXTENT_FROM_ORIGIN
+        object_y = object_state[1]
+        object_y_wrt_table = y_offset - object_y
+        assert object_y_wrt_table >= 0
 
         return (
             nerf_densities,
@@ -223,6 +254,7 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
             grasp_transforms,
             nerf_config,
             grasp_configs,
+            object_y_wrt_table,
         )
 
     @property
@@ -354,6 +386,17 @@ class DepthImage_To_GraspSuccess_HDF5_Dataset(Dataset):
                 else None
             )
 
+            self.object_scale = (
+                torch.from_numpy(hdf5_file["/object_scale"][()]).float()
+                if False
+                else None
+            )
+            self.object_state = (
+                torch.from_numpy(hdf5_file["/object_state"][()]).float()
+                if False
+                else None
+            )
+
     def _set_length(
         self, hdf5_file: h5py.File, max_num_data_points: Optional[int]
     ) -> int:
@@ -452,6 +495,16 @@ class DepthImage_To_GraspSuccess_HDF5_Dataset(Dataset):
             if self.grasp_configs is None
             else self.grasp_configs[idx]
         )
+        object_scale = (
+            torch.from_numpy(self.hdf5_file["/object_scale"][idx:idx+1]).float()
+            if self.object_scale is None
+            else self.object_scale[idx:idx+1]
+        )[0]
+        object_state = (
+            torch.from_numpy(self.hdf5_file["/object_state"][idx]).float()
+            if self.object_state is None
+            else self.object_state[idx]
+        )
 
         assert_equals(
             depth_uncertainty_images.shape,
@@ -468,6 +521,15 @@ class DepthImage_To_GraspSuccess_HDF5_Dataset(Dataset):
         assert_equals(passed_eval.shape, (NUM_CLASSES,))
         assert_equals(grasp_transforms.shape, (self.NUM_FINGERS, 4, 4))
         assert_equals(grasp_configs.shape, (self.NUM_FINGERS, 7 + 16 + 4))
+        assert_equals(object_scale.shape, ())
+
+        # BRITTLE: hardcoding buffer, exclude table thickness, so this is wrt table surface
+        BUFFER = 1.2
+        OBJ_MAX_EXTENT_FROM_ORIGIN = 1.0 * object_scale * BUFFER
+        y_offset = OBJ_MAX_EXTENT_FROM_ORIGIN
+        object_y = object_state[1]
+        object_y_wrt_table = y_offset - object_y
+        assert object_y_wrt_table >= 0
 
         return (
             depth_uncertainty_images,
@@ -477,6 +539,7 @@ class DepthImage_To_GraspSuccess_HDF5_Dataset(Dataset):
             grasp_transforms,
             nerf_config,
             grasp_configs,
+            object_y_wrt_table,
         )
 
     @property

@@ -147,16 +147,16 @@ def rough_hardware_deployment_code(args: Args) -> None:
     if args.is_real_world:
         # Z-up
         X_O_Oy = trimesh.transformations.rotation_matrix(np.pi / 2, [1, 0, 0])
-        lb_N = np.array([-0.1, -0.1, 0.0])
-        ub_N = np.array([0.1, 0.1, 0.4])
+        lb_N = np.array([-0.05, -0.05, 0.0])
+        ub_N = np.array([0.05, 0.05, 0.3])
     else:
         IS_Y_UP = True
         if IS_Y_UP:
             X_O_Oy = np.eye(4)
         else:
             X_O_Oy = trimesh.transformations.rotation_matrix(np.pi / 2, [1, 0, 0])
-        lb_N = np.array([-0.1, -0.2, -0.1])
-        ub_N = np.array([0.1, 0.2, 0.1])
+        lb_N = np.array([-0.05, -0.15, -0.05])
+        ub_N = np.array([0.05, 0.15, 0.05])
 
     experiment_folder = args.experiments_folder / args.experiment_name
     print(f"Creating a new experiment folder at {experiment_folder}")
@@ -207,7 +207,7 @@ def rough_hardware_deployment_code(args: Args) -> None:
         / "coacd"
         / "decomposed.obj"
     )
-    nerf_to_mesh_file.mkdir(parents=True, exist_ok=True)
+    nerf_to_mesh_file.parent.mkdir(parents=True, exist_ok=True)
     mesh_N = nerf_to_mesh(
         field=nerf_field,
         level=args.density_levelset_threshold,

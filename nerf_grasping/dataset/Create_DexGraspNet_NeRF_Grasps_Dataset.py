@@ -253,9 +253,16 @@ if cfg.output_filepath.exists():
 
 # %%
 assert cfg.nerf_checkpoints_path.exists(), f"{cfg.nerf_checkpoints_path} does not exist"
-nerf_configs = get_nerf_configs(
-    nerf_checkpoints_path=str(cfg.nerf_checkpoints_path),
-)
+# BIG HACK
+# nerf_configs = get_nerf_configs(
+#     nerf_checkpoints_path=str(cfg.nerf_checkpoints_path),
+# )
+
+nerfcheckpoints_path_1 = pathlib.Path("/juno/u/tylerlum/github_repos/nerf_grasping/data/2024-04-13_rotated_grasps_bigger_aggregated_augmented_pose_HALTON_50/nerfcheckpoints/")
+nerfcheckpoints_path_2 = pathlib.Path("/juno/u/tylerlum/github_repos/nerf_grasping/data/2024-04-13_rotated_grasps_big_aggregated_augmented_pose_HALTON_50/nerfcheckpoints/")
+nerfcheckpoints_path_3 = pathlib.Path("/home/tylerlum/2024-04-09_rotated_grasps_aggregated_augmented_pose_HALTON_50/nerfcheckpoints/")
+nerf_configs = get_nerf_configs(str(nerfcheckpoints_path_1)) + get_nerf_configs(str(nerfcheckpoints_path_2)) + get_nerf_configs(str(nerfcheckpoints_path_3))
+
 assert (
     len(nerf_configs) > 0
 ), f"Did not find any nerf configs in {cfg.nerf_checkpoints_path}"

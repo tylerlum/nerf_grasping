@@ -9,7 +9,7 @@ from nerfstudio.engine.trainer import TrainerConfig, Trainer
 class Args:
     nerfdata_folder: pathlib.Path
     nerfcheckpoints_folder: pathlib.Path
-    max_num_iterations: int = 200
+    max_num_iterations: int = 2000
 
 
 def train_loop_return_trainer(

@@ -10,6 +10,38 @@ from skimage.measure import marching_cubes
 from nerf_grasping.grasp_utils import load_nerf_field, get_nerf_configs
 
 
+def clean_mesh_and_return_largest_component(
+    mesh: trimesh.Trimesh,
+) -> Tuple[trimesh.Trimesh, bool]:
+    """
+    This function takes a trimesh object, finds the largest connected
+    component, checks if it's watertight, and returns it along with a boolean
+    indicating the watertight status.
+
+    Parameters:
+    - mesh: trimesh.Trimesh, the original mesh object.
+
+    Returns:
+    - Tuple[trimesh.Trimesh, bool]: A tuple containing the largest component
+      of the original mesh and a boolean indicating if this component is watertight.
+    """
+    # Find the connected components of the mesh
+    connected_components = mesh.split(only_watertight=False)
+
+    # Sort the connected components by the number of faces
+    sorted_components = sorted(
+        connected_components, key=lambda x: len(x.faces), reverse=True
+    )
+
+    # Keep the largest component
+    largest_component = sorted_components[0]
+
+    # Check if the largest component is watertight
+    is_watertight = largest_component.is_watertight
+
+    return largest_component, is_watertight
+
+
 def sdf_to_mesh(
     sdf: Callable[[torch.Tensor], float],
     npts: int = 31,
@@ -116,6 +148,10 @@ def nerf_to_mesh(
         mask = np.zeros(len(mesh.faces), dtype=bool)
         mask[np.concatenate(cc)] = True
         mesh.update_faces(mask)
+
+    mesh, is_watertight = clean_mesh_and_return_largest_component(mesh)
+    if not is_watertight:
+        print("Warning: mesh is not watertight!")
 
     # saving/visualizing
     if save_path is None:

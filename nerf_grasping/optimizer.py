@@ -502,7 +502,7 @@ def get_optimized_grasps(
         all_predicted_in_collision_object = []
         all_predicted_in_collision_table = []
         with torch.no_grad():
-            N_SAMPLES = 1
+            N_SAMPLES = 10
             for i in range(N_SAMPLES):
                 temp_preds = []
 
@@ -589,7 +589,7 @@ def get_optimized_grasps(
             assert (
                 all_grasp_configs.batch_size == new_grasp_configs.batch_size * N_SAMPLES
             )
-            CHECK_COLLISION = True
+            CHECK_COLLISION = False
             if CHECK_COLLISION:
                 new_all_preds = np.where(
                     np.logical_or(

@@ -464,7 +464,7 @@ def get_optimized_grasps(
         all_grasp_configs = []
         all_predicted_in_collision = []
         with torch.no_grad():
-            N_SAMPLES = 10
+            N_SAMPLES = 1
             for i in range(N_SAMPLES):
                 temp_preds = []
 

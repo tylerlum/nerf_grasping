@@ -386,8 +386,8 @@ def get_optimized_grasps(
     # print("=" * 80 + "\n")
 
     # Create rich.Console object.
-    torch.random.manual_seed(0)
-    np.random.seed(0)
+    torch.random.manual_seed(cfg.random_seed)
+    np.random.seed(cfg.random_seed)
 
     console = Console(width=120)
 

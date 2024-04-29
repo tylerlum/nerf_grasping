@@ -1,4 +1,5 @@
 from __future__ import annotations
+import math
 import pypose as pp
 from collections import defaultdict
 from nerf_grasping.optimizer_utils import (
@@ -461,8 +462,8 @@ def get_optimized_grasps(
     all_preds = []
     all_predicted_in_collision = []
     with torch.no_grad():
-        # Sample
-        N_SAMPLES = 10
+        # Sample random rotations
+        N_SAMPLES = 1 + cfg.n_random_rotations_per_grasp
         new_grasp_configs_list = []
         for i in range(N_SAMPLES):
             new_grasp_configs = AllegroGraspConfig.from_grasp_config_dict(
@@ -475,8 +476,7 @@ def get_optimized_grasps(
                     )
                 )
                 new_grasp_configs.hand_config.set_wrist_pose(
-                    random_rotate_transforms
-                    @ new_grasp_configs.hand_config.wrist_pose
+                    random_rotate_transforms @ new_grasp_configs.hand_config.wrist_pose
                 )
             new_grasp_configs_list.append(new_grasp_configs)
 
@@ -490,43 +490,30 @@ def get_optimized_grasps(
         new_grasp_configs = AllegroGraspConfig.from_grasp_config_dict(
             new_grasp_config_dicts
         )
-        assert (
-            new_grasp_configs.batch_size
-            == init_grasp_configs.batch_size * N_SAMPLES
-        )
+        assert new_grasp_configs.batch_size == init_grasp_configs.batch_size * N_SAMPLES
 
-        # Filter
-        wrist_pose_matrix = new_grasp_configs.wrist_pose.matrix()
-        x_dirs = wrist_pose_matrix[:, :, 0]
-        y_dirs = wrist_pose_matrix[:, :, 1]
-        z_dirs = wrist_pose_matrix[:, :, 2]
-        import math
+        # Filter grasps that are less IK feasible
+        if cfg.filter_less_feasible_grasps:
+            wrist_pose_matrix = new_grasp_configs.wrist_pose.matrix()
+            x_dirs = wrist_pose_matrix[:, :, 0]
+            z_dirs = wrist_pose_matrix[:, :, 2]
 
-        cos_theta = math.cos(math.radians(60))
-        fingers_forward = z_dirs[:, 0] >= cos_theta
-        palm_upwards = x_dirs[:, 1] >= cos_theta
-        new_grasp_configs = new_grasp_configs[fingers_forward & ~palm_upwards]
+            cos_theta = math.cos(math.radians(60))
+            fingers_forward = z_dirs[:, 0] >= cos_theta
+            palm_upwards = x_dirs[:, 1] >= cos_theta
+            new_grasp_configs = new_grasp_configs[fingers_forward & ~palm_upwards]
 
-        # Eval
-        n_batches = new_grasp_configs.batch_size // BATCH_SIZE
+        # Evaluate grasp metric and collisions
+        n_batches = math.ceil(new_grasp_configs.batch_size / BATCH_SIZE)
         for batch_i in tqdm(range(n_batches)):
-            temp_grasp_configs = new_grasp_configs[
-                batch_i * BATCH_SIZE : (batch_i + 1) * BATCH_SIZE
-            ].to(device=device)
-
-            preds = grasp_metric.get_failure_probability(temp_grasp_configs)
-            all_preds.append(1 - preds.detach().cpu().numpy())
-
-            predicted_in_collision = predict_in_collision_with_object(
-                nerf_field=grasp_metric.nerf_field,
-                grasp_config=temp_grasp_configs,
+            start_idx = batch_i * BATCH_SIZE
+            end_idx = np.clip(
+                (batch_i + 1) * BATCH_SIZE,
+                a_min=None,
+                a_max=new_grasp_configs.batch_size,
             )
-            all_predicted_in_collision.append(predicted_in_collision)
 
-        if n_batches * BATCH_SIZE < new_grasp_configs.batch_size:
-            temp_grasp_configs = new_grasp_configs[n_batches * BATCH_SIZE :].to(
-                device=device
-            )
+            temp_grasp_configs = new_grasp_configs[start_idx:end_idx].to(device=device)
 
             preds = grasp_metric.get_failure_probability(temp_grasp_configs)
             all_preds.append(1 - preds.detach().cpu().numpy())
@@ -539,11 +526,11 @@ def get_optimized_grasps(
 
         # Aggregate
         all_preds = np.concatenate(all_preds)
-        assert all_preds.shape == (new_grasp_configs.batch_size,)
-
         all_predicted_in_collision = np.concatenate(all_predicted_in_collision)
+        assert all_preds.shape == (new_grasp_configs.batch_size,)
         assert all_predicted_in_collision.shape == (new_grasp_configs.batch_size,)
 
+        # Filter out grasps that are in collision
         new_all_preds = np.where(
             all_predicted_in_collision,
             np.zeros_like(all_preds),

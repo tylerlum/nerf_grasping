@@ -14,6 +14,9 @@ from pydrake.all import (
 )
 from pydrake.multibody.inverse_kinematics import InverseKinematics
 from pydrake.solvers import Solve
+import pathlib
+
+current_dir = pathlib.Path(__file__).parent.absolute()
 
 
 builder = DiagramBuilder()
@@ -21,8 +24,8 @@ plant, scene_graph = AddMultibodyPlantSceneGraph(
     builder, time_step=0.001
 )
 parser = Parser(plant, scene_graph)
-parser.package_map().Add("allegro_ros2", f"/home/user/dev_ws/src/allegro_ros2")  # [TODO] change this path - must end in allegro_ros2
-parser.AddModels(f"/home/user/dev_ws/src/allegro_ros2/models/fr3_algr.urdf")  # [TODO] change this path. must include allegro_ros2, the path to the urdf can be whatever
+parser.package_map().Add("allegro_ros2", str(current_dir / "allegro_ros2"))  # [TODO] change this path - must end in allegro_ros2
+parser.AddModels(str(current_dir / "allegro_ros2/models/fr3_algr.urdf"))  # [TODO] change this path. must include allegro_ros2, the path to the urdf can be whatever
 plant.Finalize()
 
 # starting meshcat + adding sliders

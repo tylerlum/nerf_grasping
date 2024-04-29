@@ -33,27 +33,6 @@ def solve_ik(
     )
     plant.Finalize()
 
-    # starting meshcat + adding sliders
-    meshcat = StartMeshcat()
-    visualizer = MeshcatVisualizer.AddToBuilder(
-        builder,
-        scene_graph,
-        meshcat,
-        MeshcatVisualizerParams(role=Role.kIllustration),
-    )
-    collision_visualizer = MeshcatVisualizer.AddToBuilder(
-        builder,
-        scene_graph,
-        meshcat,
-        MeshcatVisualizerParams(
-            prefix="collision",
-            role=Role.kProximity,
-            visible_by_default=True,
-        ),
-    )
-    sliders = builder.AddSystem(JointSliders(meshcat, plant, step=1e-4))
-    diagram = builder.Build()
-
     q_arm_home = np.array([0.0, -0.7854, 0.0, -2.3562, 0.0, 1.5708, 0.7854])
     q_guess = np.concatenate((q_arm_home, q_algr_pre))
     context = plant.CreateDefaultContext()
@@ -83,10 +62,30 @@ def solve_ik(
     result = Solve(prog_pre)
     if not result.is_success():
         raise RuntimeError("IK failed")
-    print("success!")
     q_star = result.GetSolution(ik_pre.q())
-    sliders.SetPositions(q_star)
     if visualize:
+        # starting meshcat + adding sliders
+        meshcat = StartMeshcat()
+        visualizer = MeshcatVisualizer.AddToBuilder(
+            builder,
+            scene_graph,
+            meshcat,
+            MeshcatVisualizerParams(role=Role.kIllustration),
+        )
+        collision_visualizer = MeshcatVisualizer.AddToBuilder(
+            builder,
+            scene_graph,
+            meshcat,
+            MeshcatVisualizerParams(
+                prefix="collision",
+                role=Role.kProximity,
+                visible_by_default=True,
+            ),
+        )
+        sliders = builder.AddSystem(JointSliders(meshcat, plant, step=1e-4))
+        diagram = builder.Build()
+
+        sliders.SetPositions(q_star)
         sliders.Run(diagram, None)
     return q_star
 

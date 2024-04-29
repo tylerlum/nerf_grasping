@@ -539,13 +539,11 @@ def get_optimized_grasps(
                 )
                 all_predicted_in_collision.append(predicted_in_collision)
 
-            breakpoint()
             # Aggregate
             all_preds = np.concatenate(all_preds)
             assert all_preds.shape == (new_grasp_configs.batch_size,)
 
             all_predicted_in_collision = np.concatenate(all_predicted_in_collision)
-            breakpoint()
             assert all_predicted_in_collision.shape == (new_grasp_configs.batch_size,)
 
             new_all_preds = np.where(
@@ -580,6 +578,7 @@ def get_optimized_grasps(
     #         results.append([i, True])
     #     except RuntimeError:
     #         results.append([i, False])
+    # print(f"Number of grasps that pass IK: {sum([r[1] for r in results])} / {len(results)}")
     # breakpoint()
 
     init_grasp_configs = new_grasp_configs[: cfg.optimizer.num_grasps]

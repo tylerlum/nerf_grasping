@@ -7,6 +7,8 @@ from nerf_grasping.optimizer_utils import (
     GraspMetric,
     DepthImageGraspMetric,
     predict_in_collision_with_object,
+    predict_in_collision_with_table,
+    get_hand_surface_points_Oy,
 )
 from dataclasses import asdict
 from nerf_grasping.config.optimization_config import OptimizationConfig
@@ -460,7 +462,8 @@ def get_optimized_grasps(
 
     BATCH_SIZE = 64
     all_preds = []
-    all_predicted_in_collision = []
+    all_predicted_in_collision_obj = []
+    all_predicted_in_collision_table = []
     with torch.no_grad():
         # Sample random rotations
         N_SAMPLES = 1 + cfg.n_random_rotations_per_grasp
@@ -515,24 +518,43 @@ def get_optimized_grasps(
 
             temp_grasp_configs = new_grasp_configs[start_idx:end_idx].to(device=device)
 
+            # Metric
             preds = grasp_metric.get_failure_probability(temp_grasp_configs)
             all_preds.append(1 - preds.detach().cpu().numpy())
 
-            predicted_in_collision = predict_in_collision_with_object(
+            # Collision with object
+            predicted_in_collision_obj = predict_in_collision_with_object(
                 nerf_field=grasp_metric.nerf_field,
                 grasp_config=temp_grasp_configs,
             )
-            all_predicted_in_collision.append(predicted_in_collision)
+            all_predicted_in_collision_obj.append(predicted_in_collision_obj)
+
+            # Collision with table
+            USE_TABLE = True
+            if USE_TABLE:
+                hand_surface_points_Oy = get_hand_surface_points_Oy(
+                    grasp_config=temp_grasp_configs
+                )
+                table_y_Oy = -cfg.grasp_metric.X_N_Oy[2, 3]
+                predicted_in_collision_table = predict_in_collision_with_table(
+                    table_y_Oy=table_y_Oy,
+                    hand_surface_points_Oy=hand_surface_points_Oy,
+                )
+                all_predicted_in_collision_table.append(predicted_in_collision_table)
+            else:
+                all_predicted_in_collision_table.append(np.zeros_like(predicted_in_collision_obj))
 
         # Aggregate
         all_preds = np.concatenate(all_preds)
-        all_predicted_in_collision = np.concatenate(all_predicted_in_collision)
+        all_predicted_in_collision_obj = np.concatenate(all_predicted_in_collision_obj)
+        all_predicted_in_collision_table = np.concatenate(all_predicted_in_collision_table)
         assert all_preds.shape == (new_grasp_configs.batch_size,)
-        assert all_predicted_in_collision.shape == (new_grasp_configs.batch_size,)
+        assert all_predicted_in_collision_obj.shape == (new_grasp_configs.batch_size,)
+        assert all_predicted_in_collision_table.shape == (new_grasp_configs.batch_size,)
 
         # Filter out grasps that are in collision
         new_all_preds = np.where(
-            all_predicted_in_collision,
+            all_predicted_in_collision_obj | all_predicted_in_collision_table,
             np.zeros_like(all_preds),
             all_preds,
         )

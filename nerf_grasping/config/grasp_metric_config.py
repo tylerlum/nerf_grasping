@@ -49,6 +49,21 @@ class GraspMetricConfig:
         if self.X_N_Oy is None:
             self.X_N_Oy = np.eye(4)
 
+            import trimesh
+            # X_W_N = trimesh.transformations.translation_matrix([0.7, 0, 0])
+
+
+            X_N_O = trimesh.transformations.translation_matrix([-0.04092566, -0.05782086,  0.04981683])
+            # X_N_O = trimesh.transformations.translation_matrix([-0.02423195, -0.00194203,  0.13271753])
+            # X_N_O = trimesh.transformations.translation_matrix([0, 0, 0.1])
+            # Z-up
+            X_O_Oy = trimesh.transformations.rotation_matrix(
+                np.pi / 2, [1, 0, 0]
+            )
+
+            self.X_N_Oy = X_N_O @ X_O_Oy
+
+
     @property
     def object_name(self) -> str:
         return self.nerf_checkpoint_path.parents[2].stem

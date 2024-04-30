@@ -10,13 +10,14 @@ import numpy as np
 import pathlib
 
 # %%
-nerf_config = pathlib.Path("/juno/u/tylerlum/github_repos/nerf_grasping/2024-04-25_ALBERT_data/nerfdata/mug/outputs/config.yml")
+nerf_config = pathlib.Path("/juno/u/tylerlum/github_repos/nerf_grasping/2024-04-25_ALBERT_data/nerfcheckpoints/goblet_0_9999/nerfacto/2024-04-29_192400/config.yml")
 assert nerf_config.exists(), f"{nerf_config} does not exist"
 
 nerf_field = grasp_utils.load_nerf_field(nerf_config)
 # %%
-lb_N = -0.1 * np.ones(3)
-ub_N = 0.1 * np.ones(3)
+lb_N = -0.25 * np.ones(3)
+lb_N[2] = 0
+ub_N = 0.25 * np.ones(3)
 nerf_centroid_N = compute_centroid_from_nerf(
     nerf_field,
     lb=lb_N,
@@ -31,7 +32,7 @@ nerf_centroid_N = compute_centroid_from_nerf(
 print(nerf_centroid_N)
 
 # %%
-x_min, y_min, z_min = -0.25, -0.25, -0.25
+x_min, y_min, z_min = -0.25, -0.25, 0
 x_max, y_max, z_max = 0.25, 0.25, 0.25
 num_pts_x, num_pts_y, num_pts_z = 100, 100, 100
 ray_samples = get_ray_samples_in_region(

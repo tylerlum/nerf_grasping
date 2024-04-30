@@ -10,7 +10,8 @@ import numpy as np
 import pathlib
 
 # %%
-nerf_config = pathlib.Path("/juno/u/tylerlum/github_repos/nerf_grasping/2024-04-25_ALBERT_data/nerfcheckpoints/goblet_0_9999/nerfacto/2024-04-29_192400/config.yml")
+# nerf_config = pathlib.Path("/juno/u/tylerlum/github_repos/nerf_grasping/2024-04-25_ALBERT_data/nerfcheckpoints/goblet_0_9999/nerfacto/2024-04-29_192400/config.yml")
+nerf_config = pathlib.Path("/juno/u/tylerlum/github_repos/nerf_grasping/2024-04-25_ALBERT_data/nerfcheckpoints/new_mug_0_9999/nerfacto/2024-04-30_151823/config.yml")
 assert nerf_config.exists(), f"{nerf_config} does not exist"
 
 nerf_field = grasp_utils.load_nerf_field(nerf_config)

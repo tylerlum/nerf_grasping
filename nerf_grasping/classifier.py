@@ -53,7 +53,7 @@ class Classifier(nn.Module):
 
         # HACK: Modify to either be product or not
         # BRITTLE IDXING
-        MODE = "PASSED_SIM"
+        MODE = "PASSED_EVAL"
         if MODE == "PRODUCT":
             passed_all_probs = torch.prod(passed_task_probs, dim=-1)
         elif MODE == "PASSED_SIM":

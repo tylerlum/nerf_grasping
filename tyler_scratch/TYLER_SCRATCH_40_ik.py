@@ -45,10 +45,14 @@ def add_transform_matrix_traces(fig, transform_matrix, length=0.1):
 # %%
 # grasp_config_dict = np.load("/juno/u/tylerlum/github_repos/DexGraspNet/data/2024-04-16_rotated_grasps_aggregated_augmented_pose_HALTON_50/aggregated_evaled_grasp_config_dicts_train/aggregated_evaled_grasp_config_dict_train.npy", allow_pickle=True).item()
 # grasp_config_dict = np.load("/juno/u/tylerlum/github_repos/DexGraspNet/data/2024-04-16_rotated_grasps_aggregated_augmented_pose_HALTON_50/aggregated_evaled_grasp_config_dicts_train_optimized/ddg-ycb_077_rubiks_cube_0_0545.npy", allow_pickle=True).item()
-grasp_config_dict = np.load("/juno/u/tylerlum/Downloads/ddg-ycb_077_rubiks_cube_0_0545.npy", allow_pickle=True).item()
+# grasp_config_dict = np.load("/juno/u/tylerlum/Downloads/ddg-ycb_077_rubiks_cube_0_0545.npy", allow_pickle=True).item()
+grasp_config_dict = np.load("/juno/u/tylerlum/github_repos/DexGraspNet/data/2024-04-16_rotated_grasps_aggregated_augmented_pose_HALTON_50/aggregated_evaled_grasp_config_dicts_train_optimized/new_mug_0_9999.npy", allow_pickle=True).item()
+# grasp_config_dict = np.load("/juno/u/tylerlum/Downloads/new_mug_0_9999.npy", allow_pickle=True).item()
+
+mesh = trimesh.load_mesh("/juno/u/tylerlum/github_repos/nerf_grasping/nerf_grasping/baselines/nerf_meshdata_rotated/new_mug/coacd/decomposed.obj")
 
 # %%
-GRASP_IDX = 1
+GRASP_IDX = 0
 trans = grasp_config_dict['trans']
 rot = grasp_config_dict['rot']
 joint_angles = grasp_config_dict['joint_angles']
@@ -113,15 +117,32 @@ fig.update_layout(
     scene_camera=yup_camera,
 )
 add_transform_matrix_traces(fig, X_Oy_H, length=0.1)
+add_transform_matrix_traces(fig, np.eye(4), length=0.1)
+fig.add_trace(
+    go.Mesh3d(
+        x=mesh.vertices[:, 0],
+        y=mesh.vertices[:, 1],
+        z=mesh.vertices[:, 2],
+        i=mesh.faces[:, 0],
+        j=mesh.faces[:, 1],
+        k=mesh.faces[:, 2],
+        opacity=0.5,
+        color="blue",
+    )
+)
 fig.show()
 
 # %%
+print(mesh.bounds)
 
 
 # %%
-X_W_N = trimesh.transformations.translation_matrix([0.7, 0, 0])
+X_W_N = trimesh.transformations.translation_matrix([0.65, 0, 0])
 
-X_N_O = trimesh.transformations.translation_matrix([0, 0, 0.1])
+assert mesh.bounds.shape == (2, 3)
+# table_y_Oy = -0.05522743
+# X_N_O = trimesh.transformations.translation_matrix([0, 0, -table_y_Oy])
+X_N_O = trimesh.transformations.translation_matrix([0.022149, -0.000491, 0.057019])
 
 # Z-up
 X_O_Oy = trimesh.transformations.rotation_matrix(
@@ -148,7 +169,11 @@ if z_dir[0] < cos_theta:
     print("Expect this to fail because now middle finger is pointing toward the robot")
 
 # %%
-q_star = solve_ik(X_W_H, joint_angles[GRASP_IDX])
+q_star = solve_ik(X_W_H, joint_angles[GRASP_IDX], visualize=True)
+
+# %%
+print(f"q_star = {q_star}")
+
 # %%
 
 # dummy_X_W_H = np.eye(4)
@@ -200,6 +225,8 @@ q_star = solve_ik(X_W_H, q_algr_pre, visualize=True)
 
 # %%
 from tqdm import tqdm
+
+# %%
 # Define the original transformation matrix X_W_H and the initial guess for the joint angles q_algr_pre
 X_W_H = np.array([
     [-0.40069854, 0.06362686, 0.91399777, 0.66515265],
@@ -383,7 +410,7 @@ print(f"in_1_not_2[:10] = {list(in_1_not_2)[:10]}")
 print(f"in_2_not_1[:10] = {list(in_2_not_1)[:10]}")
 
 # %%
-GRASP_IDX = 1538
+GRASP_IDX = 0
 device = "cuda"
 hand_model_type = HandModelType.ALLEGRO_HAND
 hand_model = HandModel(hand_model_type=hand_model_type, device=device, n_surface_points=1000)

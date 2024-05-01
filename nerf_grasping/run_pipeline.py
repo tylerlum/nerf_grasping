@@ -404,10 +404,10 @@ def run_pipeline(
 
         try:
             q_star = solve_ik(X_W_H=X_W_H, q_algr_pre=q_algr_pre, visualize=False)
-            print(f"Success for grasp {i} / {num_grasps}")
+            print(f"Success for grasp {i}")
             q_stars.append(q_star)
         except RuntimeError as e:
-            print(f"Failed to solve IK for grasp {i} / {num_grasps}: {e}")
+            print(f"Failed to solve IK for grasp {i}")
             q_stars.append(None)
     assert len(q_stars) == num_grasps
     num_passed = sum([q_star is not None for q_star in q_stars])

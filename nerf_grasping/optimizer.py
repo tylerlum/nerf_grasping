@@ -533,7 +533,7 @@ def get_optimized_grasps(
             all_predicted_in_collision_obj.append(predicted_in_collision_obj)
 
             # Collision with table
-            USE_TABLE = True
+            USE_TABLE = False
             if USE_TABLE:
                 hand_surface_points_Oy = get_hand_surface_points_Oy(
                     grasp_config=temp_grasp_configs

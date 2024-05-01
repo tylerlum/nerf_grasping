@@ -526,18 +526,18 @@ def get_optimized_grasps(
             all_preds.append(1 - preds.detach().cpu().numpy())
 
             # Collision with object
+            hand_surface_points_Oy = get_hand_surface_points_Oy(
+                grasp_config=temp_grasp_configs
+            )
             predicted_in_collision_obj = predict_in_collision_with_object(
                 nerf_field=grasp_metric.nerf_field,
-                grasp_config=temp_grasp_configs,
+                hand_surface_points_Oy=hand_surface_points_Oy,
             )
             all_predicted_in_collision_obj.append(predicted_in_collision_obj)
 
             # Collision with table
             USE_TABLE = False
             if USE_TABLE:
-                hand_surface_points_Oy = get_hand_surface_points_Oy(
-                    grasp_config=temp_grasp_configs
-                )
                 table_y_Oy = -cfg.grasp_metric.X_N_Oy[2, 3]
                 predicted_in_collision_table = predict_in_collision_with_table(
                     table_y_Oy=table_y_Oy,

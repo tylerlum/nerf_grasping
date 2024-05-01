@@ -1040,37 +1040,16 @@ def load_depth_image_classifier(
 
 def predict_in_collision_with_object(
     nerf_field: Field,
-    grasp_config: AllegroGraspConfig,
+    hand_surface_points_Oy: torch.Tensor,
+    max_density_threshold: float = 8.5,
 ) -> torch.Tensor:
-    from nerf_grasping.dexgraspnet_utils.hand_model import HandModel
-    from nerf_grasping.dexgraspnet_utils.hand_model_type import (
-        HandModelType,
-    )
-    from nerf_grasping.dexgraspnet_utils.pose_conversion import (
-        hand_config_to_pose,
-    )
     from nerf_grasping.nerf_utils import (
         get_density,
     )
 
-    N_SURFACE_POINTS = 1000
-    MAX_DENSITY_THRESHOLD = 8.5
-
-    device = grasp_config.hand_config.wrist_pose.device
-
-    translation = grasp_config.wrist_pose.translation().detach().cpu().numpy()
-    rotation = grasp_config.wrist_pose.rotation().matrix().detach().cpu().numpy()
-    joint_angles = grasp_config.joint_angles.detach().cpu().numpy()
-    hand_model_type = HandModelType.ALLEGRO_HAND
-    hand_model = HandModel(
-        hand_model_type=hand_model_type,
-        device=device,
-        n_surface_points=N_SURFACE_POINTS,
-    )
-    hand_pose = hand_config_to_pose(translation, rotation, joint_angles).to(device)
-    hand_model.set_parameters(hand_pose)
-    surface_points = hand_model.get_surface_points()
-    assert surface_points.shape == (grasp_config.batch_size, N_SURFACE_POINTS, 3)
+    surface_points = hand_surface_points_Oy
+    assert surface_points.shape[-1] == 3
+    num_grasps, num_points_per_grasp, _ = surface_points.shape
 
     densities = (
         get_density(
@@ -1082,10 +1061,10 @@ def predict_in_collision_with_object(
         .cpu()
         .numpy()
     )
-    assert densities.shape == (grasp_config.batch_size, N_SURFACE_POINTS)
+    assert densities.shape == (num_grasps, num_points_per_grasp)
     max_densities = densities.max(axis=-1)
 
-    predict_penetrations = max_densities > MAX_DENSITY_THRESHOLD
+    predict_penetrations = max_densities > max_density_threshold
     return predict_penetrations
 
 

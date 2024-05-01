@@ -151,6 +151,10 @@ class SGDOptimizer(Optimizer):
                 )
             )
 
+        self.joint_lower, self.joint_upper = self.compute_joint_limits()
+        assert self.joint_lower.shape == (16,)
+        assert self.joint_upper.shape == (16,)
+
     def step(self):
         self.joint_optimizer.zero_grad()
         if self.optimizer_config.opt_wrist_pose:
@@ -165,10 +169,30 @@ class SGDOptimizer(Optimizer):
         losses.sum().backward()  # Should be sum so gradient magnitude per parameter is invariant to batch size.
 
         self.joint_optimizer.step()
+
         if self.optimizer_config.opt_wrist_pose:
             self.wrist_optimizer.step()
         if self.optimizer_config.opt_grasp_dirs:
             self.grasp_dir_optimizer.step()
+
+        # TODO: See if this works
+        # Clip joint angles to feasible range.
+        self.grasp_config.joint_angles.data = torch.clamp(
+            self.grasp_config.joint_angles, min=self.joint_lower, max=self.joint_upper,
+        )
+
+    def compute_joint_limits(self) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Get the joint limits for the hand model.
+        """
+        from nerf_grasping.dexgraspnet_utils.hand_model import HandModel
+        from nerf_grasping.dexgraspnet_utils.hand_model_type import (
+            HandModelType,
+        )
+        device = "cuda"
+        hand_model_type = HandModelType.ALLEGRO_HAND
+        hand_model = HandModel(hand_model_type=hand_model_type, device=device, n_surface_points=1000)
+        return hand_model.joints_lower, hand_model.joints_upper
 
 
 class CEMOptimizer(Optimizer):
@@ -461,7 +485,8 @@ def get_optimized_grasps(
     grasp_metric = grasp_metric.to(device=device)
 
     # Put this here to ensure that the random seed is set before sampling random rotations.
-    torch.manual_seed(cfg.random_seed)
+    if cfg.random_seed is not None:
+        torch.manual_seed(cfg.random_seed)
 
     BATCH_SIZE = 64
     all_preds = []

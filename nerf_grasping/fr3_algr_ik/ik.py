@@ -18,19 +18,19 @@ import pathlib
 
 
 def solve_ik(
-    X_W_H: np.ndarray, q_algr_pre: np.ndarray, visualize: bool = False
+    X_W_H: np.ndarray,
+    q_algr_pre: np.ndarray,
+    visualize: bool = False,
+    position_constraint_tolerance: float = 0.001,
+    angular_constraint_tolerance: float = 0.05,
 ) -> np.ndarray:
     current_dir = pathlib.Path(__file__).parent.absolute()
 
     builder = DiagramBuilder()
     plant, scene_graph = AddMultibodyPlantSceneGraph(builder, time_step=0.001)
     parser = Parser(plant, scene_graph)
-    parser.package_map().Add(
-        "allegro_ros2", str(current_dir / "allegro_ros2")
-    )
-    parser.AddModels(
-        str(current_dir / "allegro_ros2/models/fr3_algr.urdf")
-    )
+    parser.package_map().Add("allegro_ros2", str(current_dir / "allegro_ros2"))
+    parser.AddModels(str(current_dir / "allegro_ros2/models/fr3_algr.urdf"))
     plant.Finalize()
 
     q_arm_home = np.array([0.0, -0.7854, 0.0, -2.3562, 0.0, 1.5708, 0.7854])
@@ -42,15 +42,15 @@ def solve_ik(
         plant.GetFrameByName("algr_rh_palm"),
         np.zeros(3),
         plant.world_frame(),
-        X_W_H[:3, -1] - 0.001,
-        X_W_H[:3, -1] + 0.001,
+        X_W_H[:3, -1] - position_constraint_tolerance,
+        X_W_H[:3, -1] + position_constraint_tolerance,
     )  # location of the palm
     ik_pre.AddOrientationConstraint(
         plant.GetFrameByName("algr_rh_palm"),
         RotationMatrix(),  # the palm frame
         plant.world_frame(),
         RotationMatrix(X_W_H[:3, :3]),  # the desired palm orientation in the world
-        0.01,  # angular constraint tolerance should be small
+        angular_constraint_tolerance,  # angular constraint tolerance should be small
     )  # [TODO] this is causing issues!
     prog_pre = ik_pre.get_mutable_prog()
     prog_pre.AddBoundingBoxConstraint(

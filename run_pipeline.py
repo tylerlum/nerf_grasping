@@ -1,5 +1,5 @@
 # %%
-from typing import Optional
+from typing import Optional, Tuple, List
 from nerf_grasping.fr3_algr_ik.ik import solve_ik
 from nerf_grasping.optimizer import get_optimized_grasps
 from nerf_grasping.optimizer_utils import (
@@ -144,7 +144,11 @@ def add_transform_matrix_traces(
         )
 
 
-def run_pipeline(args: Args) -> None:
+def run_pipeline(
+    args: Args,
+) -> Tuple[
+    List[Optional[np.ndarray]], np.ndarray, np.ndarray, np.ndarray, trimesh.Trimesh, np.ndarray
+]:
     print("=" * 80)
     print("Step 1: Figuring out frames")
     print("=" * 80 + "\n")
@@ -414,7 +418,7 @@ def run_pipeline(args: Args) -> None:
         f"Number of grasps passed IK: {num_passed} / {num_grasps} ({num_passed / num_grasps * 100:.2f}%)"
     )
 
-    return q_stars, X_W_Hs, q_algr_pres, q_algr_posts, mesh_W
+    return q_stars, X_W_Hs, q_algr_pres, q_algr_posts, mesh_W, X_N_Oy
 
 
 def main() -> None:

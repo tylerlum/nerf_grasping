@@ -431,7 +431,9 @@ def run_pipeline(
     q_algr_pres_is_in_limits = is_in_limits(q_algr_pres)
     assert q_algr_pres_is_in_limits.shape == (num_grasps,)
     pass_idxs = set(np.where(q_algr_pres_is_in_limits)[0])
-    print(f"Number of grasps in limits: {len(pass_idxs)} / {num_grasps} ({len(pass_idxs) / num_grasps * 100:.2f}%)")
+    print(
+        f"Number of grasps in limits: {len(pass_idxs)} / {num_grasps} ({len(pass_idxs) / num_grasps * 100:.2f}%)"
+    )
     print(f"pass_idxs: {pass_idxs}")
 
     q_stars = []
@@ -453,7 +455,15 @@ def run_pipeline(
         f"Number of grasps passed IK: {num_passed} / {num_grasps} ({num_passed / num_grasps * 100:.2f}%)"
     )
 
-    return q_stars, X_W_Hs, q_algr_pres, q_algr_posts, mesh_W, X_N_Oy, q_algr_pres_is_in_limits
+    return (
+        q_stars,
+        X_W_Hs,
+        q_algr_pres,
+        q_algr_posts,
+        mesh_W,
+        X_N_Oy,
+        q_algr_pres_is_in_limits,
+    )
 
 
 @dataclass

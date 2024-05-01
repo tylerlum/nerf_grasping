@@ -155,6 +155,12 @@ class SGDOptimizer(Optimizer):
         assert self.joint_lower.shape == (16,)
         assert self.joint_upper.shape == (16,)
 
+        self.grasp_config.joint_angles.data = torch.clamp(
+            self.grasp_config.joint_angles,
+            min=self.joint_lower,
+            max=self.joint_upper,
+        )
+
     def step(self):
         self.joint_optimizer.zero_grad()
         if self.optimizer_config.opt_wrist_pose:
@@ -175,10 +181,11 @@ class SGDOptimizer(Optimizer):
         if self.optimizer_config.opt_grasp_dirs:
             self.grasp_dir_optimizer.step()
 
-        # TODO: See if this works
         # Clip joint angles to feasible range.
         self.grasp_config.joint_angles.data = torch.clamp(
-            self.grasp_config.joint_angles, min=self.joint_lower, max=self.joint_upper,
+            self.grasp_config.joint_angles,
+            min=self.joint_lower,
+            max=self.joint_upper,
         )
 
     def compute_joint_limits(self) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -189,9 +196,12 @@ class SGDOptimizer(Optimizer):
         from nerf_grasping.dexgraspnet_utils.hand_model_type import (
             HandModelType,
         )
+
         device = "cuda"
         hand_model_type = HandModelType.ALLEGRO_HAND
-        hand_model = HandModel(hand_model_type=hand_model_type, device=device, n_surface_points=1000)
+        hand_model = HandModel(
+            hand_model_type=hand_model_type, device=device, n_surface_points=1000
+        )
         return hand_model.joints_lower, hand_model.joints_upper
 
 
@@ -570,12 +580,16 @@ def get_optimized_grasps(
                 )
                 all_predicted_in_collision_table.append(predicted_in_collision_table)
             else:
-                all_predicted_in_collision_table.append(np.zeros_like(predicted_in_collision_obj))
+                all_predicted_in_collision_table.append(
+                    np.zeros_like(predicted_in_collision_obj)
+                )
 
         # Aggregate
         all_preds = np.concatenate(all_preds)
         all_predicted_in_collision_obj = np.concatenate(all_predicted_in_collision_obj)
-        all_predicted_in_collision_table = np.concatenate(all_predicted_in_collision_table)
+        all_predicted_in_collision_table = np.concatenate(
+            all_predicted_in_collision_table
+        )
         assert all_preds.shape == (new_grasp_configs.batch_size,)
         assert all_predicted_in_collision_obj.shape == (new_grasp_configs.batch_size,)
         assert all_predicted_in_collision_table.shape == (new_grasp_configs.batch_size,)

@@ -33,7 +33,7 @@ class Args:
     nerfdata_path: pathlib.Path
     init_grasp_config_dict_path: pathlib.Path
     classifier_config_path: pathlib.Path
-    object_name: str = "unnamed_object"
+    object_code: str = "unnamed_object"
     output_folder: pathlib.Path = pathlib.Path("experiments") / datetime.now().strftime(
         "%Y-%m-%d_%H-%M-%S"
     )
@@ -47,10 +47,12 @@ class Args:
     ub_z: float = 0.3
     nerf_frame_offset_x: float = 0.65
     visualize: bool = False
+    max_num_iterations: int = 2000
     num_grasps: int = 32
     num_steps: int = 0
     random_seed: Optional[int] = None
     n_random_rotations_per_grasp: int = 5
+    object_scale: float = 0.9999
 
     def __post_init__(self) -> None:
         assert self.nerfdata_path.exists(), f"{self.nerfdata_path} does not exist"
@@ -98,6 +100,10 @@ class Args:
             if self.obj_is_z_up
             else np.eye(4)
         )
+
+    @property
+    def object_code_and_scale_str(self) -> str:
+        return f"{self.object_code}_{self.object_scale:.4f}".replace(".", "_")
 
 
 def transform_point(transform_matrix: np.ndarray, point: np.ndarray) -> np.ndarray:
@@ -163,7 +169,7 @@ def run_pipeline(args: Args) -> None:
         args=train_nerfs_return_trainer.Args(
             nerfdata_folder=args.nerfdata_path,
             nerfcheckpoints_folder=args.output_folder / "nerfcheckpoints",
-            max_num_iterations=2000,
+            max_num_iterations=args.max_num_iterations,
         )
     )
     nerf_model = nerf_trainer.pipeline.model
@@ -175,15 +181,20 @@ def run_pipeline(args: Args) -> None:
     print("\n" + "=" * 80)
     print("Step 3: Convert NeRF to mesh")
     print("=" * 80 + "\n")
-    nerf_to_mesh_folder = args.output_folder / "nerf_to_mesh"
+    nerf_to_mesh_folder = (
+        args.output_folder / "nerf_to_mesh" / args.object_code / "coacd"
+    )
     nerf_to_mesh_folder.mkdir(parents=True, exist_ok=True)
     mesh_N = nerf_to_mesh(
         field=nerf_field,
         level=args.density_levelset_threshold,
         lb=lb_N,
         ub=ub_N,
-        save_path=nerf_to_mesh_folder / f"{args.object_name}.obj",
+        save_path=nerf_to_mesh_folder / "decomposed.obj",
     )
+
+    # HACK: Save to /tmp/mesh_viz_object.obj as well
+    mesh_N.export("/tmp/mesh_viz_object.obj")
 
     print("\n" + "=" * 80)
     print(
@@ -215,11 +226,11 @@ def run_pipeline(args: Args) -> None:
     # For debugging
     mesh_Oy = trimesh.Trimesh(vertices=mesh_N.vertices, faces=mesh_N.faces)
     mesh_Oy.apply_transform(X_Oy_N)
-    nerf_to_mesh_Oy_folder = args.output_folder / "nerf_to_mesh_Oy"
-    nerf_to_mesh_Oy_folder.mkdir(parents=True, exist_ok=True)
-    mesh_Oy.export(
-        nerf_to_mesh_Oy_folder / f"{args.object_name}.obj",
+    nerf_to_mesh_Oy_folder = (
+        args.output_folder / "nerf_to_mesh_Oy" / args.object_code / "coacd"
     )
+    nerf_to_mesh_Oy_folder.mkdir(parents=True, exist_ok=True)
+    mesh_Oy.export(nerf_to_mesh_Oy_folder / "decomposed.obj")
     mesh_centroid_Oy = transform_point(X_Oy_N, centroid_N)
     nerf_centroid_Oy = transform_point(X_Oy_N, centroid_N)
 
@@ -353,7 +364,7 @@ def run_pipeline(args: Args) -> None:
             output_path=pathlib.Path(
                 args.output_folder
                 / "optimized_grasp_config_dicts"
-                / f"{args.object_name}.npy"
+                / f"{args.object_code_and_scale_str}.npy"
             ),
             random_seed=args.random_seed,
             n_random_rotations_per_grasp=args.n_random_rotations_per_grasp,

@@ -368,6 +368,7 @@ def run_pipeline(
             ),
             random_seed=cfg.random_seed,
             n_random_rotations_per_grasp=cfg.n_random_rotations_per_grasp,
+            wandb=None,
         ),
         grasp_metric=grasp_metric,
     )

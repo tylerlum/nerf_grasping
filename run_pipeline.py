@@ -1,5 +1,7 @@
 # %%
 from typing import Optional, Tuple, List
+from nerfstudio.models.base_model import Model
+from nerf_grasping.grasp_utils import load_nerf_pipeline
 from nerf_grasping.fr3_algr_ik.ik import solve_ik
 from nerf_grasping.optimizer import get_optimized_grasps
 from nerf_grasping.optimizer_utils import (
@@ -29,8 +31,7 @@ from datetime import datetime
 
 
 @dataclass
-class Args:
-    nerfdata_path: pathlib.Path
+class PipelineConfig:
     init_grasp_config_dict_path: pathlib.Path
     classifier_config_path: pathlib.Path
     object_code: str = "unnamed_object"
@@ -47,23 +48,14 @@ class Args:
     ub_z: float = 0.3
     nerf_frame_offset_x: float = 0.65
     visualize: bool = False
-    max_num_iterations: int = 2000
     num_grasps: int = 32
     num_steps: int = 0
     random_seed: Optional[int] = None
     n_random_rotations_per_grasp: int = 5
     object_scale: float = 0.9999
+    nerf_config: Optional[pathlib.Path] = None
 
     def __post_init__(self) -> None:
-        assert self.nerfdata_path.exists(), f"{self.nerfdata_path} does not exist"
-        assert self.nerfdata_path.is_dir(), f"{self.nerfdata_path} is not a directory"
-        assert (
-            self.nerfdata_path / "transforms.json"
-        ).exists(), f"{self.nerfdata_path / 'transforms.json'} does not exist"
-        assert (
-            self.nerfdata_path / "images"
-        ).exists(), f"{self.nerfdata_path / 'images'} does not exist"
-
         assert (
             self.init_grasp_config_dict_path.exists()
         ), f"{self.init_grasp_config_dict_path} does not exist"
@@ -78,6 +70,12 @@ class Args:
             ".yml",
             ".yaml",
         ], f"{self.classifier_config_path} does not have a .yml or .yaml suffix"
+
+        if self.nerf_config is not None:
+            assert self.nerf_config.exists(), f"{self.nerf_config} does not exist"
+            assert (
+                self.nerf_config.suffix == ".yml"
+            ), f"{self.nerf_config} does not have a .yml suffix"
 
     @property
     def lb_N(self) -> np.ndarray:
@@ -145,9 +143,15 @@ def add_transform_matrix_traces(
 
 
 def run_pipeline(
-    args: Args,
+    nerf_model: Model,
+    cfg: PipelineConfig,
 ) -> Tuple[
-    List[Optional[np.ndarray]], np.ndarray, np.ndarray, np.ndarray, trimesh.Trimesh, np.ndarray
+    List[Optional[np.ndarray]],
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    trimesh.Trimesh,
+    np.ndarray,
 ]:
     print("=" * 80)
     print("Step 1: Figuring out frames")
@@ -160,38 +164,30 @@ def run_pipeline(
         "W, N, O are z-up frames. Oy is y-up. H has z-up along finger and x-up along palm normal"
     )
     print("X_A_B represents 4x4 transformation matrix of frame B wrt A")
-    X_W_N, X_O_Oy = args.X_W_N, args.X_O_Oy
-    lb_N, ub_N = args.lb_N, args.ub_N
+    X_W_N, X_O_Oy = cfg.X_W_N, cfg.X_O_Oy
+    lb_N, ub_N = cfg.lb_N, cfg.ub_N
 
-    print(f"Creating a new experiment folder at {args.output_folder}")
-    args.output_folder.mkdir(parents=True, exist_ok=True)
+    print(f"Creating a new experiment folder at {cfg.output_folder}")
+    cfg.output_folder.mkdir(parents=True, exist_ok=True)
 
     print("\n" + "=" * 80)
-    print("Step 2: Train NERF")
+    print("Step 2: Get NERF")
     print("=" * 80 + "\n")
-    nerf_trainer = train_nerfs_return_trainer.train_nerf(
-        args=train_nerfs_return_trainer.Args(
-            nerfdata_folder=args.nerfdata_path,
-            nerfcheckpoints_folder=args.output_folder / "nerfcheckpoints",
-            max_num_iterations=args.max_num_iterations,
-        )
-    )
-    nerf_model = nerf_trainer.pipeline.model
     nerf_field = nerf_model.field
-    nerf_config = nerf_trainer.config.get_base_dir() / "config.yml"
-    assert nerf_config.exists(), f"{nerf_config} does not exist"
-    print(f"NERF config saved at {nerf_config}")
+    nerf_config = (
+        cfg.nerf_config
+        if cfg.nerf_config is not None
+        else pathlib.Path("DUMMY_NERF_CONFIG/config.yml")
+    )  # Dummy value to put in, not used because nerf_model is passed in
 
     print("\n" + "=" * 80)
     print("Step 3: Convert NeRF to mesh")
     print("=" * 80 + "\n")
-    nerf_to_mesh_folder = (
-        args.output_folder / "nerf_to_mesh" / args.object_code / "coacd"
-    )
+    nerf_to_mesh_folder = cfg.output_folder / "nerf_to_mesh" / cfg.object_code / "coacd"
     nerf_to_mesh_folder.mkdir(parents=True, exist_ok=True)
     mesh_N = nerf_to_mesh(
         field=nerf_field,
-        level=args.density_levelset_threshold,
+        level=cfg.density_levelset_threshold,
         lb=lb_N,
         ub=ub_N,
         save_path=nerf_to_mesh_folder / "decomposed.obj",
@@ -211,7 +207,7 @@ def run_pipeline(
         nerf_field,
         lb=lb_N,
         ub=ub_N,
-        level=args.density_levelset_threshold,
+        level=cfg.density_levelset_threshold,
         num_pts_x=100,
         num_pts_y=100,
         num_pts_z=100,
@@ -231,14 +227,14 @@ def run_pipeline(
     mesh_Oy = trimesh.Trimesh(vertices=mesh_N.vertices, faces=mesh_N.faces)
     mesh_Oy.apply_transform(X_Oy_N)
     nerf_to_mesh_Oy_folder = (
-        args.output_folder / "nerf_to_mesh_Oy" / args.object_code / "coacd"
+        cfg.output_folder / "nerf_to_mesh_Oy" / cfg.object_code / "coacd"
     )
     nerf_to_mesh_Oy_folder.mkdir(parents=True, exist_ok=True)
     mesh_Oy.export(nerf_to_mesh_Oy_folder / "decomposed.obj")
     mesh_centroid_Oy = transform_point(X_Oy_N, centroid_N)
     nerf_centroid_Oy = transform_point(X_Oy_N, centroid_N)
 
-    if args.visualize:
+    if cfg.visualize:
         # Visualize N
         fig_N = go.Figure()
         fig_N.add_trace(
@@ -320,9 +316,9 @@ def run_pipeline(
     print("\n" + "=" * 80)
     print("Step 5: Load grasp metric")
     print("=" * 80 + "\n")
-    print(f"Loading classifier config from {args.classifier_config_path}")
+    print(f"Loading classifier config from {cfg.classifier_config_path}")
     classifier_config = tyro.extras.from_yaml(
-        ClassifierConfig, args.classifier_config_path.open()
+        ClassifierConfig, cfg.classifier_config_path.open()
     )
 
     USE_DEPTH_IMAGES = isinstance(
@@ -352,26 +348,26 @@ def run_pipeline(
     optimized_grasp_config_dict = get_optimized_grasps(
         cfg=OptimizationConfig(
             use_rich=True,
-            init_grasp_config_dict_path=args.init_grasp_config_dict_path,
+            init_grasp_config_dict_path=cfg.init_grasp_config_dict_path,
             grasp_metric=GraspMetricConfig(
                 nerf_checkpoint_path=nerf_config,
-                classifier_config_path=args.classifier_config_path,
+                classifier_config_path=cfg.classifier_config_path,
                 X_N_Oy=X_N_Oy,
             ),  # This is not used because we are passing in a grasp_metric
             optimizer=SGDOptimizerConfig(
-                num_grasps=args.num_grasps,
-                num_steps=args.num_steps,
+                num_grasps=cfg.num_grasps,
+                num_steps=cfg.num_steps,
                 finger_lr=1e-4,
                 grasp_dir_lr=1e-4,
                 wrist_lr=1e-4,
             ),
             output_path=pathlib.Path(
-                args.output_folder
+                cfg.output_folder
                 / "optimized_grasp_config_dicts"
-                / f"{args.object_code_and_scale_str}.npy"
+                / f"{cfg.object_code_and_scale_str}.npy"
             ),
-            random_seed=args.random_seed,
-            n_random_rotations_per_grasp=args.n_random_rotations_per_grasp,
+            random_seed=cfg.random_seed,
+            n_random_rotations_per_grasp=cfg.n_random_rotations_per_grasp,
         ),
         grasp_metric=grasp_metric,
     )
@@ -421,12 +417,62 @@ def run_pipeline(
     return q_stars, X_W_Hs, q_algr_pres, q_algr_posts, mesh_W, X_N_Oy
 
 
+@dataclass
+class CommandlineArgs(PipelineConfig):
+    nerfdata_path: Optional[pathlib.Path] = None
+    nerfcheckpoint_path: Optional[pathlib.Path] = None
+    max_num_iterations: int = 2000
+
+    def __post_init__(self) -> None:
+        if self.nerfdata_path is not None and self.nerfcheckpoint_path is None:
+            assert self.nerfdata_path.exists(), f"{self.nerfdata_path} does not exist"
+            assert (
+                self.nerfdata_path / "transforms.json"
+            ).exists(), f"{self.nerfdata_path / 'transforms.json'} does not exist"
+            assert (
+                self.nerfdata_path / "images"
+            ).exists(), f"{self.nerfdata_path / 'images'} does not exist"
+        elif self.nerfdata_path is None and self.nerfcheckpoint_path is not None:
+            assert (
+                self.nerfcheckpoint_path.exists()
+            ), f"{self.nerfcheckpoint_path} does not exist"
+            assert (
+                self.nerfcheckpoint_path.suffix == ".yml"
+            ), f"{self.nerfcheckpoint_path} does not have a .yml suffix"
+        else:
+            raise ValueError(
+                "Exactly one of nerfdata_path or nerfcheckpoint_path must be specified"
+            )
+
+
 def main() -> None:
-    args = tyro.cli(Args)
+    args = tyro.cli(CommandlineArgs)
     print("=" * 80)
     print(f"args: {args}")
     print("=" * 80 + "\n")
-    run_pipeline(args)
+
+    if args.nerfdata_path is not None:
+        nerf_checkpoints_folder = args.output_folder / "nerfcheckpoints"
+        nerf_trainer = train_nerfs_return_trainer.train_nerf(
+            args=train_nerfs_return_trainer.Args(
+                nerfdata_folder=args.nerfdata_path,
+                nerfcheckpoints_folder=nerf_checkpoints_folder,
+                max_num_iterations=args.max_num_iterations,
+            )
+        )
+        nerf_model = nerf_trainer.pipeline.model
+        nerf_config = nerf_trainer.config.get_base_dir() / "config.yml"
+    elif args.nerfcheckpoint_path is not None:
+        nerf_pipeline = load_nerf_pipeline(args.nerfcheckpoint_path)
+        nerf_model = nerf_pipeline.model
+        nerf_config = args.nerfcheckpoint_path
+    else:
+        raise ValueError(
+            "Exactly one of nerfdata_path or nerfcheckpoint_path must be specified"
+        )
+
+    args.nerf_config = nerf_config
+    run_pipeline(nerf_model=nerf_model, cfg=args)
 
 
 if __name__ == "__main__":

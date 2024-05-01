@@ -142,6 +142,37 @@ def add_transform_matrix_traces(
         )
 
 
+def is_in_limits(joint_angles: np.ndarray) -> np.ndarray:
+    N = joint_angles.shape[0]
+    assert joint_angles.shape == (N, 16)
+
+    from nerf_grasping.dexgraspnet_utils.hand_model import HandModel
+    from nerf_grasping.dexgraspnet_utils.hand_model_type import (
+        HandModelType,
+    )
+
+    device = "cuda"
+    hand_model_type = HandModelType.ALLEGRO_HAND
+    hand_model = HandModel(
+        hand_model_type=hand_model_type, device=device, n_surface_points=1000
+    )
+
+    joints_upper = hand_model.joints_upper.detach().cpu().numpy()
+    joints_lower = hand_model.joints_lower.detach().cpu().numpy()
+    assert joints_upper.shape == (16,)
+    assert joints_lower.shape == (16,)
+
+    in_limits = np.all(
+        np.logical_and(
+            joint_angles >= joints_lower[None, ...],
+            joint_angles <= joints_upper[None, ...],
+        ),
+        axis=1,
+    )
+    assert in_limits.shape == (N,)
+    return in_limits
+
+
 def run_pipeline(
     nerf_model: Model,
     cfg: PipelineConfig,
@@ -151,6 +182,7 @@ def run_pipeline(
     np.ndarray,
     np.ndarray,
     trimesh.Trimesh,
+    np.ndarray,
     np.ndarray,
 ]:
     print("=" * 80)
@@ -396,6 +428,12 @@ def run_pipeline(
     X_W_Hs = np.stack([X_W_N @ X_N_Oy @ X_Oy_Hs[i] for i in range(num_grasps)], axis=0)
     assert X_W_Hs.shape == (num_grasps, 4, 4)
 
+    q_algr_pres_is_in_limits = is_in_limits(q_algr_pres)
+    assert q_algr_pres_is_in_limits.shape == (num_grasps,)
+    pass_idxs = set(np.where(q_algr_pres_is_in_limits)[0])
+    print(f"Number of grasps in limits: {len(pass_idxs)} / {num_grasps} ({len(pass_idxs) / num_grasps * 100:.2f}%)")
+    print(f"pass_idxs: {pass_idxs}")
+
     q_stars = []
     for i in range(num_grasps):
         X_W_H = X_W_Hs[i]
@@ -415,7 +453,7 @@ def run_pipeline(
         f"Number of grasps passed IK: {num_passed} / {num_grasps} ({num_passed / num_grasps * 100:.2f}%)"
     )
 
-    return q_stars, X_W_Hs, q_algr_pres, q_algr_posts, mesh_W, X_N_Oy
+    return q_stars, X_W_Hs, q_algr_pres, q_algr_posts, mesh_W, X_N_Oy, q_algr_pres_is_in_limits
 
 
 @dataclass

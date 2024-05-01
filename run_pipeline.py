@@ -38,13 +38,13 @@ class Args:
         "%Y-%m-%d_%H-%M-%S"
     )
     density_levelset_threshold: float = 15.0
-    obj_is_z_up: bool = False
-    lb_x: float = -0.1
-    lb_y: float = -0.15
-    lb_z: float = -0.1
-    ub_x: float = 0.1
-    ub_y: float = 0.15
-    ub_z: float = 0.1
+    obj_is_z_up: bool = True
+    lb_x: float = -0.2
+    lb_y: float = -0.2
+    lb_z: float = 0.0
+    ub_x: float = 0.2
+    ub_y: float = 0.2
+    ub_z: float = 0.3
     nerf_frame_offset_x: float = 0.65
     visualize: bool = False
     num_grasps: int = 32

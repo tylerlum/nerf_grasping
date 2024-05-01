@@ -458,6 +458,9 @@ def get_optimized_grasps(
         print("Using provided grasp metric.")
     grasp_metric = grasp_metric.to(device=device)
 
+    # Put this here to ensure that the random seed is set before sampling random rotations.
+    torch.manual_seed(cfg.random_seed)
+
     BATCH_SIZE = 64
     all_preds = []
     all_predicted_in_collision = []

@@ -29,7 +29,7 @@ class OptimizationConfig:
     output_path: Optional[pathlib.Path] = None
     wandb: Optional[WandbConfig] = field(
         default_factory=lambda: WandbConfig(
-            project=DEFAULT_WANDB_PROJECT
+            project=DEFAULT_WANDB_PROJECT,
         )
     )
     use_rich: bool = False

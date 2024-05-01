@@ -1,4 +1,5 @@
 # %%
+from typing import Optional
 from nerf_grasping.fr3_algr_ik.ik import solve_ik
 from nerf_grasping.optimizer import get_optimized_grasps
 from nerf_grasping.optimizer_utils import (
@@ -37,15 +38,19 @@ class Args:
         "%Y-%m-%d_%H-%M-%S"
     )
     density_levelset_threshold: float = 15.0
-    obj_is_z_up: bool = True
-    lb_x: float = -0.2
-    lb_y: float = -0.2
-    lb_z: float = 0.0
-    ub_x: float = 0.2
-    ub_y: float = 0.2
-    ub_z: float = 0.3
+    obj_is_z_up: bool = False
+    lb_x: float = -0.1
+    lb_y: float = -0.15
+    lb_z: float = -0.1
+    ub_x: float = 0.1
+    ub_y: float = 0.15
+    ub_z: float = 0.1
     nerf_frame_offset_x: float = 0.65
     visualize: bool = False
+    num_grasps: int = 32
+    num_steps: int = 0
+    random_seed: Optional[int] = None
+    n_random_rotations_per_grasp: int = 5
 
     def __post_init__(self) -> None:
         assert self.nerfdata_path.exists(), f"{self.nerfdata_path} does not exist"
@@ -339,8 +344,8 @@ def run_pipeline(args: Args) -> None:
                 X_N_Oy=X_N_Oy,
             ),  # This is not used because we are passing in a grasp_metric
             optimizer=SGDOptimizerConfig(
-                num_grasps=32,
-                num_steps=0,
+                num_grasps=args.num_grasps,
+                num_steps=args.num_steps,
                 finger_lr=1e-4,
                 grasp_dir_lr=1e-4,
                 wrist_lr=1e-4,
@@ -350,6 +355,8 @@ def run_pipeline(args: Args) -> None:
                 / "optimized_grasp_config_dicts"
                 / f"{args.object_name}.npy"
             ),
+            random_seed=args.random_seed,
+            n_random_rotations_per_grasp=args.n_random_rotations_per_grasp,
         ),
         grasp_metric=grasp_metric,
     )

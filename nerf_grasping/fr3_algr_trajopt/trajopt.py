@@ -1,8 +1,3 @@
-# %%
-import itertools
-import os
-import pwd
-import re
 import time
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
@@ -10,48 +5,30 @@ from pathlib import Path
 
 import numpy as np
 from pydrake.geometry import (
-    AddContactMaterial,
-    AddRigidHydroelasticProperties,
     CollisionFilterDeclaration,
     GeometrySet,
-    Mesh,
     MeshcatVisualizer,
     MeshcatVisualizerParams,
-    ProximityProperties,
     Role,
     StartMeshcat,
 )
-from pydrake.math import BsplineBasis, RigidTransform, RotationMatrix
+from pydrake.math import RigidTransform, RotationMatrix
 from pydrake.multibody.inverse_kinematics import (
-    InverseKinematics,
     DistanceConstraint,
     MinimumDistanceLowerBoundConstraint,
-    OrientationConstraint,
-    PointToPointDistanceConstraint,
-    PositionConstraint,
 )
 from pydrake.multibody.parsing import Parser
-from pydrake.multibody.plant import AddMultibodyPlantSceneGraph, CoulombFriction
-from pydrake.multibody.tree import (
-    SpatialInertia,
-    UnitInertia,
-)
+from pydrake.multibody.plant import AddMultibodyPlantSceneGraph
 from pydrake.planning import KinematicTrajectoryOptimization
 from pydrake.solvers import (
-    BoundingBoxConstraint,
     SnoptSolver,
-    Solve,
     SolverId,
     SolverOptions,
-    SolverType,
 )
 from pydrake.systems.framework import DiagramBuilder
-from pydrake.trajectories import BsplineTrajectory
-from pydrake.visualization import ApplyVisualizationConfig, VisualizationConfig
 
 import nerf_grasping
 
-# %%
 # ############################# #
 # COLLISION FILTERING FUNCTIONS #
 # ############################# #
@@ -122,7 +99,6 @@ def PublishPositionTrajectory(
     visualizer.PublishRecording()
 
 
-# %%
 @dataclass
 class TrajOptParams:
     num_control_points: int = 25
@@ -141,7 +117,6 @@ class TrajOptParams:
     s_start_self_col: float = 0.5
 
 
-# %%
 ALLEGRO_ROS2_PATH = (
     Path(nerf_grasping.get_package_root()) / "fr3_algr_ik" / "allegro_ros2"
 )
@@ -495,7 +470,6 @@ class AllegroFR3TrajOpt:
         print(f"{self.result.GetInfeasibleConstraintNames(self.prog)}")
 
 
-# %%
 def solve_traj_opt(
     q_fr3_0: np.ndarray,
     q_algr_0: np.ndarray,
@@ -535,134 +509,55 @@ def solve_traj_opt(
     return spline, dspline, T_traj, trajopt
 
 
-NERF_FRAME_OFFSET = 0.65
-cfg = TrajOptParams(
-    num_control_points=21,
-    min_self_coll_dist=0.005,
-    influence_dist=0.01,
-    nerf_frame_offset=NERF_FRAME_OFFSET,
-    s_start_self_col=0.5,
-    lqr_pos_weight=1e-1,
-    lqr_vel_weight=20.0,
-    presolve_no_collision=True,
-)
-q_robot_0 = np.array(
-    [
-        0.05298999,
-        0.40301091,
-        0.10604012,
-        -2.09894103,
-        -0.91767794,
-        2.12433254,
-        1.33983849,
-        0.06403663,
-        0.80356938,
-        0.24809591,
-        0.06735399,
-        0.27015063,
-        0.74815333,
-        0.20341073,
-        0.3725833,
-        0.3380464,
-        0.68399602,
-        0.5206812,
-        0.4830313,
-        1.26247382,
-        0.11839718,
-        -0.01316089,
-        0.05241748,
-    ]
-)
-q_robot_f = q_robot_0.copy()
-q_robot_f[-1] -= 0.1
-spline, dspline, T_traj = solve_traj_opt(
-    q_fr3_0=q_robot_0[:7],
-    q_algr_0=q_robot_0[7:],
-    q_fr3_f=q_robot_f[:7],
-    q_algr_f=q_robot_f[7:],
-    cfg=cfg,
-    debug=True,
-)
-# %%
-import numpy as np
-import trimesh
-from tqdm import tqdm
-from nerf_grasping.fr3_algr_ik.ik import solve_ik
-
-# %%
-# grasp_config_dict = np.load("/juno/u/tylerlum/Downloads/conditioner/grasp_config_dicts/conditioner_0_9999.npy", allow_pickle=True).item()
-# grasp_config_dict = np.load("/juno/u/tylerlum/Downloads/conditioner/grasp_config_dicts/mid_optimization/10/conditioner_0_9999.npy", allow_pickle=True).item()
-# mesh = trimesh.load_mesh("/juno/u/tylerlum/github_repos/nerf_grasping/experiments/2024-05-01_12-05-27/nerf_to_mesh/new_mug/coacd/decomposed.obj")
-# grasp_config_dict = np.load("/juno/u/tylerlum/Downloads/conditioner/grasp_config_dicts/mid_optimization/50/conditioner_0_9999.npy", allow_pickle=True).item()
-
-grasp_config_dict = np.load(
-    "/juno/u/tylerlum/github_repos/nerf_grasping/experiments/2024-05-01_14-58-59/optimized_grasp_config_dicts/new_mug_0_9999.npy",
-    allow_pickle=True,
-).item()
-
-# %%
-# mesh.centroid
-centroid = np.array([0.01965157, -0.00010462, 0.05522743])
-
-# %%
-X_W_N = trimesh.transformations.translation_matrix([0.65, 0, 0])
-X_O_Oy = trimesh.transformations.rotation_matrix(np.pi / 2, [1, 0, 0])
-X_N_O = trimesh.transformations.translation_matrix(centroid)
-
-# %%
-trans = grasp_config_dict["trans"]
-rot = grasp_config_dict["rot"]
-joint_angles = grasp_config_dict["joint_angles"]
-
-n_grasps = trans.shape[0]
-assert trans.shape == (n_grasps, 3)
-assert rot.shape == (n_grasps, 3, 3)
-assert joint_angles.shape == (n_grasps, 16)
-# %%
-q_stars = []
-for i in tqdm(range(n_grasps)):
-    X_Oy_H = np.eye(4)
-    X_Oy_H[:3, :3] = rot[i]
-    X_Oy_H[:3, 3] = trans[i]
-
-    X_W_H = X_W_N @ X_N_O @ X_O_Oy @ X_Oy_H
-    q = joint_angles[i]
-
-    try:
-        q_star = solve_ik(
-            X_W_H,
-            q,
-            position_constraint_tolerance=0.001,
-            angular_constraint_tolerance=0.05,
-        )
-        print(f"{i}) SUCCESS")
-        q_stars.append(q_star)
-    except RuntimeError as e:
-        print(f"{i}) FAIL")
-        q_stars.append(None)
-
-# %%
-num_success = len([q_star for q_star in q_stars if q_star is not None])
-print(f"num_success / n_grasps = {num_success} / {n_grasps} = {num_success / n_grasps}")
-pass_idxs = set([i for i, q_star in enumerate(q_stars) if q_star is not None])
-
-
-# %%
-for i, q_star in enumerate(q_stars):
-    print("=====================================")
-    print(f"Grasp {i}")
-    print("=====================================" + "\n")
-
-    if q_star is None:
-        print("Failed to find IK solution")
-        continue
+def main() -> None:
+    from nerf_grasping.fr3_algr_ik.ik import solve_ik
+    NERF_FRAME_OFFSET = 0.65
+    cfg = TrajOptParams(
+        num_control_points=21,
+        min_self_coll_dist=0.005,
+        influence_dist=0.01,
+        nerf_frame_offset=NERF_FRAME_OFFSET,
+        s_start_self_col=0.5,
+        lqr_pos_weight=1e-1,
+        lqr_vel_weight=20.0,
+        presolve_no_collision=True,
+    )
+    X_W_H = np.array(
+        [
+            [-0.40069854, 0.06362686, 0.91399777, 0.66515265],
+            [-0.367964, 0.90242159, -0.22413731, 0.02321906],
+            [-0.83907259, -0.4261297, -0.33818674, 0.29229766],
+            [0.0, 0.0, 0.0, 1.0],
+        ]
+    )
+    q_algr_pre = np.array(
+        [
+            0.29094562,
+            0.7371094,
+            0.5108592,
+            0.12263706,
+            0.12012535,
+            0.5845135,
+            0.34382993,
+            0.605035,
+            -0.2684319,
+            0.8784579,
+            0.8497135,
+            0.8972184,
+            1.3328283,
+            0.34778783,
+            0.20921567,
+            -0.00650969,
+        ]
+    )
+    q_star = solve_ik(X_W_H, q_algr_pre, visualize=False)
 
     q_robot_0 = q_star.copy()
     q_robot_f = q_star.copy()
-    q_robot_f[-1] -= 0.1
+    q_robot_f -= 0.3
 
     try:
-        spline, dspline, T_traj = solve_traj_opt(
+        spline, dspline, T_traj, trajopt = solve_traj_opt(
             q_fr3_0=q_robot_0[:7],
             q_algr_0=q_robot_0[7:],
             q_fr3_f=q_robot_f[:7],
@@ -671,72 +566,10 @@ for i, q_star in enumerate(q_stars):
             debug=True,
         )
         print("PASSED")
-        break
     except RuntimeError as e:
         print("Trajectory optimization failed")
-        continue
-# %%
-X_W_H = np.array(
-    [
-        [-0.40069854, 0.06362686, 0.91399777, 0.66515265],
-        [-0.367964, 0.90242159, -0.22413731, 0.02321906],
-        [-0.83907259, -0.4261297, -0.33818674, 0.29229766],
-        [0.0, 0.0, 0.0, 1.0],
-    ]
-)
-q_algr_pre = np.array(
-    [
-        0.29094562,
-        0.7371094,
-        0.5108592,
-        0.12263706,
-        0.12012535,
-        0.5845135,
-        0.34382993,
-        0.605035,
-        -0.2684319,
-        0.8784579,
-        0.8497135,
-        0.8972184,
-        1.3328283,
-        0.34778783,
-        0.20921567,
-        -0.00650969,
-    ]
-)
-q_star = solve_ik(X_W_H, q_algr_pre, visualize=True)
-
-# %%
-q_robot_0 = q_star.copy()
-q_robot_f = q_star.copy()
-q_robot_f -= 0.3
-
-try:
-    spline, dspline, T_traj, trajopt = solve_traj_opt(
-        q_fr3_0=q_robot_0[:7],
-        q_algr_0=q_robot_0[7:],
-        q_fr3_f=q_robot_f[:7],
-        q_algr_f=q_robot_f[7:],
-        cfg=cfg,
-        debug=False,
-    )
-    print("PASSED")
-except RuntimeError as e:
-    print("Trajectory optimization failed")
+    breakpoint()
 
 
-# %%
-spline
-
-# %%
-len(spline.control_points())
-
-# %%
-first_control_point = spline.control_points()[0]
-last_control_point = spline.control_points()[-1]
-
-# %%
-last_control_point - first_control_point
-
-
-# %%
+if __name__ == "__main__":
+    main()

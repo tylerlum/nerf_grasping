@@ -33,7 +33,7 @@ assert trans.shape == (n_grasps, 3)
 assert rot.shape == (n_grasps, 3, 3)
 assert joint_angles.shape == (n_grasps, 16)
 # %%
-results = []
+q_stars = []
 for i in tqdm(range(n_grasps)):
     X_Oy_H = np.eye(4)
     X_Oy_H[:3, :3] = rot[i]
@@ -44,17 +44,16 @@ for i in tqdm(range(n_grasps)):
 
     try: 
         q_star = solve_ik(X_W_H, q, position_constraint_tolerance=0.001, angular_constraint_tolerance=0.05)
-        results.append((i, True))
         print(f"{i}) SUCCESS")
+        q_stars.append(q_star)
     except RuntimeError as e:
-        results.append((i, False))
         print(f"{i}) FAIL")
+        q_stars.append(None)
 
 # %%
-total = len(results)
-num_success = sum([r[-1] for r in results])
-print(f"num_success / total = {num_success} / {total} = {num_success / total}")
-pass_idxs = set([r[0] for r in results if r[-1]])
+num_success = len([q_star for q_star in q_stars if q_star is not None])
+print(f"num_success / n_grasps = {num_success} / {n_grasps} = {num_success / n_grasps}")
+pass_idxs = set([i for i, q_star in enumerate(q_stars) if q_star is not None])
 
 # %%
 def is_in_limits(joint_angles: np.ndarray) -> np.ndarray:

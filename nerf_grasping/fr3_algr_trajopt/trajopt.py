@@ -443,10 +443,12 @@ class AllegroFR3TrajOpt:
             )
         control_points = np.array(spline.control_points()).squeeze(-1)
 
+        print("\n" + "*" * 80)
+        print(f"Introspecting collision failure out of {self.cfg.num_control_points} control points...")
+        print("*" * 80 + "\n")
         for i in range(self.cfg.num_control_points):
             if i / self.cfg.num_control_points < self.cfg.s_start_self_col:
                 continue
-            print(f"ctrl point {i}")
             qi = control_points[i, :]
             self.plant.SetPositions(self.plant_context, qi)
             query_object = self.qo_port.Eval(
@@ -454,6 +456,8 @@ class AllegroFR3TrajOpt:
             )  # remake query obj each update
             inspector = query_object.inspector()
             col_cands = list(inspector.GetCollisionCandidates())
+
+            collision_pairs = []
             for c in col_cands:
                 geometry_id1 = c[0]
                 geometry_id2 = c[1]
@@ -486,11 +490,16 @@ class AllegroFR3TrajOpt:
                 )
                 signed_distance = sdp.distance
                 if signed_distance <= dist_lower:
-                    print(name1)
-                    print(name2)
-                    print(f"{signed_distance}")
+                    collision_pairs.append((name1, name2, signed_distance))
 
-        print(f"{self.result.GetInfeasibleConstraintNames(self.prog)}")
+            if len(collision_pairs) > 0:
+                print(f"Control point {i} has {len(collision_pairs)} collisions")
+                print("-" * 80)
+                for name1, name2, signed_distance in collision_pairs:
+                    print(f"  {name1} <-> {name2}: {signed_distance}")
+                print()
+
+        print(f"Infeasible constraint names: {self.result.GetInfeasibleConstraintNames(self.prog)}")
 
 
 DEFAULT_Q_FR3 = np.array(
@@ -620,7 +629,7 @@ def main() -> None:
     q_robot_0 = solve_ik(X_W_H_0, q_algr_0, visualize=False)
 
     X_W_H_f = X_W_H_0.copy()
-    X_W_H_f[:3, 3] = np.array([0.56515265, 0.12321906, 0.19229766])
+    X_W_H_f[:3, 3] = np.array([0.56515265, 0.12321906, 0.14229766])
     q_algr_f = q_algr_0.copy()
     q_robot_f = solve_ik(X_W_H_f, q_algr_f, visualize=False)
 
@@ -628,6 +637,7 @@ def main() -> None:
         Path(nerf_grasping.get_repo_root())
         / "experiments/2024-05-01_15-39-42/nerf_to_mesh/mug_330/coacd/decomposed.obj"
     )
+    mesh_path = None
     try:
         spline, dspline, T_traj, trajopt = solve_trajopt(
             q_fr3_0=q_robot_0[:7],
@@ -637,7 +647,7 @@ def main() -> None:
             cfg=cfg,
             mesh_path=mesh_path,
             visualize=True,
-            verbose=False,
+            verbose=True,
         )
         print("Trajectory optimization succeeded!")
     except RuntimeError as e:

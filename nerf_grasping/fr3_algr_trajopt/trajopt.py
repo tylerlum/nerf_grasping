@@ -141,6 +141,9 @@ class AllegroFR3TrajOpt:
         self.visualize = visualize
         self.mesh_name = self.mesh_path.stem if self.mesh_path is not None else None
 
+        if mesh_path is not None and not mesh_path.exists():
+            print(f"WARNING: Mesh path {mesh_path} does not exist")
+
         self.setup_vanilla_allegro_fr3()
         self.setup_traj_opt(q0, qf)
 
@@ -493,7 +496,7 @@ def solve_traj_opt(
     q_fr3_f: np.ndarray,
     q_algr_f: np.ndarray,
     cfg: TrajOptParams,
-    mesh_path: Path,
+    mesh_path: Optional[Path] = None,
     visualize: bool = False,
 ):
     """Trajectory optimization callback upon receiving candidate grasps."""
@@ -580,7 +583,6 @@ def main() -> None:
         Path(nerf_grasping.get_repo_root())
         / "experiments/2024-05-01_15-39-42/nerf_to_mesh/mug_330/coacd/decomposed.obj"
     )
-    assert mesh_path is None or mesh_path.exists(), f"Mesh path {mesh_path} does not exist"
     try:
         spline, dspline, T_traj, trajopt = solve_traj_opt(
             q_fr3_0=q_robot_0[:7],

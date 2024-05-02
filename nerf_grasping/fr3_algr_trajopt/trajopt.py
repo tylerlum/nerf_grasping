@@ -28,6 +28,7 @@ from pydrake.solvers import (
 from pydrake.systems.framework import DiagramBuilder
 
 import nerf_grasping
+from typing import Optional
 
 # ############################# #
 # COLLISION FILTERING FUNCTIONS #
@@ -132,9 +133,14 @@ class AllegroFR3TrajOpt:
         q0: np.ndarray,
         qf: np.ndarray,
         cfg: TrajOptParams = TrajOptParams(),
+        mesh_path: Optional[Path] = None,
+        visualize: bool = False,
     ) -> None:
         self.cfg = cfg
-        self.meshcat = StartMeshcat()
+        self.mesh_path = mesh_path
+        self.visualize = visualize
+        self.mesh_name = self.mesh_path.stem if self.mesh_path is not None else None
+
         self.setup_vanilla_allegro_fr3()
         self.setup_traj_opt(q0, qf)
 
@@ -152,31 +158,34 @@ class AllegroFR3TrajOpt:
         # [TODO] do this properly?
 
         # add object to the plant
-        object_handle = self.parser.AddModels("/tmp/mesh_viz_object.obj")[0]
-        obj_body = self.plant.GetBodyByName("mesh_viz_object")
-        X_table_obj = RigidTransform(
-            RotationMatrix(),
-            np.array([self.cfg.nerf_frame_offset, 0.0, 0.0]),
-        )
-        X_table_W = RigidTransform(
-            np.array(
-                [
-                    [0.99992233, -0.00352763, 0.01195353, -0.00418759],
-                    [0.00357804, 0.99998479, -0.00419804, 0.00665965],
-                    [-0.01193854, 0.00424049, 0.99991974, -0.00257641],
-                    [0.0, 0.0, 0.0, 1.0],
-                ]
+        if self.mesh_path is not None:
+            object_handle = self.parser.AddModels(str(self.mesh_path))[0]
+            obj_body = self.plant.GetBodyByName(self.mesh_name)
+            X_table_obj = RigidTransform(
+                RotationMatrix(),
+                np.array([self.cfg.nerf_frame_offset, 0.0, 0.0]),
             )
-        )  # [TODO] Feb. 20, 2024 - manually computed fix in error between the robot and the table
-        X_manual_compensation = RigidTransform(
-            RotationMatrix(),
-            np.array([-0.01, 0.01, 0.0]),
-        )  # shift the object 1cm +x, +y manually
-        X_WO = X_table_W.inverse() @ X_table_obj @ X_manual_compensation
-        self.plant.WeldFrames(self.plant.world_frame(), obj_body.body_frame(), X_WO)
+            X_table_W = RigidTransform(
+                np.array(
+                    [
+                        [0.99992233, -0.00352763, 0.01195353, -0.00418759],
+                        [0.00357804, 0.99998479, -0.00419804, 0.00665965],
+                        [-0.01193854, 0.00424049, 0.99991974, -0.00257641],
+                        [0.0, 0.0, 0.0, 1.0],
+                    ]
+                )
+            )  # [TODO] Feb. 20, 2024 - manually computed fix in error between the robot and the table
+            X_manual_compensation = RigidTransform(
+                RotationMatrix(),
+                np.array([-0.01, 0.01, 0.0]),
+            )  # shift the object 1cm +x, +y manually
+            X_WO = X_table_W.inverse() @ X_table_obj @ X_manual_compensation
+            self.plant.WeldFrames(self.plant.world_frame(), obj_body.body_frame(), X_WO)
 
         self.plant.Finalize()
-        self.setup_visualization()
+
+        if self.visualize:
+            self.setup_visualization()
 
         self.diagram = self.builder.Build()
         self.diag_context = self.diagram.CreateDefaultContext()
@@ -198,7 +207,7 @@ class AllegroFR3TrajOpt:
             "algr_rh_rf_ds",
             "algr_rh_th_ds",
         ]:
-            allowed_collision_pair = ["mesh_viz_object", geom_name]
+            allowed_collision_pair = [self.mesh_name, geom_name]
             disable_collision(self.plant, self.cfm, allowed_collision_pair)
 
         self.qo_port = self.scene_graph.get_query_output_port()
@@ -207,6 +216,7 @@ class AllegroFR3TrajOpt:
         self.col_cands = list(self.inspector.GetCollisionCandidates())
 
     def setup_visualization(self):
+        self.meshcat = StartMeshcat()
         self.visualizer = MeshcatVisualizer.AddToBuilder(
             self.builder,
             self.scene_graph,
@@ -339,7 +349,7 @@ class AllegroFR3TrajOpt:
                 "algr_rh_rf_ds",
                 "algr_rh_th_ds",
             ]
-            obj_name = "mesh_viz_object"
+            obj_name = self.mesh_name
             obj_body = self.plant.GetBodyByName(obj_name)
             obj_gid = self.plant.GetCollisionGeometriesForBody(obj_body)[0]
             for fname in finger_names:
@@ -402,22 +412,25 @@ class AllegroFR3TrajOpt:
         else:
             print("Trajectory optimization succeeded")
 
-        PublishPositionTrajectory(
-            self.trajopt.ReconstructTrajectory(self.result),
-            self.diag_context,
-            self.plant,
-            self.visualizer,
-        )
-        self.collision_visualizer.ForcedPublish(
-            self.collision_visualizer.GetMyContextFromRoot(self.diag_context)
-        )
+        if self.visualize:
+            PublishPositionTrajectory(
+                self.trajopt.ReconstructTrajectory(self.result),
+                self.diag_context,
+                self.plant,
+                self.visualizer,
+            )
+            self.collision_visualizer.ForcedPublish(
+                self.collision_visualizer.GetMyContextFromRoot(self.diag_context)
+            )
 
     def introspect_collision_failure(self):
         spline = self.trajopt.ReconstructTrajectory(self.result)
         qo_port = self.scene_graph.get_query_output_port()
-        PublishPositionTrajectory(
-            spline, self.diag_context, self.plant, self.visualizer
-        )
+
+        if self.visualize:
+            PublishPositionTrajectory(
+                spline, self.diag_context, self.plant, self.visualizer
+            )
         control_points = np.array(spline.control_points()).squeeze(-1)
 
         for i in range(self.cfg.num_control_points):
@@ -476,9 +489,11 @@ def solve_traj_opt(
     q_fr3_f: np.ndarray,
     q_algr_f: np.ndarray,
     cfg: TrajOptParams,
-    debug: bool = False,
+    mesh_path: Path,
+    visualize: bool = False,
 ):
     """Trajectory optimization callback upon receiving candidate grasps."""
+
     # grasp sampling loop
     print("Generating pregrasp trajectory...")
 
@@ -486,12 +501,15 @@ def solve_traj_opt(
     q_robot_0 = np.concatenate((q_fr3_0, q_algr_0))  # current configuration
 
     # setting up the trajopt and solving
-    trajopt = AllegroFR3TrajOpt(q_robot_0, q_robot_f, cfg)
+    trajopt = AllegroFR3TrajOpt(
+        q0=q_robot_0, qf=q_robot_f, cfg=cfg, mesh_path=mesh_path, visualize=visualize
+    )
     trajopt.solve()
     opt_result = trajopt.result
 
     if not opt_result.is_success():
         raise RuntimeError("Trajectory optimization failed")
+
     spline = trajopt.trajopt.ReconstructTrajectory(opt_result)
     dspline = spline.MakeDerivative()
     T_traj = opt_result.GetSolution(
@@ -499,18 +517,15 @@ def solve_traj_opt(
     )  # rescale the traj length
     print("Trajectory successfully generated!")
 
-    if debug:
-        PublishPositionTrajectory(
-            spline,
-            trajopt.diag_context,
-            trajopt.plant,
-            trajopt.visualizer,
-        )
+    if visualize:
+        breakpoint()  # Need this to keep the visualization alive
+
     return spline, dspline, T_traj, trajopt
 
 
 def main() -> None:
     from nerf_grasping.fr3_algr_ik.ik import solve_ik
+
     NERF_FRAME_OFFSET = 0.65
     cfg = TrajOptParams(
         num_control_points=21,
@@ -563,12 +578,13 @@ def main() -> None:
             q_fr3_f=q_robot_f[:7],
             q_algr_f=q_robot_f[7:],
             cfg=cfg,
-            debug=True,
+            mesh_path=Path(nerf_grasping.get_repo_root())
+            / "experiments/2024-05-01_15-39-42/nerf_to_mesh/mug_330/coacd/decomposed.obj",
+            visualize=True,
         )
         print("PASSED")
     except RuntimeError as e:
         print("Trajectory optimization failed")
-    breakpoint()
 
 
 if __name__ == "__main__":

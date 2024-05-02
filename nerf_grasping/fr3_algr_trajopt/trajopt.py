@@ -135,10 +135,12 @@ class AllegroFR3TrajOpt:
         cfg: TrajOptParams = TrajOptParams(),
         mesh_path: Optional[Path] = None,
         visualize: bool = False,
+        verbose: bool = False,
     ) -> None:
         self.cfg = cfg
         self.mesh_path = mesh_path
         self.visualize = visualize
+        self.verbose = verbose
         self.mesh_name = self.mesh_path.stem if self.mesh_path is not None else None
 
         if mesh_path is not None and not mesh_path.exists():
@@ -400,7 +402,7 @@ class AllegroFR3TrajOpt:
                 print("Presolve failed")
                 # get_logger("presolve").info(self.result.GetInfeasibleConstraintNames(self.prog))
                 details = self.result.get_solver_details()
-                print(f"{details.info}")
+                print(f"Details info: {details.info}")
                 # self.introspect_collision_failure()
             else:
                 print("Presolve succeeded")
@@ -415,7 +417,8 @@ class AllegroFR3TrajOpt:
         if not self.result.is_success():
             print("Trajectory optimization failed")
             # print(self.result.get_solver_id().name())
-            self.introspect_collision_failure()
+            if self.verbose:
+                self.introspect_collision_failure()
         else:
             print("Trajectory optimization succeeded")
 
@@ -490,7 +493,40 @@ class AllegroFR3TrajOpt:
         print(f"{self.result.GetInfeasibleConstraintNames(self.prog)}")
 
 
-def solve_traj_opt(
+DEFAULT_Q_FR3 = np.array(
+    [
+        1.76261055e-06,
+        -1.29018439e00,
+        0.00000000e00,
+        -2.69272642e00,
+        0.00000000e00,
+        1.35254201e00,
+        7.85400000e-01,
+    ]
+)
+DEFAULT_Q_ALGR = np.array(
+    [
+        2.90945620e-01,
+        7.37109400e-01,
+        5.10859200e-01,
+        1.22637060e-01,
+        1.20125350e-01,
+        5.84513500e-01,
+        3.43829930e-01,
+        6.05035000e-01,
+        -2.68431900e-01,
+        8.78457900e-01,
+        8.49713500e-01,
+        8.97218400e-01,
+        1.33282830e00,
+        3.47787830e-01,
+        2.09215670e-01,
+        -6.50969000e-03,
+    ]
+)
+
+
+def solve_trajopt(
     q_fr3_0: np.ndarray,
     q_algr_0: np.ndarray,
     q_fr3_f: np.ndarray,
@@ -498,6 +534,7 @@ def solve_traj_opt(
     cfg: TrajOptParams,
     mesh_path: Optional[Path] = None,
     visualize: bool = False,
+    verbose: bool = False,
 ):
     """Trajectory optimization callback upon receiving candidate grasps."""
 
@@ -509,7 +546,12 @@ def solve_traj_opt(
 
     # setting up the trajopt and solving
     trajopt = AllegroFR3TrajOpt(
-        q0=q_robot_0, qf=q_robot_f, cfg=cfg, mesh_path=mesh_path, visualize=visualize
+        q0=q_robot_0,
+        qf=q_robot_f,
+        cfg=cfg,
+        mesh_path=mesh_path,
+        visualize=visualize,
+        verbose=verbose,
     )
     trajopt.solve()
     opt_result = trajopt.result
@@ -525,7 +567,9 @@ def solve_traj_opt(
     print("Trajectory successfully generated!")
 
     if visualize:
+        print("=" * 80)
         print("Visualizing trajectory (need breakpoint to keep visualization alive)...")
+        print("=" * 80)
         breakpoint()
 
     return spline, dspline, T_traj, trajopt
@@ -545,7 +589,7 @@ def main() -> None:
         lqr_vel_weight=20.0,
         presolve_no_collision=True,
     )
-    X_W_H = np.array(
+    X_W_H_0 = np.array(
         [
             [-0.40069854, 0.06362686, 0.91399777, 0.66515265],
             [-0.367964, 0.90242159, -0.22413731, 0.02321906],
@@ -553,7 +597,7 @@ def main() -> None:
             [0.0, 0.0, 0.0, 1.0],
         ]
     )
-    q_algr_pre = np.array(
+    q_algr_0 = np.array(
         [
             0.29094562,
             0.7371094,
@@ -573,18 +617,19 @@ def main() -> None:
             -0.00650969,
         ]
     )
-    q_star = solve_ik(X_W_H, q_algr_pre, visualize=False)
+    q_robot_0 = solve_ik(X_W_H_0, q_algr_0, visualize=False)
 
-    q_robot_0 = q_star.copy()
-    q_robot_f = q_star.copy()
-    q_robot_f -= 0.3
+    X_W_H_f = X_W_H_0.copy()
+    X_W_H_f[:3, 3] = np.array([0.56515265, 0.12321906, 0.19229766])
+    q_algr_f = q_algr_0.copy()
+    q_robot_f = solve_ik(X_W_H_f, q_algr_f, visualize=False)
 
     mesh_path = (
         Path(nerf_grasping.get_repo_root())
         / "experiments/2024-05-01_15-39-42/nerf_to_mesh/mug_330/coacd/decomposed.obj"
     )
     try:
-        spline, dspline, T_traj, trajopt = solve_traj_opt(
+        spline, dspline, T_traj, trajopt = solve_trajopt(
             q_fr3_0=q_robot_0[:7],
             q_algr_0=q_robot_0[7:],
             q_fr3_f=q_robot_f[:7],
@@ -592,8 +637,9 @@ def main() -> None:
             cfg=cfg,
             mesh_path=mesh_path,
             visualize=True,
+            verbose=False,
         )
-        print("PASSED")
+        print("Trajectory optimization succeeded!")
     except RuntimeError as e:
         print("Trajectory optimization failed")
 

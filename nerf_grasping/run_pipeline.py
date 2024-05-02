@@ -1,4 +1,5 @@
 # %%
+from tqdm import tqdm
 from typing import Optional, Tuple, List
 from nerfstudio.models.base_model import Model
 from nerf_grasping.grasp_utils import load_nerf_pipeline
@@ -28,6 +29,8 @@ import numpy as np
 from dataclasses import dataclass
 import plotly.graph_objects as go
 from datetime import datetime
+
+import nerf_grasping
 
 
 @dataclass
@@ -408,12 +411,38 @@ def run_pipeline(
     print("\n" + "=" * 80)
     print("Step 7: Convert optimized grasps to joint angles")
     print("=" * 80 + "\n")
-    X_Oy_Hs, q_algr_pres, q_algr_posts = get_sorted_grasps_from_dict(
+    X_Oy_Hs, q_algrs, q_algr_posts, q_algr_pres = get_sorted_grasps_from_dict(
         optimized_grasp_config_dict=optimized_grasp_config_dict,
         error_if_no_loss=True,
         check=False,
         print_best=False,
     )
+    # q_algr_pres = q_algrs
+    # DELTA = 0.3
+    # q_algr_pres[:, 1] -= DELTA
+    # q_algr_pres[:, 2] -= DELTA
+    # q_algr_pres[:, 3] -= DELTA
+
+    # q_algr_pres[:, 5] -= DELTA
+    # q_algr_pres[:, 6] -= DELTA
+    # q_algr_pres[:, 7] -= DELTA
+
+    # q_algr_pres[:, 9] -= DELTA
+    # q_algr_pres[:, 10] -= DELTA
+    # q_algr_pres[:, 11] -= DELTA
+                # q_algr_pre[1] -= 0.1
+                # q_algr_pre[2] -= 0.1
+                # q_algr_pre[3] -= 0.1
+
+                # q_algr_pre[5] -= 0.1
+                # q_algr_pre[6] -= 0.1
+                # q_algr_pre[7] -= 0.1
+
+                # q_algr_pre[9] -= 0.1
+                # q_algr_pre[10] -= 0.1
+                # q_algr_pre[11] -= 0.1
+
+                # q_algr_pre[14] -= 0.1
     num_grasps = X_Oy_Hs.shape[0]
     assert X_Oy_Hs.shape == (num_grasps, 4, 4)
     assert q_algr_pres.shape == (num_grasps, 16)
@@ -454,6 +483,59 @@ def run_pipeline(
     print(
         f"Number of grasps passed IK: {num_passed} / {num_grasps} ({num_passed / num_grasps * 100:.2f}%)"
     )
+
+    print("\n" + "=" * 80)
+    print("Step 9: Solve trajopt for each grasp")
+    print("=" * 80 + "\n")
+    from nerf_grasping.fr3_algr_trajopt.trajopt import (
+        solve_trajopt,
+        TrajOptParams,
+        DEFAULT_Q_FR3,
+        DEFAULT_Q_ALGR,
+    )
+
+    trajopt_cfg = TrajOptParams(
+        num_control_points=21,
+        min_self_coll_dist=0.005,
+        influence_dist=0.01,
+        nerf_frame_offset=cfg.nerf_frame_offset_x,
+        s_start_self_col=0.5,
+        lqr_pos_weight=1e-1,
+        lqr_vel_weight=20.0,
+        presolve_no_collision=True,
+    )
+    USE_DEFAULT_Q_0 = True
+    if USE_DEFAULT_Q_0:
+        print("Using default q_0")
+        q_fr3_0 = DEFAULT_Q_FR3
+        q_algr_0 = DEFAULT_Q_ALGR
+    else:
+        raise NotImplementedError
+
+    for i, q_star in tqdm(enumerate(q_stars), total=num_grasps):
+        if q_star is None:
+            print(f"Trajectory optimization skipped for grasp {i}")
+            continue
+
+        try:
+            spline, dspline, T_traj, trajopt = solve_trajopt(
+                q_fr3_0=q_fr3_0,
+                q_algr_0=q_algr_0,
+                q_fr3_f=q_star[:7],
+                q_algr_f=q_star[7:],
+                cfg=trajopt_cfg,
+                mesh_path=pathlib.Path("/tmp/mesh_viz_object.obj"),
+                # mesh_path=None,
+                visualize=True,
+                verbose=True,
+            )
+            print("^" * 80)
+            print(f"Trajectory optimization succeeded for grasp {i}")
+            print("^" * 80 + "\n")
+        except RuntimeError as e:
+            print("~" * 80)
+            print(f"Trajectory optimization failed for grasp {i}")
+            print("~" * 80 + "\n")
 
     return (
         q_stars,

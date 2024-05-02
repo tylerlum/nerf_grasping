@@ -158,7 +158,7 @@ class AllegroFR3TrajOpt:
         # [TODO] do this properly?
 
         # add object to the plant
-        if self.mesh_path is not None:
+        if self.mesh_path is not None and self.mesh_name is not None:
             object_handle = self.parser.AddModels(str(self.mesh_path))[0]
             obj_body = self.plant.GetBodyByName(self.mesh_name)
             X_table_obj = RigidTransform(
@@ -201,14 +201,15 @@ class AllegroFR3TrajOpt:
         )
 
         # collision filtering fingertips and object
-        for geom_name in [
-            "algr_rh_if_ds",
-            "algr_rh_mf_ds",
-            "algr_rh_rf_ds",
-            "algr_rh_th_ds",
-        ]:
-            allowed_collision_pair = [self.mesh_name, geom_name]
-            disable_collision(self.plant, self.cfm, allowed_collision_pair)
+        if self.mesh_name is not None:
+            for geom_name in [
+                "algr_rh_if_ds",
+                "algr_rh_mf_ds",
+                "algr_rh_rf_ds",
+                "algr_rh_th_ds",
+            ]:
+                allowed_collision_pair = [self.mesh_name, geom_name]
+                disable_collision(self.plant, self.cfm, allowed_collision_pair)
 
         self.qo_port = self.scene_graph.get_query_output_port()
         self.query_object = self.qo_port.Eval(self.sg_context)
@@ -339,6 +340,9 @@ class AllegroFR3TrajOpt:
                 )
 
     def impose_finger_obj_collision_constraints(self):
+        if self.mesh_name is None:
+            return
+
         # impose a constraint that the fingertips are not in
         # collision with the object
         evaluate_at_s = np.linspace(0, 1, self.cfg.num_control_points)
@@ -518,7 +522,8 @@ def solve_traj_opt(
     print("Trajectory successfully generated!")
 
     if visualize:
-        breakpoint()  # Need this to keep the visualization alive
+        print("Visualizing trajectory (need breakpoint to keep visualization alive)...")
+        breakpoint()
 
     return spline, dspline, T_traj, trajopt
 
@@ -571,6 +576,11 @@ def main() -> None:
     q_robot_f = q_star.copy()
     q_robot_f -= 0.3
 
+    mesh_path = (
+        Path(nerf_grasping.get_repo_root())
+        / "experiments/2024-05-01_15-39-42/nerf_to_mesh/mug_330/coacd/decomposed.obj"
+    )
+    assert mesh_path is None or mesh_path.exists(), f"Mesh path {mesh_path} does not exist"
     try:
         spline, dspline, T_traj, trajopt = solve_traj_opt(
             q_fr3_0=q_robot_0[:7],
@@ -578,8 +588,7 @@ def main() -> None:
             q_fr3_f=q_robot_f[:7],
             q_algr_f=q_robot_f[7:],
             cfg=cfg,
-            mesh_path=Path(nerf_grasping.get_repo_root())
-            / "experiments/2024-05-01_15-39-42/nerf_to_mesh/mug_330/coacd/decomposed.obj",
+            mesh_path=mesh_path,
             visualize=True,
         )
         print("PASSED")

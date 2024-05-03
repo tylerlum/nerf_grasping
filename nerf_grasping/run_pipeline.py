@@ -1,4 +1,3 @@
-# %%
 from tqdm import tqdm
 from typing import Optional, Tuple, List
 from nerfstudio.models.base_model import Model
@@ -174,6 +173,30 @@ def is_in_limits(joint_angles: np.ndarray) -> np.ndarray:
     )
     assert in_limits.shape == (N,)
     return in_limits
+
+
+def clamp_in_limits(joint_angles: np.ndarray) -> np.ndarray:
+    N = joint_angles.shape[0]
+    assert joint_angles.shape == (N, 16)
+
+    from nerf_grasping.dexgraspnet_utils.hand_model import HandModel
+    from nerf_grasping.dexgraspnet_utils.hand_model_type import (
+        HandModelType,
+    )
+
+    device = "cuda"
+    hand_model_type = HandModelType.ALLEGRO_HAND
+    hand_model = HandModel(
+        hand_model_type=hand_model_type, device=device, n_surface_points=1000
+    )
+
+    joints_upper = hand_model.joints_upper.detach().cpu().numpy()
+    joints_lower = hand_model.joints_lower.detach().cpu().numpy()
+    assert joints_upper.shape == (16,)
+    assert joints_lower.shape == (16,)
+
+    joint_angles = np.clip(joint_angles, joints_lower[None, ...], joints_upper[None, ...])
+    return joint_angles
 
 
 def run_pipeline(
@@ -417,6 +440,7 @@ def run_pipeline(
         check=False,
         print_best=False,
     )
+    q_algr_pres = clamp_in_limits(q_algr_pres)
     # q_algr_pres = q_algrs
     # DELTA = 0.3
     # q_algr_pres[:, 1] -= DELTA
@@ -443,6 +467,7 @@ def run_pipeline(
                 # q_algr_pre[11] -= 0.1
 
                 # q_algr_pre[14] -= 0.1
+
     num_grasps = X_Oy_Hs.shape[0]
     assert X_Oy_Hs.shape == (num_grasps, 4, 4)
     assert q_algr_pres.shape == (num_grasps, 16)
@@ -512,9 +537,13 @@ def run_pipeline(
     else:
         raise NotImplementedError
 
+    passing_trajopt_idxs = []
+    failed_trajopt_idxs = []
     for i, q_star in tqdm(enumerate(q_stars), total=num_grasps):
         if q_star is None:
+            print("$" * 80)
             print(f"Trajectory optimization skipped for grasp {i}")
+            print("$" * 80 + "\n")
             continue
 
         try:
@@ -524,19 +553,25 @@ def run_pipeline(
                 q_fr3_f=q_star[:7],
                 q_algr_f=q_star[7:],
                 cfg=trajopt_cfg,
-                mesh_path=pathlib.Path("/tmp/mesh_viz_object.obj"),
-                # mesh_path=None,
-                visualize=True,
-                verbose=True,
+                # mesh_path=pathlib.Path("/tmp/mesh_viz_object.obj"),
+                mesh_path=None,
+                visualize=False,
+                verbose=False,
             )
             print("^" * 80)
             print(f"Trajectory optimization succeeded for grasp {i}")
             print("^" * 80 + "\n")
+            passing_trajopt_idxs.append(i)
         except RuntimeError as e:
             print("~" * 80)
             print(f"Trajectory optimization failed for grasp {i}")
             print("~" * 80 + "\n")
+            failed_trajopt_idxs.append(i)
+# spline, dspline, T_traj, trajopt = solve_trajopt( q_fr3_0=q_fr3_0, q_algr_0=q_algr_0, q_fr3_f=q_star[:7], q_algr_f=q_star[7:], cfg=trajopt_cfg, mesh_path=pathlib.Path("/tmp/mesh_viz_object.obj"))
 
+    print(f"passing_trajopt_idxs: {passing_trajopt_idxs}")
+    print(f"failed_trajopt_idxs: {failed_trajopt_idxs}")
+    breakpoint()
     return (
         q_stars,
         X_W_Hs,

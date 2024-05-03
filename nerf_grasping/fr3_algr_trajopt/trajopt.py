@@ -136,11 +136,13 @@ class AllegroFR3TrajOpt:
         mesh_path: Optional[Path] = None,
         visualize: bool = False,
         verbose: bool = False,
+        ignore_obj_collision: bool = False,
     ) -> None:
         self.cfg = cfg
         self.mesh_path = mesh_path
         self.visualize = visualize
         self.verbose = verbose
+        self.ignore_obj_collision = ignore_obj_collision
         self.mesh_name = self.mesh_path.stem if self.mesh_path is not None else None
 
         if mesh_path is not None and not mesh_path.exists():
@@ -207,12 +209,51 @@ class AllegroFR3TrajOpt:
 
         # collision filtering fingertips and object
         if self.mesh_name is not None:
-            for geom_name in [
-                "algr_rh_if_ds",
-                "algr_rh_mf_ds",
-                "algr_rh_rf_ds",
-                "algr_rh_th_ds",
-            ]:
+            breakpoint()
+            if not self.ignore_obj_collision:
+                ignore_names = [
+                    "algr_rh_if_ds",
+                    "algr_rh_mf_ds",
+                    "algr_rh_rf_ds",
+                    "algr_rh_th_ds",
+                ]
+            else:
+                ignore_names = [
+                    "algr_rh_if_bs",
+                    "algr_rh_if_ds",
+                    "algr_rh_if_md",
+                    "algr_rh_if_px",
+                    "algr_rh_mf_bs",
+                    "algr_rh_mf_ds",
+                    "algr_rh_mf_md",
+                    "algr_rh_mf_px",
+                    "algr_rh_palm",
+                    "algr_rh_palm_FROGGERSAMPLE",
+                    "algr_rh_rf_bs",
+                    "algr_rh_rf_ds",
+                    "algr_rh_rf_md",
+                    "algr_rh_rf_px",
+                    "algr_rh_th_bs",
+                    "algr_rh_th_ds",
+                    "algr_rh_th_mp",
+                    "algr_rh_th_px",
+                    "connector",
+                    "fr3_flange",
+                    "fr3_link0",
+                    "fr3_link1",
+                    "fr3_link2",
+                    "fr3_link3",
+                    "fr3_link4",
+                    "fr3_link5",
+                    "fr3_link6",
+                    "fr3_link7",
+                    "tabletop_base",
+                    "zed2i",
+                    "zed2i_left_optical",
+                    "zed2i_right_optical",
+                ]
+
+            for geom_name in ignore_names:
                 allowed_collision_pair = [self.mesh_name, geom_name]
                 disable_collision(self.plant, self.cfm, allowed_collision_pair)
 
@@ -259,6 +300,9 @@ class AllegroFR3TrajOpt:
         # for the hand limits, make sure q0 and qf are included in them
         lb = self.plant.GetPositionLowerLimits()
         ub = self.plant.GetPositionUpperLimits()
+        print(f"lb: {lb}")
+        print(f"ub: {ub}")
+        breakpoint()
         lb[7:] = np.minimum(lb[7:], q0[7:])
         ub[7:] = np.maximum(ub[7:], q0[7:])
         lb[7:] = np.minimum(lb[7:], qf[7:])
@@ -345,7 +389,7 @@ class AllegroFR3TrajOpt:
                 )
 
     def impose_finger_obj_collision_constraints(self):
-        if self.mesh_name is None:
+        if self.mesh_name is None or self.ignore_obj_collision:
             return
 
         # impose a constraint that the fingertips are not in
@@ -544,6 +588,7 @@ def solve_trajopt(
     mesh_path: Optional[Path] = None,
     visualize: bool = False,
     verbose: bool = False,
+    ignore_obj_collision: bool = False,
 ):
     """Trajectory optimization callback upon receiving candidate grasps."""
 
@@ -561,6 +606,7 @@ def solve_trajopt(
         mesh_path=mesh_path,
         visualize=visualize,
         verbose=verbose,
+        ignore_obj_collision=ignore_obj_collision,
     )
     trajopt.solve()
     opt_result = trajopt.result
@@ -629,7 +675,7 @@ def main() -> None:
     q_robot_0 = solve_ik(X_W_H_0, q_algr_0, visualize=False)
 
     X_W_H_f = X_W_H_0.copy()
-    X_W_H_f[:3, 3] = np.array([0.56515265, 0.12321906, 0.14229766])
+    X_W_H_f[:3, 3] = np.array([0.56515265, 0.12321906, 0.17229766])
     q_algr_f = q_algr_0.copy()
     q_robot_f = solve_ik(X_W_H_f, q_algr_f, visualize=False)
 
@@ -637,7 +683,7 @@ def main() -> None:
         Path(nerf_grasping.get_repo_root())
         / "experiments/2024-05-01_15-39-42/nerf_to_mesh/mug_330/coacd/decomposed.obj"
     )
-    mesh_path = None
+    # mesh_path = None
     try:
         spline, dspline, T_traj, trajopt = solve_trajopt(
             q_fr3_0=q_robot_0[:7],
@@ -648,6 +694,7 @@ def main() -> None:
             mesh_path=mesh_path,
             visualize=True,
             verbose=True,
+            ignore_obj_collision=True,
         )
         print("Trajectory optimization succeeded!")
     except RuntimeError as e:

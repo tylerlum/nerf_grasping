@@ -125,7 +125,7 @@ def solve_trajopt(
         tensor_args,
         trajopt_tsteps=32,
         collision_checker_type=CollisionCheckerType.MESH,
-        use_cuda_graph=True,
+        use_cuda_graph=False,
     )
     motion_gen = MotionGen(motion_gen_config)
     motion_gen.warmup()
@@ -145,7 +145,7 @@ def solve_trajopt(
         goal_pose=target_pose,
         plan_config=MotionGenPlanConfig(
             enable_graph=True,
-            enable_opt=False,
+            enable_opt=True,
             max_attempts=10,
             num_trajopt_seeds=10,
             num_graph_seeds=10,

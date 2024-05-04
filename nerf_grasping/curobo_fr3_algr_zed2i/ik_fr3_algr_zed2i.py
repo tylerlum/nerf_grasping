@@ -88,7 +88,7 @@ def solve_ik(
         self_collision_check=True,
         self_collision_opt=True,
         tensor_args=tensor_args,
-        use_cuda_graph=True,
+        use_cuda_graph=False,
     )
     ik_solver = IKSolver(ik_config)
 

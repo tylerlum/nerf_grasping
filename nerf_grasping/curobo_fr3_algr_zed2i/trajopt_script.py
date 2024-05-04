@@ -73,7 +73,8 @@ GOOD_IDX = 0
 GOOD_IDX_2 = 1
 
 # SELECTED_IDX = 2
-SELECTED_IDX = 3
+# SELECTED_IDX = 3
+SELECTED_IDX = BEST_IDX
 
 trans = grasp_config_dict["trans"][SELECTED_IDX]
 rot = grasp_config_dict["rot"][SELECTED_IDX]
@@ -161,126 +162,126 @@ draw_collision_spheres(
 )
 
 # %%
-d_world, d_self = max_penetration_from_X_W_H(
-    X_W_H=X_W_H,
-    q_algr_constraint=q_algr_pre,
-    include_object=True,
-    obj_filepath=OBJECT_OBJ_PATH,
-    obj_xyz=(0.65, 0.0, 0.0),
-    obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
-    include_table=True,
-)
-print(f"d_world = {d_world}, d_self = {d_self}")
-if d_world.item() > 0.0:
-    print("WARNING: penetration with world detected")
-if d_self.item() > 0.0:
-    print("WARNING: self collision detected")
-
-d_world, d_self = max_penetration_from_X_W_H(
-    X_W_H=X_W_H,
-    q_algr_constraint=q_algr_pre,
-    include_object=False,
-    obj_filepath=OBJECT_OBJ_PATH,
-    obj_xyz=(0.65, 0.0, 0.0),
-    obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
-    include_table=True,
-)
-print(f"Without object: d_world = {d_world}, d_self = {d_self}")
-
-d_world, d_self = max_penetration_from_X_W_H(
-    X_W_H=X_W_H,
-    q_algr_constraint=q_algr_pre,
-    include_object=True,
-    obj_filepath=OBJECT_OBJ_PATH,
-    obj_xyz=(0.65, 0.0, 0.0),
-    obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
-    include_table=False,
-)
-print(f"Without table: d_world = {d_world}, d_self = {d_self}")
-
-d_world, d_self = max_penetration_from_X_W_H(
-    X_W_H=X_W_H,
-    q_algr_constraint=q_algr_pre,
-    include_object=False,
-    obj_filepath=OBJECT_OBJ_PATH,
-    obj_xyz=(0.65, 0.0, 0.0),
-    obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
-    include_table=False,
-)
-print(f"Without object or table: d_world = {d_world}, d_self = {d_self}")
-
-open_hand_q_algr = q_algr_pre.copy()
-DELTA = 0.1
-open_hand_q_algr[1] -= DELTA
-open_hand_q_algr[2] -= DELTA
-open_hand_q_algr[3] -= DELTA
-
-open_hand_q_algr[5] -= DELTA
-open_hand_q_algr[6] -= DELTA
-open_hand_q_algr[7] -= DELTA
-
-open_hand_q_algr[9] -= DELTA
-open_hand_q_algr[10] -= DELTA
-open_hand_q_algr[11] -= DELTA
-d_world, d_self = max_penetration_from_X_W_H(
-    X_W_H=X_W_H,
-    q_algr_constraint=open_hand_q_algr,
-    include_object=True,
-    obj_filepath=OBJECT_OBJ_PATH,
-    obj_xyz=(0.65, 0.0, 0.0),
-    obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
-    include_table=True,
-)
-print(f"DELTA = {DELTA}, d_world = {d_world}, d_self = {d_self}")
-
-open_hand_q_algr = q_algr_pre.copy()
-DELTA = 0.2
-open_hand_q_algr[1] -= DELTA
-open_hand_q_algr[2] -= DELTA
-open_hand_q_algr[3] -= DELTA
-
-open_hand_q_algr[5] -= DELTA
-open_hand_q_algr[6] -= DELTA
-open_hand_q_algr[7] -= DELTA
-
-open_hand_q_algr[9] -= DELTA
-open_hand_q_algr[10] -= DELTA
-open_hand_q_algr[11] -= DELTA
-d_world, d_self = max_penetration_from_X_W_H(
-    X_W_H=X_W_H,
-    q_algr_constraint=open_hand_q_algr,
-    include_object=True,
-    obj_filepath=OBJECT_OBJ_PATH,
-    obj_xyz=(0.65, 0.0, 0.0),
-    obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
-    include_table=True,
-)
-print(f"DELTA = {DELTA}, d_world = {d_world}, d_self = {d_self}")
-
-open_hand_q_algr = q_algr_pre.copy()
-DELTA = 0.3
-open_hand_q_algr[1] -= DELTA
-open_hand_q_algr[2] -= DELTA
-open_hand_q_algr[3] -= DELTA
-
-open_hand_q_algr[5] -= DELTA
-open_hand_q_algr[6] -= DELTA
-open_hand_q_algr[7] -= DELTA
-
-open_hand_q_algr[9] -= DELTA
-open_hand_q_algr[10] -= DELTA
-open_hand_q_algr[11] -= DELTA
-d_world, d_self = max_penetration_from_X_W_H(
-    X_W_H=X_W_H,
-    q_algr_constraint=open_hand_q_algr,
-    include_object=True,
-    obj_filepath=OBJECT_OBJ_PATH,
-    obj_xyz=(0.65, 0.0, 0.0),
-    obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
-    include_table=True,
-)
-print(f"DELTA = {DELTA}, d_world = {d_world}, d_self = {d_self}")
-
+# d_world, d_self = max_penetration_from_X_W_H(
+#     X_W_H=X_W_H,
+#     q_algr_constraint=q_algr_pre,
+#     include_object=True,
+#     obj_filepath=OBJECT_OBJ_PATH,
+#     obj_xyz=(0.65, 0.0, 0.0),
+#     obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+#     include_table=True,
+# )
+# print(f"d_world = {d_world}, d_self = {d_self}")
+# if d_world.item() > 0.0:
+#     print("WARNING: penetration with world detected")
+# if d_self.item() > 0.0:
+#     print("WARNING: self collision detected")
+# 
+# d_world, d_self = max_penetration_from_X_W_H(
+#     X_W_H=X_W_H,
+#     q_algr_constraint=q_algr_pre,
+#     include_object=False,
+#     obj_filepath=OBJECT_OBJ_PATH,
+#     obj_xyz=(0.65, 0.0, 0.0),
+#     obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+#     include_table=True,
+# )
+# print(f"Without object: d_world = {d_world}, d_self = {d_self}")
+# 
+# d_world, d_self = max_penetration_from_X_W_H(
+#     X_W_H=X_W_H,
+#     q_algr_constraint=q_algr_pre,
+#     include_object=True,
+#     obj_filepath=OBJECT_OBJ_PATH,
+#     obj_xyz=(0.65, 0.0, 0.0),
+#     obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+#     include_table=False,
+# )
+# print(f"Without table: d_world = {d_world}, d_self = {d_self}")
+# 
+# d_world, d_self = max_penetration_from_X_W_H(
+#     X_W_H=X_W_H,
+#     q_algr_constraint=q_algr_pre,
+#     include_object=False,
+#     obj_filepath=OBJECT_OBJ_PATH,
+#     obj_xyz=(0.65, 0.0, 0.0),
+#     obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+#     include_table=False,
+# )
+# print(f"Without object or table: d_world = {d_world}, d_self = {d_self}")
+# 
+# open_hand_q_algr = q_algr_pre.copy()
+# DELTA = 0.1
+# open_hand_q_algr[1] -= DELTA
+# open_hand_q_algr[2] -= DELTA
+# open_hand_q_algr[3] -= DELTA
+# 
+# open_hand_q_algr[5] -= DELTA
+# open_hand_q_algr[6] -= DELTA
+# open_hand_q_algr[7] -= DELTA
+# 
+# open_hand_q_algr[9] -= DELTA
+# open_hand_q_algr[10] -= DELTA
+# open_hand_q_algr[11] -= DELTA
+# d_world, d_self = max_penetration_from_X_W_H(
+#     X_W_H=X_W_H,
+#     q_algr_constraint=open_hand_q_algr,
+#     include_object=True,
+#     obj_filepath=OBJECT_OBJ_PATH,
+#     obj_xyz=(0.65, 0.0, 0.0),
+#     obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+#     include_table=True,
+# )
+# print(f"DELTA = {DELTA}, d_world = {d_world}, d_self = {d_self}")
+# 
+# open_hand_q_algr = q_algr_pre.copy()
+# DELTA = 0.2
+# open_hand_q_algr[1] -= DELTA
+# open_hand_q_algr[2] -= DELTA
+# open_hand_q_algr[3] -= DELTA
+# 
+# open_hand_q_algr[5] -= DELTA
+# open_hand_q_algr[6] -= DELTA
+# open_hand_q_algr[7] -= DELTA
+# 
+# open_hand_q_algr[9] -= DELTA
+# open_hand_q_algr[10] -= DELTA
+# open_hand_q_algr[11] -= DELTA
+# d_world, d_self = max_penetration_from_X_W_H(
+#     X_W_H=X_W_H,
+#     q_algr_constraint=open_hand_q_algr,
+#     include_object=True,
+#     obj_filepath=OBJECT_OBJ_PATH,
+#     obj_xyz=(0.65, 0.0, 0.0),
+#     obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+#     include_table=True,
+# )
+# print(f"DELTA = {DELTA}, d_world = {d_world}, d_self = {d_self}")
+# 
+# open_hand_q_algr = q_algr_pre.copy()
+# DELTA = 0.3
+# open_hand_q_algr[1] -= DELTA
+# open_hand_q_algr[2] -= DELTA
+# open_hand_q_algr[3] -= DELTA
+# 
+# open_hand_q_algr[5] -= DELTA
+# open_hand_q_algr[6] -= DELTA
+# open_hand_q_algr[7] -= DELTA
+# 
+# open_hand_q_algr[9] -= DELTA
+# open_hand_q_algr[10] -= DELTA
+# open_hand_q_algr[11] -= DELTA
+# d_world, d_self = max_penetration_from_X_W_H(
+#     X_W_H=X_W_H,
+#     q_algr_constraint=open_hand_q_algr,
+#     include_object=True,
+#     obj_filepath=OBJECT_OBJ_PATH,
+#     obj_xyz=(0.65, 0.0, 0.0),
+#     obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+#     include_table=True,
+# )
+# print(f"DELTA = {DELTA}, d_world = {d_world}, d_self = {d_self}")
+# 
 
 # %%
 failed = False
@@ -394,7 +395,7 @@ for i in tqdm(range(N_pts)):
         pb.resetJointState(r, joint_idx, position[i])
     for i, joint_idx in enumerate(hand_actuatable_joint_idxs):
         pb.resetJointState(r, joint_idx, position[i + 7])
-    time.sleep(0.001)
+    time.sleep(0.01)
 
 # %%
 draw_collision_spheres(
@@ -507,7 +508,7 @@ assert X_W_H.shape == (4, 4)
 assert q_algr_pre.shape == (16,)
 
 q_robot_0 = np.concatenate([DEFAULT_Q_FR3, q_algr_pre])
-q_robot_f = solve_ik_drake(X_W_H, q_algr_pre, visualize=True)
+q_robot_f = solve_ik_drake(X_W_H, q_algr_pre, visualize=False)
 # mesh_path = None
 try:
     spline, dspline, T_traj, trajopt = solve_trajopt_drake(
@@ -519,7 +520,7 @@ try:
         mesh_path=mesh_path,
         visualize=True,
         verbose=True,
-        ignore_obj_collision=True,
+        ignore_obj_collision=False,
     )
     print("Trajectory optimization succeeded!")
 except RuntimeError as e:
@@ -564,7 +565,8 @@ n_grasps = grasp_config_dict["trans"].shape[0]
 # %%
 no_collision_idxs = []
 pass_curobo_trajopt_idxs = []
-for i in range(n_grasps):
+pass_curobo_trajopt_without_object_idxs = []
+for i in tqdm(range(n_grasps), desc="Curobo"):
     trans = grasp_config_dict["trans"][i]
     rot = grasp_config_dict["rot"][i]
     joint_angles = grasp_config_dict["joint_angles"][i]
@@ -581,17 +583,32 @@ for i in range(n_grasps):
     X_W_H = X_W_Oy @ X_Oy_H
     q_algr_pre = joint_angles
 
-    d_world, d_self = max_penetration_from_X_W_H(
-        X_W_H=X_W_H,
-        q_algr_constraint=q_algr_pre,
-        include_object=True,
-        obj_filepath=OBJECT_OBJ_PATH,
-        obj_xyz=(0.65, 0.0, 0.0),
-        obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
-        include_table=True,
-    )
-    if d_world.item() == 0.0 and d_self.item() == 0.0:
-        no_collision_idxs.append(i)
+    open_hand_q_algr = q_algr_pre.copy()
+    DELTA = 0.1
+    open_hand_q_algr[1] -= DELTA
+    open_hand_q_algr[2] -= DELTA
+    open_hand_q_algr[3] -= DELTA
+
+    open_hand_q_algr[5] -= DELTA
+    open_hand_q_algr[6] -= DELTA
+    open_hand_q_algr[7] -= DELTA
+
+    open_hand_q_algr[9] -= DELTA
+    open_hand_q_algr[10] -= DELTA
+    open_hand_q_algr[11] -= DELTA
+    q_algr_pre = open_hand_q_algr
+
+    # d_world, d_self = max_penetration_from_X_W_H(
+    #     X_W_H=X_W_H,
+    #     q_algr_constraint=q_algr_pre,
+    #     include_object=True,
+    #     obj_filepath=OBJECT_OBJ_PATH,
+    #     obj_xyz=(0.65, 0.0, 0.0),
+    #     obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+    #     include_table=True,
+    # )
+    # if d_world.item() == 0.0 and d_self.item() == 0.0:
+    #     no_collision_idxs.append(i)
 
     try:
         print("=" * 80)
@@ -610,12 +627,34 @@ for i in range(n_grasps):
         pass_curobo_trajopt_idxs.append(i)
     except RuntimeError as e:
         print(f"FAILED TRAJOPT: {e} with full object collision check")
+
+    try:
+        print("=" * 80)
+        print("Trying with no object collision check")
+        print("=" * 80 + "\n")
+        q, qd, qdd, dt, _ = solve_trajopt(
+            X_W_H=X_W_H,
+            q_algr_constraint=q_algr_pre,
+            collision_check_object=False,
+            obj_filepath=OBJECT_OBJ_PATH,
+            obj_xyz=(0.65, 0.0, 0.0),
+            obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+            collision_check_table=True,
+        )
+        print("SUCCESS TRAJOPT with no object collision check")
+        pass_curobo_trajopt_without_object_idxs.append(i)
+    except RuntimeError as e:
+        print(f"FAILED TRAJOPT: {e} with full object collision check")
+print(f"WITH open hand DELTA = {DELTA}")
 print(f"no_collision_idxs = {no_collision_idxs} ({len(no_collision_idxs)} / {n_grasps} = {len(no_collision_idxs) / n_grasps})")
 print(f"pass_curobo_trajopt_idxs = {pass_curobo_trajopt_idxs} ({len(pass_curobo_trajopt_idxs)} / {n_grasps} = {len(pass_curobo_trajopt_idxs) / n_grasps})")
+print(f"pass_curobo_trajopt_without_object_idxs = {pass_curobo_trajopt_without_object_idxs} ({len(pass_curobo_trajopt_without_object_idxs)} / {n_grasps} = {len(pass_curobo_trajopt_without_object_idxs) / n_grasps})")
 
 # %%
+pass_ik_idxs = []
 pass_drake_trajopt_idxs = []
-for i in range(n_grasps):
+pass_drake_trajopt_without_object_idxs = []
+for i in tqdm(range(n_grasps), desc="Drake"):
     trans = grasp_config_dict["trans"][i]
     rot = grasp_config_dict["rot"][i]
     joint_angles = grasp_config_dict["joint_angles"][i]
@@ -635,9 +674,11 @@ for i in range(n_grasps):
     q_robot_0 = np.concatenate([DEFAULT_Q_FR3, q_algr_pre])
     try:
         q_robot_f = solve_ik_drake(X_W_H, q_algr_pre, visualize=False)
+        pass_ik_idxs.append(i)
     except RuntimeError as e:
         print(f"FAILED IK: {e}")
         continue
+
     # mesh_path = None
     try:
         spline, dspline, T_traj, trajopt = solve_trajopt_drake(
@@ -648,14 +689,34 @@ for i in range(n_grasps):
             cfg=cfg,
             mesh_path=mesh_path,
             visualize=False,
-            verbose=True,
+            verbose=False,
             ignore_obj_collision=False,
         )
         print("Trajectory optimization succeeded!")
         pass_drake_trajopt_idxs.append(i)
     except RuntimeError as e:
         print("Trajectory optimization failed")
+
+    try:
+        spline, dspline, T_traj, trajopt = solve_trajopt_drake(
+            q_fr3_0=q_robot_0[:7],
+            q_algr_0=q_robot_0[7:],
+            q_fr3_f=q_robot_f[:7],
+            q_algr_f=q_robot_f[7:],
+            cfg=cfg,
+            mesh_path=mesh_path,
+            visualize=False,
+            verbose=False,
+            ignore_obj_collision=True,
+        )
+        print("Trajectory optimization succeeded!")
+        pass_drake_trajopt_without_object_idxs.append(i)
+    except RuntimeError as e:
+        print("Trajectory optimization failed")
+print(f"pass_ik_idxs = {pass_ik_idxs} ({len(pass_ik_idxs)} / {n_grasps} = {len(pass_ik_idxs) / n_grasps})")
 print(f"pass_drake_trajopt_idxs = {pass_drake_trajopt_idxs} ({len(pass_drake_trajopt_idxs)} / {n_grasps} = {len(pass_drake_trajopt_idxs) / n_grasps})")
+print(f"pass_drake_trajopt_without_object_idxs = {pass_drake_trajopt_without_object_idxs} ({len(pass_drake_trajopt_without_object_idxs)} / {n_grasps} = {len(pass_drake_trajopt_without_object_idxs) / n_grasps})")
+
 # %%
 spline, dspline, T_traj, trajopt = solve_trajopt_drake(
     q_fr3_0=q_robot_0[:7],

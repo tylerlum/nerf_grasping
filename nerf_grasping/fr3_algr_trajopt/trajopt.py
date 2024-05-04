@@ -413,7 +413,8 @@ class AllegroFR3TrajOpt:
                     self.plant,
                     pair,
                     self.plant_context,
-                    0.01,
+                    # 0.01,
+                    0.001, # TODO
                     np.inf,
                 )
                 self.trajopt.AddPathPositionConstraint(constraint, s)

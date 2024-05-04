@@ -95,10 +95,6 @@ X_W_H = X_W_Oy @ X_Oy_H
 q_algr_pre = joint_angles
 
 # %%
-# HACK
-# X_W_H[0, 3] -= 0.05
-
-# %%
 if not hasattr(pb, "HAS_BEEN_INITIALIZED"):
     pb.HAS_BEEN_INITIALIZED = True
 
@@ -162,126 +158,126 @@ draw_collision_spheres(
 )
 
 # %%
-# d_world, d_self = max_penetration_from_X_W_H(
-#     X_W_H=X_W_H,
-#     q_algr_constraint=q_algr_pre,
-#     include_object=True,
-#     obj_filepath=OBJECT_OBJ_PATH,
-#     obj_xyz=(0.65, 0.0, 0.0),
-#     obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
-#     include_table=True,
-# )
-# print(f"d_world = {d_world}, d_self = {d_self}")
-# if d_world.item() > 0.0:
-#     print("WARNING: penetration with world detected")
-# if d_self.item() > 0.0:
-#     print("WARNING: self collision detected")
-# 
-# d_world, d_self = max_penetration_from_X_W_H(
-#     X_W_H=X_W_H,
-#     q_algr_constraint=q_algr_pre,
-#     include_object=False,
-#     obj_filepath=OBJECT_OBJ_PATH,
-#     obj_xyz=(0.65, 0.0, 0.0),
-#     obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
-#     include_table=True,
-# )
-# print(f"Without object: d_world = {d_world}, d_self = {d_self}")
-# 
-# d_world, d_self = max_penetration_from_X_W_H(
-#     X_W_H=X_W_H,
-#     q_algr_constraint=q_algr_pre,
-#     include_object=True,
-#     obj_filepath=OBJECT_OBJ_PATH,
-#     obj_xyz=(0.65, 0.0, 0.0),
-#     obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
-#     include_table=False,
-# )
-# print(f"Without table: d_world = {d_world}, d_self = {d_self}")
-# 
-# d_world, d_self = max_penetration_from_X_W_H(
-#     X_W_H=X_W_H,
-#     q_algr_constraint=q_algr_pre,
-#     include_object=False,
-#     obj_filepath=OBJECT_OBJ_PATH,
-#     obj_xyz=(0.65, 0.0, 0.0),
-#     obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
-#     include_table=False,
-# )
-# print(f"Without object or table: d_world = {d_world}, d_self = {d_self}")
-# 
-# open_hand_q_algr = q_algr_pre.copy()
-# DELTA = 0.1
-# open_hand_q_algr[1] -= DELTA
-# open_hand_q_algr[2] -= DELTA
-# open_hand_q_algr[3] -= DELTA
-# 
-# open_hand_q_algr[5] -= DELTA
-# open_hand_q_algr[6] -= DELTA
-# open_hand_q_algr[7] -= DELTA
-# 
-# open_hand_q_algr[9] -= DELTA
-# open_hand_q_algr[10] -= DELTA
-# open_hand_q_algr[11] -= DELTA
-# d_world, d_self = max_penetration_from_X_W_H(
-#     X_W_H=X_W_H,
-#     q_algr_constraint=open_hand_q_algr,
-#     include_object=True,
-#     obj_filepath=OBJECT_OBJ_PATH,
-#     obj_xyz=(0.65, 0.0, 0.0),
-#     obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
-#     include_table=True,
-# )
-# print(f"DELTA = {DELTA}, d_world = {d_world}, d_self = {d_self}")
-# 
-# open_hand_q_algr = q_algr_pre.copy()
-# DELTA = 0.2
-# open_hand_q_algr[1] -= DELTA
-# open_hand_q_algr[2] -= DELTA
-# open_hand_q_algr[3] -= DELTA
-# 
-# open_hand_q_algr[5] -= DELTA
-# open_hand_q_algr[6] -= DELTA
-# open_hand_q_algr[7] -= DELTA
-# 
-# open_hand_q_algr[9] -= DELTA
-# open_hand_q_algr[10] -= DELTA
-# open_hand_q_algr[11] -= DELTA
-# d_world, d_self = max_penetration_from_X_W_H(
-#     X_W_H=X_W_H,
-#     q_algr_constraint=open_hand_q_algr,
-#     include_object=True,
-#     obj_filepath=OBJECT_OBJ_PATH,
-#     obj_xyz=(0.65, 0.0, 0.0),
-#     obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
-#     include_table=True,
-# )
-# print(f"DELTA = {DELTA}, d_world = {d_world}, d_self = {d_self}")
-# 
-# open_hand_q_algr = q_algr_pre.copy()
-# DELTA = 0.3
-# open_hand_q_algr[1] -= DELTA
-# open_hand_q_algr[2] -= DELTA
-# open_hand_q_algr[3] -= DELTA
-# 
-# open_hand_q_algr[5] -= DELTA
-# open_hand_q_algr[6] -= DELTA
-# open_hand_q_algr[7] -= DELTA
-# 
-# open_hand_q_algr[9] -= DELTA
-# open_hand_q_algr[10] -= DELTA
-# open_hand_q_algr[11] -= DELTA
-# d_world, d_self = max_penetration_from_X_W_H(
-#     X_W_H=X_W_H,
-#     q_algr_constraint=open_hand_q_algr,
-#     include_object=True,
-#     obj_filepath=OBJECT_OBJ_PATH,
-#     obj_xyz=(0.65, 0.0, 0.0),
-#     obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
-#     include_table=True,
-# )
-# print(f"DELTA = {DELTA}, d_world = {d_world}, d_self = {d_self}")
-# 
+d_world, d_self = max_penetration_from_X_W_H(
+    X_W_H=X_W_H,
+    q_algr_constraint=q_algr_pre,
+    include_object=True,
+    obj_filepath=OBJECT_OBJ_PATH,
+    obj_xyz=(0.65, 0.0, 0.0),
+    obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+    include_table=True,
+)
+print(f"d_world = {d_world}, d_self = {d_self}")
+if d_world.item() > 0.0:
+    print("WARNING: penetration with world detected")
+if d_self.item() > 0.0:
+    print("WARNING: self collision detected")
+
+d_world, d_self = max_penetration_from_X_W_H(
+    X_W_H=X_W_H,
+    q_algr_constraint=q_algr_pre,
+    include_object=False,
+    obj_filepath=OBJECT_OBJ_PATH,
+    obj_xyz=(0.65, 0.0, 0.0),
+    obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+    include_table=True,
+)
+print(f"Without object: d_world = {d_world}, d_self = {d_self}")
+
+d_world, d_self = max_penetration_from_X_W_H(
+    X_W_H=X_W_H,
+    q_algr_constraint=q_algr_pre,
+    include_object=True,
+    obj_filepath=OBJECT_OBJ_PATH,
+    obj_xyz=(0.65, 0.0, 0.0),
+    obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+    include_table=False,
+)
+print(f"Without table: d_world = {d_world}, d_self = {d_self}")
+
+d_world, d_self = max_penetration_from_X_W_H(
+    X_W_H=X_W_H,
+    q_algr_constraint=q_algr_pre,
+    include_object=False,
+    obj_filepath=OBJECT_OBJ_PATH,
+    obj_xyz=(0.65, 0.0, 0.0),
+    obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+    include_table=False,
+)
+print(f"Without object or table: d_world = {d_world}, d_self = {d_self}")
+
+open_hand_q_algr = q_algr_pre.copy()
+DELTA = 0.1
+open_hand_q_algr[1] -= DELTA
+open_hand_q_algr[2] -= DELTA
+open_hand_q_algr[3] -= DELTA
+
+open_hand_q_algr[5] -= DELTA
+open_hand_q_algr[6] -= DELTA
+open_hand_q_algr[7] -= DELTA
+
+open_hand_q_algr[9] -= DELTA
+open_hand_q_algr[10] -= DELTA
+open_hand_q_algr[11] -= DELTA
+d_world, d_self = max_penetration_from_X_W_H(
+    X_W_H=X_W_H,
+    q_algr_constraint=open_hand_q_algr,
+    include_object=True,
+    obj_filepath=OBJECT_OBJ_PATH,
+    obj_xyz=(0.65, 0.0, 0.0),
+    obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+    include_table=True,
+)
+print(f"DELTA = {DELTA}, d_world = {d_world}, d_self = {d_self}")
+
+open_hand_q_algr = q_algr_pre.copy()
+DELTA = 0.2
+open_hand_q_algr[1] -= DELTA
+open_hand_q_algr[2] -= DELTA
+open_hand_q_algr[3] -= DELTA
+
+open_hand_q_algr[5] -= DELTA
+open_hand_q_algr[6] -= DELTA
+open_hand_q_algr[7] -= DELTA
+
+open_hand_q_algr[9] -= DELTA
+open_hand_q_algr[10] -= DELTA
+open_hand_q_algr[11] -= DELTA
+d_world, d_self = max_penetration_from_X_W_H(
+    X_W_H=X_W_H,
+    q_algr_constraint=open_hand_q_algr,
+    include_object=True,
+    obj_filepath=OBJECT_OBJ_PATH,
+    obj_xyz=(0.65, 0.0, 0.0),
+    obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+    include_table=True,
+)
+print(f"DELTA = {DELTA}, d_world = {d_world}, d_self = {d_self}")
+
+open_hand_q_algr = q_algr_pre.copy()
+DELTA = 0.3
+open_hand_q_algr[1] -= DELTA
+open_hand_q_algr[2] -= DELTA
+open_hand_q_algr[3] -= DELTA
+
+open_hand_q_algr[5] -= DELTA
+open_hand_q_algr[6] -= DELTA
+open_hand_q_algr[7] -= DELTA
+
+open_hand_q_algr[9] -= DELTA
+open_hand_q_algr[10] -= DELTA
+open_hand_q_algr[11] -= DELTA
+d_world, d_self = max_penetration_from_X_W_H(
+    X_W_H=X_W_H,
+    q_algr_constraint=open_hand_q_algr,
+    include_object=True,
+    obj_filepath=OBJECT_OBJ_PATH,
+    obj_xyz=(0.65, 0.0, 0.0),
+    obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+    include_table=True,
+)
+print(f"DELTA = {DELTA}, d_world = {d_world}, d_self = {d_self}")
+
 
 # %%
 failed = False
@@ -566,6 +562,7 @@ n_grasps = grasp_config_dict["trans"].shape[0]
 no_collision_idxs = []
 pass_curobo_trajopt_idxs = []
 pass_curobo_trajopt_without_object_idxs = []
+OPEN_HAND = True
 for i in tqdm(range(n_grasps), desc="Curobo"):
     trans = grasp_config_dict["trans"][i]
     rot = grasp_config_dict["rot"][i]
@@ -583,32 +580,33 @@ for i in tqdm(range(n_grasps), desc="Curobo"):
     X_W_H = X_W_Oy @ X_Oy_H
     q_algr_pre = joint_angles
 
-    open_hand_q_algr = q_algr_pre.copy()
-    DELTA = 0.1
-    open_hand_q_algr[1] -= DELTA
-    open_hand_q_algr[2] -= DELTA
-    open_hand_q_algr[3] -= DELTA
+    if OPEN_HAND:
+        open_hand_q_algr = q_algr_pre.copy()
+        DELTA = 0.1
+        open_hand_q_algr[1] -= DELTA
+        open_hand_q_algr[2] -= DELTA
+        open_hand_q_algr[3] -= DELTA
 
-    open_hand_q_algr[5] -= DELTA
-    open_hand_q_algr[6] -= DELTA
-    open_hand_q_algr[7] -= DELTA
+        open_hand_q_algr[5] -= DELTA
+        open_hand_q_algr[6] -= DELTA
+        open_hand_q_algr[7] -= DELTA
 
-    open_hand_q_algr[9] -= DELTA
-    open_hand_q_algr[10] -= DELTA
-    open_hand_q_algr[11] -= DELTA
-    q_algr_pre = open_hand_q_algr
+        open_hand_q_algr[9] -= DELTA
+        open_hand_q_algr[10] -= DELTA
+        open_hand_q_algr[11] -= DELTA
+        q_algr_pre = open_hand_q_algr
 
-    # d_world, d_self = max_penetration_from_X_W_H(
-    #     X_W_H=X_W_H,
-    #     q_algr_constraint=q_algr_pre,
-    #     include_object=True,
-    #     obj_filepath=OBJECT_OBJ_PATH,
-    #     obj_xyz=(0.65, 0.0, 0.0),
-    #     obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
-    #     include_table=True,
-    # )
-    # if d_world.item() == 0.0 and d_self.item() == 0.0:
-    #     no_collision_idxs.append(i)
+    d_world, d_self = max_penetration_from_X_W_H(
+        X_W_H=X_W_H,
+        q_algr_constraint=q_algr_pre,
+        include_object=True,
+        obj_filepath=OBJECT_OBJ_PATH,
+        obj_xyz=(0.65, 0.0, 0.0),
+        obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+        include_table=True,
+    )
+    if d_world.item() == 0.0 and d_self.item() == 0.0:
+        no_collision_idxs.append(i)
 
     try:
         print("=" * 80)
@@ -645,7 +643,8 @@ for i in tqdm(range(n_grasps), desc="Curobo"):
         pass_curobo_trajopt_without_object_idxs.append(i)
     except RuntimeError as e:
         print(f"FAILED TRAJOPT: {e} with full object collision check")
-print(f"WITH open hand DELTA = {DELTA}")
+if OPEN_HAND:
+    print(f"WITH open hand DELTA = {DELTA}")
 print(f"no_collision_idxs = {no_collision_idxs} ({len(no_collision_idxs)} / {n_grasps} = {len(no_collision_idxs) / n_grasps})")
 print(f"pass_curobo_trajopt_idxs = {pass_curobo_trajopt_idxs} ({len(pass_curobo_trajopt_idxs)} / {n_grasps} = {len(pass_curobo_trajopt_idxs) / n_grasps})")
 print(f"pass_curobo_trajopt_without_object_idxs = {pass_curobo_trajopt_without_object_idxs} ({len(pass_curobo_trajopt_without_object_idxs)} / {n_grasps} = {len(pass_curobo_trajopt_without_object_idxs) / n_grasps})")

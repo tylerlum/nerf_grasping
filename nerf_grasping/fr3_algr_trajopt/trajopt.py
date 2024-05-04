@@ -138,6 +138,10 @@ class AllegroFR3TrajOpt:
         verbose: bool = False,
         ignore_obj_collision: bool = False,
     ) -> None:
+        # Set mesh_path to add object to plant
+        # Set ignore_obj_collision to ignore object collisions entirely
+        # Default: define mesh_path and ignore_obj_collision=False to include object in optimization
+        # Debug: define mesh_path for visualization only, ignore_obj_collision=True to ignore object collisions to see if trajopt works without object
         self.cfg = cfg
         self.mesh_path = mesh_path
         self.visualize = visualize
@@ -209,32 +213,26 @@ class AllegroFR3TrajOpt:
 
         # collision filtering fingertips and object
         if self.mesh_name is not None:
-            breakpoint()
-            if not self.ignore_obj_collision:
-                ignore_names = [
-                    "algr_rh_if_ds",
-                    "algr_rh_mf_ds",
-                    "algr_rh_rf_ds",
-                    "algr_rh_th_ds",
-                ]
-            else:
-                ignore_names = [
+            ignore_names = [
+                "algr_rh_if_ds",
+                "algr_rh_mf_ds",
+                "algr_rh_rf_ds",
+                "algr_rh_th_ds",
+            ]
+            if self.ignore_obj_collision:
+                ignore_names += [
                     "algr_rh_if_bs",
-                    "algr_rh_if_ds",
                     "algr_rh_if_md",
                     "algr_rh_if_px",
                     "algr_rh_mf_bs",
-                    "algr_rh_mf_ds",
                     "algr_rh_mf_md",
                     "algr_rh_mf_px",
                     "algr_rh_palm",
                     "algr_rh_palm_FROGGERSAMPLE",
                     "algr_rh_rf_bs",
-                    "algr_rh_rf_ds",
                     "algr_rh_rf_md",
                     "algr_rh_rf_px",
                     "algr_rh_th_bs",
-                    "algr_rh_th_ds",
                     "algr_rh_th_mp",
                     "algr_rh_th_px",
                     "connector",
@@ -302,7 +300,6 @@ class AllegroFR3TrajOpt:
         ub = self.plant.GetPositionUpperLimits()
         print(f"lb: {lb}")
         print(f"ub: {ub}")
-        breakpoint()
         lb[7:] = np.minimum(lb[7:], q0[7:])
         ub[7:] = np.maximum(ub[7:], q0[7:])
         lb[7:] = np.minimum(lb[7:], qf[7:])
@@ -413,8 +410,7 @@ class AllegroFR3TrajOpt:
                     self.plant,
                     pair,
                     self.plant_context,
-                    # 0.01,
-                    0.001, # TODO
+                    0.01,
                     np.inf,
                 )
                 self.trajopt.AddPathPositionConstraint(constraint, s)

@@ -25,7 +25,7 @@ from curobo.util_file import (
     join_path,
     load_yaml,
 )
-from curobo.wrap.reacher.ik_solver import IKSolver, IKSolverConfig
+from curobo.wrap.reacher.ik_solver import IKSolver, IKSolverConfig, IKResult
 
 from nerf_grasping.curobo_fr3_algr_zed2i.fr3_algr_zed2i_world import (
     get_world_cfg,
@@ -112,7 +112,7 @@ def solve_trajopt_batch(
     enable_graph: bool = True,
     enable_opt: bool = False,  # Getting some errors from setting this to True
     timeout: float = 5.0,
-) -> MotionGenResult:
+) -> Tuple[MotionGenResult, IKResult, IKResult]:
     start_time = time.time()
     print("Step 1: Prepare cfg")
     N_GRASPS = X_W_Hs.shape[0]
@@ -244,7 +244,7 @@ def solve_trajopt_batch(
     end_time = time.time()
     print(f"Total time taken: {end_time - start_time} seconds")
 
-    return motion_result
+    return motion_result, ik_result, ik_result2
 
 
 def get_trajectories_from_result(
@@ -320,7 +320,7 @@ def main() -> None:
         "/juno/u/tylerlum/github_repos/nerf_grasping/experiments/2024-05-02_16-19-22/nerf_to_mesh/mug_330/coacd/decomposed.obj"
     )
 
-    result = solve_trajopt_batch(
+    result, _, _ = solve_trajopt_batch(
         X_W_Hs=X_W_Hs,
         q_algrs=q_algrs,
         collision_check_object=True,

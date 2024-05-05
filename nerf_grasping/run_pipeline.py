@@ -433,6 +433,9 @@ def run_pipeline(
     assert X_W_Hs.shape == (num_grasps, 4, 4)
 
     METHOD = "CUROBO"
+    print("=" * 80)
+    print(f"METHOD: {METHOD}")
+    print("=" * 80 + "\n")
     if METHOD == "DRAKE":
         run_drake(cfg=cfg, X_W_Hs=X_W_Hs, q_algr_pres=q_algr_pres)
     elif METHOD == "CUROBO":
@@ -554,10 +557,17 @@ def run_drake(cfg, X_W_Hs, q_algr_pres) -> None:
 
 
 def run_curobo(cfg, X_W_Hs, q_algr_pres):
-    from nerf_grasping.curobo_fr3_algr_zed2i.trajopt_batch import solve_trajopt_batch, get_trajectories_from_result
+    from nerf_grasping.curobo_fr3_algr_zed2i.trajopt_batch import (
+        solve_trajopt_batch,
+        get_trajectories_from_result,
+    )
     from nerf_grasping.curobo_fr3_algr_zed2i.ik_fr3_algr_zed2i import (
         max_penetration_from_qs,
     )
+
+    n_grasps = X_W_Hs.shape[0]
+    assert X_W_Hs.shape == (n_grasps, 4, 4)
+    assert q_algr_pres.shape == (n_grasps, 16)
 
     print("\n" + "=" * 80)
     print("Step 9: Solve trajopt for each grasp")
@@ -565,7 +575,7 @@ def run_curobo(cfg, X_W_Hs, q_algr_pres):
 
     # Enable trajopt often makes it fail, haven't been able to figure out why
     ENABLE_TRAJOPT = False
-    result = solve_trajopt_batch(
+    motion_gen_result, ik_result, ik_result2 = solve_trajopt_batch(
         X_W_Hs=X_W_Hs,
         q_algrs=q_algr_pres,
         collision_check_object=True,
@@ -579,10 +589,20 @@ def run_curobo(cfg, X_W_Hs, q_algr_pres):
         timeout=10.0,
     )
 
-    success_idxs = result.success.nonzero().flatten().tolist()
-    print(f"success_idxs: {success_idxs}")
+    success_idxs = motion_gen_result.success.nonzero().flatten().tolist()
+    ik_success_idxs = ik_result.success.nonzero().flatten().tolist()
+    ik_success_idxs2 = ik_result2.success.nonzero().flatten().tolist()
+    print(
+        f"success_idxs: {success_idxs} ({len(success_idxs)} / {n_grasps} = {len(success_idxs) / n_grasps * 100:.2f}%)"
+    )
+    print(
+        f"ik_success_idxs: {ik_success_idxs} ({len(ik_success_idxs)} / {n_grasps} = {len(ik_success_idxs) / n_grasps * 100:.2f}%)"
+    )
+    print(
+        f"ik_success_idxs2: {ik_success_idxs2} ({len(ik_success_idxs2)} / {n_grasps} = {len(ik_success_idxs2) / n_grasps * 100:.2f}%)"
+    )
 
-    qs, qds, dts = get_trajectories_from_result(result=result)
+    qs, qds, dts = get_trajectories_from_result(result=motion_gen_result)
     TRAJ_IDX = success_idxs[0] if len(success_idxs) > 0 else 0
     print(f"Visualizing trajectory {TRAJ_IDX}")
     q, qd, dt = qs[TRAJ_IDX], qds[TRAJ_IDX], dts[TRAJ_IDX]

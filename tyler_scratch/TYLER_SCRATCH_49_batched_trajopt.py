@@ -51,6 +51,12 @@ from nerf_grasping.curobo_fr3_algr_zed2i.trajopt_fr3_algr_zed2i import (
     DEFAULT_Q_FR3,
 )
 
+from nerf_grasping.optimizer_utils import (
+    get_joint_limits,
+    is_in_limits,
+    clamp_in_limits,
+)
+
 # %%
 FR3_ALGR_ZED2I_URDF_PATH = pathlib.Path(
     "/juno/u/tylerlum/github_repos/nerf_grasping/nerf_grasping/fr3_algr_ik/allegro_ros2/models/fr3_algr_zed2i.urdf"
@@ -58,15 +64,16 @@ FR3_ALGR_ZED2I_URDF_PATH = pathlib.Path(
 assert FR3_ALGR_ZED2I_URDF_PATH.exists()
 
 GRASP_CONFIG_DICTS_PATH = pathlib.Path(
-    "/juno/u/tylerlum/github_repos/nerf_grasping/experiments/2024-05-02_16-19-22/optimized_grasp_config_dicts/mug_330_0_9999.npy"
+    # "/juno/u/tylerlum/github_repos/nerf_grasping/experiments/2024-05-02_16-19-22/optimized_grasp_config_dicts/mug_330_0_9999.npy"
+    "/juno/u/tylerlum/github_repos/nerf_grasping/experiments/2024-05-05_03-18-14/optimized_grasp_config_dicts/goblet_0_9999.npy"
 )
 assert GRASP_CONFIG_DICTS_PATH.exists()
 
 OBJECT_OBJ_PATH = pathlib.Path(
-    "/juno/u/tylerlum/github_repos/nerf_grasping/experiments/2024-05-02_16-19-22/nerf_to_mesh/mug_330/coacd/decomposed.obj"
+    "/juno/u/tylerlum/github_repos/nerf_grasping/experiments/2024-05-05_03-18-14/nerf_to_mesh/goblet/coacd/decomposed.obj"
 )
 OBJECT_URDF_PATH = pathlib.Path(
-    "/juno/u/tylerlum/github_repos/nerf_grasping/experiments/2024-05-02_16-19-22/nerf_to_mesh/mug_330/coacd/coacd.urdf"
+    "/juno/u/tylerlum/github_repos/nerf_grasping/experiments/2024-05-05_03-18-14/nerf_to_mesh/goblet/coacd/coacd.urdf"
 )
 assert OBJECT_OBJ_PATH.exists()
 assert OBJECT_URDF_PATH.exists()
@@ -109,6 +116,9 @@ elif MODE == "JOINTS_OPEN":
     all_joint_angles[:, 11] -= DELTA
 else:
     raise ValueError(f"Invalid MODE: {MODE}")
+
+all_joint_angles = clamp_in_limits(all_joint_angles)
+
 
 # %%
 X_W_N = trimesh.transformations.translation_matrix([0.65, 0, 0])
@@ -363,6 +373,27 @@ def solve_trajopt_batch(
 
 
 # %%
+is_in_limits(all_joint_angles)
+
+# %%
+all_joint_angles[19]
+
+# %%
+joints_lower, joints_upper = get_joint_limits()
+
+# %%
+joints_lower, joints_upper
+
+# %%
+robot_file = "fr3_algr_zed2i_with_fingertips.yml"
+robot_cfg = RobotConfig.from_dict(
+    load_yaml(join_path(get_robot_configs_path(), robot_file))["robot_cfg"]
+)
+
+# %%
+robot_cfg.kinematics.kinematics_config.joint_limits.position[0, 7:], robot_cfg.kinematics.kinematics_config.joint_limits.position[1, 7:]
+
+# %%
 
 RESULT = solve_trajopt_batch(
     X_W_Hs=X_W_Hs,
@@ -377,7 +408,7 @@ RESULT = solve_trajopt_batch(
     enable_opt=False,
     # raise_if_fail=False,
     warn_if_fail=False,
-    timeout=5.0,
+    timeout=10.0,
 )
 
 # %%

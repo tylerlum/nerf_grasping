@@ -398,7 +398,7 @@ def run_pipeline(
     if MODE == "DEFAULT":
         q_algr_pres = q_algr_pres
     elif MODE == "EXTRA_OPEN":
-        q_algr_pres = clamp_in_limits(q_algr_extra_open)
+        q_algr_pres = q_algr_extra_open
     elif MODE == "JOINTS_OPEN":
         DELTA = 0.1
         q_algr_pres[:, 1] -= DELTA

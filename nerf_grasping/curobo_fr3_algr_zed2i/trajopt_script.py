@@ -84,8 +84,6 @@ X_Oy_H = np.eye(4)
 X_Oy_H[:3, :3] = rot
 X_Oy_H[:3, 3] = trans
 
-X_Oy_H[1, 3] += 0.3
-
 # %%
 X_W_N = trimesh.transformations.translation_matrix([0.65, 0, 0])
 X_O_Oy = trimesh.transformations.rotation_matrix(np.pi / 2, [1, 0, 0])
@@ -96,69 +94,6 @@ X_W_Oy = X_W_N @ X_N_O @ X_O_Oy
 
 X_W_H = X_W_Oy @ X_Oy_H
 q_algr_pre = joint_angles
-
-# %%
-if not hasattr(pb, "HAS_BEEN_INITIALIZED"):
-    pb.HAS_BEEN_INITIALIZED = True
-
-    pb.connect(pb.GUI)
-    r = pb.loadURDF(
-        str(FR3_ALGR_ZED2I_URDF_PATH),
-        useFixedBase=True,
-        basePosition=[0, 0, 0],
-        baseOrientation=[0, 0, 0, 1],
-    )
-    num_total_joints = pb.getNumJoints(r)
-    assert num_total_joints == 39
-
-    obj = pb.loadURDF(
-        str(OBJECT_URDF_PATH),
-        useFixedBase=True,
-        basePosition=[
-            0.65,
-            0,
-            0,
-        ],
-        baseOrientation=[0, 0, 0, 1],
-    )
-
-# %%
-joint_names = [
-    pb.getJointInfo(r, i)[1].decode("utf-8")
-    for i in range(num_total_joints)
-    if pb.getJointInfo(r, i)[2] != pb.JOINT_FIXED
-]
-link_names = [
-    pb.getJointInfo(r, i)[12].decode("utf-8")
-    for i in range(num_total_joints)
-    if pb.getJointInfo(r, i)[2] != pb.JOINT_FIXED
-]
-
-actuatable_joint_idxs = [
-    i for i in range(num_total_joints) if pb.getJointInfo(r, i)[2] != pb.JOINT_FIXED
-]
-num_actuatable_joints = len(actuatable_joint_idxs)
-assert num_actuatable_joints == 23
-arm_actuatable_joint_idxs = actuatable_joint_idxs[:7]
-hand_actuatable_joint_idxs = actuatable_joint_idxs[7:]
-
-for i, joint_idx in enumerate(arm_actuatable_joint_idxs):
-    pb.resetJointState(r, joint_idx, DEFAULT_Q_FR3[i])
-
-for i, joint_idx in enumerate(hand_actuatable_joint_idxs):
-    pb.resetJointState(r, joint_idx, DEFAULT_Q_ALGR[i])
-
-# %%
-collision_config = yaml.safe_load(
-    open(
-        COLLISION_SPHERES_YAML_PATH,
-        "r",
-    )
-)
-draw_collision_spheres(
-    robot=r,
-    config=collision_config,
-)
 
 # %%
 d_world, d_self = max_penetration_from_X_W_H(
@@ -289,13 +224,13 @@ print("=" * 80 + "\n")
 q, qd, qdd, dt, result, motion_gen = solve_trajopt(
     X_W_H=X_W_H,
     q_algr_constraint=q_algr_pre,
-    collision_check_object=False,
+    collision_check_object=True,
     obj_filepath=OBJECT_OBJ_PATH,
     obj_xyz=(0.65, 0.0, 0.0),
     obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
-    collision_check_table=False,
+    collision_check_table=True,
     enable_opt=True,
-    enable_graph=False,
+    enable_graph=True,
     raise_if_fail=False,
     use_cuda_graph=False
 )
@@ -408,6 +343,7 @@ if failed:
         print(f"FAILED TRAJOPT: {e} without object or table collision check")
         failed = True
 
+# %%
 print(f"q.shape = {q.shape}, qd.shape = {qd.shape}, qdd.shape = {qdd.shape}, dt = {dt}")
 N_pts = q.shape[0]
 assert q.shape == (N_pts, 23)
@@ -497,6 +433,69 @@ total_time = N_pts * dt
 print(f"total_time = {total_time}")
 
 # %%
+if not hasattr(pb, "HAS_BEEN_INITIALIZED"):
+    pb.HAS_BEEN_INITIALIZED = True
+
+    pb.connect(pb.GUI)
+    r = pb.loadURDF(
+        str(FR3_ALGR_ZED2I_URDF_PATH),
+        useFixedBase=True,
+        basePosition=[0, 0, 0],
+        baseOrientation=[0, 0, 0, 1],
+    )
+    num_total_joints = pb.getNumJoints(r)
+    assert num_total_joints == 39
+
+    obj = pb.loadURDF(
+        str(OBJECT_URDF_PATH),
+        useFixedBase=True,
+        basePosition=[
+            0.65,
+            0,
+            0,
+        ],
+        baseOrientation=[0, 0, 0, 1],
+    )
+
+# %%
+joint_names = [
+    pb.getJointInfo(r, i)[1].decode("utf-8")
+    for i in range(num_total_joints)
+    if pb.getJointInfo(r, i)[2] != pb.JOINT_FIXED
+]
+link_names = [
+    pb.getJointInfo(r, i)[12].decode("utf-8")
+    for i in range(num_total_joints)
+    if pb.getJointInfo(r, i)[2] != pb.JOINT_FIXED
+]
+
+actuatable_joint_idxs = [
+    i for i in range(num_total_joints) if pb.getJointInfo(r, i)[2] != pb.JOINT_FIXED
+]
+num_actuatable_joints = len(actuatable_joint_idxs)
+assert num_actuatable_joints == 23
+arm_actuatable_joint_idxs = actuatable_joint_idxs[:7]
+hand_actuatable_joint_idxs = actuatable_joint_idxs[7:]
+
+for i, joint_idx in enumerate(arm_actuatable_joint_idxs):
+    pb.resetJointState(r, joint_idx, DEFAULT_Q_FR3[i])
+
+for i, joint_idx in enumerate(hand_actuatable_joint_idxs):
+    pb.resetJointState(r, joint_idx, DEFAULT_Q_ALGR[i])
+
+# %%
+collision_config = yaml.safe_load(
+    open(
+        COLLISION_SPHERES_YAML_PATH,
+        "r",
+    )
+)
+draw_collision_spheres(
+    robot=r,
+    config=collision_config,
+)
+
+# %%
 remove_collision_spheres()
 
 last_update_time = time.time()
@@ -516,6 +515,12 @@ for i in tqdm(range(N_pts)):
     last_update_time = time.time()
 
 # %%
+draw_collision_spheres(
+    robot=r,
+    config=collision_config,
+)
+
+# %%
 q_solution = solve_ik(
     X_W_H=X_W_H,
     q_algr_constraint=q_algr_pre,
@@ -528,13 +533,12 @@ q_solution = solve_ik(
 )
 
 # %%
-q_solution = np.array([0, -0.7854, 0.0, -2.3562, 0.0, 1.5708, 0.7854])
-
+remove_collision_spheres()
 # %%
 for i, joint_idx in enumerate(arm_actuatable_joint_idxs):
     pb.resetJointState(r, joint_idx, q_solution[i])
-# for i, joint_idx in enumerate(hand_actuatable_joint_idxs):
-#     pb.resetJointState(r, joint_idx, q_solution[i + 7])
+for i, joint_idx in enumerate(hand_actuatable_joint_idxs):
+    pb.resetJointState(r, joint_idx, q_solution[i + 7])
 
 # %%
 for i, joint_idx in enumerate(arm_actuatable_joint_idxs):
@@ -976,5 +980,74 @@ axes[2].plot(new_qdd[:, :], label="qdd")
 axes[3].plot(new_qddd[:, :], label="qddd")
 plt.show()
 
+
+# %%
+
+X_W_H_feasible = np.array(
+    [
+        [0, 0, 1, 0.4],
+        [0, 1, 0, 0.0],
+        [-1, 0, 0, 0.15],
+        [0.0, 0.0, 0.0, 1.0],
+    ]
+)
+X_W_H_collide_object = np.array(
+    [
+        [0, 0, 1, 0.65],
+        [0, 1, 0, 0.0],
+        [-1, 0, 0, 0.15],
+        [0.0, 0.0, 0.0, 1.0],
+    ]
+)
+X_W_H_collide_table = np.array(
+    [
+        [0, 0, 1, 0.4],
+        [0, 1, 0, 0.0],
+        [-1, 0, 0, 0.10],
+        [0.0, 0.0, 0.0, 1.0],
+    ]
+)
+q_algr_pre = np.array(
+    [
+        0.29094562,
+        0.7371094,
+        0.5108592,
+        0.12263706,
+        0.12012535,
+        0.5845135,
+        0.34382993,
+        0.605035,
+        -0.2684319,
+        0.8784579,
+        0.8497135,
+        0.8972184,
+        1.3328283,
+        0.34778783,
+        0.20921567,
+        -0.00650969,
+    ]
+)
+
+# %%
+q, qd, qdd, dt, result, _ = solve_trajopt(
+    X_W_H=X_W_H_feasible,
+    q_algr_constraint=q_algr_pre,
+    enable_opt=True,
+)
+
+# %%
+q, qd, qdd, dt, result, _ = solve_trajopt(
+    X_W_H=X_W_H,
+    q_algr_constraint=q_algr_pre,
+    collision_check_object=True,
+    obj_filepath=OBJECT_OBJ_PATH,
+    obj_xyz=(0.65, 0.0, 0.0),
+    obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+    collision_check_table=True,
+    enable_opt=False,
+    enable_graph=True,
+    raise_if_fail=False,
+    use_cuda_graph=False
+)
 
 # %%

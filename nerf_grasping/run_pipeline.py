@@ -624,9 +624,10 @@ def run_curobo(cfg, X_W_Hs, q_algr_pres):
     from nerf_grasping.curobo_fr3_algr_zed2i.visualizer import (
         start_visualizer,
         draw_collision_spheres_default_config,
-        remove_collision_spheres,
+        remove_collision_spheres_default_config,
         set_robot_state,
         animate_robot,
+        create_urdf,
     )
 
     OBJECT_URDF_PATH = create_urdf(obj_path=pathlib.Path("/tmp/mesh_viz_object.obj"))
@@ -634,7 +635,7 @@ def run_curobo(cfg, X_W_Hs, q_algr_pres):
     draw_collision_spheres_default_config(pb_robot)
     time.sleep(1.0)
 
-    remove_collision_spheres()
+    remove_collision_spheres_default_config()
     animate_robot(robot=pb_robot, qs=q, dt=dt)
 
     while True:
@@ -675,45 +676,6 @@ def run_curobo(cfg, X_W_Hs, q_algr_pres):
             print(f"Invalid input: {x}")
 
     breakpoint()
-
-
-def create_urdf(obj_path: pathlib.Path) -> pathlib.Path:
-    assert obj_path.suffix == ".obj"
-    filename = obj_path.name
-    parent_folder = obj_path.parent
-    urdf_path = parent_folder / f"{obj_path.stem}.urdf"
-    urdf_text = f"""<?xml version="0.0" ?>
-<robot name="model.urdf">
-  <link name="baseLink">
-    <contact>
-      <lateral_friction value="0.8"/>
-      <rolling_friction value="0.001"/>g
-      <contact_cfm value="0.0"/>
-      <contact_erp value="1.0"/>
-    </contact>
-    <inertial>
-    <origin rpy="0 0 0" xyz="0.01 0.0 0.01"/>
-       <mass value=".066"/>
-       <inertia ixx="1e-3" ixy="0" ixz="0" iyy="1e-3" iyz="0" izz="1e-3"/>
-    </inertial>
-    <visual>
-      <geometry>
-        <mesh filename="{filename}" scale="1 1 1"/>
-      </geometry>
-      <material name="white">
-        <color rgba="1. 1. 1. 1."/>
-      </material>
-    </visual>
-    <collision>
-      <geometry>
-    	 	<mesh filename="{filename}" scale="1 1 1"/>
-      </geometry>
-    </collision>
-  </link>
-</robot>"""
-    with urdf_path.open("w") as f:
-        f.write(urdf_text)
-    return urdf_path
 
 
 @dataclass

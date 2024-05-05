@@ -454,6 +454,7 @@ def run_pipeline(
 
 
 def run_drake(cfg, X_W_Hs, q_algr_pres) -> None:
+    from nerf_grasping.fr3_algr_ik.ik import solve_ik
     num_grasps = X_W_Hs.shape[0]
     q_stars = []
     for i in tqdm(range(num_grasps)):

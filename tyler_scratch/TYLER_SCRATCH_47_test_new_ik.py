@@ -59,7 +59,7 @@ assert OBJECT_URDF_PATH.exists()
 
 # %%
 COLLISION_SPHERES_YAML_PATH = load_yaml(
-    join_path(get_robot_configs_path(), "fr3_algr_zed2i.yml")
+    join_path(get_robot_configs_path(), "fr3_algr_zed2i_with_fingertips.yml")
 )["robot_cfg"]["kinematics"]["collision_spheres"]
 COLLISION_SPHERES_YAML_PATH = pathlib.Path(
     join_path(get_robot_configs_path(), COLLISION_SPHERES_YAML_PATH)
@@ -239,7 +239,7 @@ target_pose = Pose(
 )
 
 tensor_args = TensorDeviceType()
-robot_file = "fr3_algr_zed2i.yml"
+robot_file = "fr3_algr_zed2i_with_fingertips.yml"
 robot_cfg = RobotConfig.from_dict(
     load_yaml(join_path(get_robot_configs_path(), robot_file))["robot_cfg"]
 )
@@ -317,7 +317,7 @@ assert q_algrs.shape == (
     16,
 )
 
-robot_file = "fr3_algr_zed2i.yml"
+robot_file = "fr3_algr_zed2i_with_fingertips.yml"
 robot_cfg = RobotConfig.from_dict(
     load_yaml(join_path(get_robot_configs_path(), robot_file))["robot_cfg"]
 )

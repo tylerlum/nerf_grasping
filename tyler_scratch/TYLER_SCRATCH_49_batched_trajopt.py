@@ -260,12 +260,11 @@ def solve_trajopt_batch(
     )
     ik_solver = IKSolver(ik_config)
 
-    result = ik_solver.solve_batch(target_pose)
+    ik_result = ik_solver.solve_batch(target_pose)
 
     print("Step 3: Solve FK for fingertip poses")
-    q_fr3s = result.solution[..., :7].squeeze(dim=1).detach().cpu().numpy()
-
     kin_model = CudaRobotModel(robot_cfg.kinematics)
+    q_fr3s = ik_result.solution[..., :7].squeeze(dim=1).detach().cpu().numpy()
     q = torch.from_numpy(np.concatenate([q_fr3s, q_algrs], axis=1)).float().cuda()
     assert q.shape == (N_GRASPS, 23)
     state = kin_model.get_state(q)
@@ -283,12 +282,21 @@ def solve_trajopt_batch(
         use_cuda_graph=use_cuda_graph,
     )
     ik_solver2 = IKSolver(ik_config2)
-    ik_result = ik_solver2.solve_batch(
+    ik_result2 = ik_solver2.solve_batch(
         goal_pose=target_pose, link_poses=state.link_pose
     )
-    qs = ik_result.solution.detach().cpu().numpy()
+    print(f"ik_result2.success: {ik_result2.success.nonzero()}")
 
-    print("Step 5: Solve motion generation")
+    print("Step 5: Solve FK for new fingertip poses")
+    kin_model2 = CudaRobotModel(robot_cfg.kinematics)
+    # q_fr3s2 = ik_result2.solution[..., :7].squeeze(dim=1).detach().cpu().numpy()
+    # q2 = torch.from_numpy(np.concatenate([q_fr3s2, q_algrs], axis=1)).float().cuda()
+    q2 = ik_result2.solution.squeeze(dim=1)
+
+    assert q2.shape == (N_GRASPS, 23)
+    state2 = kin_model2.get_state(q2)
+
+    print("Step 6: Solve motion generation")
     from curobo.geom.sdf.world import CollisionCheckerType
     from curobo.wrap.reacher.motion_gen import (
         MotionGen,
@@ -322,9 +330,13 @@ def solve_trajopt_batch(
         .cuda()
     )
 
+    target_pose2 = Pose(
+        state2.ee_position,
+        quaternion=state2.ee_quaternion,
+    )
     motion_result = motion_gen.plan_batch(
         start_state=start_state,
-        goal_pose=target_pose,
+        goal_pose=target_pose2,
         plan_config=MotionGenPlanConfig(
             enable_graph=True,
             enable_opt=False,
@@ -333,9 +345,8 @@ def solve_trajopt_batch(
             num_graph_seeds=1,
             timeout=10,
         ),
-        link_poses=state.link_pose,
+        link_poses=state2.link_pose,
     )
-    paths = motion_result.get_paths()
 
     end_time = time.time()
     print(f"Total time taken: {end_time - start_time} seconds")
@@ -356,13 +367,16 @@ RESULT = solve_trajopt_batch(
     use_cuda_graph=False,
     enable_graph=True,
     enable_opt=False,
-    raise_if_fail=False,
+    # raise_if_fail=False,
     warn_if_fail=False,
     timeout=5.0,
 )
 
 # %%
 RESULT.success.nonzero()
+
+# %%
+RESULT.status
 
 # %%
 all_qs = RESULT.optimized_plan.position.detach().cpu().numpy()
@@ -436,7 +450,7 @@ draw_collision_spheres(
 
 
 # %%
-TRAJ_IDX = 2
+TRAJ_IDX = 0
 qs = all_qs[TRAJ_IDX]
 N_pts = qs.shape[0]
 TOTAL_TIME = 5.0
@@ -477,5 +491,95 @@ d_world, d_self = max_penetration_from_qs(
 
 # %%
 np.max(d_world), np.max(d_self)
+
+# %%
+
+from nerf_grasping.fr3_algr_ik.ik import solve_ik
+num_grasps = X_W_Hs.shape[0]
+q_stars = []
+for i in tqdm(range(num_grasps)):
+    X_W_H = X_W_Hs[i]
+    q_algr_pre = all_joint_angles[i]
+
+    try:
+        q_star = solve_ik(X_W_H=X_W_H, q_algr_pre=q_algr_pre, visualize=False)
+        print(f"Success for grasp {i}")
+        q_stars.append(q_star)
+    except RuntimeError as e:
+        print(f"Failed to solve IK for grasp {i}")
+        q_stars.append(None)
+assert len(q_stars) == num_grasps
+num_passed = sum([q_star is not None for q_star in q_stars])
+print(
+    f"Number of grasps passed IK: {num_passed} / {num_grasps} ({num_passed / num_grasps * 100:.2f}%)"
+)
+
+# %%
+print("\n" + "=" * 80)
+print("Step 9: Solve trajopt for each grasp")
+print("=" * 80 + "\n")
+
+from nerf_grasping.fr3_algr_trajopt.trajopt import (
+    solve_trajopt,
+    TrajOptParams,
+    DEFAULT_Q_FR3,
+    DEFAULT_Q_ALGR,
+)
+
+trajopt_cfg = TrajOptParams(
+    num_control_points=21,
+    min_self_coll_dist=0.005,
+    influence_dist=0.01,
+    nerf_frame_offset=0.65,
+    s_start_self_col=0.5,
+    lqr_pos_weight=1e-1,
+    lqr_vel_weight=20.0,
+    presolve_no_collision=True,
+)
+USE_DEFAULT_Q_0 = True
+if USE_DEFAULT_Q_0:
+    print("Using default q_0")
+    q_fr3_0 = DEFAULT_Q_FR3
+    q_algr_0 = DEFAULT_Q_ALGR
+else:
+    raise NotImplementedError
+
+passing_trajopt_idxs = []
+failed_trajopt_idxs = []
+not_attempted_trajopt_idxs = []
+for i, q_star in tqdm(enumerate(q_stars), total=num_grasps):
+    if q_star is None:
+        print("$" * 80)
+        print(f"Trajectory optimization skipped for grasp {i}")
+        print("$" * 80 + "\n")
+        not_attempted_trajopt_idxs.append(i)
+        continue
+
+    try:
+        spline, dspline, T_traj, trajopt = solve_trajopt(
+            q_fr3_0=q_fr3_0,
+            q_algr_0=q_algr_0,
+            q_fr3_f=q_star[:7],
+            q_algr_f=q_star[7:],
+            cfg=trajopt_cfg,
+            mesh_path=pathlib.Path("/tmp/mesh_viz_object.obj"),
+            visualize=False,
+            verbose=False,
+            ignore_obj_collision=False,
+        )
+        print("^" * 80)
+        print(f"Trajectory optimization succeeded for grasp {i}")
+        print("^" * 80 + "\n")
+        passing_trajopt_idxs.append(i)
+
+    except RuntimeError as e:
+        print("~" * 80)
+        print(f"Trajectory optimization failed for grasp {i}")
+        print("~" * 80 + "\n")
+        failed_trajopt_idxs.append(i)
+
+print(f"passing_trajopt_idxs: {passing_trajopt_idxs}")
+print(f"failed_trajopt_idxs: {failed_trajopt_idxs}")
+print(f"not_attempted_trajopt_idxs: {not_attempted_trajopt_idxs}")
 
 # %%

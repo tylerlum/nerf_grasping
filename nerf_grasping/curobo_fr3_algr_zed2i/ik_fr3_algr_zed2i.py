@@ -15,16 +15,23 @@ from curobo.util_file import (
 )
 from curobo.wrap.model.robot_world import RobotWorld, RobotWorldConfig
 from curobo.wrap.reacher.ik_solver import IKSolver, IKSolverConfig, IKResult
-
 from nerf_grasping.curobo_fr3_algr_zed2i.fr3_algr_zed2i_world import (
-    get_world_cfg,
+    get_dummy_collision_dict,
+    get_object_collision_dict,
+    get_table_collision_dict,
 )
 
 
 def solve_ik(
     X_W_H: np.ndarray,
-    world_cfg: WorldConfig,
     q_algr_constraint: Optional[np.ndarray] = None,
+    collision_check_object: bool = True,
+    obj_filepath: Optional[pathlib.Path] = pathlib.Path(
+        "/juno/u/tylerlum/github_repos/nerf_grasping/experiments/2024-05-02_16-19-22/nerf_to_mesh/mug_330/coacd/decomposed.obj"
+    ),
+    obj_xyz: Tuple[float, float, float] = (0.65, 0.0, 0.0),
+    obj_quat_wxyz: Tuple[float, float, float, float] = (1.0, 0.0, 0.0, 0.0),
+    collision_check_table: bool = True,
     raise_if_no_solution: bool = True,
     warn_if_no_solution: bool = False,
     use_cuda_graph: bool = True,
@@ -61,6 +68,18 @@ def solve_ik(
             torch.from_numpy(q_algr_constraint).float().cuda() + 0.01
         )
 
+    world_dict = {}
+    if collision_check_table:
+        world_dict.update(get_table_collision_dict())
+    if collision_check_object and obj_filepath is not None:
+        world_dict.update(
+            get_object_collision_dict(
+                file_path=obj_filepath, xyz=obj_xyz, quat_wxyz=obj_quat_wxyz
+            )
+        )
+    if len(world_dict) == 0:
+        world_dict.update(get_dummy_collision_dict())
+    world_cfg = WorldConfig.from_dict(world_dict)
     ik_config = IKSolverConfig.load_from_robot_config(
         robot_cfg,
         world_cfg,
@@ -82,16 +101,18 @@ def solve_ik(
             print("WARNING: IK failed to find a valid solution.")
 
     assert result.solution.shape == (1, 1, 23)
-    return (
-        result.solution.squeeze(dim=0).squeeze(dim=0).detach().cpu().numpy(),
-        result,
-        ik_solver,
-    )
+    return result.solution.squeeze(dim=0).squeeze(dim=0).detach().cpu().numpy(), result, ik_solver
 
 
 def max_penetration_from_q(
     q: np.ndarray,
-    world_cfg: WorldConfig,
+    include_object: bool = True,
+    obj_filepath: Optional[pathlib.Path] = pathlib.Path(
+        "/juno/u/tylerlum/github_repos/nerf_grasping/experiments/2024-05-02_16-19-22/nerf_to_mesh/mug_330/coacd/decomposed.obj"
+    ),
+    obj_xyz: Tuple[float, float, float] = (0.65, 0.0, 0.0),
+    obj_quat_wxyz: Tuple[float, float, float, float] = (1.0, 0.0, 0.0, 0.0),
+    include_table: bool = True,
 ) -> Tuple[np.ndarray, np.ndarray]:
     assert q.shape == (23,), f"q.shape: {q.shape}"
 
@@ -100,6 +121,18 @@ def max_penetration_from_q(
         load_yaml(join_path(get_robot_configs_path(), robot_file))["robot_cfg"]
     )
 
+    world_dict = {}
+    if include_table:
+        world_dict.update(get_table_collision_dict())
+    if include_object and obj_filepath is not None:
+        world_dict.update(
+            get_object_collision_dict(
+                file_path=obj_filepath, xyz=obj_xyz, quat_wxyz=obj_quat_wxyz
+            )
+        )
+    if len(world_dict) == 0:
+        world_dict.update(get_dummy_collision_dict())
+    world_cfg = WorldConfig.from_dict(world_dict)
     config = RobotWorldConfig.load_from_config(
         robot_cfg, world_cfg, collision_activation_distance=0.0
     )
@@ -115,7 +148,13 @@ def max_penetration_from_q(
 
 def max_penetration_from_qs(
     qs: np.ndarray,
-    world_cfg: WorldConfig,
+    include_object: bool = True,
+    obj_filepath: Optional[pathlib.Path] = pathlib.Path(
+        "/juno/u/tylerlum/github_repos/nerf_grasping/experiments/2024-05-02_16-19-22/nerf_to_mesh/mug_330/coacd/decomposed.obj"
+    ),
+    obj_xyz: Tuple[float, float, float] = (0.65, 0.0, 0.0),
+    obj_quat_wxyz: Tuple[float, float, float, float] = (1.0, 0.0, 0.0, 0.0),
+    include_table: bool = True,
 ) -> Tuple[np.ndarray, np.ndarray]:
     N = qs.shape[0]
     assert qs.shape == (
@@ -128,6 +167,18 @@ def max_penetration_from_qs(
         load_yaml(join_path(get_robot_configs_path(), robot_file))["robot_cfg"]
     )
 
+    world_dict = {}
+    if include_table:
+        world_dict.update(get_table_collision_dict())
+    if include_object and obj_filepath is not None:
+        world_dict.update(
+            get_object_collision_dict(
+                file_path=obj_filepath, xyz=obj_xyz, quat_wxyz=obj_quat_wxyz
+            )
+        )
+    if len(world_dict) == 0:
+        world_dict.update(get_dummy_collision_dict())
+    world_cfg = WorldConfig.from_dict(world_dict)
     config = RobotWorldConfig.load_from_config(
         robot_cfg, world_cfg, collision_activation_distance=0.0
     )
@@ -143,19 +194,33 @@ def max_penetration_from_qs(
 
 def max_penetration_from_X_W_H(
     X_W_H: np.ndarray,
-    world_cfg: WorldConfig,
     q_algr_constraint: np.ndarray,
+    include_object: bool = True,
+    obj_filepath: Optional[pathlib.Path] = pathlib.Path(
+        "/juno/u/tylerlum/github_repos/nerf_grasping/experiments/2024-05-02_16-19-22/nerf_to_mesh/mug_330/coacd/decomposed.obj"
+    ),
+    obj_xyz: Tuple[float, float, float] = (0.65, 0.0, 0.0),
+    obj_quat_wxyz: Tuple[float, float, float, float] = (1.0, 0.0, 0.0, 0.0),
+    include_table: bool = True,
 ) -> Tuple[np.ndarray, np.ndarray]:
 
     q_solution, _, _ = solve_ik(
         X_W_H=X_W_H,
-        world_cfg=world_cfg,
         q_algr_constraint=q_algr_constraint,
+        collision_check_object=True,
+        obj_filepath=obj_filepath,
+        obj_xyz=obj_xyz,
+        obj_quat_wxyz=obj_quat_wxyz,
+        collision_check_table=True,
         raise_if_no_solution=False,
     )
     return max_penetration_from_q(
         q=q_solution,
-        world_cfg=world_cfg,
+        include_object=include_object,
+        obj_filepath=obj_filepath,
+        obj_xyz=obj_xyz,
+        obj_quat_wxyz=obj_quat_wxyz,
+        include_table=include_table,
     )
 
 
@@ -164,7 +229,7 @@ def main() -> None:
         [
             [0, 0, 1, 0.4],
             [0, 1, 0, 0.0],
-            [-1, 0, 0, 0.2],
+            [-1, 0, 0, 0.15],
             [0.0, 0.0, 0.0, 1.0],
         ]
     )
@@ -172,7 +237,7 @@ def main() -> None:
         [
             [0, 0, 1, 0.65],
             [0, 1, 0, 0.0],
-            [-1, 0, 0, 0.2],
+            [-1, 0, 0, 0.15],
             [0.0, 0.0, 0.0, 1.0],
         ]
     )
@@ -205,19 +270,15 @@ def main() -> None:
         ]
     )
     q_feasible, _, _ = solve_ik(
-        X_W_H=X_W_H_feasible,
-        world_cfg=get_world_cfg(include_object=False),
-        q_algr_constraint=q_algr_pre,
+        X_W_H=X_W_H_feasible, q_algr_constraint=q_algr_pre, collision_check_object=False
     )
     q_feasible_2, _, _ = solve_ik(
-        X_W_H=X_W_H_feasible,
-        world_cfg=get_world_cfg(include_object=True),
-        q_algr_constraint=q_algr_pre,
+        X_W_H=X_W_H_feasible, q_algr_constraint=q_algr_pre, collision_check_object=True
     )
     q_feasible_3, _, _ = solve_ik(
         X_W_H=X_W_H_collide_object,
-        world_cfg=get_world_cfg(include_object=False),
         q_algr_constraint=q_algr_pre,
+        collision_check_object=False,
     )
     print(f"q_feasible: {q_feasible}")
     print(f"q_feasible_2: {q_feasible_2}")
@@ -227,30 +288,30 @@ def main() -> None:
     try:
         q_collide_object, _, _ = solve_ik(
             X_W_H=X_W_H_collide_object,
-            world_cfg=get_world_cfg(include_object=True),
             q_algr_constraint=q_algr_pre,
+            collision_check_object=True,
         )
         raise ValueError("Collision check failed to detect collision.")
     except RuntimeError:
         print("Collision check successfully detected collision.")
         max_penetration_collide_object = max_penetration_from_X_W_H(
             X_W_H=X_W_H_collide_object,
-            world_cfg=get_world_cfg(),
             q_algr_constraint=q_algr_pre,
+            include_object=True,
         )
         print(f"max_penetration_collide_object = {max_penetration_collide_object}")
         max_penetration_collide_object_turn_off_object = max_penetration_from_X_W_H(
             X_W_H=X_W_H_collide_object,
-            world_cfg=get_world_cfg(include_object=False),
             q_algr_constraint=q_algr_pre,
+            include_object=False,
         )
         print(
             f"max_penetration_collide_object_turn_off_object = {max_penetration_collide_object_turn_off_object}"
         )
         max_penetration_collide_object_turn_off_table = max_penetration_from_X_W_H(
             X_W_H=X_W_H_collide_object,
-            world_cfg=get_world_cfg(include_table=False),
             q_algr_constraint=q_algr_pre,
+            include_table=False,
         )
         print(
             f"max_penetration_collide_object_turn_off_table = {max_penetration_collide_object_turn_off_table}"
@@ -261,30 +322,26 @@ def main() -> None:
     try:
         q_collide_table, _, _ = solve_ik(
             X_W_H=X_W_H_collide_table,
-            world_cfg=get_world_cfg(),
             q_algr_constraint=q_algr_pre,
+            collision_check_object=False,
         )
         raise ValueError("Collision check failed to detect collision.")
     except RuntimeError:
         print("Collision check successfully detected collision.")
         max_penetration_collide_table = max_penetration_from_X_W_H(
-            X_W_H=X_W_H_collide_table,
-            world_cfg=get_world_cfg(),
-            q_algr_constraint=q_algr_pre,
+            X_W_H=X_W_H_collide_table, q_algr_constraint=q_algr_pre, include_table=True
         )
         print(f"max_penetration_collide_table = {max_penetration_collide_table}")
         max_penetration_collide_table_turn_off_table = max_penetration_from_X_W_H(
-            X_W_H=X_W_H_collide_table,
-            world_cfg=get_world_cfg(include_table=False),
-            q_algr_constraint=q_algr_pre,
+            X_W_H=X_W_H_collide_table, q_algr_constraint=q_algr_pre, include_table=False
         )
         print(
             f"max_penetration_collide_table_turn_off_table = {max_penetration_collide_table_turn_off_table}"
         )
         max_penetration_collide_table_turn_off_object = max_penetration_from_X_W_H(
             X_W_H=X_W_H_collide_table,
-            world_cfg=get_world_cfg(include_object=False),
             q_algr_constraint=q_algr_pre,
+            include_object=False,
         )
         print(
             f"max_penetration_collide_table_turn_off_object = {max_penetration_collide_table_turn_off_object}"

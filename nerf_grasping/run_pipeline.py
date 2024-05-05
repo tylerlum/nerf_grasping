@@ -556,136 +556,42 @@ def run_drake(cfg, X_W_Hs, q_algr_pres) -> None:
 def run_curobo(cfg, X_W_Hs, q_algr_pres):
     num_grasps = X_W_Hs.shape[0]
 
-    from nerf_grasping.curobo_fr3_algr_zed2i.ik_fr3_algr_zed2i import solve_ik as solve_ik_curobo
-    from nerf_grasping.curobo_fr3_algr_zed2i.ik_fr3_algr_zed2i import max_penetration_from_X_W_H
-
-    pass_ik_idxs= []
-    fail_ik_idxs = []
-    for i in tqdm(range(num_grasps), desc="Curobo IK"):
-        X_W_H = X_W_Hs[i]
-        q_algr_pre = q_algr_pres[i]
-        print(f"Trying grasp {i}")
-        try:
-            q_solution, _, _ = solve_ik_curobo(
-                X_W_H=X_W_H,
-                q_algr_constraint=q_algr_pre,
-                collision_check_object=True,
-                obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
-                obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
-                obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
-                collision_check_table=True,
-                raise_if_no_solution=True,
-            )
-            pass_ik_idxs.append(i)
-        except RuntimeError as e:
-            q_solution = None
-            fail_ik_idxs.append(i)
-        
-        d_world, d_self = max_penetration_from_X_W_H(
-            X_W_H=X_W_H,
-            q_algr_constraint=q_algr_pre,
-            include_object=True,
-            obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
-            obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
-            obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
-            include_table=True,
-        )
-        print(f"d_world = {d_world}, d_self = {d_self}")
-    print(f"pass_ik_idxs: {pass_ik_idxs}")
-    print(f"fail_ik_idxs: {fail_ik_idxs}")
-
+    from nerf_grasping.curobo_fr3_algr_zed2i.trajopt_batch import solve_trajopt_batch
     print("\n" + "=" * 80)
     print("Step 9: Solve trajopt for each grasp")
     print("=" * 80 + "\n")
 
-    from nerf_grasping.curobo_fr3_algr_zed2i.trajopt_fr3_algr_zed2i import solve_trajopt as solve_trajopt_curobo
-
-    print("=" * 80)
-    print("Trying with full object collision check")
-    print("=" * 80 + "\n")
-    pass_trajopt_idxs = []
-    pass_trajopt_2_idxs = []
-    fail_trajopt_idxs = []
-    skip_trajopt_idxs = []
-    for i in tqdm(range(num_grasps), desc="Curobo TrajOpt"):
-        print(f"Trying grasp {i}")
-        if i not in pass_ik_idxs:
-            print(f"Skipping grasp {i}")
-            skip_trajopt_idxs.append(i)
-            continue
-
-        X_W_H = X_W_Hs[i]
-        q_algr_pre = q_algr_pres[i]
-        try:
-            raise RuntimeError("Forcing failure")
-            print("=" * 80)
-            print("Trying with full object collision check with trajopt")
-            print("=" * 80 + "\n")
-            q, qd, qdd, dt, result, motion_gen = solve_trajopt_curobo(
-                X_W_H=X_W_H,
-                q_algr_constraint=q_algr_pre,
-                collision_check_object=True,
-                obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
-                obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
-                obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
-                collision_check_table=True,
-                enable_opt=True,
-                enable_graph=True,
-                raise_if_fail=True,
-                use_cuda_graph=False
-            )
-            print("SUCCESS TRAJOPT with full object collision check")
-            failed = False
-            pass_trajopt_idxs.append(i)
-        except RuntimeError as e:
-            print("FAILED TRAJOPT with full object collision check")
-            failed = True
-
-        if failed:
-            print("=" * 80)
-            print("Trying with full object collision check without trajopt")
-            print("=" * 80 + "\n")
-            try:
-                q, qd, qdd, dt, result, motion_gen = solve_trajopt_curobo(
-                    X_W_H=X_W_H,
-                    q_algr_constraint=q_algr_pre,
-                    collision_check_object=True,
-                    obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
-                    obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
-                    obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
-                    collision_check_table=True,
-                    enable_opt=False,
-                    enable_graph=True,
-                    raise_if_fail=False,
-                    use_cuda_graph=False,
-                )
-                print("SUCCESS TRAJOPT with full object collision check without trajopt")
-                failed = False
-                pass_trajopt_2_idxs.append(i)
-            except RuntimeError as e:
-                print("FAILED TRAJOPT with full object collision check without trajopt")
-                failed = True
-                fail_trajopt_idxs.append(i)
-    print(f"pass_trajopt_idxs: {pass_trajopt_idxs}")
-    print(f"pass_trajopt_2_idxs: {pass_trajopt_2_idxs}")
-    print(f"fail_trajopt_idxs: {fail_trajopt_idxs}")
-    pass_trajopt_2_idxs = [1, 2, 5, 12, 21, 28]  # HACK
-
-    # Visualize
-    OBJECT_URDF_PATH = create_urdf(obj_path=pathlib.Path("/tmp/mesh_viz_object.obj"))
-    q, qd, qdd, dt, result, motion_gen = solve_trajopt_curobo(
-        X_W_H=X_W_Hs[pass_trajopt_2_idxs[0]],
-        q_algr_constraint=q_algr_pres[pass_trajopt_2_idxs[0]],
+    ENABLE_OPT = False
+    result = solve_trajopt_batch(
+        X_W_Hs=X_W_Hs,
+        q_algrs=q_algr_pres,
         collision_check_object=True,
         obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
         obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
         obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
         collision_check_table=True,
-        enable_opt=False,
+        use_cuda_graph=False,
         enable_graph=True,
-        raise_if_fail=True,
-        use_cuda_graph=False
+        enable_opt=ENABLE_OPT,
+        timeout=10.0,
     )
+
+    success_idxs = result.success.nonzero().flatten().tolist()
+    print(f"success_idxs: {success_idxs}")
+
+    TRAJ_IDX = 0
+    print(f"Visualizing trajectory {TRAJ_IDX}")
+    q = result.get_paths()[TRAJ_IDX].position.detach().cpu().numpy()
+    print(f"q.shape: {q.shape}")
+    if ENABLE_OPT:
+        dt = result.optimized_dt
+    else:
+        TOTAL_TIME = 10.0
+        n_timesteps = q.shape[0]
+        dt = TOTAL_TIME / n_timesteps
+
+    # Visualize
+    OBJECT_URDF_PATH = create_urdf(obj_path=pathlib.Path("/tmp/mesh_viz_object.obj"))
     import pybullet as pb
     from curobo.util_file import (
         get_robot_configs_path,

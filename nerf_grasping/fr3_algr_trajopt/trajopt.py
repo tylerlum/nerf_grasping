@@ -485,7 +485,9 @@ class AllegroFR3TrajOpt:
         control_points = np.array(spline.control_points()).squeeze(-1)
 
         print("\n" + "*" * 80)
-        print(f"Introspecting collision failure out of {self.cfg.num_control_points} control points...")
+        print(
+            f"Introspecting collision failure out of {self.cfg.num_control_points} control points..."
+        )
         print("*" * 80 + "\n")
         for i in range(self.cfg.num_control_points):
             if i / self.cfg.num_control_points < self.cfg.s_start_self_col:
@@ -540,20 +542,12 @@ class AllegroFR3TrajOpt:
                     print(f"  {name1} <-> {name2}: {signed_distance}")
                 print()
 
-        print(f"Infeasible constraint names: {self.result.GetInfeasibleConstraintNames(self.prog)}")
+        print(
+            f"Infeasible constraint names: {self.result.GetInfeasibleConstraintNames(self.prog)}"
+        )
 
 
-DEFAULT_Q_FR3 = np.array(
-    [
-        1.76261055e-06,
-        -1.29018439e00,
-        0.00000000e00,
-        -2.69272642e00,
-        0.00000000e00,
-        1.35254201e00,
-        7.85400000e-01,
-    ]
-)
+DEFAULT_Q_FR3 = np.array([0, -0.7854, 0.0, -2.3562, 0.0, 1.5708, 0.7854])
 DEFAULT_Q_ALGR = np.array(
     [
         2.90945620e-01,

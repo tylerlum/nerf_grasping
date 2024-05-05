@@ -489,7 +489,7 @@ draw_collision_spheres(
 
 
 # %%
-TRAJ_IDX = 0
+TRAJ_IDX = 1
 qs = all_qs[TRAJ_IDX]
 N_pts = qs.shape[0]
 TOTAL_TIME = 5.0

@@ -132,6 +132,24 @@ class AllegroHandConfig(torch.nn.Module):
         ), f"New hand config, shape {joint_angles.shape}, does not match shape of current hand config, {self.joint_angles.shape}."
         self.joint_angles.data = joint_angles
 
+        # Clamp
+        joint_lower_limits, joint_upper_limits = get_joint_limits()
+        self.joint_lower_limits, self.joint_upper_limits = torch.from_numpy(
+            joint_lower_limits
+        ).float().to(self.wrist_pose.device), torch.from_numpy(
+            joint_upper_limits
+        ).float().to(self.wrist_pose.device)
+
+        assert self.joint_lower_limits.shape == (16,)
+        assert self.joint_upper_limits.shape == (16,)
+
+        self.joint_angles.data = torch.clamp(
+            self.joint_angles,
+            min=self.joint_lower_limits,
+            max=self.joint_upper_limits,
+        )
+
+
     def get_fingertip_transforms(self) -> pp.LieTensor:
         # Pretty hacky -- need to cast chain to the same device as the wrist pose.
         self.chain = self.chain.to(device=self.wrist_pose.device)

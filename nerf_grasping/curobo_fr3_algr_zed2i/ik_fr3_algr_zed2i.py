@@ -14,7 +14,7 @@ from curobo.util_file import (
     load_yaml,
 )
 from curobo.wrap.model.robot_world import RobotWorld, RobotWorldConfig
-from curobo.wrap.reacher.ik_solver import IKSolver, IKSolverConfig
+from curobo.wrap.reacher.ik_solver import IKSolver, IKSolverConfig, IKResult
 from nerf_grasping.curobo_fr3_algr_zed2i.fr3_algr_zed2i_world import (
     get_dummy_collision_dict,
     get_object_collision_dict,
@@ -35,7 +35,7 @@ def solve_ik(
     raise_if_no_solution: bool = True,
     warn_if_no_solution: bool = False,
     use_cuda_graph: bool = True,
-) -> np.ndarray:
+) -> Tuple[np.ndarray, IKResult, IKSolver]:
     assert X_W_H.shape == (4, 4), f"X_W_H.shape: {X_W_H.shape}"
     trans = X_W_H[:3, 3]
     rot_matrix = X_W_H[:3, :3]
@@ -101,7 +101,7 @@ def solve_ik(
             print("WARNING: IK failed to find a valid solution.")
 
     assert result.solution.shape == (1, 1, 23)
-    return result.solution.squeeze(dim=0).squeeze(dim=0).detach().cpu().numpy()
+    return result.solution.squeeze(dim=0).squeeze(dim=0).detach().cpu().numpy(), result, ik_solver
 
 
 def max_penetration_from_q(
@@ -204,7 +204,7 @@ def max_penetration_from_X_W_H(
     include_table: bool = True,
 ) -> Tuple[np.ndarray, np.ndarray]:
 
-    q_solution = solve_ik(
+    q_solution, _, _ = solve_ik(
         X_W_H=X_W_H,
         q_algr_constraint=q_algr_constraint,
         collision_check_object=True,
@@ -269,13 +269,13 @@ def main() -> None:
             -0.00650969,
         ]
     )
-    q_feasible = solve_ik(
+    q_feasible, _, _ = solve_ik(
         X_W_H=X_W_H_feasible, q_algr_constraint=q_algr_pre, collision_check_object=False
     )
-    q_feasible_2 = solve_ik(
+    q_feasible_2, _, _ = solve_ik(
         X_W_H=X_W_H_feasible, q_algr_constraint=q_algr_pre, collision_check_object=True
     )
-    q_feasible_3 = solve_ik(
+    q_feasible_3, _, _ = solve_ik(
         X_W_H=X_W_H_collide_object,
         q_algr_constraint=q_algr_pre,
         collision_check_object=False,
@@ -286,7 +286,7 @@ def main() -> None:
 
     print("=" * 80)
     try:
-        q_collide_object = solve_ik(
+        q_collide_object, _, _ = solve_ik(
             X_W_H=X_W_H_collide_object,
             q_algr_constraint=q_algr_pre,
             collision_check_object=True,
@@ -320,7 +320,7 @@ def main() -> None:
 
     print("=" * 80)
     try:
-        q_collide_table = solve_ik(
+        q_collide_table, _, _ = solve_ik(
             X_W_H=X_W_H_collide_table,
             q_algr_constraint=q_algr_pre,
             collision_check_object=False,

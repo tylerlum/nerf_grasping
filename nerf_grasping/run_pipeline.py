@@ -421,13 +421,6 @@ def run_pipeline(
     assert q_algr_pres.shape == (num_grasps, 16)
     assert q_algr_posts.shape == (num_grasps, 16)
 
-    print("\n" + "=" * 80)
-    print("Step 8: Solve IK for each grasp")
-    print("=" * 80 + "\n")
-
-    X_W_Hs = np.stack([X_W_N @ X_N_Oy @ X_Oy_Hs[i] for i in range(num_grasps)], axis=0)
-    assert X_W_Hs.shape == (num_grasps, 4, 4)
-
     q_algr_pres_is_in_limits = is_in_limits(q_algr_pres)
     assert q_algr_pres_is_in_limits.shape == (num_grasps,)
     pass_idxs = set(np.where(q_algr_pres_is_in_limits)[0])
@@ -436,11 +429,36 @@ def run_pipeline(
     )
     print(f"pass_idxs: {pass_idxs}")
 
+    q_stars = None
+
+    X_W_Hs = np.stack([X_W_N @ X_N_Oy @ X_Oy_Hs[i] for i in range(num_grasps)], axis=0)
+    assert X_W_Hs.shape == (num_grasps, 4, 4)
+
+    METHOD = "CUROBO"
+    if METHOD == "DRAKE":
+        run_drake(cfg=cfg, X_W_Hs=X_W_Hs, q_algr_pres=q_algr_pres)
+    elif METHOD == "CUROBO":
+        run_curobo(cfg=cfg, X_W_Hs=X_W_Hs, q_algr_pres=q_algr_pres)
+    else:
+        raise ValueError(f"Invalid METHOD: {METHOD}")
+
+    return (
+        q_stars,
+        X_W_Hs,
+        q_algr_pres,
+        q_algr_posts,
+        mesh_W,
+        X_N_Oy,
+        q_algr_pres_is_in_limits,
+    )
+
+
+def run_drake(cfg, X_W_Hs, q_algr_pres) -> None:
+    num_grasps = X_W_Hs.shape[0]
     q_stars = []
-    for i in range(num_grasps):
+    for i in tqdm(range(num_grasps)):
         X_W_H = X_W_Hs[i]
         q_algr_pre = q_algr_pres[i]
-        q_algr_post = q_algr_posts[i]
 
         try:
             q_star = solve_ik(X_W_H=X_W_H, q_algr_pre=q_algr_pre, visualize=False)
@@ -458,6 +476,7 @@ def run_pipeline(
     print("\n" + "=" * 80)
     print("Step 9: Solve trajopt for each grasp")
     print("=" * 80 + "\n")
+
     from nerf_grasping.fr3_algr_trajopt.trajopt import (
         solve_trajopt,
         TrajOptParams,
@@ -482,14 +501,16 @@ def run_pipeline(
         q_algr_0 = DEFAULT_Q_ALGR
     else:
         raise NotImplementedError
-
+ 
     passing_trajopt_idxs = []
     failed_trajopt_idxs = []
+    not_attempted_trajopt_idxs = []
     for i, q_star in tqdm(enumerate(q_stars), total=num_grasps):
         if q_star is None:
             print("$" * 80)
             print(f"Trajectory optimization skipped for grasp {i}")
             print("$" * 80 + "\n")
+            not_attempted_trajopt_idxs.append(i)
             continue
 
         try:
@@ -508,6 +529,7 @@ def run_pipeline(
             print(f"Trajectory optimization succeeded for grasp {i}")
             print("^" * 80 + "\n")
             passing_trajopt_idxs.append(i)
+
         except RuntimeError as e:
             print("~" * 80)
             print(f"Trajectory optimization failed for grasp {i}")
@@ -528,15 +550,118 @@ def run_pipeline(
         verbose=False,
         ignore_obj_collision=False,
     )
-    return (
-        q_stars,
-        X_W_Hs,
-        q_algr_pres,
-        q_algr_posts,
-        mesh_W,
-        X_N_Oy,
-        q_algr_pres_is_in_limits,
-    )
+
+
+def run_curobo(cfg, X_W_Hs, q_algr_pres):
+    num_grasps = X_W_Hs.shape[0]
+
+    from nerf_grasping.curobo_fr3_algr_zed2i.ik_fr3_algr_zed2i import solve_ik as solve_ik_curobo
+    from nerf_grasping.curobo_fr3_algr_zed2i.ik_fr3_algr_zed2i import max_penetration_from_X_W_H
+
+    pass_ik_idxs= []
+    fail_ik_idxs = []
+    for i in tqdm(range(num_grasps), desc="Curobo IK"):
+        X_W_H = X_W_Hs[i]
+        q_algr_pre = q_algr_pres[i]
+        print(f"Trying grasp {i}")
+        try:
+            q_solution, _, _ = solve_ik_curobo(
+                X_W_H=X_W_H,
+                q_algr_constraint=q_algr_pre,
+                collision_check_object=True,
+                obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
+                obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
+                obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+                collision_check_table=True,
+                raise_if_no_solution=True,
+            )
+            pass_ik_idxs.append(i)
+        except RuntimeError as e:
+            q_solution = None
+            fail_ik_idxs.append(i)
+        
+        d_world, d_self = max_penetration_from_X_W_H(
+            X_W_H=X_W_H,
+            q_algr_constraint=q_algr_pre,
+            include_object=True,
+            obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
+            obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
+            obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+            include_table=True,
+        )
+        print(f"d_world = {d_world}, d_self = {d_self}")
+    print(f"pass_ik_idxs: {pass_ik_idxs}")
+    print(f"fail_ik_idxs: {fail_ik_idxs}")
+
+    print("\n" + "=" * 80)
+    print("Step 9: Solve trajopt for each grasp")
+    print("=" * 80 + "\n")
+
+    from nerf_grasping.curobo_fr3_algr_zed2i.trajopt_fr3_algr_zed2i import solve_trajopt as solve_trajopt_curobo
+
+    print("=" * 80)
+    print("Trying with full object collision check")
+    print("=" * 80 + "\n")
+    pass_trajopt_idxs = []
+    pass_trajopt_2_idxs = []
+    fail_trajopt_idxs = []
+    for i in tqdm(range(num_grasps), desc="Curobo TrajOpt"):
+        print(f"Trying grasp {i}")
+        X_W_H = X_W_Hs[i]
+        q_algr_pre = q_algr_pres[i]
+        try:
+            raise RuntimeError("Forcing failure")
+            print("=" * 80)
+            print("Trying with full object collision check with trajopt")
+            print("=" * 80 + "\n")
+            q, qd, qdd, dt, result, motion_gen = solve_trajopt_curobo(
+                X_W_H=X_W_H,
+                q_algr_constraint=q_algr_pre,
+                collision_check_object=True,
+                obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
+                obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
+                obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+                collision_check_table=True,
+                enable_opt=True,
+                enable_graph=True,
+                raise_if_fail=True,
+                use_cuda_graph=False
+            )
+            print("SUCCESS TRAJOPT with full object collision check")
+            failed = False
+            pass_trajopt_idxs.append(i)
+        except RuntimeError as e:
+            print("FAILED TRAJOPT with full object collision check")
+            failed = True
+
+        if failed:
+            print("=" * 80)
+            print("Trying with full object collision check without trajopt")
+            print("=" * 80 + "\n")
+            try:
+                q, qd, qdd, dt, result, motion_gen = solve_trajopt_curobo(
+                    X_W_H=X_W_H,
+                    q_algr_constraint=q_algr_pre,
+                    collision_check_object=True,
+                    obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
+                    obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
+                    obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+                    collision_check_table=True,
+                    enable_opt=False,
+                    enable_graph=True,
+                    raise_if_fail=False,
+                    use_cuda_graph=False,
+                )
+                print("SUCCESS TRAJOPT with full object collision check without trajopt")
+                failed = False
+                pass_trajopt_2_idxs.append(i)
+            except RuntimeError as e:
+                print("FAILED TRAJOPT with full object collision check without trajopt")
+                failed = True
+                fail_trajopt_idxs.append(i)
+    print(f"pass_trajopt_idxs: {pass_trajopt_idxs}")
+    print(f"pass_trajopt_2_idxs: {pass_trajopt_2_idxs}")
+    print(f"fail_trajopt_idxs: {fail_trajopt_idxs}")
 
 
 @dataclass

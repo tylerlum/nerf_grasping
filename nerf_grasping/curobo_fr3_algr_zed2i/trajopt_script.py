@@ -234,7 +234,6 @@ q, qd, qdd, dt, result, motion_gen = solve_trajopt(
     raise_if_fail=False,
     use_cuda_graph=False
 )
-result
 if result.success:
     print("SUCCESS TRAJOPT with full object collision check")
     failed = False
@@ -521,7 +520,7 @@ draw_collision_spheres(
 )
 
 # %%
-q_solution = solve_ik(
+q_solution, _, _ = solve_ik(
     X_W_H=X_W_H,
     q_algr_constraint=q_algr_pre,
     collision_check_object=True,
@@ -568,7 +567,7 @@ draw_collision_spheres(
 # # %%
 #
 #
-# q_solution = solve_ik(
+# q_solution, _, _ = solve_ik(
 #     X_W_H=X_W_H,
 #     q_algr_constraint=q_algr_pre,
 #     collision_check_object=True,
@@ -590,7 +589,7 @@ draw_collision_spheres(
 #     include_table=True,
 # )
 # # %%
-# q_solution = solve_ik(
+# q_solution, _, _ = solve_ik(
 #     X_W_H=X_W_H,
 #     q_algr_constraint=q_algr_pre,
 #     collision_check_object=True,
@@ -620,7 +619,7 @@ draw_collision_spheres(
 #     pb.resetJointState(r, joint_idx, q_solution[i + 7])
 #
 # # %%
-# q_solution2 = solve_ik(
+# q_solution2, _, _ = solve_ik(
 #     X_W_H=X_W_H,
 #     q_algr_constraint=q_algr_pre,
 #     collision_check_object=False,

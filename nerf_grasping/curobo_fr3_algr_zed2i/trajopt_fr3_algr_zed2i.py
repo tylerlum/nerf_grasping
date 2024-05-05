@@ -153,13 +153,18 @@ def solve_trajopt(
     if result is None:
         raise RuntimeError("IK Failed")
 
+    traj = result.get_interpolated_plan()
+    if traj is None:
+        raise RuntimeError("Trajectory is None")
+
+    if traj.position is None:
+        raise RuntimeError("Trajectory Position is None")
+
     if not result.success.any():
         if raise_if_fail:
             raise RuntimeError("Trajectory Optimization Failed")
         if warn_if_fail:
             print("WARNING: Trajectory Optimization Failed")
-
-    traj = result.get_interpolated_plan()
 
     # HACK: If enable_opt=False, then the dt is not set correctly, making the dt way too small
     # For some reason, can sometimes by 2D or 3D

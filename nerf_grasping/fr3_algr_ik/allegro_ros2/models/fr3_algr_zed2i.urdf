@@ -484,7 +484,7 @@ the thumb to axially rotate, and the mcp and ip joints are in order as above.
   </link>
   <joint name="algr_rh_if_axl" type="revolute">
     <axis xyz="0 0 1"/>
-    <limit effort="0.7" lower="-0.55" upper="0.55" velocity="7"/>
+    <limit effort="0.7" lower="-0.47" upper="0.47" velocity="7"/>
     <parent link="algr_rh_palm"/>
     <child link="algr_rh_if_bs"/>
     <origin rpy="-0.08726646255 0 0" xyz="0 0.0435 -0.001542"/>
@@ -516,7 +516,7 @@ the thumb to axially rotate, and the mcp and ip joints are in order as above.
     </inertial>
   </link>
   <joint name="algr_rh_if_mcp" type="revolute">
-    <limit effort="0.7" lower="-0.25" upper="1.72" velocity="7"/>
+    <limit effort="0.7" lower="-0.196" upper="1.61" velocity="7"/>
     <axis xyz="0 1 0"/>
     <parent link="algr_rh_if_bs"/>
     <child link="algr_rh_if_px"/>
@@ -550,7 +550,7 @@ the thumb to axially rotate, and the mcp and ip joints are in order as above.
   </link>
   <joint name="algr_rh_if_pip" type="revolute">
     <axis xyz="0 1 0"/>
-    <limit effort="0.7" lower="-0.25" upper="1.72" velocity="7"/>
+    <limit effort="0.7" lower="-0.174" upper="1.709" velocity="7"/>
     <parent link="algr_rh_if_px"/>
     <child link="algr_rh_if_md"/>
     <origin xyz="0 0 0.054"/>
@@ -583,7 +583,7 @@ the thumb to axially rotate, and the mcp and ip joints are in order as above.
   </link>
   <joint name="algr_rh_if_dip" type="revolute">
     <axis xyz="0 1 0"/>
-    <limit effort="0.7" lower="-0.25" upper="1.72" velocity="7"/>
+    <limit effort="0.7" lower="-0.227" upper="1.618" velocity="7"/>
     <parent link="algr_rh_if_md"/>
     <child link="algr_rh_if_ds"/>
     <origin xyz="0 0 0.0384"/>
@@ -655,7 +655,7 @@ the thumb to axially rotate, and the mcp and ip joints are in order as above.
   </link>
   <joint name="algr_rh_mf_axl" type="revolute">
     <axis xyz="0 0 1"/>
-    <limit effort="0.7" lower="-0.55" upper="0.55" velocity="7"/>
+    <limit effort="0.7" lower="-0.47" upper="0.47" velocity="7"/>
     <parent link="algr_rh_palm"/>
     <child link="algr_rh_mf_bs"/>
     <origin rpy="0.0 0 0" xyz="0 0 0.0007"/>
@@ -687,7 +687,7 @@ the thumb to axially rotate, and the mcp and ip joints are in order as above.
     </inertial>
   </link>
   <joint name="algr_rh_mf_mcp" type="revolute">
-    <limit effort="0.7" lower="-0.25" upper="1.72" velocity="7"/>
+    <limit effort="0.7" lower="-0.196" upper="1.61" velocity="7"/>
     <axis xyz="0 1 0"/>
     <parent link="algr_rh_mf_bs"/>
     <child link="algr_rh_mf_px"/>
@@ -721,7 +721,7 @@ the thumb to axially rotate, and the mcp and ip joints are in order as above.
   </link>
   <joint name="algr_rh_mf_pip" type="revolute">
     <axis xyz="0 1 0"/>
-    <limit effort="0.7" lower="-0.25" upper="1.72" velocity="7"/>
+    <limit effort="0.7" lower="-0.174" upper="1.709" velocity="7"/>
     <parent link="algr_rh_mf_px"/>
     <child link="algr_rh_mf_md"/>
     <origin xyz="0 0 0.054"/>
@@ -754,7 +754,7 @@ the thumb to axially rotate, and the mcp and ip joints are in order as above.
   </link>
   <joint name="algr_rh_mf_dip" type="revolute">
     <axis xyz="0 1 0"/>
-    <limit effort="0.7" lower="-0.25" upper="1.72" velocity="7"/>
+    <limit effort="0.7" lower="-0.227" upper="1.618" velocity="7"/>
     <parent link="algr_rh_mf_md"/>
     <child link="algr_rh_mf_ds"/>
     <origin xyz="0 0 0.0384"/>
@@ -826,7 +826,7 @@ the thumb to axially rotate, and the mcp and ip joints are in order as above.
   </link>
   <joint name="algr_rh_rf_axl" type="revolute">
     <axis xyz="0 0 1"/>
-    <limit effort="0.7" lower="-0.55" upper="0.55" velocity="7"/>
+    <limit effort="0.7" lower="-0.47" upper="0.47" velocity="7"/>
     <parent link="algr_rh_palm"/>
     <child link="algr_rh_rf_bs"/>
     <origin rpy="0.08726646255 0 0" xyz="0 -0.0435 -0.001542"/>
@@ -858,7 +858,7 @@ the thumb to axially rotate, and the mcp and ip joints are in order as above.
     </inertial>
   </link>
   <joint name="algr_rh_rf_mcp" type="revolute">
-    <limit effort="0.7" lower="-0.25" upper="1.72" velocity="7"/>
+    <limit effort="0.7" lower="-0.196" upper="1.61" velocity="7"/>
     <axis xyz="0 1 0"/>
     <parent link="algr_rh_rf_bs"/>
     <child link="algr_rh_rf_px"/>
@@ -892,7 +892,7 @@ the thumb to axially rotate, and the mcp and ip joints are in order as above.
   </link>
   <joint name="algr_rh_rf_pip" type="revolute">
     <axis xyz="0 1 0"/>
-    <limit effort="0.7" lower="-0.25" upper="1.72" velocity="7"/>
+    <limit effort="0.7" lower="-0.174" upper="1.709" velocity="7"/>
     <parent link="algr_rh_rf_px"/>
     <child link="algr_rh_rf_md"/>
     <origin xyz="0 0 0.054"/>
@@ -925,7 +925,7 @@ the thumb to axially rotate, and the mcp and ip joints are in order as above.
   </link>
   <joint name="algr_rh_rf_dip" type="revolute">
     <axis xyz="0 1 0"/>
-    <limit effort="0.7" lower="-0.25" upper="1.72" velocity="7"/>
+    <limit effort="0.7" lower="-0.227" upper="1.618" velocity="7"/>
     <parent link="algr_rh_rf_md"/>
     <child link="algr_rh_rf_ds"/>
     <origin xyz="0 0 0.0384"/>
@@ -1000,7 +1000,7 @@ the thumb to axially rotate, and the mcp and ip joints are in order as above.
   </link>
   <joint name="algr_rh_th_cmc" type="revolute">
     <axis xyz="-1 0 0"/>
-    <limit effort="0.7" lower="0.263" upper="1.57" velocity="7"/>
+    <limit effort="0.7" lower="0.263" upper="1.396" velocity="7"/>
     <parent link="algr_rh_palm"/>
     <child link="algr_rh_th_mp"/>
     <origin rpy="0 -1.65806278845 -1.5707963259" xyz="-0.0182 0.019333 -0.045987"/>
@@ -1035,7 +1035,7 @@ the thumb to axially rotate, and the mcp and ip joints are in order as above.
   </link>
   <joint name="algr_rh_th_axl" type="revolute">
     <axis xyz="0 0 1"/>
-    <limit effort="0.7" lower="-0.3" upper="1.1" velocity="7"/>
+    <limit effort="0.7" lower="-0.105" upper="1.163" velocity="7"/>
     <parent link="algr_rh_th_mp"/>
     <child link="algr_rh_th_bs"/>
     <origin xyz="-0.027 0.005 0.0399"/>
@@ -1068,7 +1068,7 @@ the thumb to axially rotate, and the mcp and ip joints are in order as above.
   </link>
   <joint name="algr_rh_th_mcp" type="revolute">
     <axis xyz="0 1 0"/>
-    <limit effort="0.7" lower="-0.1" upper="1.71" velocity="7"/>
+    <limit effort="0.7" lower="-0.189" upper="1.644" velocity="7"/>
     <parent link="algr_rh_th_bs"/>
     <child link="algr_rh_th_px"/>
     <origin xyz="0 0 0.0177"/>
@@ -1101,7 +1101,7 @@ the thumb to axially rotate, and the mcp and ip joints are in order as above.
   </link>
   <joint name="algr_rh_th_ipl" type="revolute">
     <axis xyz="0 1 0"/>
-    <limit effort="0.7" lower="-0.1" upper="1.7" velocity="7"/>
+    <limit effort="0.7" lower="-0.162" upper="1.719" velocity="7"/>
     <parent link="algr_rh_th_px"/>
     <child link="algr_rh_th_ds"/>
     <origin xyz="0 0 0.0514"/>

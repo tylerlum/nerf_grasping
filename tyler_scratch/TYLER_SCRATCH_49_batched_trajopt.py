@@ -9,6 +9,15 @@ import torch
 import torch.nn.functional as F
 import trimesh
 import yaml
+
+from nerf_grasping.fr3_algr_ik.ik import solve_ik
+from nerf_grasping.fr3_algr_trajopt.trajopt import (
+    solve_trajopt,
+    TrajOptParams,
+    DEFAULT_Q_FR3,
+    DEFAULT_Q_ALGR,
+)
+
 from curobo.cuda_robot_model.cuda_robot_model import (
     CudaRobotModel,
 )
@@ -24,7 +33,6 @@ from curobo.util_file import (
 from curobo.wrap.reacher.ik_solver import IKSolver, IKSolverConfig
 from tqdm import tqdm
 
-from nerf_grasping.curobo_fr3_algr_zed2i.fk_fr3_algr_zed2i import solve_fks
 from nerf_grasping.curobo_fr3_algr_zed2i.fr3_algr_zed2i_world import (
     get_dummy_collision_dict,
     get_object_collision_dict,
@@ -494,7 +502,6 @@ np.max(d_world), np.max(d_self)
 
 # %%
 
-from nerf_grasping.fr3_algr_ik.ik import solve_ik
 num_grasps = X_W_Hs.shape[0]
 q_stars = []
 for i in tqdm(range(num_grasps)):
@@ -518,13 +525,6 @@ print(
 print("\n" + "=" * 80)
 print("Step 9: Solve trajopt for each grasp")
 print("=" * 80 + "\n")
-
-from nerf_grasping.fr3_algr_trajopt.trajopt import (
-    solve_trajopt,
-    TrajOptParams,
-    DEFAULT_Q_FR3,
-    DEFAULT_Q_ALGR,
-)
 
 trajopt_cfg = TrajOptParams(
     num_control_points=21,

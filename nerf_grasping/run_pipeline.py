@@ -455,6 +455,7 @@ def run_pipeline(
 
 def run_drake(cfg, X_W_Hs, q_algr_pres) -> None:
     from nerf_grasping.fr3_algr_ik.ik import solve_ik
+
     num_grasps = X_W_Hs.shape[0]
     q_stars = []
     for i in tqdm(range(num_grasps)):
@@ -502,7 +503,7 @@ def run_drake(cfg, X_W_Hs, q_algr_pres) -> None:
         q_algr_0 = DEFAULT_Q_ALGR
     else:
         raise NotImplementedError
- 
+
     passing_trajopt_idxs = []
     failed_trajopt_idxs = []
     not_attempted_trajopt_idxs = []
@@ -554,17 +555,17 @@ def run_drake(cfg, X_W_Hs, q_algr_pres) -> None:
 
 
 def run_curobo(cfg, X_W_Hs, q_algr_pres):
-    num_grasps = X_W_Hs.shape[0]
-
     from nerf_grasping.curobo_fr3_algr_zed2i.trajopt_batch import solve_trajopt_batch
     from nerf_grasping.curobo_fr3_algr_zed2i.ik_fr3_algr_zed2i import (
         max_penetration_from_qs,
     )
+
     print("\n" + "=" * 80)
     print("Step 9: Solve trajopt for each grasp")
     print("=" * 80 + "\n")
 
-    ENABLE_OPT = False
+    # Enable trajopt often makes it fail, haven't been able to figure out why
+    ENABLE_TRAJOPT = False
     result = solve_trajopt_batch(
         X_W_Hs=X_W_Hs,
         q_algrs=q_algr_pres,
@@ -575,27 +576,40 @@ def run_curobo(cfg, X_W_Hs, q_algr_pres):
         collision_check_table=True,
         use_cuda_graph=False,
         enable_graph=True,
-        enable_opt=ENABLE_OPT,
+        enable_opt=ENABLE_TRAJOPT,
         timeout=10.0,
     )
 
     success_idxs = result.success.nonzero().flatten().tolist()
     print(f"success_idxs: {success_idxs}")
 
-    TRAJ_IDX = 0
+    TRAJ_IDX = success_idxs[0] if len(success_idxs) > 0 else 0
     print(f"Visualizing trajectory {TRAJ_IDX}")
     q = result.get_paths()[TRAJ_IDX].position.detach().cpu().numpy()
     qd = result.get_paths()[TRAJ_IDX].velocity.detach().cpu().numpy()
+
+    n_timesteps = q.shape[0]
+    assert q.shape == (n_timesteps, 23)
     print(f"q.shape: {q.shape}")
-    if ENABLE_OPT:
+    if ENABLE_TRAJOPT:
+        # When using trajopt, interpolation_dt is correct and qd is populated
+        assert (np.absolute(qd) > 1e-4).any()  # qd is populated
+
         dt = result.interpolation_dt
+        total_time = n_timesteps * dt
     else:
-        TOTAL_TIME = 10.0
-        n_timesteps = q.shape[0]
-        dt = TOTAL_TIME / n_timesteps
+        # Without trajopt, it is simply a linear interpolation between waypoints
+        # with a fixed number of timesteps, so interpolation_dt is way too big
+        # and qd is not populated
+        assert (np.absolute(qd) < 1e-4).all()  # qd is not populated
+        assert n_timesteps * result.interpolation_dt > 60  # interpolation_dt is too big
+
+        total_time = 5.0
+        dt = total_time / n_timesteps
+
+    print(f"dt = {dt}, n_timesteps = {n_timesteps}, total_time = {total_time}")
 
     # Check for collisions
-
     d_world, d_self = max_penetration_from_qs(
         qs=q,
         include_object=True,
@@ -627,23 +641,19 @@ def run_curobo(cfg, X_W_Hs, q_algr_pres):
         DEFAULT_Q_ALGR,
         DEFAULT_Q_FR3,
     )
+
     FR3_ALGR_ZED2I_URDF_PATH = pathlib.Path(
         "/juno/u/tylerlum/github_repos/nerf_grasping/nerf_grasping/fr3_algr_ik/allegro_ros2/models/fr3_algr_zed2i.urdf"
     )
     assert FR3_ALGR_ZED2I_URDF_PATH.exists()
 
-    OBJECT_OBJ_PATH = pathlib.Path("/tmp/mesh_viz_object.obj")
-    assert OBJECT_OBJ_PATH.exists()
-
-    # %%
     COLLISION_SPHERES_YAML_PATH = load_yaml(
-        join_path(get_robot_configs_path(), "fr3_algr_zed2i.yml")
+        join_path(get_robot_configs_path(), "fr3_algr_zed2i_with_fingertips.yml")
     )["robot_cfg"]["kinematics"]["collision_spheres"]
     COLLISION_SPHERES_YAML_PATH = pathlib.Path(
         join_path(get_robot_configs_path(), COLLISION_SPHERES_YAML_PATH)
     )
     assert COLLISION_SPHERES_YAML_PATH.exists()
-
 
     pb.connect(pb.GUI)
     r = pb.loadURDF(
@@ -666,7 +676,6 @@ def run_curobo(cfg, X_W_Hs, q_algr_pres):
         baseOrientation=[0, 0, 0, 1],
     )
 
-    # %%
     joint_names = [
         pb.getJointInfo(r, i)[1].decode("utf-8")
         for i in range(num_total_joints)
@@ -692,7 +701,6 @@ def run_curobo(cfg, X_W_Hs, q_algr_pres):
     for i, joint_idx in enumerate(hand_actuatable_joint_idxs):
         pb.resetJointState(r, joint_idx, DEFAULT_Q_ALGR[i])
 
-    # %%
     collision_config = yaml.safe_load(
         open(
             COLLISION_SPHERES_YAML_PATH,
@@ -704,7 +712,6 @@ def run_curobo(cfg, X_W_Hs, q_algr_pres):
         config=collision_config,
     )
 
-    # %%
     N_pts = q.shape[0]
     remove_collision_spheres()
 
@@ -725,7 +732,9 @@ def run_curobo(cfg, X_W_Hs, q_algr_pres):
         last_update_time = time.time()
 
     while True:
-        x = input("Press v to visualize traj, c to draw collision spheres, r to remove collision spheres, q to quit")
+        x = input(
+            "Press v to visualize traj, c to draw collision spheres, r to remove collision spheres, q to quit"
+        )
         if x == "v":
             last_update_time = time.time()
             for i in tqdm(range(N_pts)):
@@ -753,6 +762,7 @@ def run_curobo(cfg, X_W_Hs, q_algr_pres):
             break
 
     breakpoint()
+
 
 def create_urdf(obj_path: pathlib.Path) -> pathlib.Path:
     assert obj_path.suffix == ".obj"
@@ -791,6 +801,7 @@ def create_urdf(obj_path: pathlib.Path) -> pathlib.Path:
     with urdf_path.open("w") as f:
         f.write(urdf_text)
     return urdf_path
+
 
 @dataclass
 class CommandlineArgs(PipelineConfig):

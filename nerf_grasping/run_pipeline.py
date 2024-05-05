@@ -639,10 +639,21 @@ def run_curobo(cfg, X_W_Hs, q_algr_pres):
     animate_robot(robot=pb_robot, qs=q, dt=dt)
 
     while True:
-        x = input(
-            "Press v to visualize traj, d to print collision distance, next to go to next traj, prev to go to prev traj, to draw collision spheres, r to remove collision spheres, q to quit"
-        )
-        if x == "v":
+        input_options = ", ".join([
+            "b for breakpoint",
+            "v to visualize traj",
+            "d to print collision distance",
+            "next to go to next traj",
+            "prev to go to prev traj",
+            "c to draw collision spheres",
+            "r to remove collision spheres",
+            "q to quit",
+        ])
+        x = input(input_options + "\n")
+        if x == "b":
+            print("Breakpoint")
+            breakpoint()
+        elif x == "v":
             print(f"Visualizing trajectory {TRAJ_IDX}")
             animate_robot(robot=pb_robot, qs=q, dt=dt)
         elif x == "d":

@@ -155,9 +155,9 @@ class SGDOptimizer(Optimizer):
         joint_lower_limits, joint_upper_limits = get_joint_limits()
         self.joint_lower_limits, self.joint_upper_limits = torch.from_numpy(
             joint_lower_limits
-        ).float().to(self.grasp_config.device), torch.from_numpy(
+        ).float().to(self.grasp_config.wrist_pose.device), torch.from_numpy(
             joint_upper_limits
-        ).float().to(self.grasp_config.device)
+        ).float().to(self.grasp_config.wrist_pose.device)
 
         assert self.joint_lower_limits.shape == (16,)
         assert self.joint_upper_limits.shape == (16,)

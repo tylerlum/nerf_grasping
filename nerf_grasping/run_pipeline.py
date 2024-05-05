@@ -228,6 +228,9 @@ def run_pipeline(
     X_Oy_N = np.linalg.inv(X_N_Oy)
     assert X_N_Oy.shape == (4, 4), f"X_N_Oy.shape is {X_N_Oy.shape}, not (4, 4)"
 
+    mesh_W = trimesh.Trimesh(vertices=mesh_N.vertices, faces=mesh_N.faces)
+    mesh_W.apply_transform(X_W_N)
+
     # For debugging
     mesh_Oy = trimesh.Trimesh(vertices=mesh_N.vertices, faces=mesh_N.faces)
     mesh_Oy.apply_transform(X_Oy_N)
@@ -381,39 +384,37 @@ def run_pipeline(
     print("\n" + "=" * 80)
     print("Step 7: Convert optimized grasps to joint angles")
     print("=" * 80 + "\n")
-    X_Oy_Hs, q_algrs, q_algr_posts, q_algr_pres = get_sorted_grasps_from_dict(
+    X_Oy_Hs, q_algr_pres, q_algr_posts, q_algr_extra_open = get_sorted_grasps_from_dict(
         optimized_grasp_config_dict=optimized_grasp_config_dict,
         error_if_no_loss=True,
         check=False,
         print_best=False,
     )
+
+    MODE = "DEFAULT"
+    print("!" * 80)
+    print(f"MODE: {MODE}")
+    print("!" * 80 + "\n")
+    if MODE == "DEFAULT":
+        q_algr_pres = q_algr_pres
+    elif MODE == "EXTRA_OPEN":
+        q_algr_pres = clamp_in_limits(q_algr_extra_open)
+    elif MODE == "JOINTS_OPEN":
+        DELTA = 0.1
+        q_algr_pres[:, 1] -= DELTA
+        q_algr_pres[:, 2] -= DELTA
+        q_algr_pres[:, 3] -= DELTA
+
+        q_algr_pres[:, 5] -= DELTA
+        q_algr_pres[:, 6] -= DELTA
+        q_algr_pres[:, 7] -= DELTA
+
+        q_algr_pres[:, 9] -= DELTA
+        q_algr_pres[:, 10] -= DELTA
+        q_algr_pres[:, 11] -= DELTA
+    else:
+        raise ValueError(f"Invalid MODE: {MODE}")
     q_algr_pres = clamp_in_limits(q_algr_pres)
-    # q_algr_pres = q_algrs
-    # DELTA = 0.3
-    # q_algr_pres[:, 1] -= DELTA
-    # q_algr_pres[:, 2] -= DELTA
-    # q_algr_pres[:, 3] -= DELTA
-
-    # q_algr_pres[:, 5] -= DELTA
-    # q_algr_pres[:, 6] -= DELTA
-    # q_algr_pres[:, 7] -= DELTA
-
-    # q_algr_pres[:, 9] -= DELTA
-    # q_algr_pres[:, 10] -= DELTA
-    # q_algr_pres[:, 11] -= DELTA
-                # q_algr_pre[1] -= 0.1
-                # q_algr_pre[2] -= 0.1
-                # q_algr_pre[3] -= 0.1
-
-                # q_algr_pre[5] -= 0.1
-                # q_algr_pre[6] -= 0.1
-                # q_algr_pre[7] -= 0.1
-
-                # q_algr_pre[9] -= 0.1
-                # q_algr_pre[10] -= 0.1
-                # q_algr_pre[11] -= 0.1
-
-                # q_algr_pre[14] -= 0.1
 
     num_grasps = X_Oy_Hs.shape[0]
     assert X_Oy_Hs.shape == (num_grasps, 4, 4)
@@ -423,8 +424,6 @@ def run_pipeline(
     print("\n" + "=" * 80)
     print("Step 8: Solve IK for each grasp")
     print("=" * 80 + "\n")
-    mesh_W = trimesh.Trimesh(vertices=mesh_N.vertices, faces=mesh_N.faces)
-    mesh_W.apply_transform(X_W_N)
 
     X_W_Hs = np.stack([X_W_N @ X_N_Oy @ X_Oy_Hs[i] for i in range(num_grasps)], axis=0)
     assert X_W_Hs.shape == (num_grasps, 4, 4)
@@ -500,10 +499,10 @@ def run_pipeline(
                 q_fr3_f=q_star[:7],
                 q_algr_f=q_star[7:],
                 cfg=trajopt_cfg,
-                # mesh_path=pathlib.Path("/tmp/mesh_viz_object.obj"),
-                mesh_path=None,
+                mesh_path=pathlib.Path("/tmp/mesh_viz_object.obj"),
                 visualize=False,
                 verbose=False,
+                ignore_obj_collision=False,
             )
             print("^" * 80)
             print(f"Trajectory optimization succeeded for grasp {i}")
@@ -514,11 +513,21 @@ def run_pipeline(
             print(f"Trajectory optimization failed for grasp {i}")
             print("~" * 80 + "\n")
             failed_trajopt_idxs.append(i)
-# spline, dspline, T_traj, trajopt = solve_trajopt( q_fr3_0=q_fr3_0, q_algr_0=q_algr_0, q_fr3_f=q_star[:7], q_algr_f=q_star[7:], cfg=trajopt_cfg, mesh_path=pathlib.Path("/tmp/mesh_viz_object.obj"))
 
     print(f"passing_trajopt_idxs: {passing_trajopt_idxs}")
     print(f"failed_trajopt_idxs: {failed_trajopt_idxs}")
     breakpoint()
+    spline, dspline, T_traj, trajopt = solve_trajopt(
+        q_fr3_0=q_fr3_0,
+        q_algr_0=q_algr_0,
+        q_fr3_f=q_stars[passing_trajopt_idxs[0]][:7],
+        q_algr_f=q_stars[passing_trajopt_idxs[0]][7:],
+        cfg=trajopt_cfg,
+        mesh_path=pathlib.Path("/tmp/mesh_viz_object.obj"),
+        visualize=True,
+        verbose=False,
+        ignore_obj_collision=False,
+    )
     return (
         q_stars,
         X_W_Hs,

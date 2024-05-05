@@ -10,6 +10,8 @@ from nerf_grasping.optimizer_utils import (
     DepthImageGraspMetric,
     load_classifier,
     load_depth_image_classifier,
+    is_in_limits,
+    clamp_in_limits,
 )
 from nerf_grasping.config.nerfdata_config import DepthImageNerfDataConfig
 from nerf_grasping.config.optimization_config import OptimizationConfig
@@ -142,61 +144,6 @@ def add_transform_matrix_traces(
                 name=name,
             )
         )
-
-
-def is_in_limits(joint_angles: np.ndarray) -> np.ndarray:
-    N = joint_angles.shape[0]
-    assert joint_angles.shape == (N, 16)
-
-    from nerf_grasping.dexgraspnet_utils.hand_model import HandModel
-    from nerf_grasping.dexgraspnet_utils.hand_model_type import (
-        HandModelType,
-    )
-
-    device = "cuda"
-    hand_model_type = HandModelType.ALLEGRO_HAND
-    hand_model = HandModel(
-        hand_model_type=hand_model_type, device=device, n_surface_points=1000
-    )
-
-    joints_upper = hand_model.joints_upper.detach().cpu().numpy()
-    joints_lower = hand_model.joints_lower.detach().cpu().numpy()
-    assert joints_upper.shape == (16,)
-    assert joints_lower.shape == (16,)
-
-    in_limits = np.all(
-        np.logical_and(
-            joint_angles >= joints_lower[None, ...],
-            joint_angles <= joints_upper[None, ...],
-        ),
-        axis=1,
-    )
-    assert in_limits.shape == (N,)
-    return in_limits
-
-
-def clamp_in_limits(joint_angles: np.ndarray) -> np.ndarray:
-    N = joint_angles.shape[0]
-    assert joint_angles.shape == (N, 16)
-
-    from nerf_grasping.dexgraspnet_utils.hand_model import HandModel
-    from nerf_grasping.dexgraspnet_utils.hand_model_type import (
-        HandModelType,
-    )
-
-    device = "cuda"
-    hand_model_type = HandModelType.ALLEGRO_HAND
-    hand_model = HandModel(
-        hand_model_type=hand_model_type, device=device, n_surface_points=1000
-    )
-
-    joints_upper = hand_model.joints_upper.detach().cpu().numpy()
-    joints_lower = hand_model.joints_lower.detach().cpu().numpy()
-    assert joints_upper.shape == (16,)
-    assert joints_lower.shape == (16,)
-
-    joint_angles = np.clip(joint_angles, joints_lower[None, ...], joints_upper[None, ...])
-    return joint_angles
 
 
 def run_pipeline(

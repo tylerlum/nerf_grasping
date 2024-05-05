@@ -9,6 +9,7 @@ from nerf_grasping.optimizer_utils import (
     predict_in_collision_with_object,
     predict_in_collision_with_table,
     get_hand_surface_points_Oy,
+    get_joint_limits,
 )
 from dataclasses import asdict
 from nerf_grasping.config.optimization_config import OptimizationConfig
@@ -151,14 +152,20 @@ class SGDOptimizer(Optimizer):
                 )
             )
 
-        self.joint_lower, self.joint_upper = self.compute_joint_limits()
-        assert self.joint_lower.shape == (16,)
-        assert self.joint_upper.shape == (16,)
+        joint_lower_limits, joint_upper_limits = get_joint_limits()
+        self.joint_lower_limits, self.joint_upper_limits = torch.from_numpy(
+            joint_lower_limits
+        ).float().to(self.grasp_config.device), torch.from_numpy(
+            joint_upper_limits
+        ).float().to(self.grasp_config.device)
+
+        assert self.joint_lower_limits.shape == (16,)
+        assert self.joint_upper_limits.shape == (16,)
 
         self.grasp_config.joint_angles.data = torch.clamp(
             self.grasp_config.joint_angles,
-            min=self.joint_lower,
-            max=self.joint_upper,
+            min=self.joint_lower_limits,
+            max=self.joint_upper_limits,
         )
 
     def step(self):
@@ -184,25 +191,9 @@ class SGDOptimizer(Optimizer):
         # Clip joint angles to feasible range.
         self.grasp_config.joint_angles.data = torch.clamp(
             self.grasp_config.joint_angles,
-            min=self.joint_lower,
-            max=self.joint_upper,
+            min=self.joint_lower_limits,
+            max=self.joint_upper_limits,
         )
-
-    def compute_joint_limits(self) -> Tuple[torch.Tensor, torch.Tensor]:
-        """
-        Get the joint limits for the hand model.
-        """
-        from nerf_grasping.dexgraspnet_utils.hand_model import HandModel
-        from nerf_grasping.dexgraspnet_utils.hand_model_type import (
-            HandModelType,
-        )
-
-        device = "cuda"
-        hand_model_type = HandModelType.ALLEGRO_HAND
-        hand_model = HandModel(
-            hand_model_type=hand_model_type, device=device, n_surface_points=1000
-        )
-        return hand_model.joints_lower, hand_model.joints_upper
 
 
 class CEMOptimizer(Optimizer):

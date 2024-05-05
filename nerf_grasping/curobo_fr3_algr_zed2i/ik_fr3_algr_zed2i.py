@@ -106,8 +106,10 @@ def solve_iks(
 
     tensor_args = TensorDeviceType()
     robot_file = "fr3_algr_zed2i.yml"
+    robot_cfg = load_yaml(join_path(get_robot_configs_path(), robot_file))["robot_cfg"]
+    robot_cfg["kinematics"]["link_names"] = []
     robot_cfg = RobotConfig.from_dict(
-        load_yaml(join_path(get_robot_configs_path(), robot_file))["robot_cfg"]
+        robot_cfg
     )
 
     world_dict = {}

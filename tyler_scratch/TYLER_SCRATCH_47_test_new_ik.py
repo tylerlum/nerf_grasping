@@ -79,7 +79,36 @@ SELECTED_IDX = 0
 
 trans = grasp_config_dict["trans"][SELECTED_IDX]
 rot = grasp_config_dict["rot"][SELECTED_IDX]
-joint_angles = grasp_config_dict["joint_angles"][SELECTED_IDX]
+all_joint_angles = grasp_config_dict["joint_angles"]
+
+# %%
+MODE = "JOINTS_OPEN"
+print("!" * 80)
+print(f"MODE: {MODE}")
+print("!" * 80 + "\n")
+if MODE == "DEFAULT":
+    all_joint_angles = all_joint_angles
+elif MODE == "EXTRA_OPEN":
+    raise NotImplementedError
+elif MODE == "JOINTS_OPEN":
+    DELTA = 0.1
+    all_joint_angles[:, 1] -= DELTA
+    all_joint_angles[:, 2] -= DELTA
+    all_joint_angles[:, 3] -= DELTA
+
+    all_joint_angles[:, 5] -= DELTA
+    all_joint_angles[:, 6] -= DELTA
+    all_joint_angles[:, 7] -= DELTA
+
+    all_joint_angles[:, 9] -= DELTA
+    all_joint_angles[:, 10] -= DELTA
+    all_joint_angles[:, 11] -= DELTA
+else:
+    raise ValueError(f"Invalid MODE: {MODE}")
+
+# %%
+
+joint_angles = all_joint_angles[SELECTED_IDX]
 X_Oy_H = np.eye(4)
 X_Oy_H[:3, :3] = rot
 X_Oy_H[:3, 3] = trans
@@ -215,6 +244,10 @@ robot_cfg = RobotConfig.from_dict(
     load_yaml(join_path(get_robot_configs_path(), robot_file))["robot_cfg"]
 )
 
+# %%
+
+
+# %%
 collision_check_table = True
 collision_check_object = True
 obj_filepath = OBJECT_OBJ_PATH
@@ -237,8 +270,10 @@ world_cfg = WorldConfig.from_dict(world_dict)
 ik_config = IKSolverConfig.load_from_robot_config(
     robot_cfg,
     world_cfg,
-    rotation_threshold=0.05,
-    position_threshold=0.005,
+    # rotation_threshold=0.05,
+    # position_threshold=0.005,
+    rotation_threshold=0.01,
+    position_threshold=0.001,
     num_seeds=20,
     self_collision_check=True,
     self_collision_opt=True,
@@ -263,14 +298,14 @@ result.solution.shape
 assert result.solution.shape == (N_GRASPS, 1, 23)
 
 # %%
-solve_fks(q_fr3s=result.solution[..., :7].squeeze(dim=1).detach().cpu().numpy(), q_algrs=grasp_config_dict["joint_angles"]).shape
+solve_fks(q_fr3s=result.solution[..., :7].squeeze(dim=1).detach().cpu().numpy(), q_algrs=all_joint_angles).shape
 
 # %%
 from curobo.cuda_robot_model.cuda_robot_model import (
     CudaRobotModel,
 )
 q_fr3s = result.solution[..., :7].squeeze(dim=1).detach().cpu().numpy()
-q_algrs = grasp_config_dict["joint_angles"]
+q_algrs = all_joint_angles
 
 N = q_fr3s.shape[0]
 assert q_fr3s.shape == (
@@ -298,17 +333,51 @@ trans = state.ee_position.detach().cpu().numpy()
 state.link_pose.keys(), state.link_names
 
 # %%
-ik_result = ik_solver.solve_batch(goal_pose=target_pose, link_poses=state.link_pose)
+
+ik_config2 = IKSolverConfig.load_from_robot_config(
+    robot_cfg,
+    world_cfg,
+    rotation_threshold=0.05,
+    position_threshold=0.005,
+    # rotation_threshold=0.01,
+    # position_threshold=0.001,
+    num_seeds=20,
+    self_collision_check=True,
+    self_collision_opt=True,
+    tensor_args=tensor_args,
+    use_cuda_graph=use_cuda_graph,
+)
+ik_solver2 = IKSolver(ik_config2)
+ik_result = ik_solver2.solve_batch(goal_pose=target_pose, link_poses=state.link_pose)
 qs = ik_result.solution.detach().cpu().numpy()
 
 # %%
 ik_result.success
 
 # %%
+ik_result.success.nonzero()
+
+# %%
 print(qs.shape)
 
 # %%
 qs = qs[:, 0, :]
+
+# %%
+
+success_idxs = []
+for i in tqdm(range(grasp_config_dict['joint_angles'].shape[0])):
+    try:
+        q_collide_table, _, _ = solve_ik(
+            X_W_H=X_W_Hs[i],
+            q_algr_constraint=all_joint_angles[i],
+            collision_check_object=True,
+        )
+        print(f"Success: {i}")
+        success_idxs.append(i)
+    except RuntimeError as e:
+        print(e)
+print(success_idxs)
 
 
 # %%
@@ -389,7 +458,7 @@ for i, joint_idx in enumerate(hand_actuatable_joint_idxs):
 qs[SELECTED_I][7:]
 
 # %%
-grasp_config_dict["joint_angles"][SELECTED_I]
+all_joint_angles[SELECTED_I]
 
 
 # %%
@@ -457,7 +526,7 @@ start_state = JointState.from_position(
 
 # %%
 
-# start_q = np.concatenate([DEFAULT_Q_FR3, grasp_config_dict["joint_angles"][SELECTED_I]])
+# start_q = np.concatenate([DEFAULT_Q_FR3, all_joint_angles[SELECTED_I]])
 # start_state = JointState.from_position(
 #     torch.from_numpy(start_q).float().cuda().view(1, -1)
 # )

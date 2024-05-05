@@ -22,6 +22,7 @@ from curobo.util_file import (
 )
 from nerf_grasping.curobo_fr3_algr_zed2i.ik_fr3_algr_zed2i import (
     max_penetration_from_q,
+    max_penetration_from_qs,
     max_penetration_from_X_W_H,
     solve_ik,
 )
@@ -73,8 +74,8 @@ GOOD_IDX = 0
 GOOD_IDX_2 = 1
 
 # SELECTED_IDX = 2
-# SELECTED_IDX = 3
-SELECTED_IDX = BEST_IDX
+SELECTED_IDX = 0
+# SELECTED_IDX = BEST_IDX
 
 trans = grasp_config_dict["trans"][SELECTED_IDX]
 rot = grasp_config_dict["rot"][SELECTED_IDX]
@@ -82,6 +83,8 @@ joint_angles = grasp_config_dict["joint_angles"][SELECTED_IDX]
 X_Oy_H = np.eye(4)
 X_Oy_H[:3, :3] = rot
 X_Oy_H[:3, 3] = trans
+
+X_Oy_H[1, 3] += 0.3
 
 # %%
 X_W_N = trimesh.transformations.translation_matrix([0.65, 0, 0])
@@ -280,12 +283,35 @@ print(f"DELTA = {DELTA}, d_world = {d_world}, d_self = {d_self}")
 
 
 # %%
-failed = False
-try:
+print("=" * 80)
+print("Trying with full object collision check")
+print("=" * 80 + "\n")
+q, qd, qdd, dt, result, motion_gen = solve_trajopt(
+    X_W_H=X_W_H,
+    q_algr_constraint=q_algr_pre,
+    collision_check_object=False,
+    obj_filepath=OBJECT_OBJ_PATH,
+    obj_xyz=(0.65, 0.0, 0.0),
+    obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+    collision_check_table=False,
+    enable_opt=True,
+    enable_graph=False,
+    raise_if_fail=False,
+    use_cuda_graph=False
+)
+result
+if result.success:
+    print("SUCCESS TRAJOPT with full object collision check")
+    failed = False
+else:
+    print("FAILED TRAJOPT with full object collision check")
+    failed = True
+
+if failed:
     print("=" * 80)
-    print("Trying with full object collision check")
+    print("Trying with full object collision check without trajopt")
     print("=" * 80 + "\n")
-    q, qd, qdd, dt, _ = solve_trajopt(
+    q, qd, qdd, dt, result, motion_gen = solve_trajopt(
         X_W_H=X_W_H,
         q_algr_constraint=q_algr_pre,
         collision_check_object=True,
@@ -293,11 +319,17 @@ try:
         obj_xyz=(0.65, 0.0, 0.0),
         obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
         collision_check_table=True,
+        enable_opt=False,
+        enable_graph=True,
+        raise_if_fail=False,
+        use_cuda_graph=False,
     )
-    print("SUCCESS TRAJOPT with full object collision check")
-except RuntimeError as e:
-    print(f"FAILED TRAJOPT: {e} with full object collision check")
-    failed = True
+    if result.success:
+        print("SUCCESS TRAJOPT with full object collision check without trajopt")
+        failed = False
+    else:
+        print("FAILED TRAJOPT with full object collision check without trajopt")
+        failed = True
 
 if failed:
     print("=" * 80)
@@ -322,7 +354,7 @@ if failed:
     q_algr_pre = open_hand_q_algr
 
     try:
-        q, qd, qdd, dt, _ = solve_trajopt(
+        q, qd, qdd, dt, result, motion_gen = solve_trajopt(
             X_W_H=X_W_H,
             q_algr_constraint=open_hand_q_algr,
             collision_check_object=True,
@@ -342,7 +374,7 @@ if failed:
     print("=" * 80 + "\n")
     failed = False
     try:
-        q, qd, qdd, dt, _ = solve_trajopt(
+        q, qd, qdd, dt, result, motion_gen = solve_trajopt(
             X_W_H=X_W_H,
             q_algr_constraint=q_algr_pre,
             collision_check_object=False,
@@ -362,7 +394,7 @@ if failed:
     print("=" * 80 + "\n")
     failed = False
     try:
-        q, qd, qdd, dt, _ = solve_trajopt(
+        q, qd, qdd, dt, result, motion_gen = solve_trajopt(
             X_W_H=X_W_H,
             q_algr_constraint=q_algr_pre,
             collision_check_object=False,
@@ -381,7 +413,93 @@ N_pts = q.shape[0]
 assert q.shape == (N_pts, 23)
 
 # %%
+print(f"result.success = {result.success}")
+print(f"result.valid_query = {result.valid_query}")
+print(f"result.optimized_plan.shape = {result.optimized_plan.shape}")
+print(f"result.optimized_dt = {result.optimized_dt}")
+print(f"result.position_error = {result.position_error}")
+print(f"result.rotation_error = {result.rotation_error}")
+print(f"result.cspace_error = {result.cspace_error}")
+print(f"result.solve_time = {result.solve_time}")
+print(f"result.ik_time = {result.ik_time}")
+print(f"result.graph_time = {result.graph_time}")
+print(f"result.trajopt_time = {result.trajopt_time}")
+print(f"result.finetune_time = {result.finetune_time}")
+print(f"result.total_time = {result.total_time}")
+print(f"result.interpolated_plan.shape = {result.interpolated_plan.shape}")
+print(f"result.interpolation_dt = {result.interpolation_dt}")
+print(f"result.path_buffer_last_tstep = {result.path_buffer_last_tstep}")
+print(f"result.debug_info = {result.debug_info}")
+print(f"result.status = {result.status}")
+print(f"result.attempts = {result.attempts}")
+print(f"result.trajopt_attempts = {result.trajopt_attempts}")
+print(f"result.used_graph = {result.used_graph}")
+print(f"result.graph_plan.position.shape = {result.graph_plan.position.shape}")
+print(f"result.goalset_index = {result.goalset_index}")
+
+# %%
+import matplotlib.pyplot as plt
+
+# %%
+plt.plot(q)
+
+# %%
+# from curobo.types.state import JointState
+# import torch
+# motion_gen.check_constraints(
+#     JointState(
+#         position=    torch.from_numpy(q).float().cuda(),
+#         velocity=    torch.from_numpy(qd).float().cuda(),
+#         acceleration=torch.from_numpy(qdd).float().cuda(),
+#     )
+# )
+
+# %%
+result.optimized_plan.shape
+
+# %%
+
+d_world, d_self = max_penetration_from_qs(
+    qs=q,
+    include_object=True,
+    obj_filepath=OBJECT_OBJ_PATH,
+    obj_xyz=(0.65, 0.0, 0.0),
+    obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+    include_table=True,
+)
+
+# %%
+np.max(d_world), np.max(d_self)
+
+
+# %%
+(d_world > 0).sum()
+
+# %%
+(d_world > 0).nonzero()
+
+# %%
+np.argmax(d_world)
+
+# %%
+# for i, joint_idx in enumerate(arm_actuatable_joint_idxs):
+#     pb.resetJointState(r, joint_idx, q[98][i])
+# for i, joint_idx in enumerate(hand_actuatable_joint_idxs):
+#     pb.resetJointState(r, joint_idx, q[98][i + 7])
+# 
+# draw_collision_spheres(
+#     robot=r,
+#     config=collision_config,
+# )
+
+# %%
+total_time = N_pts * dt
+print(f"total_time = {total_time}")
+
+# %%
 remove_collision_spheres()
+
+last_update_time = time.time()
 for i in tqdm(range(N_pts)):
     position = q[i]
     assert position.shape == (23,)
@@ -391,13 +509,52 @@ for i in tqdm(range(N_pts)):
         pb.resetJointState(r, joint_idx, position[i])
     for i, joint_idx in enumerate(hand_actuatable_joint_idxs):
         pb.resetJointState(r, joint_idx, position[i + 7])
-    time.sleep(0.01)
+
+    time_since_last_update = time.time() - last_update_time
+    if time_since_last_update <= dt:
+        time.sleep(dt - time_since_last_update)
+    last_update_time = time.time()
+
+# %%
+q_solution = solve_ik(
+    X_W_H=X_W_H,
+    q_algr_constraint=q_algr_pre,
+    collision_check_object=True,
+    obj_filepath=OBJECT_OBJ_PATH,
+    obj_xyz=(0.65, 0.0, 0.0),
+    obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+    collision_check_table=True,
+    raise_if_no_solution=True,
+)
+
+# %%
+q_solution = np.array([0, -0.7854, 0.0, -2.3562, 0.0, 1.5708, 0.7854])
+
+# %%
+for i, joint_idx in enumerate(arm_actuatable_joint_idxs):
+    pb.resetJointState(r, joint_idx, q_solution[i])
+# for i, joint_idx in enumerate(hand_actuatable_joint_idxs):
+#     pb.resetJointState(r, joint_idx, q_solution[i + 7])
+
+# %%
+for i, joint_idx in enumerate(arm_actuatable_joint_idxs):
+    pb.resetJointState(r, joint_idx, q[-1][i])
+for i, joint_idx in enumerate(hand_actuatable_joint_idxs):
+    pb.resetJointState(r, joint_idx, q[-1][i + 7])
+
+# %%
+q_solution - q[-1]
 
 # %%
 draw_collision_spheres(
     robot=r,
     config=collision_config,
 )
+
+
+# %%
+ 
+# %%
 
 # for i, joint_idx in enumerate(arm_actuatable_joint_idxs):
 #     pb.resetJointState(r, joint_idx, q_solution[0, i])
@@ -612,7 +769,7 @@ for i in tqdm(range(n_grasps), desc="Curobo"):
         print("=" * 80)
         print("Trying with full object collision check")
         print("=" * 80 + "\n")
-        q, qd, qdd, dt, _ = solve_trajopt(
+        q, qd, qdd, dt, result, motion_gen = solve_trajopt(
             X_W_H=X_W_H,
             q_algr_constraint=q_algr_pre,
             collision_check_object=True,
@@ -630,7 +787,7 @@ for i in tqdm(range(n_grasps), desc="Curobo"):
         print("=" * 80)
         print("Trying with no object collision check")
         print("=" * 80 + "\n")
-        q, qd, qdd, dt, _ = solve_trajopt(
+        q, qd, qdd, dt, result, motion_gen = solve_trajopt(
             X_W_H=X_W_H,
             q_algr_constraint=q_algr_pre,
             collision_check_object=False,
@@ -730,4 +887,94 @@ spline, dspline, T_traj, trajopt = solve_trajopt_drake(
 )
 # %%
 q.shape
+# %%
+
+from curobo.types.base import TensorDeviceType
+from curobo.types.robot import JointState, RobotConfig
+tensor_args = TensorDeviceType()
+robot_file = "fr3_algr_zed2i.yml"
+robot_cfg = RobotConfig.from_dict(
+    load_yaml(join_path(get_robot_configs_path(), robot_file))["robot_cfg"]
+)
+# %%
+robot_cfg.kinematics.kinematics_config.joint_limits.velocity
+
+# %%
+q_limits = robot_cfg.kinematics.kinematics_config.joint_limits.position.detach().cpu().numpy()
+qd_limits = robot_cfg.kinematics.kinematics_config.joint_limits.velocity.detach().cpu().numpy()
+qdd_limits = robot_cfg.kinematics.kinematics_config.joint_limits.acceleration.detach().cpu().numpy()
+qddd_limits = robot_cfg.kinematics.kinematics_config.joint_limits.jerk.detach().cpu().numpy()
+print(q_limits.shape)
+
+# %%
+qd
+
+# %%
+TOTAL_TIME = 2.0
+DT = TOTAL_TIME / N_pts
+new_qd = np.diff(q, axis=0) / DT
+new_qdd = np.diff(new_qd, axis=0) / DT
+new_qddd = np.diff(new_qdd, axis=0) / DT
+
+# %%
+new_qd.shape
+
+for i in range(7):
+    if np.any(new_qd[:, i] < qd_limits[0, i]) or np.any(new_qd[:, i] > qd_limits[1, i]):
+        print(f"qd_{i} exceeded")
+    if np.any(new_qdd[:, i] < qdd_limits[0, i]) or np.any(new_qdd[:, i] > qdd_limits[1, i]):
+        print(f"qdd_{i} exceeded")
+    if np.any(new_qddd[:, i] < qddd_limits[0, i]) or np.any(new_qddd[:, i] > qddd_limits[1, i]):
+        print(f"qddd_{i} exceeded")
+
+# %%
+new_qd_max = np.absolute(new_qd).max()
+new_qdd_max = np.absolute(new_qdd).max()
+new_qddd_max = np.absolute(new_qddd).max()
+print(f"new_qd_max = {new_qd_max}, new_qdd_max = {new_qdd_max}, new_qddd_max = {new_qddd_max}")
+
+# %%
+new_qd[3000] - qd[3000]
+
+NUM_JOINTS = 7
+nrows = 7
+ncols = 1
+fig, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=(10, 10))
+for i in range(NUM_JOINTS):
+    axes[i].plot(q[:, i], label=f"q_{i}")
+    axes[i].plot(q_limits[0, i] * np.ones_like(q[:, i]), label=f"q_{i}_min")
+    axes[i].plot(q_limits[1, i] * np.ones_like(q[:, i]), label=f"q_{i}_max")
+    axes[i].legend()
+plt.show()
+
+# %%
+NUM_JOINTS = 7
+nrows = 7
+ncols = 1
+fig, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=(10, 10))
+for i in range(NUM_JOINTS):
+    axes[i].plot(new_qd[:, i], label=f"qd_{i}")
+    axes[i].plot(qd_limits[0, i] * np.ones_like(new_qd[:, i]), label=f"qd_{i}_min")
+    axes[i].plot(qd_limits[1, i] * np.ones_like(new_qd[:, i]), label=f"qd_{i}_max")
+    axes[i].legend()
+plt.show()
+
+# %%
+NUM_JOINTS = 7
+nrows = 7
+
+
+
+# %%
+nrows = 4
+ncols = 1
+fig, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=(10, 10))
+axes = axes.flatten()
+axes[0].plot(q[:, :], label="q")
+axes[1].plot(new_qd[:, :], label="qd")
+axes[2].plot(new_qdd[:, :], label="qdd")
+axes[3].plot(new_qddd[:, :], label="qddd")
+plt.show()
+
+
 # %%

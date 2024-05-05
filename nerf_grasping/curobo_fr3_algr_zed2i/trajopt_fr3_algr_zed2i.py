@@ -27,17 +27,8 @@ from nerf_grasping.curobo_fr3_algr_zed2i.fr3_algr_zed2i_world import (
     get_table_collision_dict,
 )
 
-DEFAULT_Q_FR3 = np.array(
-    [
-        1.76261055e-06,
-        -1.29018439e00,
-        0.00000000e00,
-        -2.69272642e00,
-        0.00000000e00,
-        1.35254201e00,
-        7.85400000e-01,
-    ]
-)
+
+DEFAULT_Q_FR3 = np.array([0, -0.7854, 0.0, -2.3562, 0.0, 1.5708, 0.7854])
 DEFAULT_Q_ALGR = np.array(
     [
         2.90945620e-01,
@@ -72,11 +63,12 @@ def solve_trajopt(
     obj_xyz: Tuple[float, float, float] = (0.65, 0.0, 0.0),
     obj_quat_wxyz: Tuple[float, float, float, float] = (1.0, 0.0, 0.0, 0.0),
     collision_check_table: bool = True,
-    use_cuda_graph: bool = True,
+    use_cuda_graph: bool = False,  # Getting some errors from setting this to True
     enable_graph: bool = True,
-    enable_opt: bool = True,
+    enable_opt: bool = False,  # Getting some errors from setting this to True
     raise_if_fail: bool = True,
     warn_if_fail: bool = False,
+    timeout: float = 5.0,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, float, MotionGenResult, MotionGen]:
     assert X_W_H.shape == (4, 4), f"X_W_H.shape: {X_W_H.shape}"
     trans = X_W_H[:3, 3]
@@ -153,29 +145,90 @@ def solve_trajopt(
             max_attempts=10,
             num_trajopt_seeds=10,
             num_graph_seeds=10,
+            timeout=timeout,
         ),
     )
     print("Time taken: ", time.time() - t_start)
     print("Trajectory Generated: ", result.success)
-    if result is None or not result.success:
+    if result is None:
+        raise RuntimeError("IK Failed")
+
+    if not result.success.any():
         if raise_if_fail:
             raise RuntimeError("Trajectory Optimization Failed")
         if warn_if_fail:
             print("WARNING: Trajectory Optimization Failed")
+
     traj = result.get_interpolated_plan()
 
-    n_timesteps = traj.position.shape[0]
-    assert traj.position.shape == (n_timesteps, 23)
-    assert traj.velocity.shape == (n_timesteps, 23)
-    assert traj.acceleration.shape == (n_timesteps, 23)
-    return (
-        traj.position.detach().cpu().numpy(),
-        traj.velocity.detach().cpu().numpy(),
-        traj.acceleration.detach().cpu().numpy(),
-        result.interpolation_dt,
-        result,
-        motion_gen,
-    )
+    # HACK: If enable_opt=False, then the dt is not set correctly, making the dt way too small
+    # For some reason, can sometimes by 2D or 3D
+    if len(traj.position.shape) == 2:
+        n_timesteps = traj.position.shape[0]
+        assert traj.position.shape == (
+            n_timesteps,
+            23,
+        ), f"traj.position.shape: {traj.position.shape}"
+        assert traj.velocity.shape == (
+            n_timesteps,
+            23,
+        ), f"traj.velocity.shape: {traj.velocity.shape}"
+        assert traj.acceleration.shape == (
+            n_timesteps,
+            23,
+        ), f"traj.acceleration.shape: {traj.acceleration.shape}"
+
+        if enable_opt:
+            dt = result.interpolation_dt
+        else:
+            ASSUMED_TOTAL_TIME = 5.0
+            dt = ASSUMED_TOTAL_TIME / n_timesteps
+
+        return (
+            traj.position.detach().cpu().numpy(),
+            traj.velocity.detach().cpu().numpy(),
+            traj.acceleration.detach().cpu().numpy(),
+            dt,
+            result,
+            motion_gen,
+        )
+    elif len(traj.position.shape) == 3:
+        n_trajs = traj.position.shape[0]
+        n_timesteps = traj.position.shape[1]
+        assert traj.position.shape == (
+            n_trajs,
+            n_timesteps,
+            23,
+        ), f"traj.position.shape: {traj.position.shape}"
+        assert traj.velocity.shape == (
+            n_trajs,
+            n_timesteps,
+            23,
+        ), f"traj.velocity.shape: {traj.velocity.shape}"
+        assert traj.acceleration.shape == (
+            n_trajs,
+            n_timesteps,
+            23,
+        ), f"traj.acceleration.shape: {traj.acceleration.shape}"
+
+        if enable_opt:
+            dt = result.interpolation_dt
+        else:
+            ASSUMED_TOTAL_TIME = 5.0
+            dt = ASSUMED_TOTAL_TIME / n_timesteps
+
+        # HACK: Not sure if there's a smarter way to select
+        SELECTED_TRAJ_IDX = 0
+        return (
+            traj.position[SELECTED_TRAJ_IDX].detach().cpu().numpy(),
+            traj.velocity[SELECTED_TRAJ_IDX].detach().cpu().numpy(),
+            traj.acceleration[SELECTED_TRAJ_IDX].detach().cpu().numpy(),
+            dt,
+            result,
+            motion_gen,
+        )
+    else:
+        raise ValueError(f"traj.position.shape: {traj.position.shape}")
 
 
 def main() -> None:
@@ -224,7 +277,7 @@ def main() -> None:
         ]
     )
 
-    q, qd, qdd, dt, result = solve_trajopt(
+    q, qd, qdd, dt, result, _ = solve_trajopt(
         X_W_H=X_W_H_feasible,
         q_algr_constraint=q_algr_pre,
     )
@@ -233,7 +286,7 @@ def main() -> None:
     )
 
     try:
-        q, qd, qdd, dt = solve_trajopt(
+        q, qd, qdd, dt, _, _ = solve_trajopt(
             X_W_H=X_W_H_collide_object,
             q_algr_constraint=q_algr_pre,
         )

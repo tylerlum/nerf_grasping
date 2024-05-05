@@ -22,9 +22,7 @@ from curobo.util_file import (
 from curobo.wrap.reacher.ik_solver import IKSolver, IKSolverConfig
 
 from nerf_grasping.curobo_fr3_algr_zed2i.fr3_algr_zed2i_world import (
-    get_dummy_collision_dict,
-    get_object_collision_dict,
-    get_table_collision_dict,
+    get_world_cfg,
 )
 from nerf_grasping.curobo_fr3_algr_zed2i.trajopt_fr3_algr_zed2i import (
     DEFAULT_Q_FR3,
@@ -107,8 +105,6 @@ def solve_trajopt_batch(
     use_cuda_graph: bool = False,  # Getting some errors from setting this to True
     enable_graph: bool = True,
     enable_opt: bool = False,  # Getting some errors from setting this to True
-    raise_if_fail: bool = True,
-    warn_if_fail: bool = False,
     timeout: float = 5.0,
 ):
     start_time = time.time()
@@ -140,18 +136,13 @@ def solve_trajopt_batch(
         load_yaml(join_path(get_robot_configs_path(), robot_file))["robot_cfg"]
     )
 
-    world_dict = {}
-    if collision_check_table:
-        world_dict.update(get_table_collision_dict())
-    if collision_check_object and obj_filepath is not None:
-        world_dict.update(
-            get_object_collision_dict(
-                file_path=obj_filepath, xyz=obj_xyz, quat_wxyz=obj_quat_wxyz
-            )
-        )
-    if len(world_dict) == 0:
-        world_dict.update(get_dummy_collision_dict())
-    world_cfg = WorldConfig.from_dict(world_dict)
+    world_cfg = get_world_cfg(
+        collision_check_object=collision_check_object,
+        obj_filepath=obj_filepath,
+        obj_xyz=obj_xyz,
+        obj_quat_wxyz=obj_quat_wxyz,
+        collision_check_table=collision_check_table,
+    )
 
     print("Step 2: Solve IK for wrist pose")
     ik_config = IKSolverConfig.load_from_robot_config(
@@ -241,12 +232,12 @@ def solve_trajopt_batch(
         start_state=start_state,
         goal_pose=target_pose2,
         plan_config=MotionGenPlanConfig(
-            enable_graph=True,
-            enable_opt=False,
+            enable_graph=enable_graph,
+            enable_opt=enable_opt,
             max_attempts=10,
             num_trajopt_seeds=10,
             num_graph_seeds=1,
-            timeout=10,
+            timeout=timeout,
         ),
         link_poses=state2.link_pose,
     )
@@ -292,8 +283,7 @@ def main() -> None:
         collision_check_table=True,
         use_cuda_graph=False,
         enable_graph=True,
-        enable_opt=False,
-        warn_if_fail=False,
+        enable_opt=True,
         timeout=10.0,
     )
     paths = result.get_paths()

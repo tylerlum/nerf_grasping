@@ -16,9 +16,7 @@ from curobo.util_file import (
 from curobo.wrap.model.robot_world import RobotWorld, RobotWorldConfig
 from curobo.wrap.reacher.ik_solver import IKSolver, IKSolverConfig, IKResult
 from nerf_grasping.curobo_fr3_algr_zed2i.fr3_algr_zed2i_world import (
-    get_dummy_collision_dict,
-    get_object_collision_dict,
-    get_table_collision_dict,
+    get_world_cfg,
 )
 import torch.nn.functional as F
 
@@ -112,18 +110,13 @@ def solve_iks(
         robot_cfg
     )
 
-    world_dict = {}
-    if collision_check_table:
-        world_dict.update(get_table_collision_dict())
-    if collision_check_object and obj_filepath is not None:
-        world_dict.update(
-            get_object_collision_dict(
-                file_path=obj_filepath, xyz=obj_xyz, quat_wxyz=obj_quat_wxyz
-            )
-        )
-    if len(world_dict) == 0:
-        world_dict.update(get_dummy_collision_dict())
-    world_cfg = WorldConfig.from_dict(world_dict)
+    world_cfg = get_world_cfg(
+        collision_check_object=collision_check_object,
+        obj_filepath=obj_filepath,
+        obj_xyz=obj_xyz,
+        obj_quat_wxyz=obj_quat_wxyz,
+        collision_check_table=collision_check_table,
+    )
     ik_config = IKSolverConfig.load_from_robot_config(
         robot_cfg,
         world_cfg,
@@ -196,18 +189,13 @@ def solve_ik(
             torch.from_numpy(q_algr_constraint).float().cuda() + 0.01
         )
 
-    world_dict = {}
-    if collision_check_table:
-        world_dict.update(get_table_collision_dict())
-    if collision_check_object and obj_filepath is not None:
-        world_dict.update(
-            get_object_collision_dict(
-                file_path=obj_filepath, xyz=obj_xyz, quat_wxyz=obj_quat_wxyz
-            )
-        )
-    if len(world_dict) == 0:
-        world_dict.update(get_dummy_collision_dict())
-    world_cfg = WorldConfig.from_dict(world_dict)
+    world_cfg = get_world_cfg(
+        collision_check_object=collision_check_object,
+        obj_filepath=obj_filepath,
+        obj_xyz=obj_xyz,
+        obj_quat_wxyz=obj_quat_wxyz,
+        collision_check_table=collision_check_table,
+    )
     ik_config = IKSolverConfig.load_from_robot_config(
         robot_cfg,
         world_cfg,
@@ -249,18 +237,13 @@ def max_penetration_from_q(
         load_yaml(join_path(get_robot_configs_path(), robot_file))["robot_cfg"]
     )
 
-    world_dict = {}
-    if include_table:
-        world_dict.update(get_table_collision_dict())
-    if include_object and obj_filepath is not None:
-        world_dict.update(
-            get_object_collision_dict(
-                file_path=obj_filepath, xyz=obj_xyz, quat_wxyz=obj_quat_wxyz
-            )
-        )
-    if len(world_dict) == 0:
-        world_dict.update(get_dummy_collision_dict())
-    world_cfg = WorldConfig.from_dict(world_dict)
+    world_cfg = get_world_cfg(
+        collision_check_object=include_object,
+        obj_filepath=obj_filepath,
+        obj_xyz=obj_xyz,
+        obj_quat_wxyz=obj_quat_wxyz,
+        collision_check_table=include_table,
+    )
     config = RobotWorldConfig.load_from_config(
         robot_cfg, world_cfg, collision_activation_distance=0.0
     )
@@ -295,18 +278,13 @@ def max_penetration_from_qs(
         load_yaml(join_path(get_robot_configs_path(), robot_file))["robot_cfg"]
     )
 
-    world_dict = {}
-    if include_table:
-        world_dict.update(get_table_collision_dict())
-    if include_object and obj_filepath is not None:
-        world_dict.update(
-            get_object_collision_dict(
-                file_path=obj_filepath, xyz=obj_xyz, quat_wxyz=obj_quat_wxyz
-            )
-        )
-    if len(world_dict) == 0:
-        world_dict.update(get_dummy_collision_dict())
-    world_cfg = WorldConfig.from_dict(world_dict)
+    world_cfg = get_world_cfg(
+        collision_check_object=include_object,
+        obj_filepath=obj_filepath,
+        obj_xyz=obj_xyz,
+        obj_quat_wxyz=obj_quat_wxyz,
+        collision_check_table=include_table,
+    )
     config = RobotWorldConfig.load_from_config(
         robot_cfg, world_cfg, collision_activation_distance=0.0
     )

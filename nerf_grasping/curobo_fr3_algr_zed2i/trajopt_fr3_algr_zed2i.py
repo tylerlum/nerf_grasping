@@ -22,9 +22,7 @@ from curobo.wrap.reacher.motion_gen import (
     MotionGenResult,
 )
 from nerf_grasping.curobo_fr3_algr_zed2i.fr3_algr_zed2i_world import (
-    get_dummy_collision_dict,
-    get_object_collision_dict,
-    get_table_collision_dict,
+    get_world_cfg,
 )
 
 
@@ -102,18 +100,13 @@ def solve_trajopt(
             torch.from_numpy(q_algr_constraint).float().cuda() + 0.01
         )
 
-    world_dict = {}
-    if collision_check_table:
-        world_dict.update(get_table_collision_dict())
-    if collision_check_object and obj_filepath is not None:
-        world_dict.update(
-            get_object_collision_dict(
-                file_path=obj_filepath, xyz=obj_xyz, quat_wxyz=obj_quat_wxyz
-            )
-        )
-    if len(world_dict) == 0:
-        world_dict.update(get_dummy_collision_dict())
-    world_cfg = WorldConfig.from_dict(world_dict)
+    world_cfg = get_world_cfg(
+        collision_check_object=collision_check_object,
+        obj_filepath=obj_filepath,
+        obj_xyz=obj_xyz,
+        obj_quat_wxyz=obj_quat_wxyz,
+        collision_check_table=collision_check_table,
+    )
 
     tensor_args = TensorDeviceType()
     motion_gen_config = MotionGenConfig.load_from_robot_config(

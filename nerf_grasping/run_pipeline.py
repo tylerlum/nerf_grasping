@@ -605,8 +605,14 @@ def run_curobo(cfg, X_W_Hs, q_algr_pres):
     pass_trajopt_idxs = []
     pass_trajopt_2_idxs = []
     fail_trajopt_idxs = []
+    skip_trajopt_idxs = []
     for i in tqdm(range(num_grasps), desc="Curobo TrajOpt"):
         print(f"Trying grasp {i}")
+        if i not in pass_ik_idxs:
+            print(f"Skipping grasp {i}")
+            skip_trajopt_idxs.append(i)
+            continue
+
         X_W_H = X_W_Hs[i]
         q_algr_pre = q_algr_pres[i]
         try:

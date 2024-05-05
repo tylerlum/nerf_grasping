@@ -557,19 +557,22 @@ def run_curobo(cfg, X_W_Hs, q_algr_pres):
     num_grasps = X_W_Hs.shape[0]
 
     from nerf_grasping.curobo_fr3_algr_zed2i.trajopt_batch import solve_trajopt_batch
+    from nerf_grasping.curobo_fr3_algr_zed2i.ik_fr3_algr_zed2i import (
+        max_penetration_from_qs,
+    )
     print("\n" + "=" * 80)
     print("Step 9: Solve trajopt for each grasp")
     print("=" * 80 + "\n")
 
-    ENABLE_OPT = True
+    ENABLE_OPT = False
     result = solve_trajopt_batch(
         X_W_Hs=X_W_Hs,
         q_algrs=q_algr_pres,
-        collision_check_object=False,
+        collision_check_object=True,
         obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
         obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
         obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
-        collision_check_table=False,
+        collision_check_table=True,
         use_cuda_graph=False,
         enable_graph=True,
         enable_opt=ENABLE_OPT,
@@ -590,6 +593,19 @@ def run_curobo(cfg, X_W_Hs, q_algr_pres):
         TOTAL_TIME = 10.0
         n_timesteps = q.shape[0]
         dt = TOTAL_TIME / n_timesteps
+
+    # Check for collisions
+
+    d_world, d_self = max_penetration_from_qs(
+        qs=q,
+        include_object=True,
+        obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
+        obj_xyz=(0.65, 0.0, 0.0),
+        obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+        include_table=True,
+    )
+    print(f"np.max(d_world): {np.max(d_world)}")
+    print(f"np.max(d_self): {np.max(d_self)}")
 
     # Visualize
     OBJECT_URDF_PATH = create_urdf(obj_path=pathlib.Path("/tmp/mesh_viz_object.obj"))

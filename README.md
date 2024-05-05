@@ -33,9 +33,51 @@ mkdir thirdparty
 cd thirdparty
 git clone https://github.com/facebookresearch/pytorch3d.git
 cd pytorch3d && pip install -e .
+
+# Install drake
+pip install drake
+
+# Install curobo (Library Installation step in https://curobo.org/get_started/1_install_instructions.html#library-installation, but with custom fork)
+sudo apt install git-lfs
+git clone https://github.com/tylerlum/curobo.git
+cd curobo
+git lfs pull  # Maybe need to add this (https://github.com/NVlabs/curobo/issues/10)
+pip install -e . --no-build-isolation  # ~20 min
+python3 -m pytest .  # To verify
 ```
 
-# How to run at inference time (Albert)
+# How to run at inference time (Albert) (~May 2024)
+
+Running from nerfdata (with a folder that has `images` and `transforms.json`):
+```
+python nerf_grasping/run_pipeline.py \
+--nerfdata-path 2024-04-25_ALBERT_data/nerfdata/upside_down_yellow_cup_0_9999 \
+--init-grasp-config-dict-path /juno/u/tylerlum/github_repos/DexGraspNet/data/2024-04-16_rotated_grasps_aggregated_augmented_pose_HALTON_50/aggregated_evaled_grasp_config_dicts_train/aggregated_evaled_grasp_config_dict_train.npy \
+--classifier-config-path /juno/u/tylerlum/github_repos/nerf_grasping/Train_DexGraspNet_NeRF_Grasp_Metric_workspaces/3000rotated_augmented_pose_HALTON_50_cnn-3d-xyz_l2_all_2024-04-17_00-53-42-594438/config.yaml \
+--object_code upside_down_yellow_cup \
+--visualize \
+--random_seed 0 \
+--num_grasps 32 \
+--n_random_rotations_per_grasp 5 \
+--max_num_iterations 1000 \
+--num_steps 0 
+```
+
+Running from nerfcheckpoint (with a trained nerf):
+```
+python nerf_grasping/run_pipeline.py \
+--nerfcheckpoint-path experiments/2024-05-05_16-24-37/nerfcheckpoints/upside_down_yellow_cup_0_9999/nerfacto/2024-05-05_162437/config.yml \
+--init-grasp-config-dict-path /juno/u/tylerlum/github_repos/DexGraspNet/data/2024-04-16_rotated_grasps_aggregated_augmented_pose_HALTON_50/aggregated_evaled_grasp_config_dicts_train/aggregated_evaled_grasp_config_dict_train.npy \
+--classifier-config-path /juno/u/tylerlum/github_repos/nerf_grasping/Train_DexGraspNet_NeRF_Grasp_Metric_workspaces/3000rotated_augmented_pose_HALTON_50_cnn-3d-xyz_l2_all_2024-04-17_00-53-42-594438/config.yaml \
+--object_code upside_down_yellow_cup \
+--visualize \
+--random_seed 0 \
+--num_grasps 32 \
+--n_random_rotations_per_grasp 5 \
+--num_steps 0 
+```
+
+# How to run at inference time (Albert) (Before April 2024)
 
 ## Step 1: Get Required Starting Files
 

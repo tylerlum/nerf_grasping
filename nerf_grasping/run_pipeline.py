@@ -561,15 +561,15 @@ def run_curobo(cfg, X_W_Hs, q_algr_pres):
     print("Step 9: Solve trajopt for each grasp")
     print("=" * 80 + "\n")
 
-    ENABLE_OPT = False
+    ENABLE_OPT = True
     result = solve_trajopt_batch(
         X_W_Hs=X_W_Hs,
         q_algrs=q_algr_pres,
-        collision_check_object=True,
+        collision_check_object=False,
         obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
         obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
         obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
-        collision_check_table=True,
+        collision_check_table=False,
         use_cuda_graph=False,
         enable_graph=True,
         enable_opt=ENABLE_OPT,
@@ -582,9 +582,10 @@ def run_curobo(cfg, X_W_Hs, q_algr_pres):
     TRAJ_IDX = 0
     print(f"Visualizing trajectory {TRAJ_IDX}")
     q = result.get_paths()[TRAJ_IDX].position.detach().cpu().numpy()
+    qd = result.get_paths()[TRAJ_IDX].velocity.detach().cpu().numpy()
     print(f"q.shape: {q.shape}")
     if ENABLE_OPT:
-        dt = result.optimized_dt
+        dt = result.interpolation_dt
     else:
         TOTAL_TIME = 10.0
         n_timesteps = q.shape[0]

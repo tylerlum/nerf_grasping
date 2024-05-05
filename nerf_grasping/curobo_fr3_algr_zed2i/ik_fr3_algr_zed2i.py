@@ -87,10 +87,8 @@ def solve_iks(
     obj_xyz: Tuple[float, float, float] = (0.65, 0.0, 0.0),
     obj_quat_wxyz: Tuple[float, float, float, float] = (1.0, 0.0, 0.0, 0.0),
     collision_check_table: bool = True,
-    raise_if_no_solution: bool = True,
-    warn_if_no_solution: bool = False,
     use_cuda_graph: bool = True,
-) -> Tuple[np.ndarray, IKResult, IKSolver]:
+) -> Tuple[np.ndarray, np.ndarray, IKResult, IKSolver]:
     N = X_W_Hs.shape[0]
     assert X_W_Hs.shape == (N, 4, 4), f"X_W_Hs.shape: {X_W_Hs.shape}"
     trans = X_W_Hs[:, :3, 3]
@@ -127,18 +125,14 @@ def solve_iks(
         use_cuda_graph=use_cuda_graph,
     )
     ik_solver = IKSolver(ik_config)
-    raise NotImplementedError("Need to implement batch solve_single.")
 
-    result = ik_solver.solve_single(target_pose)
-    if not result.success.item():
-        if raise_if_no_solution:
-            raise RuntimeError("IK failed to find a valid solution.")
-        elif warn_if_no_solution:
-            print("WARNING: IK failed to find a valid solution.")
+    result = ik_solver.solve_batch(target_pose)
+    assert result.solution.shape == (N, 1, 23)
+    assert result.success.shape == (N, 1)
 
-    assert result.solution.shape == (1, 1, 23)
     return (
-        result.solution.squeeze(dim=0).squeeze(dim=0).detach().cpu().numpy(),
+        result.solution.squeeze(dim=1).detach().cpu().numpy(),
+        result.success.squeeze(dim=1).detach().cpu().numpy(),
         result,
         ik_solver,
     )

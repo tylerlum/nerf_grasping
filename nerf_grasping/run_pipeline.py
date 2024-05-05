@@ -391,7 +391,7 @@ def run_pipeline(
         print_best=False,
     )
 
-    MODE = "DEFAULT"
+    MODE = "JOINTS_OPEN"
     print("!" * 80)
     print(f"MODE: {MODE}")
     print("!" * 80 + "\n")
@@ -538,7 +538,6 @@ def run_drake(cfg, X_W_Hs, q_algr_pres) -> None:
 
     print(f"passing_trajopt_idxs: {passing_trajopt_idxs}")
     print(f"failed_trajopt_idxs: {failed_trajopt_idxs}")
-    breakpoint()
     spline, dspline, T_traj, trajopt = solve_trajopt(
         q_fr3_0=q_fr3_0,
         q_algr_0=q_algr_0,
@@ -550,6 +549,7 @@ def run_drake(cfg, X_W_Hs, q_algr_pres) -> None:
         verbose=False,
         ignore_obj_collision=False,
     )
+    breakpoint()
 
 
 def run_curobo(cfg, X_W_Hs, q_algr_pres):
@@ -602,67 +602,268 @@ def run_curobo(cfg, X_W_Hs, q_algr_pres):
     print("=" * 80)
     print("Trying with full object collision check")
     print("=" * 80 + "\n")
-    pass_trajopt_idxs = []
-    pass_trajopt_2_idxs = []
-    fail_trajopt_idxs = []
-    for i in tqdm(range(num_grasps), desc="Curobo TrajOpt"):
-        print(f"Trying grasp {i}")
-        X_W_H = X_W_Hs[i]
-        q_algr_pre = q_algr_pres[i]
-        try:
-            raise RuntimeError("Forcing failure")
-            print("=" * 80)
-            print("Trying with full object collision check with trajopt")
-            print("=" * 80 + "\n")
-            q, qd, qdd, dt, result, motion_gen = solve_trajopt_curobo(
-                X_W_H=X_W_H,
-                q_algr_constraint=q_algr_pre,
-                collision_check_object=True,
-                obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
-                obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
-                obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
-                collision_check_table=True,
-                enable_opt=True,
-                enable_graph=True,
-                raise_if_fail=True,
-                use_cuda_graph=False
+#     pass_trajopt_idxs = []
+#     pass_trajopt_2_idxs = []
+#     fail_trajopt_idxs = []
+#     for i in tqdm(range(num_grasps), desc="Curobo TrajOpt"):
+#         print(f"Trying grasp {i}")
+#         X_W_H = X_W_Hs[i]
+#         q_algr_pre = q_algr_pres[i]
+#         try:
+#             raise RuntimeError("Forcing failure")
+#             print("=" * 80)
+#             print("Trying with full object collision check with trajopt")
+#             print("=" * 80 + "\n")
+#             q, qd, qdd, dt, result, motion_gen = solve_trajopt_curobo(
+#                 X_W_H=X_W_H,
+#                 q_algr_constraint=q_algr_pre,
+#                 collision_check_object=True,
+#                 obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
+#                 obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
+#                 obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+#                 collision_check_table=True,
+#                 enable_opt=True,
+#                 enable_graph=True,
+#                 raise_if_fail=True,
+#                 use_cuda_graph=False
+#             )
+#             print("SUCCESS TRAJOPT with full object collision check")
+#             failed = False
+#             pass_trajopt_idxs.append(i)
+#         except RuntimeError as e:
+#             print("FAILED TRAJOPT with full object collision check")
+#             failed = True
+# 
+#         if failed:
+#             print("=" * 80)
+#             print("Trying with full object collision check without trajopt")
+#             print("=" * 80 + "\n")
+#             try:
+#                 q, qd, qdd, dt, result, motion_gen = solve_trajopt_curobo(
+#                     X_W_H=X_W_H,
+#                     q_algr_constraint=q_algr_pre,
+#                     collision_check_object=True,
+#                     obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
+#                     obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
+#                     obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+#                     collision_check_table=True,
+#                     enable_opt=False,
+#                     enable_graph=True,
+#                     raise_if_fail=False,
+#                     use_cuda_graph=False,
+#                 )
+#                 print("SUCCESS TRAJOPT with full object collision check without trajopt")
+#                 failed = False
+#                 pass_trajopt_2_idxs.append(i)
+#             except RuntimeError as e:
+#                 print("FAILED TRAJOPT with full object collision check without trajopt")
+#                 failed = True
+#                 fail_trajopt_idxs.append(i)
+#     print(f"pass_trajopt_idxs: {pass_trajopt_idxs}")
+#     print(f"pass_trajopt_2_idxs: {pass_trajopt_2_idxs}")
+#     print(f"fail_trajopt_idxs: {fail_trajopt_idxs}")
+    pass_trajopt_2_idxs = [1, 2, 5, 12, 21, 28]  # HACK
+
+    # Visualize
+    create_urdf(obj_path=pathlib.Path("/tmp/mesh_viz_object.obj"))
+    q, qd, qdd, dt, result, motion_gen = solve_trajopt_curobo(
+        X_W_H=X_W_Hs[pass_trajopt_2_idxs[0]],
+        q_algr_constraint=q_algr_pres[pass_trajopt_2_idxs[0]],
+        collision_check_object=True,
+        obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
+        obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
+        obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+        collision_check_table=True,
+        enable_opt=False,
+        enable_graph=True,
+        raise_if_fail=True,
+        use_cuda_graph=False
+    )
+    import pybullet as pb
+    from curobo.util_file import (
+        get_robot_configs_path,
+        join_path,
+        load_yaml,
+    )
+
+    from nerf_grasping.curobo_fr3_algr_zed2i.pybullet_utils import (
+        draw_collision_spheres,
+        remove_collision_spheres,
+    )
+    import yaml
+    import time
+
+    from nerf_grasping.curobo_fr3_algr_zed2i.trajopt_fr3_algr_zed2i import (
+        DEFAULT_Q_ALGR,
+        DEFAULT_Q_FR3,
+    )
+    FR3_ALGR_ZED2I_URDF_PATH = pathlib.Path(
+        "/juno/u/tylerlum/github_repos/nerf_grasping/nerf_grasping/fr3_algr_ik/allegro_ros2/models/fr3_algr_zed2i.urdf"
+    )
+    assert FR3_ALGR_ZED2I_URDF_PATH.exists()
+
+    OBJECT_OBJ_PATH = pathlib.Path("/tmp/mesh_viz_object.obj")
+    OBJECT_URDF_PATH = pathlib.Path(
+        "/juno/u/tylerlum/github_repos/nerf_grasping/experiments/2024-05-02_16-19-22/nerf_to_mesh/mug_330/coacd/coacd.urdf"
+    )
+    assert OBJECT_OBJ_PATH.exists()
+    assert OBJECT_URDF_PATH.exists()
+
+    # %%
+    COLLISION_SPHERES_YAML_PATH = load_yaml(
+        join_path(get_robot_configs_path(), "fr3_algr_zed2i.yml")
+    )["robot_cfg"]["kinematics"]["collision_spheres"]
+    COLLISION_SPHERES_YAML_PATH = pathlib.Path(
+        join_path(get_robot_configs_path(), COLLISION_SPHERES_YAML_PATH)
+    )
+    assert COLLISION_SPHERES_YAML_PATH.exists()
+
+
+    pb.connect(pb.GUI)
+    r = pb.loadURDF(
+        str(FR3_ALGR_ZED2I_URDF_PATH),
+        useFixedBase=True,
+        basePosition=[0, 0, 0],
+        baseOrientation=[0, 0, 0, 1],
+    )
+    num_total_joints = pb.getNumJoints(r)
+    assert num_total_joints == 39
+
+    obj = pb.loadURDF(
+        str(OBJECT_URDF_PATH),
+        useFixedBase=True,
+        basePosition=[
+            0.65,
+            0,
+            0,
+        ],
+        baseOrientation=[0, 0, 0, 1],
+    )
+
+    # %%
+    joint_names = [
+        pb.getJointInfo(r, i)[1].decode("utf-8")
+        for i in range(num_total_joints)
+        if pb.getJointInfo(r, i)[2] != pb.JOINT_FIXED
+    ]
+    link_names = [
+        pb.getJointInfo(r, i)[12].decode("utf-8")
+        for i in range(num_total_joints)
+        if pb.getJointInfo(r, i)[2] != pb.JOINT_FIXED
+    ]
+
+    actuatable_joint_idxs = [
+        i for i in range(num_total_joints) if pb.getJointInfo(r, i)[2] != pb.JOINT_FIXED
+    ]
+    num_actuatable_joints = len(actuatable_joint_idxs)
+    assert num_actuatable_joints == 23
+    arm_actuatable_joint_idxs = actuatable_joint_idxs[:7]
+    hand_actuatable_joint_idxs = actuatable_joint_idxs[7:]
+
+    for i, joint_idx in enumerate(arm_actuatable_joint_idxs):
+        pb.resetJointState(r, joint_idx, DEFAULT_Q_FR3[i])
+
+    for i, joint_idx in enumerate(hand_actuatable_joint_idxs):
+        pb.resetJointState(r, joint_idx, DEFAULT_Q_ALGR[i])
+
+    # %%
+    collision_config = yaml.safe_load(
+        open(
+            COLLISION_SPHERES_YAML_PATH,
+            "r",
+        )
+    )
+    draw_collision_spheres(
+        robot=r,
+        config=collision_config,
+    )
+
+    # %%
+    N_pts = q.shape[0]
+    remove_collision_spheres()
+
+    last_update_time = time.time()
+    for i in tqdm(range(N_pts)):
+        position = q[i]
+        assert position.shape == (23,)
+        # print(f"{i} / {N_pts} {position}")
+
+        for i, joint_idx in enumerate(arm_actuatable_joint_idxs):
+            pb.resetJointState(r, joint_idx, position[i])
+        for i, joint_idx in enumerate(hand_actuatable_joint_idxs):
+            pb.resetJointState(r, joint_idx, position[i + 7])
+
+        time_since_last_update = time.time() - last_update_time
+        if time_since_last_update <= dt:
+            time.sleep(dt - time_since_last_update)
+        last_update_time = time.time()
+
+    while True:
+        x = input("Press v to visualize traj, c to draw collision spheres, r to remove collision spheres, q to quit")
+        if x == "v":
+            last_update_time = time.time()
+            for i in tqdm(range(N_pts)):
+                position = q[i]
+                assert position.shape == (23,)
+                # print(f"{i} / {N_pts} {position}")
+
+                for i, joint_idx in enumerate(arm_actuatable_joint_idxs):
+                    pb.resetJointState(r, joint_idx, position[i])
+                for i, joint_idx in enumerate(hand_actuatable_joint_idxs):
+                    pb.resetJointState(r, joint_idx, position[i + 7])
+
+                time_since_last_update = time.time() - last_update_time
+                if time_since_last_update <= dt:
+                    time.sleep(dt - time_since_last_update)
+                last_update_time = time.time()
+        elif x == "c":
+            draw_collision_spheres(
+                robot=r,
+                config=collision_config,
             )
-            print("SUCCESS TRAJOPT with full object collision check")
-            failed = False
-            pass_trajopt_idxs.append(i)
-        except RuntimeError as e:
-            print("FAILED TRAJOPT with full object collision check")
-            failed = True
+        elif x == "r":
+            remove_collision_spheres()
+        elif x == "q":
+            break
 
-        if failed:
-            print("=" * 80)
-            print("Trying with full object collision check without trajopt")
-            print("=" * 80 + "\n")
-            try:
-                q, qd, qdd, dt, result, motion_gen = solve_trajopt_curobo(
-                    X_W_H=X_W_H,
-                    q_algr_constraint=q_algr_pre,
-                    collision_check_object=True,
-                    obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
-                    obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
-                    obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
-                    collision_check_table=True,
-                    enable_opt=False,
-                    enable_graph=True,
-                    raise_if_fail=False,
-                    use_cuda_graph=False,
-                )
-                print("SUCCESS TRAJOPT with full object collision check without trajopt")
-                failed = False
-                pass_trajopt_2_idxs.append(i)
-            except RuntimeError as e:
-                print("FAILED TRAJOPT with full object collision check without trajopt")
-                failed = True
-                fail_trajopt_idxs.append(i)
-    print(f"pass_trajopt_idxs: {pass_trajopt_idxs}")
-    print(f"pass_trajopt_2_idxs: {pass_trajopt_2_idxs}")
-    print(f"fail_trajopt_idxs: {fail_trajopt_idxs}")
+    breakpoint()
 
+def create_urdf(obj_path: pathlib.Path) -> None:
+    assert obj_path.suffix == ".obj"
+    filename = obj_path.name
+    parent_folder = obj_path.parent
+    urdf_path = parent_folder / f"{obj_path.stem}.urdf"
+    urdf_text = f"""<?xml version="0.0" ?>
+<robot name="model.urdf">
+  <link name="baseLink">
+    <contact>
+      <lateral_friction value="0.8"/>
+      <rolling_friction value="0.001"/>g
+      <contact_cfm value="0.0"/>
+      <contact_erp value="1.0"/>
+    </contact>
+    <inertial>
+    <origin rpy="0 0 0" xyz="0.01 0.0 0.01"/>
+       <mass value=".066"/>
+       <inertia ixx="1e-3" ixy="0" ixz="0" iyy="1e-3" iyz="0" izz="1e-3"/>
+    </inertial>
+    <visual>
+      <geometry>
+        <mesh filename="{filename}" scale="1 1 1"/>
+      </geometry>
+      <material name="white">
+        <color rgba="1. 1. 1. 1."/>
+      </material>
+    </visual>
+    <collision>
+      <geometry>
+    	 	<mesh filename="{filename}" scale="1 1 1"/>
+      </geometry>
+    </collision>
+  </link>
+</robot>"""
+    with urdf_path.open("w") as f:
+        f.write(urdf_text)
 
 @dataclass
 class CommandlineArgs(PipelineConfig):

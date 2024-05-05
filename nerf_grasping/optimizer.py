@@ -592,6 +592,7 @@ def get_optimized_grasps(
             all_preds,
         )
         ordered_idxs_best_first = np.argsort(new_all_preds)[::-1].copy()
+        print(f"new_all_preds[ordered_idxs_best_first] = {new_all_preds[ordered_idxs_best_first][:10]}")
         # breakpoint()  # TODO: Debug here
         new_grasp_configs = new_grasp_configs[ordered_idxs_best_first]
 

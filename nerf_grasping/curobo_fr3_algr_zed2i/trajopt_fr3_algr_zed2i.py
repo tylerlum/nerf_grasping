@@ -21,10 +21,9 @@ from curobo.wrap.reacher.motion_gen import (
     MotionGenPlanConfig,
     MotionGenResult,
 )
+
 from nerf_grasping.curobo_fr3_algr_zed2i.fr3_algr_zed2i_world import (
-    get_dummy_collision_dict,
-    get_object_collision_dict,
-    get_table_collision_dict,
+    get_world_cfg,
 )
 
 
@@ -54,15 +53,9 @@ DEFAULT_Q = np.concatenate([DEFAULT_Q_FR3, DEFAULT_Q_ALGR])
 
 def solve_trajopt(
     X_W_H: np.ndarray,
+    world_cfg: WorldConfig,
     q_algr_constraint: Optional[np.ndarray] = None,
     q_fr3_start: Optional[np.ndarray] = None,
-    collision_check_object: bool = True,
-    obj_filepath: Optional[pathlib.Path] = pathlib.Path(
-        "/juno/u/tylerlum/github_repos/nerf_grasping/experiments/2024-05-02_16-19-22/nerf_to_mesh/mug_330/coacd/decomposed.obj"
-    ),
-    obj_xyz: Tuple[float, float, float] = (0.65, 0.0, 0.0),
-    obj_quat_wxyz: Tuple[float, float, float, float] = (1.0, 0.0, 0.0, 0.0),
-    collision_check_table: bool = True,
     use_cuda_graph: bool = False,  # Getting some errors from setting this to True
     enable_graph: bool = True,
     enable_opt: bool = False,  # Getting some errors from setting this to True
@@ -101,19 +94,6 @@ def solve_trajopt(
         robot_cfg.kinematics.kinematics_config.joint_limits.position[1, 7:] = (
             torch.from_numpy(q_algr_constraint).float().cuda() + 0.01
         )
-
-    world_dict = {}
-    if collision_check_table:
-        world_dict.update(get_table_collision_dict())
-    if collision_check_object and obj_filepath is not None:
-        world_dict.update(
-            get_object_collision_dict(
-                file_path=obj_filepath, xyz=obj_xyz, quat_wxyz=obj_quat_wxyz
-            )
-        )
-    if len(world_dict) == 0:
-        world_dict.update(get_dummy_collision_dict())
-    world_cfg = WorldConfig.from_dict(world_dict)
 
     tensor_args = TensorDeviceType()
     motion_gen_config = MotionGenConfig.load_from_robot_config(
@@ -241,7 +221,7 @@ def main() -> None:
         [
             [0, 0, 1, 0.4],
             [0, 1, 0, 0.0],
-            [-1, 0, 0, 0.15],
+            [-1, 0, 0, 0.2],
             [0.0, 0.0, 0.0, 1.0],
         ]
     )
@@ -249,7 +229,7 @@ def main() -> None:
         [
             [0, 0, 1, 0.65],
             [0, 1, 0, 0.0],
-            [-1, 0, 0, 0.15],
+            [-1, 0, 0, 0.2],
             [0.0, 0.0, 0.0, 1.0],
         ]
     )
@@ -284,6 +264,7 @@ def main() -> None:
 
     q, qd, qdd, dt, result, _ = solve_trajopt(
         X_W_H=X_W_H_feasible,
+        world_cfg=get_world_cfg(),
         q_algr_constraint=q_algr_pre,
     )
     print(
@@ -293,6 +274,7 @@ def main() -> None:
     try:
         q, qd, qdd, dt, _, _ = solve_trajopt(
             X_W_H=X_W_H_collide_object,
+            world_cfg=get_world_cfg(),
             q_algr_constraint=q_algr_pre,
         )
         raise ValueError("Collision with object should have failed")

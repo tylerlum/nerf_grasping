@@ -215,8 +215,8 @@ robot_cfg = RobotConfig.from_dict(
     load_yaml(join_path(get_robot_configs_path(), robot_file))["robot_cfg"]
 )
 
-collision_check_table = False
-collision_check_object = False
+collision_check_table = True
+collision_check_object = True
 obj_filepath = OBJECT_OBJ_PATH
 obj_xyz = (0.65, 0.0, 0.0)
 obj_quat_wxyz = (1.0, 0.0, 0.0, 0.0)
@@ -298,21 +298,11 @@ trans = state.ee_position.detach().cpu().numpy()
 state.link_pose.keys(), state.link_names
 
 # %%
-#     def solve_batch(
-#         self,
-#         goal_pose: Pose,
-#         retract_config: Optional[T_BDOF] = None,
-#         seed_config: Optional[T_BDOF] = None,
-#         return_seeds: int = 1,
-#         num_seeds: Optional[int] = None,
-#         use_nn_seed: bool = True,
-#         newton_iters: Optional[int] = None,
-#         link_poses: Optional[Dict[str, Pose]] = None,
-#     ) -> IKResult:
-
-# %%
 ik_result = ik_solver.solve_batch(goal_pose=target_pose, link_poses=state.link_pose)
 qs = ik_result.solution.detach().cpu().numpy()
+
+# %%
+ik_result.success
 
 # %%
 print(qs.shape)
@@ -534,51 +524,8 @@ DEFAULT_Q.shape
 motion_result.success
 
 # %%
-# if motion_result is None:
-#     raise RuntimeError("IK Failed")
-# 
-# traj = motion_result.get_interpolated_plan()
-# if traj is None:
-#     raise RuntimeError("Trajectory is None")
-# 
-# if traj.position is None:
-#     raise RuntimeError("Trajectory Position is None")
-# 
-# if not motion_result.success.any():
-#     print("WARNING: Trajectory Optimization Failed")
-# 
-# # HACK: If enable_opt=False, then the dt is not set correctly, making the dt way too small
-# # For some reason, can sometimes by 2D or 3D
-# if len(traj.position.shape) == 2:
-#     n_timesteps = traj.position.shape[0]
-#     assert traj.position.shape == (
-#         n_timesteps,
-#         23,
-#     ), f"traj.position.shape: {traj.position.shape}"
-#     assert traj.velocity.shape == (
-#         n_timesteps,
-#         23,
-#     ), f"traj.velocity.shape: {traj.velocity.shape}"
-#     assert traj.acceleration.shape == (
-#         n_timesteps,
-#         23,
-#     ), f"traj.acceleration.shape: {traj.acceleration.shape}"
-# 
-#     if enable_opt:
-#         dt = motion_result.interpolation_dt
-#     else:
-#         ASSUMED_TOTAL_TIME = 5.0
-#         dt = ASSUMED_TOTAL_TIME / n_timesteps
-# 
-#     return (
-#         traj.position.detach().cpu().numpy(),
-#         traj.velocity.detach().cpu().numpy(),
-#         traj.acceleration.detach().cpu().numpy(),
-#         dt,
-#         motion_result,
-#         motion_gen,
-#     )
-
+# %%
+motion_result.optimized_plan
 
 # %%
 paths = motion_result.get_paths()
@@ -590,7 +537,7 @@ len(paths)
 paths[0].position.shape
 
 # %%
-TRAJ_IDX = 1
+TRAJ_IDX = 0
 traj = paths[TRAJ_IDX]
 
 # %%
@@ -623,4 +570,45 @@ for i in tqdm(range(N_pts)):
     if time_since_last_update <= dt:
         time.sleep(dt - time_since_last_update)
     last_update_time = time.time()
+# %%
+motion_result.success.nonzero()
+
+# %%
+from nerf_grasping.curobo_fr3_algr_zed2i.ik_fr3_algr_zed2i import (
+    max_penetration_from_q,
+    max_penetration_from_qs,
+    max_penetration_from_X_W_H,
+    solve_ik,
+)
+
+d_world, d_self = max_penetration_from_qs(
+    qs=qs,
+    include_object=True,
+    obj_filepath=OBJECT_OBJ_PATH,
+    obj_xyz=(0.65, 0.0, 0.0),
+    obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+    include_table=True,
+)
+
+# %%
+np.max(d_world), np.max(d_self)
+# %%
+
+q, qd, qdd, dt, one_result, one_motion_gen = solve_trajopt(
+    X_W_H=X_W_Hs[0],
+    q_algr_constraint=grasp_config_dict['joint_angles'][0],
+    collision_check_object=False,
+    obj_filepath=OBJECT_OBJ_PATH,
+    obj_xyz=(0.65, 0.0, 0.0),
+    obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+    collision_check_table=False,
+    enable_opt=False,
+    enable_graph=True,
+    raise_if_fail=False,
+    use_cuda_graph=False
+)
+
+# %%
+X_W_Hs[0]
+
 # %%

@@ -557,6 +557,15 @@ def run_curobo(cfg, X_W_Hs, q_algr_pres):
 
     from nerf_grasping.curobo_fr3_algr_zed2i.ik_fr3_algr_zed2i import solve_ik as solve_ik_curobo
     from nerf_grasping.curobo_fr3_algr_zed2i.ik_fr3_algr_zed2i import max_penetration_from_X_W_H
+    from nerf_grasping.curobo_fr3_algr_zed2i.fr3_algr_zed2i_world import get_world_cfg
+
+    world_cfg = get_world_cfg(
+        include_object=True,
+        obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
+        obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
+        obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+        include_table=True,
+    )
 
     pass_ik_idxs= []
     fail_ik_idxs = []
@@ -567,12 +576,8 @@ def run_curobo(cfg, X_W_Hs, q_algr_pres):
         try:
             q_solution, _, _ = solve_ik_curobo(
                 X_W_H=X_W_H,
+                world_cfg=world_cfg,
                 q_algr_constraint=q_algr_pre,
-                collision_check_object=True,
-                obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
-                obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
-                obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
-                collision_check_table=True,
                 raise_if_no_solution=True,
             )
             pass_ik_idxs.append(i)
@@ -582,12 +587,8 @@ def run_curobo(cfg, X_W_Hs, q_algr_pres):
         
         d_world, d_self = max_penetration_from_X_W_H(
             X_W_H=X_W_H,
+            world_cfg=world_cfg,
             q_algr_constraint=q_algr_pre,
-            include_object=True,
-            obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
-            obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
-            obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
-            include_table=True,
         )
         print(f"d_world = {d_world}, d_self = {d_self}")
     print(f"pass_ik_idxs: {pass_ik_idxs}")
@@ -622,12 +623,8 @@ def run_curobo(cfg, X_W_Hs, q_algr_pres):
             print("=" * 80 + "\n")
             q, qd, qdd, dt, result, motion_gen = solve_trajopt_curobo(
                 X_W_H=X_W_H,
+                world_cfg=world_cfg,
                 q_algr_constraint=q_algr_pre,
-                collision_check_object=True,
-                obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
-                obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
-                obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
-                collision_check_table=True,
                 enable_opt=True,
                 enable_graph=True,
                 raise_if_fail=True,
@@ -647,12 +644,8 @@ def run_curobo(cfg, X_W_Hs, q_algr_pres):
             try:
                 q, qd, qdd, dt, result, motion_gen = solve_trajopt_curobo(
                     X_W_H=X_W_H,
+                    world_cfg=world_cfg,
                     q_algr_constraint=q_algr_pre,
-                    collision_check_object=True,
-                    obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
-                    obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
-                    obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
-                    collision_check_table=True,
                     enable_opt=False,
                     enable_graph=True,
                     raise_if_fail=False,
@@ -674,12 +667,8 @@ def run_curobo(cfg, X_W_Hs, q_algr_pres):
     OBJECT_URDF_PATH = create_urdf(obj_path=pathlib.Path("/tmp/mesh_viz_object.obj"))
     q, qd, qdd, dt, result, motion_gen = solve_trajopt_curobo(
         X_W_H=X_W_Hs[pass_trajopt_2_idxs[0]],
+        world_cfg=world_cfg,
         q_algr_constraint=q_algr_pres[pass_trajopt_2_idxs[0]],
-        collision_check_object=True,
-        obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
-        obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
-        obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
-        collision_check_table=True,
         enable_opt=False,
         enable_graph=True,
         raise_if_fail=True,

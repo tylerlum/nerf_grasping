@@ -34,6 +34,7 @@ def solve_ik(
     collision_check_table: bool = True,
     raise_if_no_solution: bool = True,
     warn_if_no_solution: bool = False,
+    use_cuda_graph: bool = True,
 ) -> np.ndarray:
     assert X_W_H.shape == (4, 4), f"X_W_H.shape: {X_W_H.shape}"
     trans = X_W_H[:3, 3]
@@ -88,7 +89,7 @@ def solve_ik(
         self_collision_check=True,
         self_collision_opt=True,
         tensor_args=tensor_args,
-        use_cuda_graph=False,
+        use_cuda_graph=use_cuda_graph,
     )
     ik_solver = IKSolver(ik_config)
 
@@ -142,6 +143,52 @@ def max_penetration_from_q(
     return (
         d_world.squeeze(dim=0).detach().cpu().numpy(),
         d_self.squeeze(dim=0).detach().cpu().numpy(),
+    )
+
+
+def max_penetration_from_qs(
+    qs: np.ndarray,
+    include_object: bool = True,
+    obj_filepath: Optional[pathlib.Path] = pathlib.Path(
+        "/juno/u/tylerlum/github_repos/nerf_grasping/experiments/2024-05-02_16-19-22/nerf_to_mesh/mug_330/coacd/decomposed.obj"
+    ),
+    obj_xyz: Tuple[float, float, float] = (0.65, 0.0, 0.0),
+    obj_quat_wxyz: Tuple[float, float, float, float] = (1.0, 0.0, 0.0, 0.0),
+    include_table: bool = True,
+) -> Tuple[np.ndarray, np.ndarray]:
+    N = qs.shape[0]
+    assert qs.shape == (
+        N,
+        23,
+    ), f"qs.shape: {qs.shape}"
+
+    robot_file = "fr3_algr_zed2i.yml"
+    robot_cfg = RobotConfig.from_dict(
+        load_yaml(join_path(get_robot_configs_path(), robot_file))["robot_cfg"]
+    )
+
+    world_dict = {}
+    if include_table:
+        world_dict.update(get_table_collision_dict())
+    if include_object and obj_filepath is not None:
+        world_dict.update(
+            get_object_collision_dict(
+                file_path=obj_filepath, xyz=obj_xyz, quat_wxyz=obj_quat_wxyz
+            )
+        )
+    if len(world_dict) == 0:
+        world_dict.update(get_dummy_collision_dict())
+    world_cfg = WorldConfig.from_dict(world_dict)
+    config = RobotWorldConfig.load_from_config(
+        robot_cfg, world_cfg, collision_activation_distance=0.0
+    )
+    curobo_fn = RobotWorld(config)
+    d_world, d_self = curobo_fn.get_world_self_collision_distance_from_joints(
+        torch.from_numpy(qs).float().cuda()
+    )
+    return (
+        d_world.detach().cpu().numpy(),
+        d_self.detach().cpu().numpy(),
     )
 
 

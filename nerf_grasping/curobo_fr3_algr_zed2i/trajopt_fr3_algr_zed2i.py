@@ -72,7 +72,12 @@ def solve_trajopt(
     obj_xyz: Tuple[float, float, float] = (0.65, 0.0, 0.0),
     obj_quat_wxyz: Tuple[float, float, float, float] = (1.0, 0.0, 0.0, 0.0),
     collision_check_table: bool = True,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray, float, MotionGenResult]:
+    use_cuda_graph: bool = True,
+    enable_graph: bool = True,
+    enable_opt: bool = True,
+    raise_if_fail: bool = True,
+    warn_if_fail: bool = False,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, float, MotionGenResult, MotionGen]:
     assert X_W_H.shape == (4, 4), f"X_W_H.shape: {X_W_H.shape}"
     trans = X_W_H[:3, 3]
     rot_matrix = X_W_H[:3, :3]
@@ -123,9 +128,8 @@ def solve_trajopt(
         robot_cfg,
         world_cfg,
         tensor_args,
-        trajopt_tsteps=32,
         collision_checker_type=CollisionCheckerType.MESH,
-        use_cuda_graph=False,
+        use_cuda_graph=use_cuda_graph,
     )
     motion_gen = MotionGen(motion_gen_config)
     motion_gen.warmup()
@@ -144,8 +148,8 @@ def solve_trajopt(
         start_state=start_state,
         goal_pose=target_pose,
         plan_config=MotionGenPlanConfig(
-            enable_graph=True,
-            enable_opt=True,
+            enable_graph=enable_graph,
+            enable_opt=enable_opt,
             max_attempts=10,
             num_trajopt_seeds=10,
             num_graph_seeds=10,
@@ -153,23 +157,24 @@ def solve_trajopt(
     )
     print("Time taken: ", time.time() - t_start)
     print("Trajectory Generated: ", result.success)
-    if result is None:
-        raise RuntimeError("IK Failed")
-    if not result.success:
-        raise RuntimeError("Trajectory Optimization Failed")
+    if result is None or not result.success:
+        if raise_if_fail:
+            raise RuntimeError("Trajectory Optimization Failed")
+        if warn_if_fail:
+            print("WARNING: Trajectory Optimization Failed")
     traj = result.get_interpolated_plan()
 
     n_timesteps = traj.position.shape[0]
     assert traj.position.shape == (n_timesteps, 23)
     assert traj.velocity.shape == (n_timesteps, 23)
     assert traj.acceleration.shape == (n_timesteps, 23)
-    assert result.optimized_dt is not None
     return (
         traj.position.detach().cpu().numpy(),
         traj.velocity.detach().cpu().numpy(),
         traj.acceleration.detach().cpu().numpy(),
-        result.optimized_dt,
+        result.interpolation_dt,
         result,
+        motion_gen,
     )
 
 

@@ -590,6 +590,7 @@ def run_curobo(cfg, X_W_Hs, q_algr_pres):
     # Check for collisions
     d_world, d_self = max_penetration_from_qs(
         qs=q,
+        collision_activation_distance=0.0,
         include_object=True,
         obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
         obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
@@ -618,10 +619,22 @@ def run_curobo(cfg, X_W_Hs, q_algr_pres):
 
     while True:
         x = input(
-            "Press v to visualize traj, next to go to next traj, prev to go to prev traj, to draw collision spheres, r to remove collision spheres, q to quit"
+            "Press v to visualize traj, d to print collision distance, next to go to next traj, prev to go to prev traj, to draw collision spheres, r to remove collision spheres, q to quit"
         )
         if x == "v":
             animate_robot(robot=pb_robot, qs=q, dt=dt)
+        elif x == "d":
+            d_world, d_self = max_penetration_from_qs(
+                qs=q,
+                collision_activation_distance=0.0,
+                include_object=True,
+                obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
+                obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
+                obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+                include_table=True,
+            )
+            print(f"np.max(d_world): {np.max(d_world)}")
+            print(f"np.max(d_self): {np.max(d_self)}")
         elif x == "next":
             TRAJ_IDX += 1
             TRAJ_IDX = np.clip(TRAJ_IDX, 0, len(success_idxs) - 1)

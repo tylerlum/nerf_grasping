@@ -20,6 +20,7 @@ from nerf_grasping.curobo_fr3_algr_zed2i.fr3_algr_zed2i_world import (
 )
 import torch.nn.functional as F
 
+
 def _sqrt_positive_part(x: torch.Tensor) -> torch.Tensor:
     """
     Returns torch.sqrt(torch.max(0, x))
@@ -77,7 +78,6 @@ def matrix_to_quat_wxyz(matrix: torch.Tensor) -> torch.Tensor:
     ].reshape(batch_dim + (4,))
 
 
-
 def solve_iks(
     X_W_Hs: np.ndarray,
     collision_check_object: bool = True,
@@ -106,9 +106,7 @@ def solve_iks(
     robot_file = "fr3_algr_zed2i.yml"
     robot_cfg = load_yaml(join_path(get_robot_configs_path(), robot_file))["robot_cfg"]
     robot_cfg["kinematics"]["link_names"] = []
-    robot_cfg = RobotConfig.from_dict(
-        robot_cfg
-    )
+    robot_cfg = RobotConfig.from_dict(robot_cfg)
 
     world_cfg = get_world_cfg(
         collision_check_object=collision_check_object,
@@ -139,8 +137,11 @@ def solve_iks(
             print("WARNING: IK failed to find a valid solution.")
 
     assert result.solution.shape == (1, 1, 23)
-    return result.solution.squeeze(dim=0).squeeze(dim=0).detach().cpu().numpy(), result, ik_solver
-
+    return (
+        result.solution.squeeze(dim=0).squeeze(dim=0).detach().cpu().numpy(),
+        result,
+        ik_solver,
+    )
 
 
 def solve_ik(
@@ -217,11 +218,16 @@ def solve_ik(
             print("WARNING: IK failed to find a valid solution.")
 
     assert result.solution.shape == (1, 1, 23)
-    return result.solution.squeeze(dim=0).squeeze(dim=0).detach().cpu().numpy(), result, ik_solver
+    return (
+        result.solution.squeeze(dim=0).squeeze(dim=0).detach().cpu().numpy(),
+        result,
+        ik_solver,
+    )
 
 
 def max_penetration_from_q(
     q: np.ndarray,
+    collision_activation_distance: float = 0.0,
     include_object: bool = True,
     obj_filepath: Optional[pathlib.Path] = pathlib.Path(
         "/juno/u/tylerlum/github_repos/nerf_grasping/experiments/2024-05-02_16-19-22/nerf_to_mesh/mug_330/coacd/decomposed.obj"
@@ -245,7 +251,9 @@ def max_penetration_from_q(
         collision_check_table=include_table,
     )
     config = RobotWorldConfig.load_from_config(
-        robot_cfg, world_cfg, collision_activation_distance=0.0
+        robot_cfg,
+        world_cfg,
+        collision_activation_distance=collision_activation_distance,
     )
     curobo_fn = RobotWorld(config)
     d_world, d_self = curobo_fn.get_world_self_collision_distance_from_joints(
@@ -259,6 +267,7 @@ def max_penetration_from_q(
 
 def max_penetration_from_qs(
     qs: np.ndarray,
+    collision_activation_distance: float = 0.0,
     include_object: bool = True,
     obj_filepath: Optional[pathlib.Path] = pathlib.Path(
         "/juno/u/tylerlum/github_repos/nerf_grasping/experiments/2024-05-02_16-19-22/nerf_to_mesh/mug_330/coacd/decomposed.obj"
@@ -286,7 +295,9 @@ def max_penetration_from_qs(
         collision_check_table=include_table,
     )
     config = RobotWorldConfig.load_from_config(
-        robot_cfg, world_cfg, collision_activation_distance=0.0
+        robot_cfg,
+        world_cfg,
+        collision_activation_distance=collision_activation_distance,
     )
     curobo_fn = RobotWorld(config)
     d_world, d_self = curobo_fn.get_world_self_collision_distance_from_joints(

@@ -589,9 +589,9 @@ def run_curobo(cfg, X_W_Hs, q_algr_pres):
         timeout=10.0,
     )
 
-    success_idxs = motion_gen_result.success.nonzero().flatten().tolist()
-    ik_success_idxs = ik_result.success.nonzero().flatten().tolist()
-    ik_success_idxs2 = ik_result2.success.nonzero().flatten().tolist()
+    success_idxs = motion_gen_result.success.flatten().nonzero().flatten().tolist()
+    ik_success_idxs = ik_result.success.flatten().nonzero().flatten().tolist()
+    ik_success_idxs2 = ik_result2.success.flatten().nonzero().flatten().tolist()
     print(
         f"success_idxs: {success_idxs} ({len(success_idxs)} / {n_grasps} = {len(success_idxs) / n_grasps * 100:.2f}%)"
     )
@@ -643,6 +643,7 @@ def run_curobo(cfg, X_W_Hs, q_algr_pres):
             "Press v to visualize traj, d to print collision distance, next to go to next traj, prev to go to prev traj, to draw collision spheres, r to remove collision spheres, q to quit"
         )
         if x == "v":
+            print(f"Visualizing trajectory {TRAJ_IDX}")
             animate_robot(robot=pb_robot, qs=q, dt=dt)
         elif x == "d":
             d_world, d_self = max_penetration_from_qs(
@@ -654,22 +655,25 @@ def run_curobo(cfg, X_W_Hs, q_algr_pres):
                 obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
                 include_table=True,
             )
+            print(f"For trajectory {TRAJ_IDX}")
             print(f"np.max(d_world): {np.max(d_world)}")
             print(f"np.max(d_self): {np.max(d_self)}")
         elif x == "next":
             TRAJ_IDX += 1
             TRAJ_IDX = np.clip(TRAJ_IDX, 0, len(success_idxs) - 1)
             q, qd, dt = qs[TRAJ_IDX], qds[TRAJ_IDX], dts[TRAJ_IDX]
+            print(f"Visualizing trajectory {TRAJ_IDX}")
             animate_robot(robot=pb_robot, qs=q, dt=dt)
         elif x == "prev":
             TRAJ_IDX -= 1
             TRAJ_IDX = np.clip(TRAJ_IDX, 0, len(success_idxs) - 1)
             q, qd, dt = qs[TRAJ_IDX], qds[TRAJ_IDX], dts[TRAJ_IDX]
+            print(f"Visualizing trajectory {TRAJ_IDX}")
             animate_robot(robot=pb_robot, qs=q, dt=dt)
         elif x == "c":
             draw_collision_spheres_default_config(robot=pb_robot)
         elif x == "r":
-            remove_collision_spheres()
+            remove_collision_spheres_default_config()
         elif x == "q":
             break
         else:

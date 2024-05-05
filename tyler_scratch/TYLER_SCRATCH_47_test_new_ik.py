@@ -597,18 +597,14 @@ np.max(d_world), np.max(d_self)
 q, qd, qdd, dt, one_result, one_motion_gen = solve_trajopt(
     X_W_H=X_W_Hs[0],
     q_algr_constraint=grasp_config_dict['joint_angles'][0],
-    collision_check_object=False,
+    collision_check_object=True,
     obj_filepath=OBJECT_OBJ_PATH,
     obj_xyz=(0.65, 0.0, 0.0),
     obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
-    collision_check_table=False,
+    collision_check_table=True,
     enable_opt=False,
     enable_graph=True,
     raise_if_fail=False,
     use_cuda_graph=False
 )
-
-# %%
-X_W_Hs[0]
-
 # %%

@@ -1,8 +1,8 @@
 from tqdm import tqdm
+import time
 from typing import Optional, Tuple, List
 from nerfstudio.models.base_model import Model
 from nerf_grasping.grasp_utils import load_nerf_pipeline
-from nerf_grasping.fr3_algr_ik.ik import solve_ik
 from nerf_grasping.optimizer import get_optimized_grasps
 from nerf_grasping.optimizer_utils import (
     get_sorted_grasps_from_dict,
@@ -30,8 +30,6 @@ import numpy as np
 from dataclasses import dataclass
 import plotly.graph_objects as go
 from datetime import datetime
-
-import nerf_grasping
 
 
 @dataclass
@@ -551,11 +549,12 @@ def run_drake(cfg, X_W_Hs, q_algr_pres) -> None:
         verbose=False,
         ignore_obj_collision=False,
     )
+    print("Breakpoint to visualize")
     breakpoint()
 
 
 def run_curobo(cfg, X_W_Hs, q_algr_pres):
-    from nerf_grasping.curobo_fr3_algr_zed2i.trajopt_batch import solve_trajopt_batch
+    from nerf_grasping.curobo_fr3_algr_zed2i.trajopt_batch import solve_trajopt_batch, get_trajectories_from_result
     from nerf_grasping.curobo_fr3_algr_zed2i.ik_fr3_algr_zed2i import (
         max_penetration_from_qs,
     )
@@ -583,38 +582,17 @@ def run_curobo(cfg, X_W_Hs, q_algr_pres):
     success_idxs = result.success.nonzero().flatten().tolist()
     print(f"success_idxs: {success_idxs}")
 
+    qs, qds, dts = get_trajectories_from_result(result=result)
     TRAJ_IDX = success_idxs[0] if len(success_idxs) > 0 else 0
     print(f"Visualizing trajectory {TRAJ_IDX}")
-    q = result.get_paths()[TRAJ_IDX].position.detach().cpu().numpy()
-    qd = result.get_paths()[TRAJ_IDX].velocity.detach().cpu().numpy()
-
-    n_timesteps = q.shape[0]
-    assert q.shape == (n_timesteps, 23)
-    print(f"q.shape: {q.shape}")
-    if ENABLE_TRAJOPT:
-        # When using trajopt, interpolation_dt is correct and qd is populated
-        assert (np.absolute(qd) > 1e-4).any()  # qd is populated
-
-        dt = result.interpolation_dt
-        total_time = n_timesteps * dt
-    else:
-        # Without trajopt, it is simply a linear interpolation between waypoints
-        # with a fixed number of timesteps, so interpolation_dt is way too big
-        # and qd is not populated
-        assert (np.absolute(qd) < 1e-4).all()  # qd is not populated
-        assert n_timesteps * result.interpolation_dt > 60  # interpolation_dt is too big
-
-        total_time = 5.0
-        dt = total_time / n_timesteps
-
-    print(f"dt = {dt}, n_timesteps = {n_timesteps}, total_time = {total_time}")
+    q, qd, dt = qs[TRAJ_IDX], qds[TRAJ_IDX], dts[TRAJ_IDX]
 
     # Check for collisions
     d_world, d_self = max_penetration_from_qs(
         qs=q,
         include_object=True,
         obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
-        obj_xyz=(0.65, 0.0, 0.0),
+        obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
         obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
         include_table=True,
     )
@@ -622,144 +600,46 @@ def run_curobo(cfg, X_W_Hs, q_algr_pres):
     print(f"np.max(d_self): {np.max(d_self)}")
 
     # Visualize
-    OBJECT_URDF_PATH = create_urdf(obj_path=pathlib.Path("/tmp/mesh_viz_object.obj"))
-    import pybullet as pb
-    from curobo.util_file import (
-        get_robot_configs_path,
-        join_path,
-        load_yaml,
-    )
-
-    from nerf_grasping.curobo_fr3_algr_zed2i.pybullet_utils import (
-        draw_collision_spheres,
+    from nerf_grasping.curobo_fr3_algr_zed2i.visualizer import (
+        start_visualizer,
+        draw_collision_spheres_default_config,
         remove_collision_spheres,
-    )
-    import yaml
-    import time
-
-    from nerf_grasping.curobo_fr3_algr_zed2i.trajopt_fr3_algr_zed2i import (
-        DEFAULT_Q_ALGR,
-        DEFAULT_Q_FR3,
+        set_robot_state,
+        animate_robot,
     )
 
-    FR3_ALGR_ZED2I_URDF_PATH = pathlib.Path(
-        "/juno/u/tylerlum/github_repos/nerf_grasping/nerf_grasping/fr3_algr_ik/allegro_ros2/models/fr3_algr_zed2i.urdf"
-    )
-    assert FR3_ALGR_ZED2I_URDF_PATH.exists()
+    OBJECT_URDF_PATH = create_urdf(obj_path=pathlib.Path("/tmp/mesh_viz_object.obj"))
+    pb_robot = start_visualizer(object_urdf_path=OBJECT_URDF_PATH)
+    draw_collision_spheres_default_config(pb_robot)
+    time.sleep(1.0)
 
-    COLLISION_SPHERES_YAML_PATH = load_yaml(
-        join_path(get_robot_configs_path(), "fr3_algr_zed2i_with_fingertips.yml")
-    )["robot_cfg"]["kinematics"]["collision_spheres"]
-    COLLISION_SPHERES_YAML_PATH = pathlib.Path(
-        join_path(get_robot_configs_path(), COLLISION_SPHERES_YAML_PATH)
-    )
-    assert COLLISION_SPHERES_YAML_PATH.exists()
-
-    pb.connect(pb.GUI)
-    r = pb.loadURDF(
-        str(FR3_ALGR_ZED2I_URDF_PATH),
-        useFixedBase=True,
-        basePosition=[0, 0, 0],
-        baseOrientation=[0, 0, 0, 1],
-    )
-    num_total_joints = pb.getNumJoints(r)
-    assert num_total_joints == 39
-
-    obj = pb.loadURDF(
-        str(OBJECT_URDF_PATH),
-        useFixedBase=True,
-        basePosition=[
-            0.65,
-            0,
-            0,
-        ],
-        baseOrientation=[0, 0, 0, 1],
-    )
-
-    joint_names = [
-        pb.getJointInfo(r, i)[1].decode("utf-8")
-        for i in range(num_total_joints)
-        if pb.getJointInfo(r, i)[2] != pb.JOINT_FIXED
-    ]
-    link_names = [
-        pb.getJointInfo(r, i)[12].decode("utf-8")
-        for i in range(num_total_joints)
-        if pb.getJointInfo(r, i)[2] != pb.JOINT_FIXED
-    ]
-
-    actuatable_joint_idxs = [
-        i for i in range(num_total_joints) if pb.getJointInfo(r, i)[2] != pb.JOINT_FIXED
-    ]
-    num_actuatable_joints = len(actuatable_joint_idxs)
-    assert num_actuatable_joints == 23
-    arm_actuatable_joint_idxs = actuatable_joint_idxs[:7]
-    hand_actuatable_joint_idxs = actuatable_joint_idxs[7:]
-
-    for i, joint_idx in enumerate(arm_actuatable_joint_idxs):
-        pb.resetJointState(r, joint_idx, DEFAULT_Q_FR3[i])
-
-    for i, joint_idx in enumerate(hand_actuatable_joint_idxs):
-        pb.resetJointState(r, joint_idx, DEFAULT_Q_ALGR[i])
-
-    collision_config = yaml.safe_load(
-        open(
-            COLLISION_SPHERES_YAML_PATH,
-            "r",
-        )
-    )
-    draw_collision_spheres(
-        robot=r,
-        config=collision_config,
-    )
-
-    N_pts = q.shape[0]
     remove_collision_spheres()
-
-    last_update_time = time.time()
-    for i in tqdm(range(N_pts)):
-        position = q[i]
-        assert position.shape == (23,)
-        # print(f"{i} / {N_pts} {position}")
-
-        for i, joint_idx in enumerate(arm_actuatable_joint_idxs):
-            pb.resetJointState(r, joint_idx, position[i])
-        for i, joint_idx in enumerate(hand_actuatable_joint_idxs):
-            pb.resetJointState(r, joint_idx, position[i + 7])
-
-        time_since_last_update = time.time() - last_update_time
-        if time_since_last_update <= dt:
-            time.sleep(dt - time_since_last_update)
-        last_update_time = time.time()
+    animate_robot(robot=pb_robot, qs=q, dt=dt)
 
     while True:
         x = input(
-            "Press v to visualize traj, c to draw collision spheres, r to remove collision spheres, q to quit"
+            "Press v to visualize traj, next to go to next traj, prev to go to prev traj, to draw collision spheres, r to remove collision spheres, q to quit"
         )
         if x == "v":
-            last_update_time = time.time()
-            for i in tqdm(range(N_pts)):
-                position = q[i]
-                assert position.shape == (23,)
-                # print(f"{i} / {N_pts} {position}")
-
-                for i, joint_idx in enumerate(arm_actuatable_joint_idxs):
-                    pb.resetJointState(r, joint_idx, position[i])
-                for i, joint_idx in enumerate(hand_actuatable_joint_idxs):
-                    pb.resetJointState(r, joint_idx, position[i + 7])
-
-                time_since_last_update = time.time() - last_update_time
-                if time_since_last_update <= dt:
-                    time.sleep(dt - time_since_last_update)
-                last_update_time = time.time()
+            animate_robot(robot=pb_robot, qs=q, dt=dt)
+        elif x == "next":
+            TRAJ_IDX += 1
+            TRAJ_IDX = np.clip(TRAJ_IDX, 0, len(success_idxs) - 1)
+            q, qd, dt = qs[TRAJ_IDX], qds[TRAJ_IDX], dts[TRAJ_IDX]
+            animate_robot(robot=pb_robot, qs=q, dt=dt)
+        elif x == "prev":
+            TRAJ_IDX -= 1
+            TRAJ_IDX = np.clip(TRAJ_IDX, 0, len(success_idxs) - 1)
+            q, qd, dt = qs[TRAJ_IDX], qds[TRAJ_IDX], dts[TRAJ_IDX]
+            animate_robot(robot=pb_robot, qs=q, dt=dt)
         elif x == "c":
-            draw_collision_spheres(
-                robot=r,
-                config=collision_config,
-            )
+            draw_collision_spheres_default_config(robot=pb_robot)
         elif x == "r":
             remove_collision_spheres()
         elif x == "q":
             break
+        else:
+            print(f"Invalid input: {x}")
 
     breakpoint()
 

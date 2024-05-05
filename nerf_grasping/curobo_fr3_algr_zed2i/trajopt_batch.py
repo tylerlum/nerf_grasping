@@ -1,6 +1,6 @@
 import pathlib
 import time
-from typing import Optional, Tuple
+from typing import Optional, Tuple, List
 
 import numpy as np
 import torch
@@ -10,7 +10,13 @@ from curobo.cuda_robot_model.cuda_robot_model import (
     CudaRobotModel,
 )
 
-from curobo.geom.types import WorldConfig
+from curobo.geom.sdf.world import CollisionCheckerType
+from curobo.wrap.reacher.motion_gen import (
+    MotionGen,
+    MotionGenConfig,
+    MotionGenPlanConfig,
+    MotionGenResult,
+)
 from curobo.types.base import TensorDeviceType
 from curobo.types.math import Pose
 from curobo.types.robot import RobotConfig, JointState
@@ -106,7 +112,7 @@ def solve_trajopt_batch(
     enable_graph: bool = True,
     enable_opt: bool = False,  # Getting some errors from setting this to True
     timeout: float = 5.0,
-):
+) -> MotionGenResult:
     start_time = time.time()
     print("Step 1: Prepare cfg")
     N_GRASPS = X_W_Hs.shape[0]
@@ -193,13 +199,6 @@ def solve_trajopt_batch(
     state2 = kin_model2.get_state(q2)
 
     print("Step 6: Solve motion generation")
-    from curobo.geom.sdf.world import CollisionCheckerType
-    from curobo.wrap.reacher.motion_gen import (
-        MotionGen,
-        MotionGenConfig,
-        MotionGenPlanConfig,
-    )
-
     motion_gen_config = MotionGenConfig.load_from_robot_config(
         robot_cfg,
         world_cfg,
@@ -236,7 +235,7 @@ def solve_trajopt_batch(
             enable_opt=enable_opt,
             max_attempts=10,
             num_trajopt_seeds=10,
-            num_graph_seeds=1,
+            num_graph_seeds=1,  # Must be 1 for plan_batch
             timeout=timeout,
         ),
         link_poses=state2.link_pose,
@@ -246,6 +245,54 @@ def solve_trajopt_batch(
     print(f"Total time taken: {end_time - start_time} seconds")
 
     return motion_result
+
+
+def get_trajectories_from_result(
+    result: MotionGenResult,
+) -> Tuple[List[np.ndarray], List[np.ndarray], List[float]]:
+    used_trajopt = result.trajopt_attempts > 0
+
+    paths = result.get_paths()
+
+    qs, qds, dts = [], [], []
+    for i, path in enumerate(paths):
+        q = path.position.detach().cpu().numpy()
+        qd = path.velocity.detach().cpu().numpy()
+
+        n_timesteps = q.shape[0]
+        assert q.shape == (n_timesteps, 23)
+
+        if used_trajopt:
+            # When using trajopt, interpolation_dt is correct and qd is populated
+            assert (np.absolute(qd) > 1e-4).any()  # qd is populated
+
+            dt = result.interpolation_dt
+            total_time = n_timesteps * dt
+        else:
+            # Without trajopt, it is simply a linear interpolation between waypoints
+            # with a fixed number of timesteps, so interpolation_dt is way too big
+            # and qd is not populated
+            assert (np.absolute(qd) < 1e-4).all()  # qd is not populated
+            assert (
+                n_timesteps * result.interpolation_dt > 60
+            )  # interpolation_dt is too big
+
+            total_time = 5.0
+            dt = total_time / n_timesteps
+
+            qd = np.diff(q, axis=0) / dt
+            qd = np.concatenate([qd, qd[-1:]], axis=0)
+            assert qd.shape == q.shape
+
+        qs.append(q)
+        qds.append(qd)
+        dts.append(dt)
+
+    return (
+        qs,
+        qds,
+        dts,
+    )
 
 
 def main() -> None:

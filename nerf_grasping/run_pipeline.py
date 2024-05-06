@@ -645,6 +645,7 @@ def run_curobo(
     )
     from nerf_grasping.curobo_fr3_algr_zed2i.ik_fr3_algr_zed2i import (
         max_penetration_from_qs,
+        max_penetration_from_q,
     )
 
     n_grasps = X_W_Hs.shape[0]
@@ -689,7 +690,7 @@ def run_curobo(
         f"ik_success_idxs2: {ik_success_idxs2} ({len(ik_success_idxs2)} / {n_grasps} = {len(ik_success_idxs2) / n_grasps * 100:.2f}%)"
     )
 
-    RUN_TRAJOPT_AS_WELL = False
+    RUN_TRAJOPT_AS_WELL = True
     if RUN_TRAJOPT_AS_WELL:
         print("\n" + "=" * 80)
         print("RUNNING TRAJOPT AS WELL")
@@ -784,6 +785,8 @@ def run_curobo(
                 "d to print collision distance",
                 "vt for visualize trajopt traj",
                 "dt for print trajopt collision distance",
+                "i to move hand to exact X_W_H and q_algr_pre without collision check",
+                "i2 to move hand to exact X_W_H and q_algr_pre with collision check",
                 "e for execute the grasp",
                 "n to go to next traj",
                 "p to go to prev traj",
@@ -858,6 +861,37 @@ def run_curobo(
             interpolated_qs = interpolate(start=start_q, end=end_q, N=n_steps)
             assert interpolated_qs.shape == (n_steps, 23)
             animate_robot(robot=pb_robot, qs=interpolated_qs, dt=interp_dt)
+        elif x == "i":
+            print(f"Moving hand to exact X_W_H and q_algr_pre of trajectory {TRAJ_IDX} with IK no collision check")
+            ik_q = ik_result.solution[TRAJ_IDX].flatten().detach().cpu().numpy()
+            assert ik_q.shape == (23,)
+            ik_q[7:] = q_algr_pres[TRAJ_IDX]
+            set_robot_state(robot=pb_robot, q=ik_q)
+            d_world, d_self = max_penetration_from_q(
+                q=ik_q,
+                include_object=True,
+                obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
+                obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
+                obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+                include_table=True,
+            )
+            print(f"np.max(d_world): {np.max(d_world)}")
+            print(f"np.max(d_self): {np.max(d_self)}")
+        elif x == "i2":
+            print(f"Moving hand to exact X_W_H and q_algr_pre of trajectory {TRAJ_IDX} with IK collision check")
+            ik_q = ik_result2.solution[TRAJ_IDX].flatten().detach().cpu().numpy()
+            assert ik_q.shape == (23,)
+            set_robot_state(robot=pb_robot, q=ik_q)
+            d_world, d_self = max_penetration_from_q(
+                q=ik_q,
+                include_object=True,
+                obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
+                obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
+                obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+                include_table=True,
+            )
+            print(f"np.max(d_world): {np.max(d_world)}")
+            print(f"np.max(d_self): {np.max(d_self)}")
         elif x == "n":
             TRAJ_IDX += 1
             if TRAJ_IDX >= len(qs):

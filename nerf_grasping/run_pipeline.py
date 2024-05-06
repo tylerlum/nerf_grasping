@@ -672,22 +672,35 @@ def run_curobo(
         collision_sphere_buffer=0.01,
     )
 
-    success_idxs = motion_gen_result.success.flatten().nonzero().flatten().tolist()
+    motion_gen_success_idxs = (
+        motion_gen_result.success.flatten().nonzero().flatten().tolist()
+    )
     ik_success_idxs = ik_result.success.flatten().nonzero().flatten().tolist()
     ik_success_idxs2 = ik_result2.success.flatten().nonzero().flatten().tolist()
+    overall_success_idxs = sorted(
+        list(
+            set(motion_gen_success_idxs).intersection(
+                set(ik_success_idxs).intersection(set(ik_success_idxs2))
+            )
+        )
+    )  # All must be successful or else it may be successful for the wrong trajectory
+
     print("\n" + "=" * 80)
     print(
         "Motion generation without trajectory optimization complete, printing results"
     )
     print("=" * 80 + "\n")
     print(
-        f"success_idxs: {success_idxs} ({len(success_idxs)} / {n_grasps} = {len(success_idxs) / n_grasps * 100:.2f}%)"
+        f"motion_gen_success_idxs: {motion_gen_success_idxs} ({len(motion_gen_success_idxs)} / {n_grasps} = {len(motion_gen_success_idxs) / n_grasps * 100:.2f}%)"
     )
     print(
         f"ik_success_idxs: {ik_success_idxs} ({len(ik_success_idxs)} / {n_grasps} = {len(ik_success_idxs) / n_grasps * 100:.2f}%)"
     )
     print(
         f"ik_success_idxs2: {ik_success_idxs2} ({len(ik_success_idxs2)} / {n_grasps} = {len(ik_success_idxs2) / n_grasps * 100:.2f}%)"
+    )
+    print(
+        f"overall_success_idxs: {overall_success_idxs} ({len(overall_success_idxs)} / {n_grasps} = {len(overall_success_idxs) / n_grasps * 100:.2f}%)"
     )
 
     RUN_TRAJOPT_AS_WELL = True
@@ -720,6 +733,15 @@ def run_curobo(
         trajopt_ik_success_idxs2 = (
             trajopt_ik_result2.success.flatten().nonzero().flatten().tolist()
         )
+        overall_trajopt_success_idxs = sorted(
+            list(
+                set(trajopt_success_idxs).intersection(
+                    set(trajopt_ik_success_idxs).intersection(
+                        set(trajopt_ik_success_idxs2)
+                    )
+                )
+            )
+        )
         print("\n" + "=" * 80)
         print("Trajectory optimization complete, printing results")
         print("=" * 80 + "\n")
@@ -732,12 +754,15 @@ def run_curobo(
         print(
             f"trajopt_ik_success_idxs2: {trajopt_ik_success_idxs2} ({len(trajopt_ik_success_idxs2)} / {n_grasps} = {len(trajopt_ik_success_idxs2) / n_grasps * 100:.2f}%)"
         )
+        print(
+            f"overall_trajopt_success_idxs: {overall_trajopt_success_idxs} ({len(overall_trajopt_success_idxs)} / {n_grasps} = {len(overall_trajopt_success_idxs) / n_grasps * 100:.2f}%)"
+        )
         trajopt_qs, trajopt_qds, trajopt_dts = get_trajectories_from_result(
             result=trajopt_motion_gen_result
         )
 
     qs, qds, dts = get_trajectories_from_result(result=motion_gen_result)
-    TRAJ_IDX = success_idxs[0] if len(success_idxs) > 0 else 0
+    TRAJ_IDX = overall_success_idxs[0] if len(overall_success_idxs) > 0 else 0
     print(f"Using trajectory {TRAJ_IDX}")
     q, qd, dt = qs[TRAJ_IDX], qds[TRAJ_IDX], dts[TRAJ_IDX]
 
@@ -778,7 +803,7 @@ def run_curobo(
     animate_robot(robot=pb_robot, qs=q, dt=dt)
 
     while True:
-        input_options = ", ".join(
+        input_options = "\n".join(
             [
                 "b for breakpoint",
                 "v to visualize traj",
@@ -795,7 +820,7 @@ def run_curobo(
                 "q to quit",
             ]
         )
-        x = input(input_options + "\n")
+        x = input("\n" + input_options + "\n")
         if x == "b":
             print("Breakpoint")
             breakpoint()
@@ -862,7 +887,9 @@ def run_curobo(
             assert interpolated_qs.shape == (n_steps, 23)
             animate_robot(robot=pb_robot, qs=interpolated_qs, dt=interp_dt)
         elif x == "i":
-            print(f"Moving hand to exact X_W_H and q_algr_pre of trajectory {TRAJ_IDX} with IK no collision check")
+            print(
+                f"Moving hand to exact X_W_H and q_algr_pre of trajectory {TRAJ_IDX} with IK no collision check"
+            )
             ik_q = ik_result.solution[TRAJ_IDX].flatten().detach().cpu().numpy()
             assert ik_q.shape == (23,)
             ik_q[7:] = q_algr_pres[TRAJ_IDX]
@@ -878,7 +905,9 @@ def run_curobo(
             print(f"np.max(d_world): {np.max(d_world)}")
             print(f"np.max(d_self): {np.max(d_self)}")
         elif x == "i2":
-            print(f"Moving hand to exact X_W_H and q_algr_pre of trajectory {TRAJ_IDX} with IK collision check")
+            print(
+                f"Moving hand to exact X_W_H and q_algr_pre of trajectory {TRAJ_IDX} with IK collision check"
+            )
             ik_q = ik_result2.solution[TRAJ_IDX].flatten().detach().cpu().numpy()
             assert ik_q.shape == (23,)
             set_robot_state(robot=pb_robot, q=ik_q)

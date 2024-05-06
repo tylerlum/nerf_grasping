@@ -437,9 +437,13 @@ def run_pipeline(
     print(f"METHOD: {METHOD}")
     print("=" * 80 + "\n")
     if METHOD == "DRAKE":
-        run_drake(cfg=cfg, X_W_Hs=X_W_Hs, q_algr_pres=q_algr_pres)
+        run_drake(
+            cfg=cfg, X_W_Hs=X_W_Hs, q_algr_pres=q_algr_pres, q_algr_posts=q_algr_posts
+        )
     elif METHOD == "CUROBO":
-        run_curobo(cfg=cfg, X_W_Hs=X_W_Hs, q_algr_pres=q_algr_pres)
+        run_curobo(
+            cfg=cfg, X_W_Hs=X_W_Hs, q_algr_pres=q_algr_pres, q_algr_posts=q_algr_posts
+        )
     else:
         raise ValueError(f"Invalid METHOD: {METHOD}")
 
@@ -454,7 +458,12 @@ def run_pipeline(
     )
 
 
-def run_drake(cfg, X_W_Hs, q_algr_pres) -> None:
+def run_drake(
+    cfg: PipelineConfig,
+    X_W_Hs: np.ndarray,
+    q_algr_pres: np.ndarray,
+    q_algr_posts: np.ndarray,
+) -> None:
     from nerf_grasping.fr3_algr_ik.ik import solve_ik
 
     num_grasps = X_W_Hs.shape[0]
@@ -624,7 +633,12 @@ def run_drake(cfg, X_W_Hs, q_algr_pres) -> None:
     breakpoint()
 
 
-def run_curobo(cfg, X_W_Hs, q_algr_pres):
+def run_curobo(
+    cfg: PipelineConfig,
+    X_W_Hs: np.ndarray,
+    q_algr_pres: np.ndarray,
+    q_algr_posts: np.ndarray,
+):
     from nerf_grasping.curobo_fr3_algr_zed2i.trajopt_batch import (
         solve_trajopt_batch,
         get_trajectories_from_result,
@@ -770,6 +784,7 @@ def run_curobo(cfg, X_W_Hs, q_algr_pres):
                 "d to print collision distance",
                 "vt for visualize trajopt traj",
                 "dt for print trajopt collision distance",
+                "e for execute the grasp",
                 "n to go to next traj",
                 "p to go to prev traj",
                 "c to draw collision spheres",
@@ -831,6 +846,18 @@ def run_curobo(cfg, X_W_Hs, q_algr_pres):
                 print(f"np.max(d_self): {np.max(d_self)}")
             else:
                 print("Trajopt was not run")
+        elif x == "e":
+            q, qd, dt = qs[TRAJ_IDX], qds[TRAJ_IDX], dts[TRAJ_IDX]
+            print(f"Executing trajectory {TRAJ_IDX}")
+            start_q = q[-1]
+            end_q = np.concatenate([start_q[:7], q_algr_posts[TRAJ_IDX]])
+            assert start_q.shape == end_q.shape == (23,)
+            n_steps = 100
+            total_time = 2.0
+            interp_dt = total_time / n_steps
+            interpolated_qs = interpolate(start=start_q, end=end_q, N=n_steps)
+            assert interpolated_qs.shape == (n_steps, 23)
+            animate_robot(robot=pb_robot, qs=interpolated_qs, dt=interp_dt)
         elif x == "n":
             TRAJ_IDX += 1
             if TRAJ_IDX >= len(qs):
@@ -854,6 +881,15 @@ def run_curobo(cfg, X_W_Hs, q_algr_pres):
             print(f"Invalid input: {x}")
 
     breakpoint()
+
+
+def interpolate(start, end, N):
+    d = start.shape[0]
+    assert start.shape == end.shape == (d,)
+    interpolated = np.zeros((N, d))
+    for i in range(d):
+        interpolated[:, i] = np.linspace(start[i], end[i], N)
+    return interpolated
 
 
 @dataclass

@@ -759,9 +759,12 @@ def run_curobo(
     q_algr_start_lifts = q_algr_pres
     q_start_lifts = np.concatenate([q_fr3_start_lifts, q_algr_start_lifts], axis=1)
     X_W_H_lifts = X_W_Hs.copy()
-    X_W_H_lifts[:, 2, 3] += 0.1  # Lift up 20 cm
-    X_W_H_lifts[:, 0, 3] -= 0.1  # Lift up 20 cm
+    X_W_H_lifts[:, 2, 3] += 0.2  # Lift up 20 cm
     assert q_start_lifts.shape == (n_grasps, 23)
+
+    # FIX ONES WITH ISSUE HACK
+    q_fr3_start_lifts[6] = q_fr3_start_lifts[5]
+    X_W_H_lifts[6] = X_W_H_lifts[5]
 
     NEW_motion_gen_result, NEW_ik_result, NEW_ik_result2 = solve_trajopt_batch(
         X_W_Hs=X_W_H_lifts,

@@ -298,8 +298,6 @@ class AllegroFR3TrajOpt:
         # for the hand limits, make sure q0 and qf are included in them
         lb = self.plant.GetPositionLowerLimits()
         ub = self.plant.GetPositionUpperLimits()
-        print(f"lb: {lb}")
-        print(f"ub: {ub}")
         lb[7:] = np.minimum(lb[7:], q0[7:])
         ub[7:] = np.maximum(ub[7:], q0[7:])
         lb[7:] = np.minimum(lb[7:], qf[7:])

@@ -389,7 +389,7 @@ def run_pipeline(
         print_best=False,
     )
 
-    MODE = "JOINTS_OPEN"
+    MODE = "JOINTS_OPEN"  # TODO: Compare these
     print("!" * 80)
     print(f"MODE: {MODE}")
     print("!" * 80 + "\n")
@@ -432,7 +432,7 @@ def run_pipeline(
     X_W_Hs = np.stack([X_W_N @ X_N_Oy @ X_Oy_Hs[i] for i in range(num_grasps)], axis=0)
     assert X_W_Hs.shape == (num_grasps, 4, 4)
 
-    METHOD = "CUROBO"
+    METHOD = "DRAKE"  # TODO: Compare these
     print("=" * 80)
     print(f"METHOD: {METHOD}")
     print("=" * 80 + "\n")
@@ -510,9 +510,6 @@ def run_drake(cfg, X_W_Hs, q_algr_pres) -> None:
     not_attempted_trajopt_idxs = []
     for i, q_star in tqdm(enumerate(q_stars), total=num_grasps):
         if q_star is None:
-            print("$" * 80)
-            print(f"Trajectory optimization skipped for grasp {i}")
-            print("$" * 80 + "\n")
             not_attempted_trajopt_idxs.append(i)
             continue
 
@@ -528,30 +525,100 @@ def run_drake(cfg, X_W_Hs, q_algr_pres) -> None:
                 verbose=False,
                 ignore_obj_collision=False,
             )
-            print("^" * 80)
-            print(f"Trajectory optimization succeeded for grasp {i}")
-            print("^" * 80 + "\n")
             passing_trajopt_idxs.append(i)
 
         except RuntimeError as e:
-            print("~" * 80)
-            print(f"Trajectory optimization failed for grasp {i}")
-            print("~" * 80 + "\n")
             failed_trajopt_idxs.append(i)
 
     print(f"passing_trajopt_idxs: {passing_trajopt_idxs}")
     print(f"failed_trajopt_idxs: {failed_trajopt_idxs}")
-    spline, dspline, T_traj, trajopt = solve_trajopt(
-        q_fr3_0=q_fr3_0,
-        q_algr_0=q_algr_0,
-        q_fr3_f=q_stars[passing_trajopt_idxs[0]][:7],
-        q_algr_f=q_stars[passing_trajopt_idxs[0]][7:],
-        cfg=trajopt_cfg,
-        mesh_path=pathlib.Path("/tmp/mesh_viz_object.obj"),
-        visualize=True,
-        verbose=False,
-        ignore_obj_collision=False,
-    )
+    print(f"not_attempted_trajopt_idxs: {not_attempted_trajopt_idxs}")
+
+    TRAJ_IDX = passing_trajopt_idxs[0] if len(passing_trajopt_idxs) > 0 else 0
+    print(f"Visualizing trajectory {TRAJ_IDX}")
+    try:
+        spline, dspline, T_traj, trajopt = solve_trajopt(
+            q_fr3_0=q_fr3_0,
+            q_algr_0=q_algr_0,
+            q_fr3_f=q_stars[TRAJ_IDX][:7],
+            q_algr_f=q_stars[TRAJ_IDX][7:],
+            cfg=trajopt_cfg,
+            mesh_path=pathlib.Path("/tmp/mesh_viz_object.obj"),
+            visualize=True,
+            verbose=False,
+            ignore_obj_collision=False,
+        )
+    except RuntimeError as e:
+        print(f"Failed to visualize trajectory {TRAJ_IDX}")
+
+    while True:
+        input_options = ", ".join([
+            "b for breakpoint",
+            "r to run trajopt with object collision",
+            "o to run trajopt without object collision",
+            "next to go to next traj",
+            "prev to go to prev traj",
+            "q to quit",
+        ])
+        x = input(input_options + "\n")
+        if x == "b":
+            print("Breakpoint")
+            breakpoint()
+        elif x == "r":
+            print(f"Visualizing trajectory {TRAJ_IDX} with object collision")
+            if q_stars[TRAJ_IDX] is not None:
+                try:
+                    spline, dspline, T_traj, trajopt = solve_trajopt(
+                        q_fr3_0=q_fr3_0,
+                        q_algr_0=q_algr_0,
+                        q_fr3_f=q_stars[TRAJ_IDX][:7],
+                        q_algr_f=q_stars[TRAJ_IDX][7:],
+                        cfg=trajopt_cfg,
+                        mesh_path=pathlib.Path("/tmp/mesh_viz_object.obj"),
+                        visualize=True,
+                        verbose=False,
+                        ignore_obj_collision=False,
+                    )
+                except RuntimeError as e:
+                    print(f"Failed to visualize trajectory {TRAJ_IDX}")
+            else:
+                print(f"Trajectory {TRAJ_IDX} is None, skipping")
+        elif x == "o":
+            print(f"Visualizing trajectory {TRAJ_IDX} without object collision")
+            if q_stars[TRAJ_IDX] is not None:
+                try:
+                    spline, dspline, T_traj, trajopt = solve_trajopt(
+                        q_fr3_0=q_fr3_0,
+                        q_algr_0=q_algr_0,
+                        q_fr3_f=q_stars[TRAJ_IDX][:7],
+                        q_algr_f=q_stars[TRAJ_IDX][7:],
+                        cfg=trajopt_cfg,
+                        mesh_path=pathlib.Path("/tmp/mesh_viz_object.obj"),
+                        visualize=True,
+                        verbose=False,
+                        ignore_obj_collision=True,
+                    )
+                except RuntimeError as e:
+                    print(f"Failed to visualize trajectory {TRAJ_IDX}")
+            else:
+                print(f"Trajectory {TRAJ_IDX} is None, skipping")
+        elif x == "next":
+            TRAJ_IDX += 1
+            if TRAJ_IDX >= num_grasps:
+                TRAJ_IDX = 0
+            print(f"Using trajectory {TRAJ_IDX}")
+        elif x == "prev":
+            TRAJ_IDX -= 1
+            if TRAJ_IDX < 0:
+                TRAJ_IDX = num_grasps - 1
+            print(f"Using trajectory {TRAJ_IDX}")
+        elif x == "q":
+            print("Quitting")
+            break
+        else:
+            print(f"Invalid input: {x}")
+
+
     print("Breakpoint to visualize")
     breakpoint()
 
@@ -592,6 +659,9 @@ def run_curobo(cfg, X_W_Hs, q_algr_pres):
     success_idxs = motion_gen_result.success.flatten().nonzero().flatten().tolist()
     ik_success_idxs = ik_result.success.flatten().nonzero().flatten().tolist()
     ik_success_idxs2 = ik_result2.success.flatten().nonzero().flatten().tolist()
+    print("\n" + "=" * 80)
+    print("Trajectory optimization complete, printing results")
+    print("=" * 80 + "\n")
     print(
         f"success_idxs: {success_idxs} ({len(success_idxs)} / {n_grasps} = {len(success_idxs) / n_grasps * 100:.2f}%)"
     )
@@ -604,7 +674,7 @@ def run_curobo(cfg, X_W_Hs, q_algr_pres):
 
     qs, qds, dts = get_trajectories_from_result(result=motion_gen_result)
     TRAJ_IDX = success_idxs[0] if len(success_idxs) > 0 else 0
-    print(f"Visualizing trajectory {TRAJ_IDX}")
+    print(f"Using trajectory {TRAJ_IDX}")
     q, qd, dt = qs[TRAJ_IDX], qds[TRAJ_IDX], dts[TRAJ_IDX]
 
     # Check for collisions
@@ -621,6 +691,9 @@ def run_curobo(cfg, X_W_Hs, q_algr_pres):
     print(f"np.max(d_self): {np.max(d_self)}")
 
     # Visualize
+    print("\n" + "=" * 80)
+    print("Visualizing")
+    print("=" * 80 + "\n")
     from nerf_grasping.curobo_fr3_algr_zed2i.visualizer import (
         start_visualizer,
         draw_collision_spheres_default_config,
@@ -636,6 +709,7 @@ def run_curobo(cfg, X_W_Hs, q_algr_pres):
     time.sleep(1.0)
 
     remove_collision_spheres_default_config()
+    print(f"Visualizing trajectory {TRAJ_IDX}")
     animate_robot(robot=pb_robot, qs=q, dt=dt)
 
     while True:
@@ -654,9 +728,12 @@ def run_curobo(cfg, X_W_Hs, q_algr_pres):
             print("Breakpoint")
             breakpoint()
         elif x == "v":
+            q, qd, dt = qs[TRAJ_IDX], qds[TRAJ_IDX], dts[TRAJ_IDX]
             print(f"Visualizing trajectory {TRAJ_IDX}")
             animate_robot(robot=pb_robot, qs=q, dt=dt)
         elif x == "d":
+            q, qd, dt = qs[TRAJ_IDX], qds[TRAJ_IDX], dts[TRAJ_IDX]
+            print(f"For trajectory {TRAJ_IDX}")
             d_world, d_self = max_penetration_from_qs(
                 qs=q,
                 collision_activation_distance=0.0,
@@ -666,26 +743,26 @@ def run_curobo(cfg, X_W_Hs, q_algr_pres):
                 obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
                 include_table=True,
             )
-            print(f"For trajectory {TRAJ_IDX}")
             print(f"np.max(d_world): {np.max(d_world)}")
             print(f"np.max(d_self): {np.max(d_self)}")
         elif x == "next":
             TRAJ_IDX += 1
-            TRAJ_IDX = np.clip(TRAJ_IDX, 0, len(success_idxs) - 1)
-            q, qd, dt = qs[TRAJ_IDX], qds[TRAJ_IDX], dts[TRAJ_IDX]
-            print(f"Visualizing trajectory {TRAJ_IDX}")
-            animate_robot(robot=pb_robot, qs=q, dt=dt)
+            if TRAJ_IDX >= len(qs):
+                TRAJ_IDX = 0
+            print(f"Updated to trajectory {TRAJ_IDX}")
         elif x == "prev":
             TRAJ_IDX -= 1
-            TRAJ_IDX = np.clip(TRAJ_IDX, 0, len(success_idxs) - 1)
-            q, qd, dt = qs[TRAJ_IDX], qds[TRAJ_IDX], dts[TRAJ_IDX]
-            print(f"Visualizing trajectory {TRAJ_IDX}")
-            animate_robot(robot=pb_robot, qs=q, dt=dt)
+            if TRAJ_IDX < 0:
+                TRAJ_IDX = len(qs) - 1
+            print(f"Updated to trajectory {TRAJ_IDX}")
         elif x == "c":
+            print("Drawing collision spheres")
             draw_collision_spheres_default_config(robot=pb_robot)
         elif x == "r":
+            print("Removing collision spheres")
             remove_collision_spheres_default_config()
         elif x == "q":
+            print("Quitting")
             break
         else:
             print(f"Invalid input: {x}")

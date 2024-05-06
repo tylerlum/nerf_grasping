@@ -432,7 +432,7 @@ def run_pipeline(
     X_W_Hs = np.stack([X_W_N @ X_N_Oy @ X_Oy_Hs[i] for i in range(num_grasps)], axis=0)
     assert X_W_Hs.shape == (num_grasps, 4, 4)
 
-    METHOD = "DRAKE"  # TODO: Compare these
+    METHOD = "CUROBO"  # TODO: Compare these
     print("=" * 80)
     print(f"METHOD: {METHOD}")
     print("=" * 80 + "\n")

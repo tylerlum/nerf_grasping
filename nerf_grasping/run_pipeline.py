@@ -561,17 +561,21 @@ def run_drake(
         print(f"Failed to visualize trajectory {TRAJ_IDX}")
 
     while True:
-        input_options = ", ".join(
+        input_options = "\n".join(
             [
+                "=====================",
+                "OPTIONS",
                 "b for breakpoint",
                 "r to run trajopt with object collision",
                 "o to run trajopt without object collision",
                 "n to go to next traj",
                 "p to go to prev traj",
                 "q to quit",
+                "=====================",
             ]
         )
-        x = input(input_options + "\n")
+
+        x = input("\n" + input_options + "\n\n")
         if x == "b":
             print("Breakpoint")
             breakpoint()
@@ -805,6 +809,8 @@ def run_curobo(
     while True:
         input_options = "\n".join(
             [
+                "=====================",
+                "OPTIONS",
                 "b for breakpoint",
                 "v to visualize traj",
                 "d to print collision distance",
@@ -818,9 +824,10 @@ def run_curobo(
                 "c to draw collision spheres",
                 "r to remove collision spheres",
                 "q to quit",
+                "=====================",
             ]
         )
-        x = input("\n" + input_options + "\n")
+        x = input("\n" + input_options + "\n\n")
         if x == "b":
             print("Breakpoint")
             breakpoint()

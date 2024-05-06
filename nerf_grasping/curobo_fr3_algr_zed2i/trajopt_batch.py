@@ -152,7 +152,7 @@ def solve_trajopt_batch(
         collision_check_table=collision_check_table,
     )
 
-    print("Step 2: Solve IK for wrist pose")
+    print("Step 2: Solve IK for arm q")
     ik_config = IKSolverConfig.load_from_robot_config(
         robot_cfg,
         world_cfg,
@@ -175,7 +175,7 @@ def solve_trajopt_batch(
     assert q.shape == (N_GRASPS, 23)
     state = kin_model.get_state(q)
 
-    print("Step 4: Solve IK for wrist pose and fingertip poses")
+    print("Step 4: Solve IK for arm q and hand q")
     ik_config2 = IKSolverConfig.load_from_robot_config(
         robot_cfg,
         world_cfg,
@@ -279,7 +279,7 @@ def get_trajectories_from_result(
                 n_timesteps * result.interpolation_dt > 60
             )  # interpolation_dt is too big
 
-            total_time = 5.0
+            total_time = 3.5  # Hardcoded trajectory time
             dt = total_time / n_timesteps
 
             qd = np.diff(q, axis=0) / dt

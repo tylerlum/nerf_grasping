@@ -389,7 +389,7 @@ def run_pipeline(
         print_best=False,
     )
 
-    MODE = "JOINTS_OPEN"  # TODO: Compare these
+    MODE = "EXTRA_OPEN"  # TODO: Compare these
     print("!" * 80)
     print(f"MODE: {MODE}")
     print("!" * 80 + "\n")

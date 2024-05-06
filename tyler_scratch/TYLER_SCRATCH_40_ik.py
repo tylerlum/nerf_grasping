@@ -12,10 +12,12 @@ from nerf_grasping.dexgraspnet_utils.pose_conversion import (
 import plotly.graph_objects as go
 import math
 
+
 # %%
 def transform_point(transform_matrix, point):
     point = np.append(point, 1)
     return np.dot(transform_matrix, point)[:3]
+
 
 def add_transform_matrix_traces(fig, transform_matrix, length=0.1):
     origin = np.array([0, 0, 0])
@@ -28,7 +30,11 @@ def add_transform_matrix_traces(fig, transform_matrix, length=0.1):
     y_axis_transformed = transform_point(transform_matrix, y_axis)
     z_axis_transformed = transform_point(transform_matrix, z_axis)
 
-    for axis, color, name in zip([x_axis_transformed, y_axis_transformed, z_axis_transformed], ["red", "green", "blue"], ["x", "y", "z"]):
+    for axis, color, name in zip(
+        [x_axis_transformed, y_axis_transformed, z_axis_transformed],
+        ["red", "green", "blue"],
+        ["x", "y", "z"],
+    ):
         fig.add_trace(
             go.Scatter3d(
                 x=[origin_transformed[0], axis[0]],
@@ -41,21 +47,25 @@ def add_transform_matrix_traces(fig, transform_matrix, length=0.1):
         )
 
 
-
 # %%
 # grasp_config_dict = np.load("/juno/u/tylerlum/github_repos/DexGraspNet/data/2024-04-16_rotated_grasps_aggregated_augmented_pose_HALTON_50/aggregated_evaled_grasp_config_dicts_train/aggregated_evaled_grasp_config_dict_train.npy", allow_pickle=True).item()
 # grasp_config_dict = np.load("/juno/u/tylerlum/github_repos/DexGraspNet/data/2024-04-16_rotated_grasps_aggregated_augmented_pose_HALTON_50/aggregated_evaled_grasp_config_dicts_train_optimized/ddg-ycb_077_rubiks_cube_0_0545.npy", allow_pickle=True).item()
 # grasp_config_dict = np.load("/juno/u/tylerlum/Downloads/ddg-ycb_077_rubiks_cube_0_0545.npy", allow_pickle=True).item()
-grasp_config_dict = np.load("/juno/u/tylerlum/github_repos/DexGraspNet/data/2024-04-16_rotated_grasps_aggregated_augmented_pose_HALTON_50/aggregated_evaled_grasp_config_dicts_train_optimized/new_mug_0_9999.npy", allow_pickle=True).item()
+grasp_config_dict = np.load(
+    "/juno/u/tylerlum/github_repos/DexGraspNet/data/2024-04-16_rotated_grasps_aggregated_augmented_pose_HALTON_50/aggregated_evaled_grasp_config_dicts_train_optimized/new_mug_0_9999.npy",
+    allow_pickle=True,
+).item()
 # grasp_config_dict = np.load("/juno/u/tylerlum/Downloads/new_mug_0_9999.npy", allow_pickle=True).item()
 
-mesh = trimesh.load_mesh("/juno/u/tylerlum/github_repos/nerf_grasping/nerf_grasping/baselines/nerf_meshdata_rotated/new_mug/coacd/decomposed.obj")
+mesh = trimesh.load_mesh(
+    "/juno/u/tylerlum/github_repos/nerf_grasping/nerf_grasping/baselines/nerf_meshdata_rotated/new_mug/coacd/decomposed.obj"
+)
 
 # %%
 GRASP_IDX = 0
-trans = grasp_config_dict['trans']
-rot = grasp_config_dict['rot']
-joint_angles = grasp_config_dict['joint_angles']
+trans = grasp_config_dict["trans"]
+rot = grasp_config_dict["rot"]
+joint_angles = grasp_config_dict["joint_angles"]
 
 n_grasps = trans.shape[0]
 assert GRASP_IDX < n_grasps
@@ -89,7 +99,9 @@ if z_dir[0] < cos_theta:
 # %%
 device = "cuda"
 hand_model_type = HandModelType.ALLEGRO_HAND
-hand_model = HandModel(hand_model_type=hand_model_type, device=device, n_surface_points=1000)
+hand_model = HandModel(
+    hand_model_type=hand_model_type, device=device, n_surface_points=1000
+)
 
 # %%
 hand_pose = hand_config_to_pose(trans, rot, joint_angles).to(device)
@@ -102,9 +114,7 @@ pregrasp_plot_data = hand_model.get_plotly_data(i=GRASP_IDX, opacity=1.0)
 fig = go.Figure(data=pregrasp_plot_data)
 # yup
 yup_camera = dict(
-    up=dict(x=0, y=1, z=0),
-    center=dict(x=0, y=0, z=0),
-    eye=dict(x=1.25, y=1.25, z=1.25)
+    up=dict(x=0, y=1, z=0), center=dict(x=0, y=0, z=0), eye=dict(x=1.25, y=1.25, z=1.25)
 )
 
 fig.update_layout(
@@ -145,9 +155,7 @@ assert mesh.bounds.shape == (2, 3)
 X_N_O = trimesh.transformations.translation_matrix([0.022149, -0.000491, 0.057019])
 
 # Z-up
-X_O_Oy = trimesh.transformations.rotation_matrix(
-    np.pi / 2, [1, 0, 0]
-)
+X_O_Oy = trimesh.transformations.rotation_matrix(np.pi / 2, [1, 0, 0])
 
 # %%
 X_W_H = X_W_N @ X_N_O @ X_O_Oy @ X_Oy_H
@@ -228,18 +236,35 @@ from tqdm import tqdm
 
 # %%
 # Define the original transformation matrix X_W_H and the initial guess for the joint angles q_algr_pre
-X_W_H = np.array([
-    [-0.40069854, 0.06362686, 0.91399777, 0.66515265],
-    [-0.367964, 0.90242159, -0.22413731, 0.02321906],
-    [-0.83907259, -0.4261297, -0.33818674, 0.29229766],
-    [0.0, 0.0, 0.0, 1.0]
-])
+X_W_H = np.array(
+    [
+        [-0.40069854, 0.06362686, 0.91399777, 0.66515265],
+        [-0.367964, 0.90242159, -0.22413731, 0.02321906],
+        [-0.83907259, -0.4261297, -0.33818674, 0.29229766],
+        [0.0, 0.0, 0.0, 1.0],
+    ]
+)
 
-q_algr_pre = np.array([
-    0.29094562, 0.7371094, 0.5108592, 0.12263706, 0.12012535, 0.5845135,
-    0.34382993, 0.605035, -0.2684319, 0.8784579, 0.8497135, 0.8972184,
-    1.3328283, 0.34778783, 0.20921567, -0.00650969
-])
+q_algr_pre = np.array(
+    [
+        0.29094562,
+        0.7371094,
+        0.5108592,
+        0.12263706,
+        0.12012535,
+        0.5845135,
+        0.34382993,
+        0.605035,
+        -0.2684319,
+        0.8784579,
+        0.8497135,
+        0.8972184,
+        1.3328283,
+        0.34778783,
+        0.20921567,
+        -0.00650969,
+    ]
+)
 
 # Create a grid of points
 grid_size = 10
@@ -254,10 +279,12 @@ for dx in tqdm(trans_range):
             # Copy the matrix and modify the translation part
             new_X_W_H = np.copy(X_W_H)
             new_X_W_H[:3, 3] += np.array([dx, dy, dz])
-            
+
             try:
                 # Here you would call the IK solver, such as `solve_ik(new_X_W_H, q_algr_pre)`
-                q_star = solve_ik(new_X_W_H, q_algr_pre)  # Assuming solve_ik is your IK function
+                q_star = solve_ik(
+                    new_X_W_H, q_algr_pre
+                )  # Assuming solve_ik is your IK function
                 results.append((dx, dy, dz, True))
                 print("SUCCESS")
             except RuntimeError as e:
@@ -291,47 +318,38 @@ for dx, dy, dz, success in results:
 fig = go.Figure()
 
 # Add successful points in green
-fig.add_trace(go.Scatter3d(
-    x=np.array(x_pass) + X_W_H[0, 3],
-    y=np.array(y_pass) + X_W_H[1, 3],
-    z=np.array(z_pass) + X_W_H[2, 3],
-    mode='markers',
-    marker=dict(
-        size=5,
-        color='green',  # Success points are green
-        opacity=0.8
-    ),
-    name='Success'
-))
+fig.add_trace(
+    go.Scatter3d(
+        x=np.array(x_pass) + X_W_H[0, 3],
+        y=np.array(y_pass) + X_W_H[1, 3],
+        z=np.array(z_pass) + X_W_H[2, 3],
+        mode="markers",
+        marker=dict(size=5, color="green", opacity=0.8),  # Success points are green
+        name="Success",
+    )
+)
 
 # Add failed points in red
-fig.add_trace(go.Scatter3d(
-    x=np.array(x_fail) + X_W_H[0, 3],
-    y=np.array(y_fail) + X_W_H[1, 3],
-    z=np.array(z_fail) + X_W_H[2, 3],
-    mode='markers',
-    marker=dict(
-        size=5,
-        color='red',  # Failed points are red
-        opacity=0.8
-    ),
-    name='Failure'
-))
+fig.add_trace(
+    go.Scatter3d(
+        x=np.array(x_fail) + X_W_H[0, 3],
+        y=np.array(y_fail) + X_W_H[1, 3],
+        z=np.array(z_fail) + X_W_H[2, 3],
+        mode="markers",
+        marker=dict(size=5, color="red", opacity=0.8),  # Failed points are red
+        name="Failure",
+    )
+)
 
 # Update the layout to make it more readable
 fig.update_layout(
-    title='IK Feasibility Results',
+    title="IK Feasibility Results",
     scene=dict(
-        xaxis_title='X Translation',
-        yaxis_title='Y Translation',
-        zaxis_title='Z Translation'
+        xaxis_title="X Translation",
+        yaxis_title="Y Translation",
+        zaxis_title="Z Translation",
     ),
-    legend=dict(
-        yanchor="top",
-        y=0.99,
-        xanchor="left",
-        x=0.01
-    )
+    legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01),
 )
 
 add_transform_matrix_traces(fig, np.eye(4), length=0.1)
@@ -349,14 +367,13 @@ for i in tqdm(range(n_grasps)):
     X_W_H = X_W_N @ X_N_O @ X_O_Oy @ X_Oy_H
     q = joint_angles[i]
 
-    try: 
+    try:
         q_star = solve_ik(X_W_H, q)
         results.append((i, True))
         print("SUCCESS")
     except RuntimeError as e:
         results.append((i, False))
         print("FAIL")
-
 
 
 # %%
@@ -413,7 +430,9 @@ print(f"in_2_not_1[:10] = {list(in_2_not_1)[:10]}")
 GRASP_IDX = 0
 device = "cuda"
 hand_model_type = HandModelType.ALLEGRO_HAND
-hand_model = HandModel(hand_model_type=hand_model_type, device=device, n_surface_points=1000)
+hand_model = HandModel(
+    hand_model_type=hand_model_type, device=device, n_surface_points=1000
+)
 
 # %%
 hand_pose = hand_config_to_pose(trans, rot, joint_angles).to(device)
@@ -426,9 +445,7 @@ pregrasp_plot_data = hand_model.get_plotly_data(i=GRASP_IDX, opacity=1.0)
 fig = go.Figure(data=pregrasp_plot_data)
 # yup
 yup_camera = dict(
-    up=dict(x=0, y=1, z=0),
-    center=dict(x=0, y=0, z=0),
-    eye=dict(x=1.25, y=1.25, z=1.25)
+    up=dict(x=0, y=1, z=0), center=dict(x=0, y=0, z=0), eye=dict(x=1.25, y=1.25, z=1.25)
 )
 
 fig.update_layout(
@@ -450,5 +467,43 @@ fig.show()
 
 # %%
 cos_theta
+
+# %%
+# Palm down, finger forward
+# W is Z-up, X-forward
+# H is Z-finger, X-palm
+X_W_H = np.array(
+    [
+        [0.0, 0.0, 1.0, 0.3],
+        [0.0, 1.0, 0.0, 0.0],
+        [-1.0, 0.0, 0.0, 0.5],
+
+        [0.0, 0.0, 0.0, 1.0],
+    ]
+)
+
+q_algr_pre = np.array(
+    [
+        0.29094562,
+        0.7371094,
+        0.5108592,
+        0.12263706,
+        0.12012535,
+        0.5845135,
+        0.34382993,
+        0.605035,
+        -0.2684319,
+        0.8784579,
+        0.8497135,
+        0.8972184,
+        1.3328283,
+        0.34778783,
+        0.20921567,
+        -0.00650969,
+    ]
+)
+q_star = solve_ik(X_W_H, q_algr_pre, visualize=True)
+# %%
+q_star
 
 # %%

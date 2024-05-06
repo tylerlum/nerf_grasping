@@ -30,7 +30,7 @@ def solve_ik(
     plant, scene_graph = AddMultibodyPlantSceneGraph(builder, time_step=0.001)
     parser = Parser(plant, scene_graph)
     parser.package_map().Add("allegro_ros2", str(current_dir / "allegro_ros2"))
-    parser.AddModels(str(current_dir / "allegro_ros2/models/fr3_algr.urdf"))
+    parser.AddModels(str(current_dir / "allegro_ros2/models/fr3_algr_zed2i.urdf"))
     plant.Finalize()
 
     q_arm_home = np.array([0.0, -0.7854, 0.0, -2.3562, 0.0, 1.5708, 0.7854])

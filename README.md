@@ -20,9 +20,51 @@ mkdir thirdparty
 cd thirdparty
 git clone https://github.com/facebookresearch/pytorch3d.git
 cd pytorch3d && pip install -e .
+
+# Install drake
+pip install drake
+
+# Install curobo (Library Installation step in https://curobo.org/get_started/1_install_instructions.html#library-installation, but with custom fork)
+sudo apt install git-lfs
+git clone https://github.com/tylerlum/curobo.git
+cd curobo
+git lfs pull  # Maybe need to add this (https://github.com/NVlabs/curobo/issues/10)
+pip install -e . --no-build-isolation  # ~20 min
+python3 -m pytest .  # To verify
 ```
 
-# How to run at inference time (Albert)
+# How to run at inference time (Albert) (~May 2024)
+
+Running from nerfdata (with a folder that has `images` and `transforms.json`):
+```
+python nerf_grasping/run_pipeline.py \
+--nerfdata-path 2024-04-25_ALBERT_data/nerfdata/upside_down_yellow_cup_0_9999 \
+--init-grasp-config-dict-path /juno/u/tylerlum/github_repos/DexGraspNet/data/2024-04-16_rotated_grasps_aggregated_augmented_pose_HALTON_50/aggregated_evaled_grasp_config_dicts_train/aggregated_evaled_grasp_config_dict_train.npy \
+--classifier-config-path /juno/u/tylerlum/github_repos/nerf_grasping/Train_DexGraspNet_NeRF_Grasp_Metric_workspaces/3000rotated_augmented_pose_HALTON_50_cnn-3d-xyz_l2_all_2024-04-17_00-53-42-594438/config.yaml \
+--object_code upside_down_yellow_cup \
+--visualize \
+--random_seed 0 \
+--num_grasps 32 \
+--n_random_rotations_per_grasp 5 \
+--max_num_iterations 1000 \
+--num_steps 0 
+```
+
+Running from nerfcheckpoint (with a trained nerf):
+```
+python nerf_grasping/run_pipeline.py \
+--nerfcheckpoint-path experiments/2024-05-05_16-24-37/nerfcheckpoints/upside_down_yellow_cup_0_9999/nerfacto/2024-05-05_162437/config.yml \
+--init-grasp-config-dict-path /juno/u/tylerlum/github_repos/DexGraspNet/data/2024-04-16_rotated_grasps_aggregated_augmented_pose_HALTON_50/aggregated_evaled_grasp_config_dicts_train/aggregated_evaled_grasp_config_dict_train.npy \
+--classifier-config-path /juno/u/tylerlum/github_repos/nerf_grasping/Train_DexGraspNet_NeRF_Grasp_Metric_workspaces/3000rotated_augmented_pose_HALTON_50_cnn-3d-xyz_l2_all_2024-04-17_00-53-42-594438/config.yaml \
+--object_code upside_down_yellow_cup \
+--visualize \
+--random_seed 0 \
+--num_grasps 32 \
+--n_random_rotations_per_grasp 5 \
+--num_steps 0 
+```
+
+# How to run at inference time (Albert) (Before April 2024)
 
 ## Step 1: Get Required Starting Files
 
@@ -101,11 +143,11 @@ def get_sorted_grasps_from_file(
     error_if_no_loss: bool = True,
     check: bool = True,
     print_best: bool = True,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """
     This function processes optimized grasping configurations in preparation for hardware tests.
 
-    It reads a given .npy file containing optimized grasps, computes target joint angles for each grasp, and sorts these grasps based on a pre-computed grasp metric, with the most favorable grasp appearing first in the batch dimension.
+    It reads a given .npy file containing optimized grasps, computes target and pre joint angles for each grasp, and sorts these grasps based on a pre-computed grasp metric, with the most favorable grasp appearing first in the batch dimension.
 
     Parameters:
     optimized_grasp_config_dict_filepath (pathlib.Path): The file path to the optimized grasp .npy file. This file should contain wrist poses, joint angles, grasp orientations, and loss from grasp metric.
@@ -114,17 +156,19 @@ def get_sorted_grasps_from_file(
     print_best (bool): Whether to print the best grasp configurations. Defaults to True.
 
     Returns:
-    Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     - A batch of wrist transformations of object yup frame wrt nerf frame in a numpy array of shape (B, 4, 4), representing pose in nerf frame (avoid quat to be less ambiguous about order)
     - A batch of joint angles in a numpy array of shape (B, 16)
     - A batch of target joint angles in a numpy array of shape (B, 16)
+    - A batch of pre joint angles in a numpy array of shape (B, 16)
 
     Example:
-    >>> X_Oy_H_array, joint_angles_array, target_joint_angles_array = get_sorted_grasps_from_file(pathlib.Path("path/to/optimized_grasp_config.npy"))
+    >>> X_Oy_H_array, joint_angles_array, target_joint_angles_array, pre_joint_angles_array = get_sorted_grasps_from_file(pathlib.Path("path/to/optimized_grasp_config.npy"))
     >>> B = X_Oy_H_array.shape[0]
     >>> assert X_Oy_H_array.shape == (B, 4, 4)
     >>> assert joint_angles_array.shape == (B, 16)
     >>> assert target_joint_angles_array.shape == (B, 16)
+    >>> assert pre_joint_angles_array.shape == (B, 16)
     """
 ```
 

@@ -1,8 +1,8 @@
-# %%
+from tqdm import tqdm
+import time
 from typing import Optional, Tuple, List
 from nerfstudio.models.base_model import Model
 from nerf_grasping.grasp_utils import load_nerf_pipeline
-from nerf_grasping.fr3_algr_ik.ik import solve_ik
 from nerf_grasping.optimizer import get_optimized_grasps
 from nerf_grasping.optimizer_utils import (
     get_sorted_grasps_from_dict,
@@ -10,6 +10,8 @@ from nerf_grasping.optimizer_utils import (
     DepthImageGraspMetric,
     load_classifier,
     load_depth_image_classifier,
+    is_in_limits,
+    clamp_in_limits,
 )
 from nerf_grasping.config.nerfdata_config import DepthImageNerfDataConfig
 from nerf_grasping.config.optimization_config import OptimizationConfig
@@ -142,37 +144,6 @@ def add_transform_matrix_traces(
         )
 
 
-def is_in_limits(joint_angles: np.ndarray) -> np.ndarray:
-    N = joint_angles.shape[0]
-    assert joint_angles.shape == (N, 16)
-
-    from nerf_grasping.dexgraspnet_utils.hand_model import HandModel
-    from nerf_grasping.dexgraspnet_utils.hand_model_type import (
-        HandModelType,
-    )
-
-    device = "cuda"
-    hand_model_type = HandModelType.ALLEGRO_HAND
-    hand_model = HandModel(
-        hand_model_type=hand_model_type, device=device, n_surface_points=1000
-    )
-
-    joints_upper = hand_model.joints_upper.detach().cpu().numpy()
-    joints_lower = hand_model.joints_lower.detach().cpu().numpy()
-    assert joints_upper.shape == (16,)
-    assert joints_lower.shape == (16,)
-
-    in_limits = np.all(
-        np.logical_and(
-            joint_angles >= joints_lower[None, ...],
-            joint_angles <= joints_upper[None, ...],
-        ),
-        axis=1,
-    )
-    assert in_limits.shape == (N,)
-    return in_limits
-
-
 def run_pipeline(
     nerf_model: Model,
     cfg: PipelineConfig,
@@ -254,6 +225,9 @@ def run_pipeline(
     X_N_Oy = X_N_O @ X_O_Oy
     X_Oy_N = np.linalg.inv(X_N_Oy)
     assert X_N_Oy.shape == (4, 4), f"X_N_Oy.shape is {X_N_Oy.shape}, not (4, 4)"
+
+    mesh_W = trimesh.Trimesh(vertices=mesh_N.vertices, faces=mesh_N.faces)
+    mesh_W.apply_transform(X_W_N)
 
     # For debugging
     mesh_Oy = trimesh.Trimesh(vertices=mesh_N.vertices, faces=mesh_N.faces)
@@ -408,25 +382,42 @@ def run_pipeline(
     print("\n" + "=" * 80)
     print("Step 7: Convert optimized grasps to joint angles")
     print("=" * 80 + "\n")
-    X_Oy_Hs, q_algr_pres, q_algr_posts = get_sorted_grasps_from_dict(
+    X_Oy_Hs, q_algr_pres, q_algr_posts, q_algr_extra_open = get_sorted_grasps_from_dict(
         optimized_grasp_config_dict=optimized_grasp_config_dict,
         error_if_no_loss=True,
         check=False,
         print_best=False,
     )
+
+    MODE = "EXTRA_OPEN"  # TODO: Compare these
+    print("!" * 80)
+    print(f"MODE: {MODE}")
+    print("!" * 80 + "\n")
+    if MODE == "DEFAULT":
+        q_algr_pres = q_algr_pres
+    elif MODE == "EXTRA_OPEN":
+        q_algr_pres = q_algr_extra_open
+    elif MODE == "JOINTS_OPEN":
+        DELTA = 0.1
+        q_algr_pres[:, 1] -= DELTA
+        q_algr_pres[:, 2] -= DELTA
+        q_algr_pres[:, 3] -= DELTA
+
+        q_algr_pres[:, 5] -= DELTA
+        q_algr_pres[:, 6] -= DELTA
+        q_algr_pres[:, 7] -= DELTA
+
+        q_algr_pres[:, 9] -= DELTA
+        q_algr_pres[:, 10] -= DELTA
+        q_algr_pres[:, 11] -= DELTA
+    else:
+        raise ValueError(f"Invalid MODE: {MODE}")
+    q_algr_pres = clamp_in_limits(q_algr_pres)
+
     num_grasps = X_Oy_Hs.shape[0]
     assert X_Oy_Hs.shape == (num_grasps, 4, 4)
     assert q_algr_pres.shape == (num_grasps, 16)
     assert q_algr_posts.shape == (num_grasps, 16)
-
-    print("\n" + "=" * 80)
-    print("Step 8: Solve IK for each grasp")
-    print("=" * 80 + "\n")
-    mesh_W = trimesh.Trimesh(vertices=mesh_N.vertices, faces=mesh_N.faces)
-    mesh_W.apply_transform(X_W_N)
-
-    X_W_Hs = np.stack([X_W_N @ X_N_Oy @ X_Oy_Hs[i] for i in range(num_grasps)], axis=0)
-    assert X_W_Hs.shape == (num_grasps, 4, 4)
 
     q_algr_pres_is_in_limits = is_in_limits(q_algr_pres)
     assert q_algr_pres_is_in_limits.shape == (num_grasps,)
@@ -436,11 +427,50 @@ def run_pipeline(
     )
     print(f"pass_idxs: {pass_idxs}")
 
+    q_stars = None
+
+    X_W_Hs = np.stack([X_W_N @ X_N_Oy @ X_Oy_Hs[i] for i in range(num_grasps)], axis=0)
+    assert X_W_Hs.shape == (num_grasps, 4, 4)
+
+    METHOD = "CUROBO"  # TODO: Compare these
+    print("=" * 80)
+    print(f"METHOD: {METHOD}")
+    print("=" * 80 + "\n")
+    if METHOD == "DRAKE":
+        run_drake(
+            cfg=cfg, X_W_Hs=X_W_Hs, q_algr_pres=q_algr_pres, q_algr_posts=q_algr_posts
+        )
+    elif METHOD == "CUROBO":
+        run_curobo(
+            cfg=cfg, X_W_Hs=X_W_Hs, q_algr_pres=q_algr_pres, q_algr_posts=q_algr_posts
+        )
+    else:
+        raise ValueError(f"Invalid METHOD: {METHOD}")
+
+    return (
+        q_stars,
+        X_W_Hs,
+        q_algr_pres,
+        q_algr_posts,
+        mesh_W,
+        X_N_Oy,
+        q_algr_pres_is_in_limits,
+    )
+
+
+def run_drake(
+    cfg: PipelineConfig,
+    X_W_Hs: np.ndarray,
+    q_algr_pres: np.ndarray,
+    q_algr_posts: np.ndarray,
+) -> None:
+    from nerf_grasping.fr3_algr_ik.ik import solve_ik
+
+    num_grasps = X_W_Hs.shape[0]
     q_stars = []
-    for i in range(num_grasps):
+    for i in tqdm(range(num_grasps)):
         X_W_H = X_W_Hs[i]
         q_algr_pre = q_algr_pres[i]
-        q_algr_post = q_algr_posts[i]
 
         try:
             q_star = solve_ik(X_W_H=X_W_H, q_algr_pre=q_algr_pre, visualize=False)
@@ -455,15 +485,481 @@ def run_pipeline(
         f"Number of grasps passed IK: {num_passed} / {num_grasps} ({num_passed / num_grasps * 100:.2f}%)"
     )
 
-    return (
-        q_stars,
-        X_W_Hs,
-        q_algr_pres,
-        q_algr_posts,
-        mesh_W,
-        X_N_Oy,
-        q_algr_pres_is_in_limits,
+    print("\n" + "=" * 80)
+    print("Step 9: Solve trajopt for each grasp")
+    print("=" * 80 + "\n")
+
+    from nerf_grasping.fr3_algr_trajopt.trajopt import (
+        solve_trajopt,
+        TrajOptParams,
+        DEFAULT_Q_FR3,
+        DEFAULT_Q_ALGR,
     )
+
+    trajopt_cfg = TrajOptParams(
+        num_control_points=21,
+        min_self_coll_dist=0.005,
+        influence_dist=0.01,
+        nerf_frame_offset=cfg.nerf_frame_offset_x,
+        s_start_self_col=0.5,
+        lqr_pos_weight=1e-1,
+        lqr_vel_weight=20.0,
+        presolve_no_collision=True,
+    )
+    USE_DEFAULT_Q_0 = True
+    if USE_DEFAULT_Q_0:
+        print("Using default q_0")
+        q_fr3_0 = DEFAULT_Q_FR3
+        q_algr_0 = DEFAULT_Q_ALGR
+    else:
+        raise NotImplementedError
+
+    passing_trajopt_idxs = []
+    failed_trajopt_idxs = []
+    not_attempted_trajopt_idxs = []
+    for i, q_star in tqdm(enumerate(q_stars), total=num_grasps):
+        if q_star is None:
+            not_attempted_trajopt_idxs.append(i)
+            continue
+
+        try:
+            spline, dspline, T_traj, trajopt = solve_trajopt(
+                q_fr3_0=q_fr3_0,
+                q_algr_0=q_algr_0,
+                q_fr3_f=q_star[:7],
+                q_algr_f=q_star[7:],
+                cfg=trajopt_cfg,
+                mesh_path=pathlib.Path("/tmp/mesh_viz_object.obj"),
+                visualize=False,
+                verbose=False,
+                ignore_obj_collision=False,
+            )
+            passing_trajopt_idxs.append(i)
+
+        except RuntimeError as e:
+            failed_trajopt_idxs.append(i)
+
+    print(f"passing_trajopt_idxs: {passing_trajopt_idxs}")
+    print(f"failed_trajopt_idxs: {failed_trajopt_idxs}")
+    print(f"not_attempted_trajopt_idxs: {not_attempted_trajopt_idxs}")
+
+    TRAJ_IDX = passing_trajopt_idxs[0] if len(passing_trajopt_idxs) > 0 else 0
+    print(f"Visualizing trajectory {TRAJ_IDX}")
+    try:
+        spline, dspline, T_traj, trajopt = solve_trajopt(
+            q_fr3_0=q_fr3_0,
+            q_algr_0=q_algr_0,
+            q_fr3_f=q_stars[TRAJ_IDX][:7],
+            q_algr_f=q_stars[TRAJ_IDX][7:],
+            cfg=trajopt_cfg,
+            mesh_path=pathlib.Path("/tmp/mesh_viz_object.obj"),
+            visualize=True,
+            verbose=False,
+            ignore_obj_collision=False,
+        )
+    except RuntimeError as e:
+        print(f"Failed to visualize trajectory {TRAJ_IDX}")
+
+    while True:
+        input_options = "\n".join(
+            [
+                "=====================",
+                "OPTIONS",
+                "b for breakpoint",
+                "r to run trajopt with object collision",
+                "o to run trajopt without object collision",
+                "n to go to next traj",
+                "p to go to prev traj",
+                "q to quit",
+                "=====================",
+            ]
+        )
+
+        x = input("\n" + input_options + "\n\n")
+        if x == "b":
+            print("Breakpoint")
+            breakpoint()
+        elif x == "r":
+            print(f"Visualizing trajectory {TRAJ_IDX} with object collision")
+            if q_stars[TRAJ_IDX] is not None:
+                try:
+                    spline, dspline, T_traj, trajopt = solve_trajopt(
+                        q_fr3_0=q_fr3_0,
+                        q_algr_0=q_algr_0,
+                        q_fr3_f=q_stars[TRAJ_IDX][:7],
+                        q_algr_f=q_stars[TRAJ_IDX][7:],
+                        cfg=trajopt_cfg,
+                        mesh_path=pathlib.Path("/tmp/mesh_viz_object.obj"),
+                        visualize=True,
+                        verbose=False,
+                        ignore_obj_collision=False,
+                    )
+                except RuntimeError as e:
+                    print(f"Failed to visualize trajectory {TRAJ_IDX}")
+            else:
+                print(f"Trajectory {TRAJ_IDX} is None, skipping")
+        elif x == "o":
+            print(f"Visualizing trajectory {TRAJ_IDX} without object collision")
+            if q_stars[TRAJ_IDX] is not None:
+                try:
+                    spline, dspline, T_traj, trajopt = solve_trajopt(
+                        q_fr3_0=q_fr3_0,
+                        q_algr_0=q_algr_0,
+                        q_fr3_f=q_stars[TRAJ_IDX][:7],
+                        q_algr_f=q_stars[TRAJ_IDX][7:],
+                        cfg=trajopt_cfg,
+                        mesh_path=pathlib.Path("/tmp/mesh_viz_object.obj"),
+                        visualize=True,
+                        verbose=False,
+                        ignore_obj_collision=True,
+                    )
+                except RuntimeError as e:
+                    print(f"Failed to visualize trajectory {TRAJ_IDX}")
+            else:
+                print(f"Trajectory {TRAJ_IDX} is None, skipping")
+        elif x == "n":
+            TRAJ_IDX += 1
+            if TRAJ_IDX >= num_grasps:
+                TRAJ_IDX = 0
+            print(f"Using trajectory {TRAJ_IDX}")
+        elif x == "p":
+            TRAJ_IDX -= 1
+            if TRAJ_IDX < 0:
+                TRAJ_IDX = num_grasps - 1
+            print(f"Using trajectory {TRAJ_IDX}")
+        elif x == "q":
+            print("Quitting")
+            break
+        else:
+            print(f"Invalid input: {x}")
+
+    print("Breakpoint to visualize")
+    breakpoint()
+
+
+def run_curobo(
+    cfg: PipelineConfig,
+    X_W_Hs: np.ndarray,
+    q_algr_pres: np.ndarray,
+    q_algr_posts: np.ndarray,
+):
+    from nerf_grasping.curobo_fr3_algr_zed2i.trajopt_batch import (
+        solve_trajopt_batch,
+        get_trajectories_from_result,
+    )
+    from nerf_grasping.curobo_fr3_algr_zed2i.ik_fr3_algr_zed2i import (
+        max_penetration_from_qs,
+        max_penetration_from_q,
+    )
+
+    n_grasps = X_W_Hs.shape[0]
+    assert X_W_Hs.shape == (n_grasps, 4, 4)
+    assert q_algr_pres.shape == (n_grasps, 16)
+
+    print("\n" + "=" * 80)
+    print("Step 9: Solve motion gen for each grasp")
+    print("=" * 80 + "\n")
+
+    # Enable trajopt often makes it fail, haven't been able to figure out why
+    motion_gen_result, ik_result, ik_result2 = solve_trajopt_batch(
+        X_W_Hs=X_W_Hs,
+        q_algrs=q_algr_pres,
+        collision_check_object=True,
+        obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
+        obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
+        obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+        collision_check_table=True,
+        use_cuda_graph=False,
+        enable_graph=True,
+        enable_opt=False,
+        timeout=10.0,
+        collision_sphere_buffer=0.01,
+    )
+
+    motion_gen_success_idxs = (
+        motion_gen_result.success.flatten().nonzero().flatten().tolist()
+    )
+    ik_success_idxs = ik_result.success.flatten().nonzero().flatten().tolist()
+    ik_success_idxs2 = ik_result2.success.flatten().nonzero().flatten().tolist()
+    overall_success_idxs = sorted(
+        list(
+            set(motion_gen_success_idxs).intersection(
+                set(ik_success_idxs).intersection(set(ik_success_idxs2))
+            )
+        )
+    )  # All must be successful or else it may be successful for the wrong trajectory
+
+    print("\n" + "=" * 80)
+    print(
+        "Motion generation without trajectory optimization complete, printing results"
+    )
+    print("=" * 80 + "\n")
+    print(
+        f"motion_gen_success_idxs: {motion_gen_success_idxs} ({len(motion_gen_success_idxs)} / {n_grasps} = {len(motion_gen_success_idxs) / n_grasps * 100:.2f}%)"
+    )
+    print(
+        f"ik_success_idxs: {ik_success_idxs} ({len(ik_success_idxs)} / {n_grasps} = {len(ik_success_idxs) / n_grasps * 100:.2f}%)"
+    )
+    print(
+        f"ik_success_idxs2: {ik_success_idxs2} ({len(ik_success_idxs2)} / {n_grasps} = {len(ik_success_idxs2) / n_grasps * 100:.2f}%)"
+    )
+    print(
+        f"overall_success_idxs: {overall_success_idxs} ({len(overall_success_idxs)} / {n_grasps} = {len(overall_success_idxs) / n_grasps * 100:.2f}%)"
+    )
+
+    RUN_TRAJOPT_AS_WELL = True
+    if RUN_TRAJOPT_AS_WELL:
+        print("\n" + "=" * 80)
+        print("RUNNING TRAJOPT AS WELL")
+        trajopt_motion_gen_result, trajopt_ik_result, trajopt_ik_result2 = (
+            solve_trajopt_batch(
+                X_W_Hs=X_W_Hs,
+                q_algrs=q_algr_pres,
+                collision_check_object=True,
+                obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
+                obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
+                obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+                collision_check_table=True,
+                use_cuda_graph=False,
+                enable_graph=True,
+                enable_opt=True,
+                timeout=20.0,
+                collision_sphere_buffer=0.01,
+            )
+        )
+
+        trajopt_success_idxs = (
+            trajopt_motion_gen_result.success.flatten().nonzero().flatten().tolist()
+        )
+        trajopt_ik_success_idxs = (
+            trajopt_ik_result.success.flatten().nonzero().flatten().tolist()
+        )
+        trajopt_ik_success_idxs2 = (
+            trajopt_ik_result2.success.flatten().nonzero().flatten().tolist()
+        )
+        overall_trajopt_success_idxs = sorted(
+            list(
+                set(trajopt_success_idxs).intersection(
+                    set(trajopt_ik_success_idxs).intersection(
+                        set(trajopt_ik_success_idxs2)
+                    )
+                )
+            )
+        )
+        print("\n" + "=" * 80)
+        print("Trajectory optimization complete, printing results")
+        print("=" * 80 + "\n")
+        print(
+            f"trajopt_success_idxs: {trajopt_success_idxs} ({len(trajopt_success_idxs)} / {n_grasps} = {len(trajopt_success_idxs) / n_grasps * 100:.2f}%)"
+        )
+        print(
+            f"trajopt_ik_success_idxs: {trajopt_ik_success_idxs} ({len(trajopt_ik_success_idxs)} / {n_grasps} = {len(trajopt_ik_success_idxs) / n_grasps * 100:.2f}%)"
+        )
+        print(
+            f"trajopt_ik_success_idxs2: {trajopt_ik_success_idxs2} ({len(trajopt_ik_success_idxs2)} / {n_grasps} = {len(trajopt_ik_success_idxs2) / n_grasps * 100:.2f}%)"
+        )
+        print(
+            f"overall_trajopt_success_idxs: {overall_trajopt_success_idxs} ({len(overall_trajopt_success_idxs)} / {n_grasps} = {len(overall_trajopt_success_idxs) / n_grasps * 100:.2f}%)"
+        )
+        trajopt_qs, trajopt_qds, trajopt_dts = get_trajectories_from_result(
+            result=trajopt_motion_gen_result
+        )
+
+    qs, qds, dts = get_trajectories_from_result(result=motion_gen_result)
+    TRAJ_IDX = overall_success_idxs[0] if len(overall_success_idxs) > 0 else 0
+    print(f"Using trajectory {TRAJ_IDX}")
+    q, qd, dt = qs[TRAJ_IDX], qds[TRAJ_IDX], dts[TRAJ_IDX]
+
+    # Check for collisions
+    d_world, d_self = max_penetration_from_qs(
+        qs=q,
+        collision_activation_distance=0.0,
+        include_object=True,
+        obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
+        obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
+        obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+        include_table=True,
+    )
+    print(f"np.max(d_world): {np.max(d_world)}")
+    print(f"np.max(d_self): {np.max(d_self)}")
+
+    # Visualize
+    print("\n" + "=" * 80)
+    print("Visualizing")
+    print("=" * 80 + "\n")
+    from nerf_grasping.curobo_fr3_algr_zed2i.visualizer import (
+        start_visualizer,
+        draw_collision_spheres_default_config,
+        remove_collision_spheres_default_config,
+        set_robot_state,
+        animate_robot,
+        create_urdf,
+    )
+
+    OBJECT_URDF_PATH = create_urdf(obj_path=pathlib.Path("/tmp/mesh_viz_object.obj"))
+    pb_robot = start_visualizer(object_urdf_path=OBJECT_URDF_PATH)
+    draw_collision_spheres_default_config(pb_robot)
+    time.sleep(1.0)
+
+    remove_collision_spheres_default_config()
+    q, qd, dt = qs[TRAJ_IDX], qds[TRAJ_IDX], dts[TRAJ_IDX]
+    print(f"Visualizing trajectory {TRAJ_IDX}")
+    animate_robot(robot=pb_robot, qs=q, dt=dt)
+
+    while True:
+        input_options = "\n".join(
+            [
+                "=====================",
+                "OPTIONS",
+                "b for breakpoint",
+                "v to visualize traj",
+                "d to print collision distance",
+                "vt for visualize trajopt traj",
+                "dt for print trajopt collision distance",
+                "i to move hand to exact X_W_H and q_algr_pre without collision check",
+                "i2 to move hand to exact X_W_H and q_algr_pre with collision check",
+                "e for execute the grasp",
+                "n to go to next traj",
+                "p to go to prev traj",
+                "c to draw collision spheres",
+                "r to remove collision spheres",
+                "q to quit",
+                "=====================",
+            ]
+        )
+        x = input("\n" + input_options + "\n\n")
+        if x == "b":
+            print("Breakpoint")
+            breakpoint()
+        elif x == "v":
+            q, qd, dt = qs[TRAJ_IDX], qds[TRAJ_IDX], dts[TRAJ_IDX]
+            print(f"Visualizing trajectory {TRAJ_IDX}")
+            animate_robot(robot=pb_robot, qs=q, dt=dt)
+        elif x == "d":
+            q, qd, dt = qs[TRAJ_IDX], qds[TRAJ_IDX], dts[TRAJ_IDX]
+            print(f"For trajectory {TRAJ_IDX}")
+            d_world, d_self = max_penetration_from_qs(
+                qs=q,
+                collision_activation_distance=0.0,
+                include_object=True,
+                obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
+                obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
+                obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+                include_table=True,
+            )
+            print(f"np.max(d_world): {np.max(d_world)}")
+            print(f"np.max(d_self): {np.max(d_self)}")
+        elif x == "vt":
+            if RUN_TRAJOPT_AS_WELL:
+                q, qd, dt = (
+                    trajopt_qs[TRAJ_IDX],
+                    trajopt_qds[TRAJ_IDX],
+                    trajopt_dts[TRAJ_IDX],
+                )
+                print(f"Visualizing trajectory {TRAJ_IDX}")
+                animate_robot(robot=pb_robot, qs=q, dt=dt)
+            else:
+                print("Trajopt was not run")
+        elif x == "dt":
+            if RUN_TRAJOPT_AS_WELL:
+                q, qd, dt = (
+                    trajopt_qs[TRAJ_IDX],
+                    trajopt_qds[TRAJ_IDX],
+                    trajopt_dts[TRAJ_IDX],
+                )
+                print(f"For trajectory {TRAJ_IDX}")
+                d_world, d_self = max_penetration_from_qs(
+                    qs=q,
+                    collision_activation_distance=0.0,
+                    include_object=True,
+                    obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
+                    obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
+                    obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+                    include_table=True,
+                )
+                print(f"np.max(d_world): {np.max(d_world)}")
+                print(f"np.max(d_self): {np.max(d_self)}")
+            else:
+                print("Trajopt was not run")
+        elif x == "e":
+            q, qd, dt = qs[TRAJ_IDX], qds[TRAJ_IDX], dts[TRAJ_IDX]
+            print(f"Executing trajectory {TRAJ_IDX}")
+            start_q = q[-1]
+            end_q = np.concatenate([start_q[:7], q_algr_posts[TRAJ_IDX]])
+            assert start_q.shape == end_q.shape == (23,)
+            n_steps = 100
+            total_time = 2.0
+            interp_dt = total_time / n_steps
+            interpolated_qs = interpolate(start=start_q, end=end_q, N=n_steps)
+            assert interpolated_qs.shape == (n_steps, 23)
+            animate_robot(robot=pb_robot, qs=interpolated_qs, dt=interp_dt)
+        elif x == "i":
+            print(
+                f"Moving hand to exact X_W_H and q_algr_pre of trajectory {TRAJ_IDX} with IK no collision check"
+            )
+            ik_q = ik_result.solution[TRAJ_IDX].flatten().detach().cpu().numpy()
+            assert ik_q.shape == (23,)
+            ik_q[7:] = q_algr_pres[TRAJ_IDX]
+            set_robot_state(robot=pb_robot, q=ik_q)
+            d_world, d_self = max_penetration_from_q(
+                q=ik_q,
+                include_object=True,
+                obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
+                obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
+                obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+                include_table=True,
+            )
+            print(f"np.max(d_world): {np.max(d_world)}")
+            print(f"np.max(d_self): {np.max(d_self)}")
+        elif x == "i2":
+            print(
+                f"Moving hand to exact X_W_H and q_algr_pre of trajectory {TRAJ_IDX} with IK collision check"
+            )
+            ik_q = ik_result2.solution[TRAJ_IDX].flatten().detach().cpu().numpy()
+            assert ik_q.shape == (23,)
+            set_robot_state(robot=pb_robot, q=ik_q)
+            d_world, d_self = max_penetration_from_q(
+                q=ik_q,
+                include_object=True,
+                obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
+                obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
+                obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+                include_table=True,
+            )
+            print(f"np.max(d_world): {np.max(d_world)}")
+            print(f"np.max(d_self): {np.max(d_self)}")
+        elif x == "n":
+            TRAJ_IDX += 1
+            if TRAJ_IDX >= len(qs):
+                TRAJ_IDX = 0
+            print(f"Updated to trajectory {TRAJ_IDX}")
+        elif x == "p":
+            TRAJ_IDX -= 1
+            if TRAJ_IDX < 0:
+                TRAJ_IDX = len(qs) - 1
+            print(f"Updated to trajectory {TRAJ_IDX}")
+        elif x == "c":
+            print("Drawing collision spheres")
+            draw_collision_spheres_default_config(robot=pb_robot)
+        elif x == "r":
+            print("Removing collision spheres")
+            remove_collision_spheres_default_config()
+        elif x == "q":
+            print("Quitting")
+            break
+        else:
+            print(f"Invalid input: {x}")
+
+    breakpoint()
+
+
+def interpolate(start, end, N):
+    d = start.shape[0]
+    assert start.shape == end.shape == (d,)
+    interpolated = np.zeros((N, d))
+    for i in range(d):
+        interpolated[:, i] = np.linspace(start[i], end[i], N)
+    return interpolated
 
 
 @dataclass

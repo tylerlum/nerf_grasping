@@ -654,6 +654,7 @@ def run_curobo(cfg, X_W_Hs, q_algr_pres):
         enable_graph=True,
         enable_opt=False,
         timeout=10.0,
+        collision_sphere_buffer=0.01,
     )
 
     success_idxs = motion_gen_result.success.flatten().nonzero().flatten().tolist()
@@ -691,6 +692,7 @@ def run_curobo(cfg, X_W_Hs, q_algr_pres):
                 enable_graph=True,
                 enable_opt=True,
                 timeout=20.0,
+                collision_sphere_buffer=0.01,
             )
         )
 

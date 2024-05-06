@@ -112,6 +112,7 @@ def solve_trajopt_batch(
     enable_graph: bool = True,
     enable_opt: bool = False,  # Getting some errors from setting this to True
     timeout: float = 5.0,
+    collision_sphere_buffer: Optional[float] = None,
 ) -> Tuple[MotionGenResult, IKResult, IKResult]:
     start_time = time.time()
     print("Step 1: Prepare cfg")
@@ -138,9 +139,10 @@ def solve_trajopt_batch(
 
     tensor_args = TensorDeviceType()
     robot_file = "fr3_algr_zed2i_with_fingertips.yml"
-    robot_cfg = RobotConfig.from_dict(
-        load_yaml(join_path(get_robot_configs_path(), robot_file))["robot_cfg"]
-    )
+    robot_cfg = load_yaml(join_path(get_robot_configs_path(), robot_file))["robot_cfg"]
+    if collision_sphere_buffer is not None:
+        robot_cfg["kinematics"]["collision_sphere_buffer"] = collision_sphere_buffer
+    robot_cfg = RobotConfig.from_dict(robot_cfg)
 
     world_cfg = get_world_cfg(
         collision_check_object=collision_check_object,

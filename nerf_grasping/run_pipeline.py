@@ -144,16 +144,14 @@ def add_transform_matrix_traces(
         )
 
 
-def run_pipeline(
+def compute_grasps(
     nerf_model: Model,
     cfg: PipelineConfig,
 ) -> Tuple[
-    List[Optional[np.ndarray]],
     np.ndarray,
     np.ndarray,
     np.ndarray,
     trimesh.Trimesh,
-    np.ndarray,
     np.ndarray,
 ]:
     print("=" * 80)
@@ -196,7 +194,7 @@ def run_pipeline(
         save_path=nerf_to_mesh_folder / "decomposed.obj",
     )
 
-    # HACK: Save to /tmp/mesh_viz_object.obj as well
+    # Save to /tmp/mesh_viz_object.obj as well
     mesh_N.export("/tmp/mesh_viz_object.obj")
 
     print("\n" + "=" * 80)
@@ -427,11 +425,24 @@ def run_pipeline(
     )
     print(f"pass_idxs: {pass_idxs}")
 
-    q_stars = None
-
     X_W_Hs = np.stack([X_W_N @ X_N_Oy @ X_Oy_Hs[i] for i in range(num_grasps)], axis=0)
     assert X_W_Hs.shape == (num_grasps, 4, 4)
 
+    return (
+        X_W_Hs,
+        q_algr_pres,
+        q_algr_posts,
+        mesh_W,
+        X_N_Oy,
+    )
+
+
+def compute_trajectories(
+    cfg: PipelineConfig,
+    X_W_Hs: np.ndarray,
+    q_algr_pres: np.ndarray,
+    q_algr_posts: np.ndarray,
+) -> Tuple[List[np.ndarray], List[np.ndarray], List[float]]:
     METHOD = "CUROBO"  # TODO: Compare these
     print("=" * 80)
     print(f"METHOD: {METHOD}")
@@ -446,16 +457,6 @@ def run_pipeline(
         )
     else:
         raise ValueError(f"Invalid METHOD: {METHOD}")
-
-    return (
-        q_stars,
-        X_W_Hs,
-        q_algr_pres,
-        q_algr_posts,
-        mesh_W,
-        X_N_Oy,
-        q_algr_pres_is_in_limits,
-    )
 
 
 def run_drake(
@@ -642,14 +643,10 @@ def run_curobo(
     X_W_Hs: np.ndarray,
     q_algr_pres: np.ndarray,
     q_algr_posts: np.ndarray,
-):
+) -> Tuple[List[np.ndarray], List[np.ndarray], List[float]]:
     from nerf_grasping.curobo_fr3_algr_zed2i.trajopt_batch import (
         solve_trajopt_batch,
         get_trajectories_from_result,
-    )
-    from nerf_grasping.curobo_fr3_algr_zed2i.ik_fr3_algr_zed2i import (
-        max_penetration_from_qs,
-        max_penetration_from_q,
     )
 
     n_grasps = X_W_Hs.shape[0]
@@ -706,83 +703,205 @@ def run_curobo(
     print(
         f"overall_success_idxs: {overall_success_idxs} ({len(overall_success_idxs)} / {n_grasps} = {len(overall_success_idxs) / n_grasps * 100:.2f}%)"
     )
-
-    RUN_TRAJOPT_AS_WELL = True
-    if RUN_TRAJOPT_AS_WELL:
-        print("\n" + "=" * 80)
-        print("RUNNING TRAJOPT AS WELL")
-        trajopt_motion_gen_result, trajopt_ik_result, trajopt_ik_result2 = (
-            solve_trajopt_batch(
-                X_W_Hs=X_W_Hs,
-                q_algrs=q_algr_pres,
-                collision_check_object=True,
-                obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
-                obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
-                obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
-                collision_check_table=True,
-                use_cuda_graph=False,
-                enable_graph=True,
-                enable_opt=True,
-                timeout=20.0,
-                collision_sphere_buffer=0.01,
-            )
-        )
-
-        trajopt_success_idxs = (
-            trajopt_motion_gen_result.success.flatten().nonzero().flatten().tolist()
-        )
-        trajopt_ik_success_idxs = (
-            trajopt_ik_result.success.flatten().nonzero().flatten().tolist()
-        )
-        trajopt_ik_success_idxs2 = (
-            trajopt_ik_result2.success.flatten().nonzero().flatten().tolist()
-        )
-        overall_trajopt_success_idxs = sorted(
-            list(
-                set(trajopt_success_idxs).intersection(
-                    set(trajopt_ik_success_idxs).intersection(
-                        set(trajopt_ik_success_idxs2)
-                    )
-                )
-            )
-        )
-        print("\n" + "=" * 80)
-        print("Trajectory optimization complete, printing results")
-        print("=" * 80 + "\n")
-        print(
-            f"trajopt_success_idxs: {trajopt_success_idxs} ({len(trajopt_success_idxs)} / {n_grasps} = {len(trajopt_success_idxs) / n_grasps * 100:.2f}%)"
-        )
-        print(
-            f"trajopt_ik_success_idxs: {trajopt_ik_success_idxs} ({len(trajopt_ik_success_idxs)} / {n_grasps} = {len(trajopt_ik_success_idxs) / n_grasps * 100:.2f}%)"
-        )
-        print(
-            f"trajopt_ik_success_idxs2: {trajopt_ik_success_idxs2} ({len(trajopt_ik_success_idxs2)} / {n_grasps} = {len(trajopt_ik_success_idxs2) / n_grasps * 100:.2f}%)"
-        )
-        print(
-            f"overall_trajopt_success_idxs: {overall_trajopt_success_idxs} ({len(overall_trajopt_success_idxs)} / {n_grasps} = {len(overall_trajopt_success_idxs) / n_grasps * 100:.2f}%)"
-        )
-        trajopt_qs, trajopt_qds, trajopt_dts = get_trajectories_from_result(
-            result=trajopt_motion_gen_result
-        )
-
     qs, qds, dts = get_trajectories_from_result(result=motion_gen_result)
-    TRAJ_IDX = overall_success_idxs[0] if len(overall_success_idxs) > 0 else 0
-    print(f"Using trajectory {TRAJ_IDX}")
-    q, qd, dt = qs[TRAJ_IDX], qds[TRAJ_IDX], dts[TRAJ_IDX]
 
-    # Check for collisions
-    d_world, d_self = max_penetration_from_qs(
-        qs=q,
-        collision_activation_distance=0.0,
-        include_object=True,
-        obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
-        obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
-        obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
-        include_table=True,
+    print("\n" + "=" * 80)
+    print("Step 10: Add closing motion")
+    print("=" * 80 + "\n")
+    qs_with_closing, qds_with_closing = [], []
+    for i, (q, qd, dt) in enumerate(zip(qs, qds, dts)):
+        CLOSE_TIME = 0.5
+
+        # Keep arm joints same, change hand joints
+        open_q = q[-1]
+        close_q = np.concatenate([open_q[:7], q_algr_posts[i]])
+
+        N_CLOSE_STEPS = int(CLOSE_TIME / dt)
+        interpolated_qs = interpolate(start=open_q, end=close_q, N=N_CLOSE_STEPS)
+        assert interpolated_qs.shape == (N_CLOSE_STEPS, 23)
+
+        interpolated_qds = np.diff(interpolated_qs, axis=0) / dt
+        interpolated_qds = np.concatenate([interpolated_qds, interpolated_qds[-1:]], axis=0)
+
+        q_with_closing = np.concatenate([q, interpolated_qs], axis=0)
+        qs_with_closing.append(q_with_closing)
+
+        qd_with_closing = np.concatenate([qd, interpolated_qds], axis=0)
+        qds_with_closing.append(qd_with_closing)
+
+    print("\n" + "=" * 80)
+    print("Step 11: Add lifing motion")
+    print("=" * 80 + "\n")
+    q_fr3_start_lifts = np.array([q[-1, :7] for q in qs_with_closing])
+    q_algr_start_lifts = q_algr_pres
+    q_start_lifts = np.concatenate([q_fr3_start_lifts, q_algr_start_lifts], axis=1)
+    X_W_H_lifts = X_W_Hs.copy()
+    X_W_H_lifts[:, 2, 3] += 0.2  # Lift up 20 cm
+    assert q_start_lifts.shape == (n_grasps, 23)
+    # Don't need object collision check for lifting
+    lift_motion_gen_result, lift_ik_result = solve_lift_trajopt_ignore_hand_batch(
+        q_fr3_starts=q_start_lifts[:, :7],
+        q_algr_starts=q_start_lifts[:, 7:],
+        X_W_Hs=X_W_H_lifts,
     )
-    print(f"np.max(d_world): {np.max(d_world)}")
-    print(f"np.max(d_self): {np.max(d_self)}")
+    lift_motion_gen_success_idxs = (
+        lift_motion_gen_result.success.flatten().nonzero().flatten().tolist()
+    )
+    lift_ik_success_idxs = lift_ik_result.success.flatten().nonzero().flatten().tolist()
+    lift_overall_success_idxs = sorted(
+        list(
+            set(lift_motion_gen_success_idxs).intersection(
+                set(lift_ik_success_idxs)
+            )
+        )
+    )  # All must be successful or else it may be successful for the wrong trajectory
 
+    print("\n" + "=" * 80)
+    print(
+        "Life motion generation without trajectory optimization complete, printing results"
+    )
+    print("=" * 80 + "\n")
+    print(
+        f"lift_motion_gen_success_idxs: {lift_motion_gen_success_idxs} ({len(lift_motion_gen_success_idxs)} / {n_grasps} = {len(lift_motion_gen_success_idxs) / n_grasps * 100:.2f}%)"
+    )
+    print(
+        f"lift_ik_success_idxs: {lift_ik_success_idxs} ({len(lift_ik_success_idxs)} / {n_grasps} = {len(lift_ik_success_idxs) / n_grasps * 100:.2f}%)"
+    )
+    print(
+        f"lift_overall_success_idxs: {lift_overall_success_idxs} ({len(lift_overall_success_idxs)} / {n_grasps} = {len(lift_overall_success_idxs) / n_grasps * 100:.2f}%)"
+    )
+    lift_qs, lift_qds, lift_dts = get_trajectories_from_result(result=lift_motion_gen_result)
+
+    final_success_idxs = sorted(
+        list(
+            set(overall_success_idxs).intersection(set(lift_overall_success_idxs))
+        )
+    )
+
+    qs_with_lift, qds_with_lift = [], []
+    for i, (q, qd, dt, lift_q, lift_qd, lift_dt) in enumerate(zip(qs_with_closing, qds_with_closing, dts, lift_qs, lift_qds, lift_dts)):
+        # TODO: Figure out how to handle if lift_qs has different dt
+        assert dt == lift_dt, f"dt: {dt}, lift_dt: {lift_dt}"
+
+        # Only want the arm position of the lift q (keep same hand position as before)
+        not_lifted_q = q[-1]
+        adjusted_lift_q = lift_q.copy()
+        adjusted_lift_q[:, 7:] = not_lifted_q[None, 7:]
+
+        adjusted_lift_qd = lift_qd.copy()
+        adjusted_lift_qd[:, 7:] = 0.0
+
+        q_with_lift = np.concatenate([q, adjusted_lift_q], axis=0)
+        qs_with_lift.append(q_with_lift)
+
+        qd_with_lift = np.concatenate([qd, adjusted_lift_qd], axis=0)
+        qds_with_lift.append(qd_with_lift)
+
+    # TODO: Weird situations of lift problem if previous problem failed?
+
+    print("\n" + "=" * 80)
+    print("Step 12: Compute T_trajs")
+    print("=" * 80 + "\n")
+    T_trajs = []
+    for q, dt in zip(qs, dts):
+        n_timesteps = q.shape[0]
+        T_trajs.append(n_timesteps * dt)
+
+    return qs, qds, T_trajs, final_success_idxs
+
+def solve_lift_trajopt_ignore_hand_batch(q_fr3_starts: np.ndarray, q_algr_starts: np.ndarray, X_W_Hs: np.ndarray):
+    N_GRASPS = X_W_Hs.shape[0]
+
+    trans = X_W_Hs[:, :3, 3]
+    rot_matrix = X_W_Hs[:, :3, :3]
+    quat_wxyz = matrix_to_quat_wxyz(torch.from_numpy(rot_matrix).float().cuda())
+    target_pose = Pose(
+        torch.from_numpy(trans).float().cuda(),
+        quaternion=quat_wxyz,
+    )
+
+
+    print("\n" + "=" * 80)
+    print("Doing IK as sanity check")
+    print("=" * 80 + "\n")
+    ik_config2 = IKSolverConfig.load_from_robot_config(
+        robot_cfg,
+        world_cfg,
+        rotation_threshold=0.05,
+        position_threshold=0.005,
+        num_seeds=20,
+        self_collision_check=True,
+        self_collision_opt=True,
+        tensor_args=tensor_args,
+        use_cuda_graph=use_cuda_graph,
+    )
+    ik_solver2 = IKSolver(ik_config2)
+    ik_result2 = ik_solver2.solve_batch(
+        goal_pose=target_pose, link_poses=state.link_pose
+    )
+
+    print("\n" + "=" * 80)
+    print("Solving motion generation")
+    print("=" * 80 + "\n")
+    motion_gen_config = MotionGenConfig.load_from_robot_config(
+        robot_cfg,
+        world_cfg,
+        tensor_args,
+        collision_checker_type=CollisionCheckerType.MESH,
+        use_cuda_graph=use_cuda_graph,
+    )
+    motion_gen = MotionGen(motion_gen_config)
+    motion_gen.warmup(batch=N_GRASPS)
+
+    start_state = JointState.from_position(
+        torch.from_numpy(
+            np.concatenate(
+                [
+                    q_fr3_starts,
+                    q_algr_starts,
+                ],
+                axis=1,
+            )
+        )
+        .float()
+        .cuda()
+    )
+
+    motion_result = motion_gen.plan_batch(
+        start_state=start_state,
+        goal_pose=target_pose,
+        plan_config=MotionGenPlanConfig(
+            enable_graph=enable_graph,
+            enable_opt=enable_opt,
+            max_attempts=10,
+            num_trajopt_seeds=10,
+            num_graph_seeds=1,  # Must be 1 for plan_batch
+            timeout=timeout,
+        ),
+    )
+    return motion_result, ik_result2
+
+
+
+def run_pipeline(
+    nerf_model: Model, cfg: PipelineConfig
+) -> Tuple[List[np.ndarray], List[np.ndarray], List[float], List[int]]:
+
+    (
+        X_W_Hs,
+        q_algr_pres,
+        q_algr_posts,
+        mesh_W,
+        X_N_Oy,
+    ) = compute_grasps(nerf_model=nerf_model, cfg=cfg)
+
+    qs, qds, dts, success_idxs = run_curobo(
+        cfg=cfg, X_W_Hs=X_W_Hs, q_algr_pres=q_algr_pres, q_algr_posts=q_algr_posts
+    )
+    return qs, qds, dts, success_idxs
+
+
+def visualize():
     # Visualize
     print("\n" + "=" * 80)
     print("Visualizing")
@@ -1017,7 +1136,7 @@ def main() -> None:
         )
 
     args.nerf_config = nerf_config
-    run_pipeline(nerf_model=nerf_model, cfg=args)
+    compute_grasps(nerf_model=nerf_model, cfg=args)
 
 
 if __name__ == "__main__":

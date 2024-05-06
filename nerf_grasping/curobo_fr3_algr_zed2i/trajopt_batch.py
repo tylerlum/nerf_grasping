@@ -250,7 +250,7 @@ def solve_trajopt_batch(
 def get_trajectories_from_result(
     result: MotionGenResult,
 ) -> Tuple[List[np.ndarray], List[np.ndarray], List[float]]:
-    used_trajopt = result.trajopt_attempts > 0
+    used_trajopt = result.trajopt_time > 0
 
     paths = result.get_paths()
 

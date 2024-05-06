@@ -552,14 +552,16 @@ def run_drake(cfg, X_W_Hs, q_algr_pres) -> None:
         print(f"Failed to visualize trajectory {TRAJ_IDX}")
 
     while True:
-        input_options = ", ".join([
-            "b for breakpoint",
-            "r to run trajopt with object collision",
-            "o to run trajopt without object collision",
-            "next to go to next traj",
-            "prev to go to prev traj",
-            "q to quit",
-        ])
+        input_options = ", ".join(
+            [
+                "b for breakpoint",
+                "r to run trajopt with object collision",
+                "o to run trajopt without object collision",
+                "n to go to next traj",
+                "p to go to prev traj",
+                "q to quit",
+            ]
+        )
         x = input(input_options + "\n")
         if x == "b":
             print("Breakpoint")
@@ -602,12 +604,12 @@ def run_drake(cfg, X_W_Hs, q_algr_pres) -> None:
                     print(f"Failed to visualize trajectory {TRAJ_IDX}")
             else:
                 print(f"Trajectory {TRAJ_IDX} is None, skipping")
-        elif x == "next":
+        elif x == "n":
             TRAJ_IDX += 1
             if TRAJ_IDX >= num_grasps:
                 TRAJ_IDX = 0
             print(f"Using trajectory {TRAJ_IDX}")
-        elif x == "prev":
+        elif x == "p":
             TRAJ_IDX -= 1
             if TRAJ_IDX < 0:
                 TRAJ_IDX = num_grasps - 1
@@ -617,7 +619,6 @@ def run_drake(cfg, X_W_Hs, q_algr_pres) -> None:
             break
         else:
             print(f"Invalid input: {x}")
-
 
     print("Breakpoint to visualize")
     breakpoint()
@@ -637,11 +638,10 @@ def run_curobo(cfg, X_W_Hs, q_algr_pres):
     assert q_algr_pres.shape == (n_grasps, 16)
 
     print("\n" + "=" * 80)
-    print("Step 9: Solve trajopt for each grasp")
+    print("Step 9: Solve motion gen for each grasp")
     print("=" * 80 + "\n")
 
     # Enable trajopt often makes it fail, haven't been able to figure out why
-    ENABLE_TRAJOPT = False
     motion_gen_result, ik_result, ik_result2 = solve_trajopt_batch(
         X_W_Hs=X_W_Hs,
         q_algrs=q_algr_pres,
@@ -652,7 +652,7 @@ def run_curobo(cfg, X_W_Hs, q_algr_pres):
         collision_check_table=True,
         use_cuda_graph=False,
         enable_graph=True,
-        enable_opt=ENABLE_TRAJOPT,
+        enable_opt=False,
         timeout=10.0,
     )
 
@@ -660,7 +660,9 @@ def run_curobo(cfg, X_W_Hs, q_algr_pres):
     ik_success_idxs = ik_result.success.flatten().nonzero().flatten().tolist()
     ik_success_idxs2 = ik_result2.success.flatten().nonzero().flatten().tolist()
     print("\n" + "=" * 80)
-    print("Trajectory optimization complete, printing results")
+    print(
+        "Motion generation without trajectory optimization complete, printing results"
+    )
     print("=" * 80 + "\n")
     print(
         f"success_idxs: {success_idxs} ({len(success_idxs)} / {n_grasps} = {len(success_idxs) / n_grasps * 100:.2f}%)"
@@ -671,6 +673,51 @@ def run_curobo(cfg, X_W_Hs, q_algr_pres):
     print(
         f"ik_success_idxs2: {ik_success_idxs2} ({len(ik_success_idxs2)} / {n_grasps} = {len(ik_success_idxs2) / n_grasps * 100:.2f}%)"
     )
+
+    RUN_TRAJOPT_AS_WELL = False
+    if RUN_TRAJOPT_AS_WELL:
+        print("\n" + "=" * 80)
+        print("RUNNING TRAJOPT AS WELL")
+        trajopt_motion_gen_result, trajopt_ik_result, trajopt_ik_result2 = (
+            solve_trajopt_batch(
+                X_W_Hs=X_W_Hs,
+                q_algrs=q_algr_pres,
+                collision_check_object=True,
+                obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
+                obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
+                obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+                collision_check_table=True,
+                use_cuda_graph=False,
+                enable_graph=True,
+                enable_opt=True,
+                timeout=20.0,
+            )
+        )
+
+        trajopt_success_idxs = (
+            trajopt_motion_gen_result.success.flatten().nonzero().flatten().tolist()
+        )
+        trajopt_ik_success_idxs = (
+            trajopt_ik_result.success.flatten().nonzero().flatten().tolist()
+        )
+        trajopt_ik_success_idxs2 = (
+            trajopt_ik_result2.success.flatten().nonzero().flatten().tolist()
+        )
+        print("\n" + "=" * 80)
+        print("Trajectory optimization complete, printing results")
+        print("=" * 80 + "\n")
+        print(
+            f"trajopt_success_idxs: {trajopt_success_idxs} ({len(trajopt_success_idxs)} / {n_grasps} = {len(trajopt_success_idxs) / n_grasps * 100:.2f}%)"
+        )
+        print(
+            f"trajopt_ik_success_idxs: {trajopt_ik_success_idxs} ({len(trajopt_ik_success_idxs)} / {n_grasps} = {len(trajopt_ik_success_idxs) / n_grasps * 100:.2f}%)"
+        )
+        print(
+            f"trajopt_ik_success_idxs2: {trajopt_ik_success_idxs2} ({len(trajopt_ik_success_idxs2)} / {n_grasps} = {len(trajopt_ik_success_idxs2) / n_grasps * 100:.2f}%)"
+        )
+        trajopt_qs, trajopt_qds, trajopt_dts = get_trajectories_from_result(
+            result=trajopt_motion_gen_result
+        )
 
     qs, qds, dts = get_trajectories_from_result(result=motion_gen_result)
     TRAJ_IDX = success_idxs[0] if len(success_idxs) > 0 else 0
@@ -709,20 +756,25 @@ def run_curobo(cfg, X_W_Hs, q_algr_pres):
     time.sleep(1.0)
 
     remove_collision_spheres_default_config()
+    q, qd, dt = qs[TRAJ_IDX], qds[TRAJ_IDX], dts[TRAJ_IDX]
     print(f"Visualizing trajectory {TRAJ_IDX}")
     animate_robot(robot=pb_robot, qs=q, dt=dt)
 
     while True:
-        input_options = ", ".join([
-            "b for breakpoint",
-            "v to visualize traj",
-            "d to print collision distance",
-            "next to go to next traj",
-            "prev to go to prev traj",
-            "c to draw collision spheres",
-            "r to remove collision spheres",
-            "q to quit",
-        ])
+        input_options = ", ".join(
+            [
+                "b for breakpoint",
+                "v to visualize traj",
+                "d to print collision distance",
+                "vt for visualize trajopt traj",
+                "dt for print trajopt collision distance",
+                "n to go to next traj",
+                "p to go to prev traj",
+                "c to draw collision spheres",
+                "r to remove collision spheres",
+                "q to quit",
+            ]
+        )
         x = input(input_options + "\n")
         if x == "b":
             print("Breakpoint")
@@ -745,12 +797,44 @@ def run_curobo(cfg, X_W_Hs, q_algr_pres):
             )
             print(f"np.max(d_world): {np.max(d_world)}")
             print(f"np.max(d_self): {np.max(d_self)}")
-        elif x == "next":
+        elif x == "vt":
+            if RUN_TRAJOPT_AS_WELL:
+                q, qd, dt = (
+                    trajopt_qs[TRAJ_IDX],
+                    trajopt_qds[TRAJ_IDX],
+                    trajopt_dts[TRAJ_IDX],
+                )
+                print(f"Visualizing trajectory {TRAJ_IDX}")
+                animate_robot(robot=pb_robot, qs=q, dt=dt)
+            else:
+                print("Trajopt was not run")
+        elif x == "dt":
+            if RUN_TRAJOPT_AS_WELL:
+                q, qd, dt = (
+                    trajopt_qs[TRAJ_IDX],
+                    trajopt_qds[TRAJ_IDX],
+                    trajopt_dts[TRAJ_IDX],
+                )
+                print(f"For trajectory {TRAJ_IDX}")
+                d_world, d_self = max_penetration_from_qs(
+                    qs=q,
+                    collision_activation_distance=0.0,
+                    include_object=True,
+                    obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
+                    obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
+                    obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+                    include_table=True,
+                )
+                print(f"np.max(d_world): {np.max(d_world)}")
+                print(f"np.max(d_self): {np.max(d_self)}")
+            else:
+                print("Trajopt was not run")
+        elif x == "n":
             TRAJ_IDX += 1
             if TRAJ_IDX >= len(qs):
                 TRAJ_IDX = 0
             print(f"Updated to trajectory {TRAJ_IDX}")
-        elif x == "prev":
+        elif x == "p":
             TRAJ_IDX -= 1
             if TRAJ_IDX < 0:
                 TRAJ_IDX = len(qs) - 1

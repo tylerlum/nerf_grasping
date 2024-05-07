@@ -981,6 +981,7 @@ def run_pipeline(
     q_algr: Optional[np.ndarray] = None,
 ) -> Tuple[List[np.ndarray], List[np.ndarray], List[float], List[int], tuple]:
 
+    start_time = time.time()
     (
         X_W_Hs,
         q_algr_pres,
@@ -989,6 +990,10 @@ def run_pipeline(
         X_N_Oy,
         losses,
     ) = compute_grasps(nerf_model=nerf_model, cfg=cfg)
+    compute_grasps_time = time.time()
+    print("@" * 80)
+    print(f"Time to compute_grasps: {compute_grasps_time - start_time:.2f}s")
+    print("@" * 80 + "\n")
 
     qs, qds, T_trajs, success_idxs, DEBUG_TUPLE = run_curobo(
         cfg=cfg,
@@ -999,6 +1004,14 @@ def run_pipeline(
         q_fr3=q_fr3,
         q_algr=q_algr,
     )
+    curobo_time = time.time()
+    print("@" * 80)
+    print(f"Time to run_curobo: {curobo_time - compute_grasps_time:.2f}s")
+    print("@" * 80 + "\n")
+
+    print("\n" + "=" * 80)
+    print(f"Total time: {curobo_time - start_time:.2f}s")
+    print("=" * 80 + "\n")
     return qs, qds, T_trajs, success_idxs, DEBUG_TUPLE
 
 

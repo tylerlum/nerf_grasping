@@ -646,6 +646,7 @@ def run_curobo(
     q_fr3: Optional[np.ndarray] = None,
     q_algr: Optional[np.ndarray] = None,
 ) -> Tuple[List[np.ndarray], List[np.ndarray], List[float], List[int], tuple]:
+    from nerf_grasping.curobo_fr3_algr_zed2i.ik_fr3_algr_zed2i import max_penetration_from_qs
     from nerf_grasping.curobo_fr3_algr_zed2i.trajopt_batch import (
         solve_trajopt_batch,
         get_trajectories_from_result,
@@ -770,9 +771,21 @@ def run_curobo(
     print("Step 11: Add lifing motion")
     print("=" * 80 + "\n")
     # NOTE: Must use same qs found from motion gen to ensure they are not starting in collision
-    # TODO: Do collision check to ensure they are not starting in collision
-    q_fr3_start_lifts = np.array([q[-1, :7] for q in qs])
-    q_algr_start_lifts = np.array([q[-1, 7:] for q in qs])
+    q_start_lifts = np.array([q[-1] for q in qs])
+    assert q_start_lifts.shape == (n_grasps, 23)
+
+    # Do collision check to ensure they are not starting in collision
+    d_world, d_self = max_penetration_from_qs(
+        qs=q_start_lifts,
+        collision_activation_distance=0.01,
+        include_object=True,
+        obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
+        obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
+        obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+        include_table=True,
+    )
+    print(f"np.max(d_world): {np.max(d_world)}")
+    print(f"np.max(d_self): {np.max(d_self)}")
 
     X_W_H_lifts = X_W_Hs.copy()
     LIFT_AMOUNT = 0.2  # Lift up 20 cm
@@ -785,19 +798,19 @@ def run_curobo(
     for i in range(n_grasps):
         if i in overall_success_idxs:
             continue
-        q_fr3_start_lifts[i] = q_fr3_start_lifts[valid_idx]
+        q_start_lifts[i] = q_start_lifts[valid_idx]
         X_W_H_lifts[i] = X_W_H_lifts[valid_idx]
 
     lift_motion_gen_result, lift_ik_result, lift_ik_result2 = solve_trajopt_batch(
         X_W_Hs=X_W_H_lifts,
         q_algrs=q_algr_pres,
-        q_fr3_starts=q_fr3_start_lifts,
-        q_algr_starts=q_algr_start_lifts,  # We don't want to care about hand joints, just arm joints, so this doesn't matter much as long as not in collision with table
+        q_fr3_starts=q_start_lifts[:, :7],
+        q_algr_starts=q_start_lifts[:, 7:],  # We don't want to care about hand joints, just arm joints, so this doesn't matter much as long as not in collision with table
         collision_check_object=False,  # Don't need object collision check for lifting
         obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
         obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
         obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
-        collision_check_table=True,  # Probably don't need to check this since we are going up, but leave on to be safe
+        collision_check_table=False,  # Probably don't need to check this since we are going up, but leave on to be safe
         use_cuda_graph=False,
         enable_graph=True,
         enable_opt=False,

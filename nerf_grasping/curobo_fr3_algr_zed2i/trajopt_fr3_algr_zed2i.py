@@ -102,7 +102,7 @@ def solve_trajopt(
         use_cuda_graph=use_cuda_graph,
     )
     motion_gen = MotionGen(motion_gen_config)
-    motion_gen.warmup()
+    # motion_gen.warmup()  # Can cause issues with use_cuda_graph=True
 
     if q_fr3_start is None:
         q_fr3_start = DEFAULT_Q_FR3

@@ -649,6 +649,8 @@ def run_curobo(
     from nerf_grasping.curobo_fr3_algr_zed2i.ik_fr3_algr_zed2i import max_penetration_from_qs
     from nerf_grasping.curobo_fr3_algr_zed2i.trajopt_batch import (
         solve_trajopt_batch,
+        solve_trajopt_batch_debug,
+        solve_trajopt_batch_debug2,
         get_trajectories_from_result,
     )
 
@@ -701,7 +703,7 @@ def run_curobo(
     ik_success_idxs2 = ik_result2.success.flatten().nonzero().flatten().tolist()
 
     qs, qds, dts = get_trajectories_from_result(
-        result=motion_gen_result, desired_trajectory_time=3.5
+        result=motion_gen_result, desired_trajectory_time=7.5
     )
     nonzero_q_idxs = [i for i, q in enumerate(qs) if np.absolute(q).sum() > 1e-2]
     overall_success_idxs = sorted(
@@ -802,6 +804,24 @@ def run_curobo(
     # print(f"np.max(d_world): {np.max(d_world)}")
     # print(f"np.max(d_self): {np.max(d_self)}")
 
+    motion_gen_config, start_state = solve_trajopt_batch_debug(
+        X_W_Hs=X_W_H_lifts,
+        q_algrs=q_algr_pres,
+        q_fr3_starts=q_start_lifts[:, :7],
+        q_algr_starts=q_start_lifts[:, 7:],  # We don't want to care about hand joints, just arm joints, so this doesn't matter much as long as not in collision with table
+        collision_check_object=False,  # Don't need object collision check for lifting
+        obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
+        obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
+        obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+        collision_check_table=False,  # Probably don't need to check this since we are going up, but leave on to be safe
+        use_cuda_graph=False,
+        enable_graph=True,
+        enable_opt=False,
+        timeout=10.0,
+        collision_sphere_buffer=0.005,  # Reduce buffer for lift because not using object collision, less uncertainty
+    )
+    solve_trajopt_batch_debug2(motion_gen_config, start_state)
+
     lift_motion_gen_result, lift_ik_result, lift_ik_result2 = solve_trajopt_batch(
         X_W_Hs=X_W_H_lifts,
         q_algrs=q_algr_pres,
@@ -845,7 +865,7 @@ def run_curobo(
         f"lift_overall_success_idxs: {lift_overall_success_idxs} ({len(lift_overall_success_idxs)} / {n_grasps} = {len(lift_overall_success_idxs) / n_grasps * 100:.2f}%)"
     )
     raw_lift_qs, raw_lift_qds, raw_lift_dts = get_trajectories_from_result(
-        result=lift_motion_gen_result, desired_trajectory_time=3.5
+        result=lift_motion_gen_result, desired_trajectory_time=7.5
     )
 
     final_success_idxs = sorted(

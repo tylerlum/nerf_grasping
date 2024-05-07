@@ -380,6 +380,96 @@ def get_trajectories_from_result(
     )
 
 
+def rescale_if_out_of_velocity_limits(
+    qds: List[np.ndarray], dts: List[float]
+) -> Tuple[List[np.ndarray], List[float]]:
+    robot_file = "fr3_algr_zed2i.yml"
+    robot_cfg = RobotConfig.from_dict(
+        load_yaml(join_path(get_robot_configs_path(), robot_file))["robot_cfg"]
+    )
+
+    qd_limits = robot_cfg.kinematics.kinematics_config.joint_limits.velocity.detach().cpu().numpy()
+    qdd_limits = robot_cfg.kinematics.kinematics_config.joint_limits.acceleration.detach().cpu().numpy()
+    qddd_limits = robot_cfg.kinematics.kinematics_config.joint_limits.jerk.detach().cpu().numpy()
+
+    qd_limits_min, qd_limits_max = qd_limits[0], qd_limits[1]
+    qdd_limits_min, qdd_limits_max = qdd_limits[0], qdd_limits[1]
+    qddd_limits_min, qddd_limits_max = qddd_limits[0], qddd_limits[1]
+
+    assert qd_limits_min.shape == qd_limits_max.shape == (23,)
+    assert qdd_limits_min.shape == qdd_limits_max.shape == (23,)
+    assert qddd_limits_min.shape == qddd_limits_max.shape == (23,)
+
+    assert (qd_limits_min < 0).all()
+    assert (qd_limits_max > 0).all()
+    assert (qdd_limits_min < 0).all()
+    assert (qdd_limits_max > 0).all()
+    assert (qddd_limits_min < 0).all()
+    assert (qddd_limits_max > 0).all()
+
+    new_qds, new_dts = [], []
+    for i, (qd, dt) in enumerate(zip(qds, dts)):
+        n_timesteps = qd.shape[0]
+        assert qd.shape == (n_timesteps, 23)
+        qdd = np.diff(qd, axis=0) / dt
+        qddd = np.diff(qdd, axis=0) / dt
+
+        qd_min = qd.min(axis=0)
+        qd_max = qd.max(axis=0)
+        qdd_min = qdd.min(axis=0)
+        qdd_max = qdd.max(axis=0)
+        qddd_min = qddd.min(axis=0)
+        qddd_max = qddd.max(axis=0)
+
+        qd_min_under_scale = np.where(
+            qd_min < qd_limits_min,
+            np.abs(qd_min / qd_limits_min),
+            1.0,
+        ).max()
+        qd_max_over_scale = np.where(
+            qd_max > qd_limits_max,
+            np.abs(qd_max / qd_limits_max),
+            1.0,
+        ).max()
+        qdd_min_under_scale = np.where(
+            qdd_min < qdd_limits_min,
+            np.abs(qdd_min / qdd_limits_min),
+            1.0,
+        ).max()
+        qdd_max_over_scale = np.where(
+            qdd_max > qdd_limits_max,
+            np.abs(qdd_max / qdd_limits_max),
+            1.0,
+        ).max()
+        qddd_min_under_scale = np.where(
+            qddd_min < qddd_limits_min,
+            np.abs(qddd_min / qddd_limits_min),
+            1.0,
+        ).max()
+        qddd_max_over_scale = np.where(
+            qddd_max > qddd_limits_max,
+            np.abs(qddd_max / qddd_limits_max),
+            1.0,
+        ).max()
+
+        # Rescale qd if needed to stay within limits
+        rescale_factor = max(
+            qd_min_under_scale,
+            qd_max_over_scale,
+            # qdd_min_under_scale,  # Ignore qdd and qddd for now because it was too conservative
+            # qdd_max_over_scale,
+            # qddd_min_under_scale,
+            # qddd_max_over_scale,
+        )
+        if rescale_factor > 1.0:
+            new_qd = qd / rescale_factor
+            new_dt = dt * rescale_factor
+            new_qds.append(new_qd)
+            new_dts.append(new_dt)
+
+    return new_qds, new_dts
+
+
 def main() -> None:
     X_W_H_feasible = np.array(
         [

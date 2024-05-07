@@ -634,6 +634,7 @@ def run_curobo(
     from nerf_grasping.curobo_fr3_algr_zed2i.trajopt_batch import (
         solve_trajopt_batch,
         get_trajectories_from_result,
+        rescale_if_out_of_velocity_limits,
     )
 
     n_grasps = X_W_Hs.shape[0]
@@ -686,8 +687,9 @@ def run_curobo(
 
     qs, qds, dts = get_trajectories_from_result(
         result=motion_gen_result,
-        desired_trajectory_time=5,
+        desired_trajectory_time=5.0,
     )
+    qds, dts = rescale_if_out_of_velocity_limits(qds=qds, dts=dts)
     nonzero_q_idxs = [i for i, q in enumerate(qs) if np.absolute(q).sum() > 1e-2]
     overall_success_idxs = sorted(
         list(

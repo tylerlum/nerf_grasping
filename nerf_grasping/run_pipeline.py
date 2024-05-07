@@ -814,7 +814,7 @@ def run_curobo(
         obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
         obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
         obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
-        collision_check_table=False,
+        collision_check_table=True,  # Not sure if needed, but safer to avoid table collisions
         use_cuda_graph=True,
     )
     lift_ik_end_time = time.time()
@@ -1094,6 +1094,13 @@ def visualize(
             )
             print(f"np.max(d_world): {np.max(d_world)}")
             print(f"np.max(d_self): {np.max(d_self)}")
+        elif x == "w":
+            print(
+                f"Visualizing waypoints of trajectory {TRAJ_IDX}"
+            )
+            lift_ik_result = DEBUG_TUPLE[3]  # BRITTLE
+            ik_qs = lift_ik_result.solution.detach().cpu().numpy()
+            breakpoint()
         elif x == "n":
             TRAJ_IDX += 1
             if TRAJ_IDX >= len(qs):

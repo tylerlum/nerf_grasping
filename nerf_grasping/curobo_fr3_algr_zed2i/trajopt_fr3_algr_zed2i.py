@@ -24,6 +24,9 @@ from curobo.wrap.reacher.motion_gen import (
 from nerf_grasping.curobo_fr3_algr_zed2i.fr3_algr_zed2i_world import (
     get_world_cfg,
 )
+from nerf_grasping.curobo_fr3_algr_zed2i.joint_limit_utils import (
+    modify_robot_cfg_to_add_joint_limit_buffer,
+)
 
 
 DEFAULT_Q_FR3 = np.array([0, -0.7854, 0.0, -2.3562, 0.0, 1.5708, 0.7854])
@@ -42,12 +45,13 @@ def solve_trajopt(
     obj_xyz: Tuple[float, float, float] = (0.65, 0.0, 0.0),
     obj_quat_wxyz: Tuple[float, float, float, float] = (1.0, 0.0, 0.0, 0.0),
     collision_check_table: bool = True,
-    use_cuda_graph: bool = False,  # Getting some errors from setting this to True
+    use_cuda_graph: bool = True,
     enable_graph: bool = True,
     enable_opt: bool = False,  # Getting some errors from setting this to True
     raise_if_fail: bool = True,
     warn_if_fail: bool = False,
     timeout: float = 5.0,
+    collision_sphere_buffer: Optional[float] = None,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, float, MotionGenResult, MotionGen]:
     assert X_W_H.shape == (4, 4), f"X_W_H.shape: {X_W_H.shape}"
     trans = X_W_H[:3, 3]
@@ -61,9 +65,11 @@ def solve_trajopt(
 
     tensor_args = TensorDeviceType()
     robot_file = "fr3_algr_zed2i.yml"
-    robot_cfg = RobotConfig.from_dict(
-        load_yaml(join_path(get_robot_configs_path(), robot_file))["robot_cfg"]
-    )
+    robot_cfg = load_yaml(join_path(get_robot_configs_path(), robot_file))["robot_cfg"]
+    if collision_sphere_buffer is not None:
+        robot_cfg["kinematics"]["collision_sphere_buffer"] = collision_sphere_buffer
+    robot_cfg = RobotConfig.from_dict(robot_cfg)
+    modify_robot_cfg_to_add_joint_limit_buffer(robot_cfg)
 
     # Apply joint limits
     if q_algr_constraint is not None:
@@ -96,9 +102,15 @@ def solve_trajopt(
         tensor_args,
         collision_checker_type=CollisionCheckerType.MESH,
         use_cuda_graph=use_cuda_graph,
+        num_ik_seeds=1,  # Reduced to save time?
+        num_graph_seeds=1,  # Reduced to save time?
+        num_trajopt_seeds=1,  # Reduced to save time?
+        num_batch_ik_seeds=1,  # Reduced to save time?
+        num_batch_trajopt_seeds=1,  # Reduced to save time?
+        num_trajopt_noisy_seeds=1,  # Reduced to save time?
     )
     motion_gen = MotionGen(motion_gen_config)
-    motion_gen.warmup()
+    # motion_gen.warmup()  # Can cause issues with use_cuda_graph=True
 
     if q_fr3_start is None:
         q_fr3_start = DEFAULT_Q_FR3
@@ -116,9 +128,10 @@ def solve_trajopt(
         plan_config=MotionGenPlanConfig(
             enable_graph=enable_graph,
             enable_opt=enable_opt,
-            max_attempts=10,
-            num_trajopt_seeds=10,
-            num_graph_seeds=10,
+            # max_attempts=10,
+            max_attempts=1,  # Reduce to save time?
+            num_trajopt_seeds=1,  # Reduce to save time?
+            num_graph_seeds=1,  # Must be 1 for plan_batch
             timeout=timeout,
         ),
     )

@@ -254,7 +254,6 @@ def solve_trajopt_batch(
     ik_result2 = ik_solver2.solve_batch(
         goal_pose=target_pose, link_poses=state.link_pose
     )
-    # print(f"ik_result2.success: {ik_result2.success.nonzero()}")
 
     print("Step 5: Solve FK for new fingertip poses")
     kin_model2 = CudaRobotModel(robot_cfg.kinematics)

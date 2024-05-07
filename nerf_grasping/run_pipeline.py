@@ -31,6 +31,19 @@ from dataclasses import dataclass
 import plotly.graph_objects as go
 from datetime import datetime
 
+from nerf_grasping.curobo_fr3_algr_zed2i.ik_fr3_algr_zed2i import (
+    solve_iks,
+)
+from nerf_grasping.curobo_fr3_algr_zed2i.trajopt_batch import (
+    solve_trajopt_batch,
+    get_trajectories_from_result,
+    compute_over_limit_factors,
+)
+from nerf_grasping.curobo_fr3_algr_zed2i.trajopt_fr3_algr_zed2i import (
+    DEFAULT_Q_FR3,
+    DEFAULT_Q_ALGR,
+)
+
 
 @dataclass
 class PipelineConfig:
@@ -641,31 +654,14 @@ def run_curobo(
     STAY_CLOSED_TIME = cfg.stay_closed_time
     LIFT_TIME = cfg.lift_time
 
-    from nerf_grasping.curobo_fr3_algr_zed2i.ik_fr3_algr_zed2i import (
-        solve_iks,
-    )
-    from nerf_grasping.curobo_fr3_algr_zed2i.trajopt_batch import (
-        solve_trajopt_batch,
-        get_trajectories_from_result,
-        compute_over_limit_factors,
-    )
-
     n_grasps = X_W_Hs.shape[0]
     assert X_W_Hs.shape == (n_grasps, 4, 4)
     assert q_algr_pres.shape == (n_grasps, 16)
     if q_fr3 is None:
         print("Using default q_fr3")
-        from nerf_grasping.curobo_fr3_algr_zed2i.trajopt_fr3_algr_zed2i import (
-            DEFAULT_Q_FR3,
-        )
-
         q_fr3 = DEFAULT_Q_FR3
     if q_algr is None:
         print("Using default q_algr")
-        from nerf_grasping.curobo_fr3_algr_zed2i.trajopt_fr3_algr_zed2i import (
-            DEFAULT_Q_ALGR,
-        )
-
         q_algr = DEFAULT_Q_ALGR
     assert q_fr3.shape == (7,)
     assert q_algr.shape == (16,)

@@ -698,11 +698,16 @@ def run_curobo(
     )
     ik_success_idxs = ik_result.success.flatten().nonzero().flatten().tolist()
     ik_success_idxs2 = ik_result2.success.flatten().nonzero().flatten().tolist()
+
+    qs, qds, dts = get_trajectories_from_result(
+        result=motion_gen_result, desired_trajectory_time=3.5
+    )
+    nonzero_q_idxs = [i for i, q in enumerate(qs) if np.absolute(q).sum() > 1e-2]
     overall_success_idxs = sorted(
         list(
-            set(motion_gen_success_idxs).intersection(
-                set(ik_success_idxs).intersection(set(ik_success_idxs2))
-            )
+            set(motion_gen_success_idxs)
+            .intersection(set(ik_success_idxs).intersection(set(ik_success_idxs2)))
+            .intersection(set(nonzero_q_idxs))
         )
     )  # All must be successful or else it may be successful for the wrong trajectory
 
@@ -721,9 +726,11 @@ def run_curobo(
         f"ik_success_idxs2: {ik_success_idxs2} ({len(ik_success_idxs2)} / {n_grasps} = {len(ik_success_idxs2) / n_grasps * 100:.2f}%)"
     )
     print(
+        f"nonzero_q_idxs: {nonzero_q_idxs} ({len(nonzero_q_idxs)} / {n_grasps} = {len(nonzero_q_idxs) / n_grasps * 100:.2f}%)"
+    )
+    print(
         f"overall_success_idxs: {overall_success_idxs} ({len(overall_success_idxs)} / {n_grasps} = {len(overall_success_idxs) / n_grasps * 100:.2f}%)"
     )
-    qs, qds, dts = get_trajectories_from_result(result=motion_gen_result)
 
     print("\n" + "=" * 80)
     print("Step 10: Add closing motion")
@@ -744,7 +751,9 @@ def run_curobo(
 
         # Stay closed
         N_STAY_CLOSED_STEPS = int(STAY_CLOSED_TIME / dt)
-        interpolated_qs2 = interpolate(start=close_q, end=close_q, N=N_STAY_CLOSED_STEPS)
+        interpolated_qs2 = interpolate(
+            start=close_q, end=close_q, N=N_STAY_CLOSED_STEPS
+        )
         assert interpolated_qs2.shape == (N_STAY_CLOSED_STEPS, 23)
 
         interpolated_qs = np.concatenate([interpolated_qs1, interpolated_qs2], axis=0)
@@ -764,14 +773,10 @@ def run_curobo(
     print("Step 11: Add lifing motion")
     print("=" * 80 + "\n")
     q_fr3_start_lifts = np.array([q[-1, :7] for q in qs_with_closing])
-    q_algr_start_lifts = q_algr_pres
-    q_start_lifts = np.concatenate([q_fr3_start_lifts, q_algr_start_lifts], axis=1)
 
     X_W_H_lifts = X_W_Hs.copy()
     LIFT_AMOUNT = 0.2  # Lift up 20 cm
-    X_W_H_lifts[:, 2, 3] += 0.2
-
-    assert q_start_lifts.shape == (n_grasps, 23)
+    X_W_H_lifts[:, 2, 3] += LIFT_AMOUNT
 
     # HACK: If motion_gen above fails, then it leaves q as all 0s, which causes next step to fail
     #       So we populate those with another valid one
@@ -825,7 +830,7 @@ def run_curobo(
         f"lift_overall_success_idxs: {lift_overall_success_idxs} ({len(lift_overall_success_idxs)} / {n_grasps} = {len(lift_overall_success_idxs) / n_grasps * 100:.2f}%)"
     )
     lift_qs, lift_qds, lift_dts = get_trajectories_from_result(
-        result=lift_motion_gen_result
+        result=lift_motion_gen_result, desired_trajectory_time=3.5
     )
 
     final_success_idxs = sorted(

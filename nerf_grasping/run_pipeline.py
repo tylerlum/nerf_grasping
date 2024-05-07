@@ -646,6 +646,7 @@ def run_curobo(
     q_fr3: Optional[np.ndarray] = None,
     q_algr: Optional[np.ndarray] = None,
 ) -> Tuple[List[np.ndarray], List[np.ndarray], List[float], List[int], tuple]:
+    from nerf_grasping.curobo_fr3_algr_zed2i.ik_fr3_algr_zed2i import max_penetration_from_qs
     from nerf_grasping.curobo_fr3_algr_zed2i.trajopt_batch import (
         solve_trajopt_batch,
         get_trajectories_from_result,
@@ -735,7 +736,7 @@ def run_curobo(
     print("\n" + "=" * 80)
     print("Step 10: Add closing motion")
     print("=" * 80 + "\n")
-    qs_with_closing, qds_with_closing = [], []
+    closing_qs, closing_qds = [], []
     for i, (q, qd, dt) in enumerate(zip(qs, qds, dts)):
         CLOSE_TIME = 0.5
         STAY_CLOSED_TIME = 1
@@ -756,23 +757,22 @@ def run_curobo(
         )
         assert interpolated_qs2.shape == (N_STAY_CLOSED_STEPS, 23)
 
-        interpolated_qs = np.concatenate([interpolated_qs1, interpolated_qs2], axis=0)
+        closing_q = np.concatenate([interpolated_qs1, interpolated_qs2], axis=0)
 
-        interpolated_qds = np.diff(interpolated_qs, axis=0) / dt
-        interpolated_qds = np.concatenate(
-            [interpolated_qds, interpolated_qds[-1:]], axis=0
+        closing_qd = np.diff(closing_q, axis=0) / dt
+        closing_qd = np.concatenate(
+            [closing_qd, closing_qd[-1:]], axis=0
         )
 
-        q_with_closing = np.concatenate([q, interpolated_qs], axis=0)
-        qs_with_closing.append(q_with_closing)
-
-        qd_with_closing = np.concatenate([qd, interpolated_qds], axis=0)
-        qds_with_closing.append(qd_with_closing)
+        closing_qs.append(closing_q)
+        closing_qds.append(closing_qd)
 
     print("\n" + "=" * 80)
     print("Step 11: Add lifing motion")
     print("=" * 80 + "\n")
-    q_fr3_start_lifts = np.array([q[-1, :7] for q in qs_with_closing])
+    # NOTE: Must use same qs found from motion gen to ensure they are not starting in collision
+    q_start_lifts = np.array([q[-1] for q in qs])
+    assert q_start_lifts.shape == (n_grasps, 23)
 
     X_W_H_lifts = X_W_Hs.copy()
     LIFT_AMOUNT = 0.2  # Lift up 20 cm
@@ -781,27 +781,42 @@ def run_curobo(
     # HACK: If motion_gen above fails, then it leaves q as all 0s, which causes next step to fail
     #       So we populate those with another valid one
     assert len(overall_success_idxs) > 0
+    valid_idx = overall_success_idxs[0]
     for i in range(n_grasps):
         if i in overall_success_idxs:
             continue
-        q_fr3_start_lifts[i] = q_fr3_start_lifts[overall_success_idxs[0]]
-        X_W_H_lifts[i] = X_W_H_lifts[overall_success_idxs[0]]
+        q_start_lifts[i] = q_start_lifts[valid_idx]
+        X_W_H_lifts[i] = X_W_H_lifts[valid_idx]
+
+    # TODO: Consider adding start state safety check inside solve_trajopt_batch
+    # Do collision check to ensure they are not starting in collision
+    # d_world, d_self = max_penetration_from_qs(
+    #     qs=q_start_lifts,
+    #     # collision_activation_distance=0.01,
+    #     include_object=False,
+    #     obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
+    #     obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
+    #     obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+    #     include_table=True,
+    # )
+    # print(f"np.max(d_world): {np.max(d_world)}")
+    # print(f"np.max(d_self): {np.max(d_self)}")
 
     lift_motion_gen_result, lift_ik_result, lift_ik_result2 = solve_trajopt_batch(
         X_W_Hs=X_W_H_lifts,
         q_algrs=q_algr_pres,
-        q_fr3_starts=q_fr3_start_lifts,
-        q_algr_starts=q_algr_pres,  # We don't want to care about hand joints, just arm joints, so this doesn't matter much as long as not in collision with table
+        q_fr3_starts=q_start_lifts[:, :7],
+        q_algr_starts=q_start_lifts[:, 7:],  # We don't want to care about hand joints, just arm joints, so this doesn't matter much as long as not in collision with table
         collision_check_object=False,  # Don't need object collision check for lifting
         obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
         obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
         obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
-        collision_check_table=True,
+        collision_check_table=False,  # Probably don't need to check this since we are going up, but leave on to be safe
         use_cuda_graph=False,
         enable_graph=True,
         enable_opt=False,
         timeout=10.0,
-        collision_sphere_buffer=0.01,
+        collision_sphere_buffer=0.005,  # Reduce buffer for lift because not using object collision, less uncertainty
     )
     lift_motion_gen_success_idxs = (
         lift_motion_gen_result.success.flatten().nonzero().flatten().tolist()
@@ -829,7 +844,7 @@ def run_curobo(
     print(
         f"lift_overall_success_idxs: {lift_overall_success_idxs} ({len(lift_overall_success_idxs)} / {n_grasps} = {len(lift_overall_success_idxs) / n_grasps * 100:.2f}%)"
     )
-    lift_qs, lift_qds, lift_dts = get_trajectories_from_result(
+    raw_lift_qs, raw_lift_qds, raw_lift_dts = get_trajectories_from_result(
         result=lift_motion_gen_result, desired_trajectory_time=3.5
     )
 
@@ -837,32 +852,41 @@ def run_curobo(
         list(set(overall_success_idxs).intersection(set(lift_overall_success_idxs)))
     )
 
-    qs_with_lift, qds_with_lift = [], []
-    for i, (q, qd, dt, lift_q, lift_qd, lift_dt) in enumerate(
-        zip(qs_with_closing, qds_with_closing, dts, lift_qs, lift_qds, lift_dts)
+    adjusted_lift_qs, adjusted_lift_qds = [], []
+    for i, (closing_q, closing_qd, dt, raw_lift_q, raw_lift_qd, raw_lift_dt) in enumerate(
+        zip(closing_qs, closing_qds, dts, raw_lift_qs, raw_lift_qds, raw_lift_dts)
     ):
         # TODO: Figure out how to handle if lift_qs has different dt, only a problem if set enable_opt=True
-        assert dt == lift_dt, f"dt: {dt}, lift_dt: {lift_dt}"
+        assert dt == raw_lift_dt, f"dt: {dt}, lift_dt: {raw_lift_dt}"
 
-        # Only want the arm position of the lift q (keep same hand position as before)
-        not_lifted_q = q[-1]
-        adjusted_lift_q = lift_q.copy()
-        adjusted_lift_q[:, 7:] = not_lifted_q[None, 7:]
+        # Only want the arm position of the lift closing_q (keep same hand position as before)
+        adjusted_lift_q = raw_lift_q.copy()
+        last_closing_q = closing_q[-1]
+        adjusted_lift_q[:, 7:] = last_closing_q[None, 7:]
 
-        adjusted_lift_qd = lift_qd.copy()
+        adjusted_lift_qd = raw_lift_qd.copy()
         adjusted_lift_qd[:, 7:] = 0.0
 
-        q_with_lift = np.concatenate([q, adjusted_lift_q], axis=0)
-        qs_with_lift.append(q_with_lift)
-
-        qd_with_lift = np.concatenate([qd, adjusted_lift_qd], axis=0)
-        qds_with_lift.append(qd_with_lift)
+        adjusted_lift_qs.append(adjusted_lift_q)
+        adjusted_lift_qds.append(adjusted_lift_qd)
 
     print("\n" + "=" * 80)
-    print("Step 12: Compute T_trajs")
+    print("Step 12: Aggregate qs and qds")
+    print("=" * 80 + "\n")
+    q_trajs, qd_trajs = [], []
+    for q, qd, closing_q, closing_qd, lift_q, lift_qd in zip(
+        qs, qds, closing_qs, closing_qds, adjusted_lift_qs, adjusted_lift_qds
+    ):
+        q_traj = np.concatenate([q, closing_q, lift_q], axis=0)
+        qd_traj = np.concatenate([qd, closing_qd, lift_qd], axis=0)
+        q_trajs.append(q_traj)
+        qd_trajs.append(qd_traj)
+
+    print("\n" + "=" * 80)
+    print("Step 13: Compute T_trajs")
     print("=" * 80 + "\n")
     T_trajs = []
-    for q, dt in zip(qs_with_lift, dts):
+    for q, dt in zip(q_trajs, dts):
         n_timesteps = q.shape[0]
         T_trajs.append(n_timesteps * dt)
 
@@ -874,7 +898,7 @@ def run_curobo(
         lift_ik_result,
         lift_ik_result2,
     )
-    return qs_with_lift, qds_with_lift, T_trajs, final_success_idxs, DEBUG_TUPLE
+    return q_trajs, qd_trajs, T_trajs, final_success_idxs, DEBUG_TUPLE
 
 
 def run_pipeline(
@@ -1164,7 +1188,8 @@ def main() -> None:
     time.sleep(1.0)
 
     remove_collision_spheres_default_config()
-    animate_robot(robot=pb_robot, qs=qs[0], dt=dts[0])
+    valid_idx = success_idxs[0]
+    animate_robot(robot=pb_robot, qs=qs[valid_idx], dt=dts[valid_idx])
     breakpoint()
     ################ Visualize ################
 

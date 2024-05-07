@@ -37,6 +37,7 @@ from nerf_grasping.curobo_fr3_algr_zed2i.trajopt_batch import (
     compute_over_limit_factors,
 )
 from nerf_grasping.curobo_fr3_algr_zed2i.trajopt_fr3_algr_zed2i import (
+    # solve_trajopt,
     DEFAULT_Q_FR3,
     DEFAULT_Q_ALGR,
 )
@@ -666,6 +667,23 @@ def run_curobo(
     print("\n" + "=" * 80)
     print("Step 9: Solve motion gen for each grasp")
     print("=" * 80 + "\n")
+
+    # Consider solving just 1 problem instead of all?
+    # q, qd, qdd, dt, result, _ = solve_trajopt(
+    #     X_W_H=X_W_Hs[0],
+    #     q_algr_constraint=q_algr_pres[0],
+    #     q_fr3_start=q_fr3,
+    #     collision_check_object=True,
+    #     obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
+    #     obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
+    #     obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+    #     collision_check_table=True,
+    #     use_cuda_graph=True,
+    #     enable_graph=True,
+    #     enable_opt=False,
+    #     timeout=5.0,
+    #     collision_sphere_buffer=0.01,
+    # )
 
     # Enable trajopt often makes it fail, haven't been able to figure out why
     motion_gen_result, ik_result, ik_result2 = solve_trajopt_batch(

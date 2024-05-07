@@ -269,10 +269,10 @@ def solve_trajopt_batch(
         tensor_args,
         collision_checker_type=CollisionCheckerType.MESH,
         use_cuda_graph=use_cuda_graph,
-        num_ik_seeds=4,  # Reduced to save time?
+        num_ik_seeds=1,  # Reduced to save time?
         num_graph_seeds=1,  # Reduced to save time?
         num_trajopt_seeds=1,  # Reduced to save time?
-        num_batch_ik_seeds=4,  # Reduced to save time?
+        num_batch_ik_seeds=1,  # Reduced to save time?
         num_batch_trajopt_seeds=1,  # Reduced to save time?
         num_trajopt_noisy_seeds=1,  # Reduced to save time?
     )
@@ -356,7 +356,7 @@ def solve_trajopt_batch(
             enable_graph=enable_graph,
             enable_opt=enable_opt,
             # max_attempts=10,
-            max_attempts=4,  # Reduce to save time?
+            max_attempts=1,  # Reduce to save time?
             num_trajopt_seeds=1,  # Reduce to save time?
             num_graph_seeds=1,  # Must be 1 for plan_batch
             timeout=timeout,

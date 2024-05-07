@@ -855,7 +855,7 @@ def run_curobo(
     if not lift_waypoint_success.all():
         print("WARNING: Not all lift IK waypoints were successful")
         print(
-            f"lift_waypoint_success: {lift_waypoint_success}, {lift_waypoint_success.nonzero()}"
+            f"lift_waypoint_success: {lift_waypoint_success}"
         )
 
     lift_success = lift_waypoint_success.all(axis=1)
@@ -908,6 +908,7 @@ def run_curobo(
     final_success_idxs = sorted(
         list(set(overall_success_idxs).intersection(set(lift_success_idxs)))
     )
+    print("\n" + "~" * 80)
     print(
         f"final_success_idxs: {final_success_idxs} ({len(final_success_idxs)} / {n_grasps} = {len(final_success_idxs) / n_grasps * 100:.2f}%)"
     )
@@ -917,6 +918,7 @@ def run_curobo(
             f"losses = {losses}"
         )
         print(f"losses of successful grasps: {[losses[i] for i in final_success_idxs]}")
+    print("~" * 80 + "\n")
 
     # Adjust the lift qs to have the same hand position as the closing qs
     adjusted_lift_qs, adjusted_lift_qds = [], []
@@ -1228,6 +1230,7 @@ def main() -> None:
     print("=" * 80 + "\n")
 
     if args.nerfdata_path is not None:
+        start_time = time.time()
         nerf_checkpoints_folder = args.output_folder / "nerfcheckpoints"
         nerf_trainer = train_nerfs_return_trainer.train_nerf(
             args=train_nerfs_return_trainer.Args(
@@ -1238,10 +1241,19 @@ def main() -> None:
         )
         nerf_model = nerf_trainer.pipeline.model
         nerf_config = nerf_trainer.config.get_base_dir() / "config.yml"
+        end_time = time.time()
+        print("@" * 80)
+        print(f"Time to train_nerf: {end_time - start_time:.2f}s")
+        print("@" * 80 + "\n")
     elif args.nerfcheckpoint_path is not None:
+        start_time = time.time()
         nerf_pipeline = load_nerf_pipeline(args.nerfcheckpoint_path)
         nerf_model = nerf_pipeline.model
         nerf_config = args.nerfcheckpoint_path
+        end_time = time.time()
+        print("@" * 80)
+        print(f"Time to load_nerf_pipeline: {end_time - start_time:.2f}s")
+        print("@" * 80 + "\n")
     else:
         raise ValueError(
             "Exactly one of nerfdata_path or nerfcheckpoint_path must be specified"

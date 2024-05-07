@@ -643,7 +643,7 @@ def run_curobo(
     X_W_Hs: np.ndarray,
     q_algr_pres: np.ndarray,
     q_algr_posts: np.ndarray,
-) -> Tuple[List[np.ndarray], List[np.ndarray], List[float], tuple]:
+) -> Tuple[List[np.ndarray], List[np.ndarray], List[float], List[int], tuple]:
     from nerf_grasping.curobo_fr3_algr_zed2i.trajopt_batch import (
         solve_trajopt_batch,
         get_trajectories_from_result,
@@ -859,12 +859,12 @@ def run_curobo(
         lift_ik_result,
         lift_ik_result2,
     )
-    return qs_with_lift, qds_with_lift, T_trajs, DEBUG_TUPLE
+    return qs_with_lift, qds_with_lift, T_trajs, final_success_idxs, DEBUG_TUPLE
 
 
 def run_pipeline(
     nerf_model: Model, cfg: PipelineConfig
-) -> Tuple[List[np.ndarray], List[np.ndarray], List[float], List[int]]:
+) -> Tuple[List[np.ndarray], List[np.ndarray], List[float], List[int], tuple]:
 
     (
         X_W_Hs,
@@ -874,10 +874,10 @@ def run_pipeline(
         X_N_Oy,
     ) = compute_grasps(nerf_model=nerf_model, cfg=cfg)
 
-    qs, qds, dts, success_idxs = run_curobo(
+    qs, qds, T_trajs, success_idxs, DEBUG_TUPLE = run_curobo(
         cfg=cfg, X_W_Hs=X_W_Hs, q_algr_pres=q_algr_pres, q_algr_posts=q_algr_posts
     )
-    return qs, qds, dts, success_idxs
+    return qs, qds, T_trajs, success_idxs, DEBUG_TUPLE
 
 
 def visualize():

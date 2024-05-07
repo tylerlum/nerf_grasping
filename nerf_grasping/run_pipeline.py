@@ -688,6 +688,7 @@ def run_curobo(
     qs, qds, dts = get_trajectories_from_result(
         result=motion_gen_result,
         desired_trajectory_time=5.0,
+        verbose=True,
     )
     qds, dts = rescale_if_out_of_velocity_limits(qds=qds, dts=dts)
     nonzero_q_idxs = [i for i, q in enumerate(qs) if np.absolute(q).sum() > 1e-2]

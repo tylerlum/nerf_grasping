@@ -381,7 +381,7 @@ def get_trajectories_from_result(
 
 
 def rescale_if_out_of_velocity_limits(
-    qds: List[np.ndarray], dts: List[float]
+    qds: List[np.ndarray], dts: List[float], verbose: bool = False
 ) -> Tuple[List[np.ndarray], List[float]]:
     robot_file = "fr3_algr_zed2i.yml"
     robot_cfg = RobotConfig.from_dict(
@@ -462,6 +462,8 @@ def rescale_if_out_of_velocity_limits(
             # qddd_max_over_scale,
         )
         if rescale_factor > 1.0:
+            if verbose:
+                print(f"Rescaling qd by {rescale_factor} for trajectory {i}")
             new_qd = qd / rescale_factor
             new_dt = dt * rescale_factor
             new_qds.append(new_qd)

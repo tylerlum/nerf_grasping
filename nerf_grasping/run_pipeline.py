@@ -799,74 +799,74 @@ def run_curobo(
     print(f"NEW_overall_success_idxs: {NEW_overall_success_idxs} ({len(NEW_overall_success_idxs)} / {n_grasps} = {len(NEW_overall_success_idxs) / n_grasps * 100:.2f}%)")
     lift_qs, lift_qds, lift_dts = get_trajectories_from_result(result=NEW_motion_gen_result)
 
-    ################ Visualize ################
-    from nerf_grasping.curobo_fr3_algr_zed2i.visualizer import (
-        start_visualizer,
-        draw_collision_spheres_default_config,
-        remove_collision_spheres_default_config,
-        set_robot_state,
-        animate_robot,
-        create_urdf,
-    )
+#     ################ Visualize ################
+#     from nerf_grasping.curobo_fr3_algr_zed2i.visualizer import (
+#         start_visualizer,
+#         draw_collision_spheres_default_config,
+#         remove_collision_spheres_default_config,
+#         set_robot_state,
+#         animate_robot,
+#         create_urdf,
+#     )
+# 
+#     OBJECT_URDF_PATH = create_urdf(obj_path=pathlib.Path("/tmp/mesh_viz_object.obj"))
+#     pb_robot = start_visualizer(object_urdf_path=OBJECT_URDF_PATH)
+#     draw_collision_spheres_default_config(pb_robot)
+#     time.sleep(1.0)
+# 
+#     remove_collision_spheres_default_config()
+#     animate_robot(robot=pb_robot, qs=lift_qs[0], dt=lift_dts[0])
+#     ################ Visualize ################
+#     breakpoint()
 
-    OBJECT_URDF_PATH = create_urdf(obj_path=pathlib.Path("/tmp/mesh_viz_object.obj"))
-    pb_robot = start_visualizer(object_urdf_path=OBJECT_URDF_PATH)
-    draw_collision_spheres_default_config(pb_robot)
-    time.sleep(1.0)
 
-    remove_collision_spheres_default_config()
-    animate_robot(robot=pb_robot, qs=lift_qs[0], dt=lift_dts[0])
-    ################ Visualize ################
-    breakpoint()
-
-
-    # Don't need object collision check for lifting
-    lift_motion_gen_result, lift_ik_result = solve_lift_trajopt_ignore_hand_batch(
-        q_fr3_starts=q_start_lifts[:, :7],
-        q_algr_starts=q_start_lifts[:, 7:],
-        X_W_Hs=X_W_H_lifts,
-        collision_check_object=False,
-        obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
-        obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
-        obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
-        collision_check_table=False,
-        use_cuda_graph=False,
-        enable_graph=True,
-        enable_opt=False,
-        timeout=10.0,
-        collision_sphere_buffer=0.01,
-    )
-    lift_motion_gen_success_idxs = (
-        lift_motion_gen_result.success.flatten().nonzero().flatten().tolist()
-    )
-    lift_ik_success_idxs = lift_ik_result.success.flatten().nonzero().flatten().tolist()
-    lift_overall_success_idxs = sorted(
-        list(
-            set(lift_motion_gen_success_idxs).intersection(
-                set(lift_ik_success_idxs)
-            )
-        )
-    )  # All must be successful or else it may be successful for the wrong trajectory
-
-    print("\n" + "=" * 80)
-    print(
-        "Life motion generation without trajectory optimization complete, printing results"
-    )
-    print("=" * 80 + "\n")
-    print(
-        f"lift_motion_gen_success_idxs: {lift_motion_gen_success_idxs} ({len(lift_motion_gen_success_idxs)} / {n_grasps} = {len(lift_motion_gen_success_idxs) / n_grasps * 100:.2f}%)"
-    )
-    print(
-        f"lift_ik_success_idxs: {lift_ik_success_idxs} ({len(lift_ik_success_idxs)} / {n_grasps} = {len(lift_ik_success_idxs) / n_grasps * 100:.2f}%)"
-    )
-    print(
-        f"lift_overall_success_idxs: {lift_overall_success_idxs} ({len(lift_overall_success_idxs)} / {n_grasps} = {len(lift_overall_success_idxs) / n_grasps * 100:.2f}%)"
-    )
-    lift_qs, lift_qds, lift_dts = get_trajectories_from_result(result=lift_motion_gen_result)
+#     # Don't need object collision check for lifting
+#     lift_motion_gen_result, lift_ik_result = solve_lift_trajopt_ignore_hand_batch(
+#         q_fr3_starts=q_start_lifts[:, :7],
+#         q_algr_starts=q_start_lifts[:, 7:],
+#         X_W_Hs=X_W_H_lifts,
+#         collision_check_object=False,
+#         obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
+#         obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
+#         obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+#         collision_check_table=False,
+#         use_cuda_graph=False,
+#         enable_graph=True,
+#         enable_opt=False,
+#         timeout=10.0,
+#         collision_sphere_buffer=0.01,
+#     )
+#     lift_motion_gen_success_idxs = (
+#         lift_motion_gen_result.success.flatten().nonzero().flatten().tolist()
+#     )
+#     lift_ik_success_idxs = lift_ik_result.success.flatten().nonzero().flatten().tolist()
+#     lift_overall_success_idxs = sorted(
+#         list(
+#             set(lift_motion_gen_success_idxs).intersection(
+#                 set(lift_ik_success_idxs)
+#             )
+#         )
+#     )  # All must be successful or else it may be successful for the wrong trajectory
+# 
+#     print("\n" + "=" * 80)
+#     print(
+#         "Life motion generation without trajectory optimization complete, printing results"
+#     )
+#     print("=" * 80 + "\n")
+#     print(
+#         f"lift_motion_gen_success_idxs: {lift_motion_gen_success_idxs} ({len(lift_motion_gen_success_idxs)} / {n_grasps} = {len(lift_motion_gen_success_idxs) / n_grasps * 100:.2f}%)"
+#     )
+#     print(
+#         f"lift_ik_success_idxs: {lift_ik_success_idxs} ({len(lift_ik_success_idxs)} / {n_grasps} = {len(lift_ik_success_idxs) / n_grasps * 100:.2f}%)"
+#     )
+#     print(
+#         f"lift_overall_success_idxs: {lift_overall_success_idxs} ({len(lift_overall_success_idxs)} / {n_grasps} = {len(lift_overall_success_idxs) / n_grasps * 100:.2f}%)"
+#     )
+#     lift_qs, lift_qds, lift_dts = get_trajectories_from_result(result=lift_motion_gen_result)
 
     final_success_idxs = sorted(
         list(
-            set(overall_success_idxs).intersection(set(lift_overall_success_idxs))
+            set(overall_success_idxs).intersection(set(NEW_overall_success_idxs))
         )
     )
     breakpoint()
@@ -890,13 +890,33 @@ def run_curobo(
         qd_with_lift = np.concatenate([qd, adjusted_lift_qd], axis=0)
         qds_with_lift.append(qd_with_lift)
 
-    # TODO: Weird situations of lift problem if previous problem failed?
+    ################ Visualize ################
+    from nerf_grasping.curobo_fr3_algr_zed2i.visualizer import (
+        start_visualizer,
+        draw_collision_spheres_default_config,
+        remove_collision_spheres_default_config,
+        set_robot_state,
+        animate_robot,
+        create_urdf,
+    )
+
+    OBJECT_URDF_PATH = create_urdf(obj_path=pathlib.Path("/tmp/mesh_viz_object.obj"))
+    pb_robot = start_visualizer(object_urdf_path=OBJECT_URDF_PATH)
+    draw_collision_spheres_default_config(pb_robot)
+    time.sleep(1.0)
+
+    remove_collision_spheres_default_config()
+    animate_robot(robot=pb_robot, qs=qs_with_lift[0], dt=dts[0])
+    ################ Visualize ################
+    breakpoint()
+
+
 
     print("\n" + "=" * 80)
     print("Step 12: Compute T_trajs")
     print("=" * 80 + "\n")
     T_trajs = []
-    for q, dt in zip(qs, dts):
+    for q, dt in zip(qs_with_lift, dts):
         n_timesteps = q.shape[0]
         T_trajs.append(n_timesteps * dt)
 

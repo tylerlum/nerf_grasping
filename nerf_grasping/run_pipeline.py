@@ -694,7 +694,7 @@ def run_curobo(
         obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
         obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
         collision_check_table=True,
-        use_cuda_graph=False,
+        use_cuda_graph=True,
         enable_graph=True,
         enable_opt=False,
         timeout=5.0,
@@ -837,7 +837,7 @@ def run_curobo(
         obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
         obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
         collision_check_table=False,
-        use_cuda_graph=False,
+        use_cuda_graph=True,
     )
     lift_ik_end_time = time.time()
     print(f"Time to solve_iks: {lift_ik_end_time - lift_ik_start_time:.2f}s")

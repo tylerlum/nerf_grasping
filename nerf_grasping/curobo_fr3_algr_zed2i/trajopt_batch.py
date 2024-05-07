@@ -162,7 +162,7 @@ def solve_trajopt_batch(
     obj_xyz: Tuple[float, float, float] = (0.65, 0.0, 0.0),
     obj_quat_wxyz: Tuple[float, float, float, float] = (1.0, 0.0, 0.0, 0.0),
     collision_check_table: bool = True,
-    use_cuda_graph: bool = False,  # Getting some errors from setting this to True
+    use_cuda_graph: bool = True,  # Getting some errors from setting this to True
     enable_graph: bool = True,
     enable_opt: bool = False,  # Getting some errors from setting this to True
     timeout: float = 5.0,
@@ -272,7 +272,7 @@ def solve_trajopt_batch(
         use_cuda_graph=use_cuda_graph,
     )
     motion_gen = MotionGen(motion_gen_config)
-    motion_gen.warmup(batch=N_GRASPS)
+    # motion_gen.warmup(batch=N_GRASPS)  # Can cause issues with CUDA graph
 
     start_state = JointState.from_position(
         torch.from_numpy(
@@ -406,7 +406,7 @@ def main() -> None:
         obj_xyz=(0.65, 0.0, 0.0),
         obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
         collision_check_table=True,
-        use_cuda_graph=False,
+        use_cuda_graph=True,
         enable_graph=True,
         enable_opt=True,
         timeout=10.0,

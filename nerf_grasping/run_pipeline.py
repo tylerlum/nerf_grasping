@@ -643,6 +643,8 @@ def run_curobo(
     X_W_Hs: np.ndarray,
     q_algr_pres: np.ndarray,
     q_algr_posts: np.ndarray,
+    q_fr3: Optional[np.ndarray] = None,
+    q_algr: Optional[np.ndarray] = None,
 ) -> Tuple[List[np.ndarray], List[np.ndarray], List[float], List[int], tuple]:
     from nerf_grasping.curobo_fr3_algr_zed2i.trajopt_batch import (
         solve_trajopt_batch,
@@ -652,6 +654,22 @@ def run_curobo(
     n_grasps = X_W_Hs.shape[0]
     assert X_W_Hs.shape == (n_grasps, 4, 4)
     assert q_algr_pres.shape == (n_grasps, 16)
+    if q_fr3 is None:
+        print("Using default q_fr3")
+        from nerf_grasping.curobo_fr3_algr_zed2i.trajopt_fr3_algr_zed2i import (
+            DEFAULT_Q_FR3,
+        )
+
+        q_fr3 = DEFAULT_Q_FR3
+    if q_algr is None:
+        print("Using default q_algr")
+        from nerf_grasping.curobo_fr3_algr_zed2i.trajopt_fr3_algr_zed2i import (
+            DEFAULT_Q_ALGR,
+        )
+
+        q_algr = DEFAULT_Q_ALGR
+    assert q_fr3.shape == (7,)
+    assert q_algr.shape == (16,)
 
     print("\n" + "=" * 80)
     print("Step 9: Solve motion gen for each grasp")
@@ -661,6 +679,8 @@ def run_curobo(
     motion_gen_result, ik_result, ik_result2 = solve_trajopt_batch(
         X_W_Hs=X_W_Hs,
         q_algrs=q_algr_pres,
+        q_fr3_starts=q_fr3[None, ...].repeat(n_grasps, axis=0),
+        q_algr_starts=q_algr[None, ...].repeat(n_grasps, axis=0),
         collision_check_object=True,
         obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
         obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
@@ -757,6 +777,7 @@ def run_curobo(
         X_W_Hs=X_W_H_lifts,
         q_algrs=q_algr_pres,
         q_fr3_starts=q_fr3_start_lifts,
+        q_algr_starts=q_algr_pres,  # We don't want to care about hand joints, just arm joints, so this doesn't matter much as long as not in collision with table
         collision_check_object=False,  # Don't need object collision check for lifting
         obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
         obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
@@ -863,7 +884,10 @@ def run_curobo(
 
 
 def run_pipeline(
-    nerf_model: Model, cfg: PipelineConfig
+    nerf_model: Model,
+    cfg: PipelineConfig,
+    q_fr3: Optional[np.ndarray] = None,
+    q_algr: Optional[np.ndarray] = None,
 ) -> Tuple[List[np.ndarray], List[np.ndarray], List[float], List[int], tuple]:
 
     (
@@ -875,7 +899,12 @@ def run_pipeline(
     ) = compute_grasps(nerf_model=nerf_model, cfg=cfg)
 
     qs, qds, T_trajs, success_idxs, DEBUG_TUPLE = run_curobo(
-        cfg=cfg, X_W_Hs=X_W_Hs, q_algr_pres=q_algr_pres, q_algr_posts=q_algr_posts
+        cfg=cfg,
+        X_W_Hs=X_W_Hs,
+        q_algr_pres=q_algr_pres,
+        q_algr_posts=q_algr_posts,
+        q_fr3=q_fr3,
+        q_algr=q_algr,
     )
     return qs, qds, T_trajs, success_idxs, DEBUG_TUPLE
 
@@ -1115,7 +1144,7 @@ def main() -> None:
         )
 
     args.nerf_config = nerf_config
-    run_pipeline(nerf_model=nerf_model, cfg=args)
+    qs, qds, T_trajs, success_idxs, DEBUG_TUPLE = run_pipeline(nerf_model=nerf_model, cfg=args)
 
 
 if __name__ == "__main__":

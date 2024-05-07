@@ -24,6 +24,9 @@ from curobo.wrap.reacher.motion_gen import (
 from nerf_grasping.curobo_fr3_algr_zed2i.fr3_algr_zed2i_world import (
     get_world_cfg,
 )
+from nerf_grasping.curobo_fr3_algr_zed2i.joint_limit_utils import (
+    modify_robot_cfg_to_add_joint_limit_buffer,
+)
 
 
 DEFAULT_Q_FR3 = np.array([0, -0.7854, 0.0, -2.3562, 0.0, 1.5708, 0.7854])
@@ -64,6 +67,7 @@ def solve_trajopt(
     robot_cfg = RobotConfig.from_dict(
         load_yaml(join_path(get_robot_configs_path(), robot_file))["robot_cfg"]
     )
+    modify_robot_cfg_to_add_joint_limit_buffer(robot_cfg, buffer=0.05)
 
     # Apply joint limits
     if q_algr_constraint is not None:

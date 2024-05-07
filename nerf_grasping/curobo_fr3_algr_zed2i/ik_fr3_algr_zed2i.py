@@ -4,7 +4,6 @@ from typing import Optional, Tuple
 import numpy as np
 import torch
 import transforms3d
-from curobo.geom.types import WorldConfig
 from curobo.types.base import TensorDeviceType
 from curobo.types.math import Pose
 from curobo.types.robot import RobotConfig
@@ -17,6 +16,9 @@ from curobo.wrap.model.robot_world import RobotWorld, RobotWorldConfig
 from curobo.wrap.reacher.ik_solver import IKSolver, IKSolverConfig, IKResult
 from nerf_grasping.curobo_fr3_algr_zed2i.fr3_algr_zed2i_world import (
     get_world_cfg,
+)
+from nerf_grasping.curobo_fr3_algr_zed2i.joint_limit_utils import (
+    modify_robot_cfg_to_add_joint_limit_buffer,
 )
 import torch.nn.functional as F
 
@@ -105,6 +107,7 @@ def solve_iks(
     robot_cfg = load_yaml(join_path(get_robot_configs_path(), robot_file))["robot_cfg"]
     robot_cfg["kinematics"]["link_names"] = []
     robot_cfg = RobotConfig.from_dict(robot_cfg)
+    modify_robot_cfg_to_add_joint_limit_buffer(robot_cfg, buffer=0.05)
 
     world_cfg = get_world_cfg(
         collision_check_object=collision_check_object,
@@ -167,6 +170,7 @@ def solve_ik(
     robot_cfg = RobotConfig.from_dict(
         load_yaml(join_path(get_robot_configs_path(), robot_file))["robot_cfg"]
     )
+    modify_robot_cfg_to_add_joint_limit_buffer(robot_cfg, buffer=0.05)
 
     # Apply joint limits
     if q_algr_constraint is not None:
@@ -236,6 +240,7 @@ def max_penetration_from_q(
     robot_cfg = RobotConfig.from_dict(
         load_yaml(join_path(get_robot_configs_path(), robot_file))["robot_cfg"]
     )
+    modify_robot_cfg_to_add_joint_limit_buffer(robot_cfg, buffer=0.05)
 
     world_cfg = get_world_cfg(
         collision_check_object=include_object,
@@ -280,6 +285,7 @@ def max_penetration_from_qs(
     robot_cfg = RobotConfig.from_dict(
         load_yaml(join_path(get_robot_configs_path(), robot_file))["robot_cfg"]
     )
+    modify_robot_cfg_to_add_joint_limit_buffer(robot_cfg, buffer=0.05)
 
     world_cfg = get_world_cfg(
         collision_check_object=include_object,

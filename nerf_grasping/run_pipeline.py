@@ -699,7 +699,7 @@ def run_curobo(
         use_cuda_graph=False,
         enable_graph=True,
         enable_opt=False,
-        timeout=10.0,
+        timeout=5.0,
         collision_sphere_buffer=0.01,
     )
 

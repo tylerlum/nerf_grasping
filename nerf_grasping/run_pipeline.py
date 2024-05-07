@@ -774,19 +774,6 @@ def run_curobo(
     q_start_lifts = np.array([q[-1] for q in qs])
     assert q_start_lifts.shape == (n_grasps, 23)
 
-    # Do collision check to ensure they are not starting in collision
-    d_world, d_self = max_penetration_from_qs(
-        qs=q_start_lifts,
-        collision_activation_distance=0.01,
-        include_object=True,
-        obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
-        obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
-        obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
-        include_table=True,
-    )
-    print(f"np.max(d_world): {np.max(d_world)}")
-    print(f"np.max(d_self): {np.max(d_self)}")
-
     X_W_H_lifts = X_W_Hs.copy()
     LIFT_AMOUNT = 0.2  # Lift up 20 cm
     X_W_H_lifts[:, 2, 3] += LIFT_AMOUNT
@@ -800,6 +787,20 @@ def run_curobo(
             continue
         q_start_lifts[i] = q_start_lifts[valid_idx]
         X_W_H_lifts[i] = X_W_H_lifts[valid_idx]
+
+    # TODO: Consider adding start state safety check inside solve_trajopt_batch
+    # Do collision check to ensure they are not starting in collision
+    # d_world, d_self = max_penetration_from_qs(
+    #     qs=q_start_lifts,
+    #     # collision_activation_distance=0.01,
+    #     include_object=False,
+    #     obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
+    #     obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
+    #     obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+    #     include_table=True,
+    # )
+    # print(f"np.max(d_world): {np.max(d_world)}")
+    # print(f"np.max(d_self): {np.max(d_self)}")
 
     lift_motion_gen_result, lift_ik_result, lift_ik_result2 = solve_trajopt_batch(
         X_W_Hs=X_W_H_lifts,
@@ -843,7 +844,7 @@ def run_curobo(
     print(
         f"lift_overall_success_idxs: {lift_overall_success_idxs} ({len(lift_overall_success_idxs)} / {n_grasps} = {len(lift_overall_success_idxs) / n_grasps * 100:.2f}%)"
     )
-    lift_qs, lift_qds, lift_dts = get_trajectories_from_result(
+    raw_lift_qs, raw_lift_qds, raw_lift_dts = get_trajectories_from_result(
         result=lift_motion_gen_result, desired_trajectory_time=3.5
     )
 
@@ -851,32 +852,41 @@ def run_curobo(
         list(set(overall_success_idxs).intersection(set(lift_overall_success_idxs)))
     )
 
-    qs_with_lift, qds_with_lift = [], []
-    for i, (q, qd, dt, lift_q, lift_qd, lift_dt) in enumerate(
-        zip(closing_qs, closing_qds, dts, lift_qs, lift_qds, lift_dts)
+    adjusted_lift_qs, adjusted_lift_qds = [], []
+    for i, (closing_q, closing_qd, dt, raw_lift_q, raw_lift_qd, raw_lift_dt) in enumerate(
+        zip(closing_qs, closing_qds, dts, raw_lift_qs, raw_lift_qds, raw_lift_dts)
     ):
         # TODO: Figure out how to handle if lift_qs has different dt, only a problem if set enable_opt=True
-        assert dt == lift_dt, f"dt: {dt}, lift_dt: {lift_dt}"
+        assert dt == raw_lift_dt, f"dt: {dt}, lift_dt: {raw_lift_dt}"
 
-        # Only want the arm position of the lift q (keep same hand position as before)
-        not_lifted_q = q[-1]
-        adjusted_lift_q = lift_q.copy()
-        adjusted_lift_q[:, 7:] = not_lifted_q[None, 7:]
+        # Only want the arm position of the lift closing_q (keep same hand position as before)
+        adjusted_lift_q = raw_lift_q.copy()
+        last_closing_q = closing_q[-1]
+        adjusted_lift_q[:, 7:] = last_closing_q[None, 7:]
 
-        adjusted_lift_qd = lift_qd.copy()
+        adjusted_lift_qd = raw_lift_qd.copy()
         adjusted_lift_qd[:, 7:] = 0.0
 
-        q_with_lift = np.concatenate([q, adjusted_lift_q], axis=0)
-        qs_with_lift.append(q_with_lift)
-
-        qd_with_lift = np.concatenate([qd, adjusted_lift_qd], axis=0)
-        qds_with_lift.append(qd_with_lift)
+        adjusted_lift_qs.append(adjusted_lift_q)
+        adjusted_lift_qds.append(adjusted_lift_qd)
 
     print("\n" + "=" * 80)
-    print("Step 12: Compute T_trajs")
+    print("Step 12: Aggregate qs and qds")
+    print("=" * 80 + "\n")
+    q_trajs, qd_trajs = [], []
+    for q, qd, closing_q, closing_qd, lift_q, lift_qd in zip(
+        qs, qds, closing_qs, closing_qds, adjusted_lift_qs, adjusted_lift_qds
+    ):
+        q_traj = np.concatenate([q, closing_q, lift_q], axis=0)
+        qd_traj = np.concatenate([qd, closing_qd, lift_qd], axis=0)
+        q_trajs.append(q_traj)
+        qd_trajs.append(qd_traj)
+
+    print("\n" + "=" * 80)
+    print("Step 13: Compute T_trajs")
     print("=" * 80 + "\n")
     T_trajs = []
-    for q, dt in zip(qs_with_lift, dts):
+    for q, dt in zip(q_trajs, dts):
         n_timesteps = q.shape[0]
         T_trajs.append(n_timesteps * dt)
 
@@ -888,7 +898,7 @@ def run_curobo(
         lift_ik_result,
         lift_ik_result2,
     )
-    return qs_with_lift, qds_with_lift, T_trajs, final_success_idxs, DEBUG_TUPLE
+    return q_trajs, qd_trajs, T_trajs, final_success_idxs, DEBUG_TUPLE
 
 
 def run_pipeline(
@@ -1178,7 +1188,8 @@ def main() -> None:
     time.sleep(1.0)
 
     remove_collision_spheres_default_config()
-    animate_robot(robot=pb_robot, qs=qs[0], dt=dts[0])
+    valid_idx = success_idxs[0]
+    animate_robot(robot=pb_robot, qs=qs[valid_idx], dt=dts[valid_idx])
     breakpoint()
     ################ Visualize ################
 

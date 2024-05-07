@@ -735,7 +735,7 @@ def run_curobo(
     print("\n" + "=" * 80)
     print("Step 10: Add closing motion")
     print("=" * 80 + "\n")
-    qs_with_closing, qds_with_closing = [], []
+    closing_qs, closing_qds = [], []
     for i, (q, qd, dt) in enumerate(zip(qs, qds, dts)):
         CLOSE_TIME = 0.5
         STAY_CLOSED_TIME = 1
@@ -756,23 +756,23 @@ def run_curobo(
         )
         assert interpolated_qs2.shape == (N_STAY_CLOSED_STEPS, 23)
 
-        interpolated_qs = np.concatenate([interpolated_qs1, interpolated_qs2], axis=0)
+        closing_q = np.concatenate([interpolated_qs1, interpolated_qs2], axis=0)
 
-        interpolated_qds = np.diff(interpolated_qs, axis=0) / dt
-        interpolated_qds = np.concatenate(
-            [interpolated_qds, interpolated_qds[-1:]], axis=0
+        closing_qd = np.diff(closing_q, axis=0) / dt
+        closing_qd = np.concatenate(
+            [closing_qd, closing_qd[-1:]], axis=0
         )
 
-        q_with_closing = np.concatenate([q, interpolated_qs], axis=0)
-        qs_with_closing.append(q_with_closing)
-
-        qd_with_closing = np.concatenate([qd, interpolated_qds], axis=0)
-        qds_with_closing.append(qd_with_closing)
+        closing_qs.append(closing_q)
+        closing_qds.append(closing_qd)
 
     print("\n" + "=" * 80)
     print("Step 11: Add lifing motion")
     print("=" * 80 + "\n")
-    q_fr3_start_lifts = np.array([q[-1, :7] for q in qs_with_closing])
+    # NOTE: Must use same qs found from motion gen to ensure they are not starting in collision
+    # TODO: Do collision check to ensure they are not starting in collision
+    q_fr3_start_lifts = np.array([q[-1, :7] for q in qs])
+    q_algr_start_lifts = np.array([q[-1, 7:] for q in qs])
 
     X_W_H_lifts = X_W_Hs.copy()
     LIFT_AMOUNT = 0.2  # Lift up 20 cm
@@ -781,27 +781,28 @@ def run_curobo(
     # HACK: If motion_gen above fails, then it leaves q as all 0s, which causes next step to fail
     #       So we populate those with another valid one
     assert len(overall_success_idxs) > 0
+    valid_idx = overall_success_idxs[0]
     for i in range(n_grasps):
         if i in overall_success_idxs:
             continue
-        q_fr3_start_lifts[i] = q_fr3_start_lifts[overall_success_idxs[0]]
-        X_W_H_lifts[i] = X_W_H_lifts[overall_success_idxs[0]]
+        q_fr3_start_lifts[i] = q_fr3_start_lifts[valid_idx]
+        X_W_H_lifts[i] = X_W_H_lifts[valid_idx]
 
     lift_motion_gen_result, lift_ik_result, lift_ik_result2 = solve_trajopt_batch(
         X_W_Hs=X_W_H_lifts,
         q_algrs=q_algr_pres,
         q_fr3_starts=q_fr3_start_lifts,
-        q_algr_starts=q_algr_pres,  # We don't want to care about hand joints, just arm joints, so this doesn't matter much as long as not in collision with table
+        q_algr_starts=q_algr_start_lifts,  # We don't want to care about hand joints, just arm joints, so this doesn't matter much as long as not in collision with table
         collision_check_object=False,  # Don't need object collision check for lifting
         obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
         obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
         obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
-        collision_check_table=True,
+        collision_check_table=True,  # Probably don't need to check this since we are going up, but leave on to be safe
         use_cuda_graph=False,
         enable_graph=True,
         enable_opt=False,
         timeout=10.0,
-        collision_sphere_buffer=0.01,
+        collision_sphere_buffer=0.005,  # Reduce buffer for lift because not using object collision, less uncertainty
     )
     lift_motion_gen_success_idxs = (
         lift_motion_gen_result.success.flatten().nonzero().flatten().tolist()
@@ -839,7 +840,7 @@ def run_curobo(
 
     qs_with_lift, qds_with_lift = [], []
     for i, (q, qd, dt, lift_q, lift_qd, lift_dt) in enumerate(
-        zip(qs_with_closing, qds_with_closing, dts, lift_qs, lift_qds, lift_dts)
+        zip(closing_qs, closing_qds, dts, lift_qs, lift_qds, lift_dts)
     ):
         # TODO: Figure out how to handle if lift_qs has different dt, only a problem if set enable_opt=True
         assert dt == lift_dt, f"dt: {dt}, lift_dt: {lift_dt}"

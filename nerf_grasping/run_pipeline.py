@@ -858,7 +858,7 @@ def run_curobo(
 
     lift_success = lift_waypoint_success.all(axis=1)
     assert lift_success.shape == (n_grasps,)
-    lift_success_idxs = lift_success.flatten().nonzero().flatten().tolist()
+    lift_success_idxs = [i for i in range(n_grasps) if lift_success[i]]
     print(
         f"lift_success_idxs: {lift_success_idxs} ({len(lift_success_idxs)} / {n_grasps} = {len(lift_success_idxs) / n_grasps * 100:.2f}%)"
     )

@@ -631,11 +631,11 @@ def run_curobo(
     q_algr: Optional[np.ndarray] = None,
 ) -> Tuple[List[np.ndarray], List[np.ndarray], List[float], List[int], tuple]:
     # Timing
-    APPROACH_TIME = 5
+    APPROACH_TIME = 3.5
     STAY_OPEN_TIME = 0.5
     CLOSE_TIME = 0.5
     STAY_CLOSED_TIME = 0.5
-    LIFT_TIME = 3.0
+    LIFT_TIME = 2.0
 
     from nerf_grasping.curobo_fr3_algr_zed2i.ik_fr3_algr_zed2i import (
         solve_iks,
@@ -996,7 +996,7 @@ def run_curobo(
             assert raw_lift_q.shape == (n_timepoints, 23)
             total_time = n_timepoints * raw_lift_dt
 
-            ts = np.arange(n_timepoints) * raw_lift_dt
+            ts = np.linspace(0, total_time, n_timepoints)
             interps = []
             for j in range(23):
                 interp = interp1d(ts, raw_lift_q[:, j], kind="cubic")
@@ -1039,7 +1039,7 @@ def run_curobo(
                 new2_total_time = previous_total_time * over_limit_factor
                 new2_n_timepoints = int(new2_total_time / raw_lift_dt)
 
-                ts = np.arange(n_timepoints) * raw_lift_dt
+                ts = np.linspace(0, new2_total_time, n_timepoints)
                 interps = []
                 for j in range(23):
                     interp = interp1d(ts, raw_lift_q[:, j], kind="cubic")

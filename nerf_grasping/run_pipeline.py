@@ -793,8 +793,14 @@ def run_curobo(
         X_W_H = X_W_Hs[i]
         X_W_H_lift = X_W_H_lifts[i]
 
+        # We don't want to solve IK for the current X_W_H because that is what we already have from the planned trajectory
+        # Doing it again would break things by potentially causing a sudden change in q
         X_W_H_interps = X_W_H[None, ...].repeat(N_WAYPOINTS, axis=0)
-        X_W_H_interps[:, 2, 3] = np.linspace(X_W_H[2, 3], X_W_H_lift[2, 3], N_WAYPOINTS)
+        X_W_H_interps[:, 2, 3] = np.linspace(
+            X_W_H[2, 3], X_W_H_lift[2, 3], N_WAYPOINTS + 1
+        )[
+            1:
+        ]  # Skip the first one
         assert X_W_H_interps.shape == (N_WAYPOINTS, 4, 4)
 
         X_W_H_interps_list.append(X_W_H_interps)
@@ -849,19 +855,27 @@ def run_curobo(
         waypoints = lift_waypoint_qs[i]
         assert waypoints.shape == (N_WAYPOINTS, 23)
         dt = dts[i]
+        closing_q = closing_qs[i]
 
         TIME_BETWEEN_WAYPOINTS = 0.5
         N_INTERPOLATED = int(TIME_BETWEEN_WAYPOINTS / dt)
 
         all_interpolated_qs = []
         all_interpolated_qds = []
-        for curr_waypoint_idx in range(N_WAYPOINTS - 1):
-
-            next_waypoint_idx = curr_waypoint_idx + 1
+        # There are N_WAYPOINTS new waypoints, but including the first one N_WAYPOINTS + 1
+        # Thus there are N_WAYPOINTS segments
+        for curr_waypoint_idx in range(N_WAYPOINTS):
             curr_waypoint = waypoints[curr_waypoint_idx]
-            next_waypoint = waypoints[next_waypoint_idx]
+            if curr_waypoint_idx == 0:
+                prev_waypoint = closing_q[-1]
+            else:
+                prev_waypoint = waypoints[curr_waypoint_idx - 1]
+            assert (
+                curr_waypoint.shape == prev_waypoint.shape == (23,)
+            ), f"curr_waypoint.shape: {curr_waypoint.shape}, prev_waypoint.shape: {prev_waypoint.shape}"
+
             interpolated_qs = interpolate(
-                start=curr_waypoint, end=next_waypoint, N=N_INTERPOLATED
+                start=prev_waypoint, end=curr_waypoint, N=N_INTERPOLATED
             )
             assert interpolated_qs.shape == (N_INTERPOLATED, 23)
 
@@ -895,6 +909,7 @@ def run_curobo(
     print("~" * 80 + "\n")
 
     # Adjust the lift qs to have the same hand position as the closing qs
+    # We only want the arm position of the lift qs
     adjusted_lift_qs, adjusted_lift_qds = [], []
     for i, (
         closing_q,
@@ -1095,9 +1110,7 @@ def visualize(
             print(f"np.max(d_world): {np.max(d_world)}")
             print(f"np.max(d_self): {np.max(d_self)}")
         elif x == "w":
-            print(
-                f"Visualizing waypoints of trajectory {TRAJ_IDX}"
-            )
+            print(f"Visualizing waypoints of trajectory {TRAJ_IDX}")
             lift_ik_result = DEBUG_TUPLE[3]  # BRITTLE
             ik_qs = lift_ik_result.solution.detach().cpu().numpy()
             breakpoint()

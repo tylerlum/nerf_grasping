@@ -101,6 +101,7 @@ def solve_trajopt_batch(
     X_W_Hs: np.ndarray,
     q_algrs: np.ndarray,
     q_fr3_starts: Optional[np.ndarray] = None,
+    q_algr_starts: Optional[np.ndarray] = None,
     collision_check_object: bool = True,
     obj_filepath: Optional[pathlib.Path] = pathlib.Path(
         "/juno/u/tylerlum/github_repos/nerf_grasping/experiments/2024-05-02_16-19-22/nerf_to_mesh/mug_330/coacd/decomposed.obj"
@@ -122,11 +123,19 @@ def solve_trajopt_batch(
     assert is_in_limits(q_algrs).all(), f"q_algrs: {q_algrs}"
 
     if q_fr3_starts is None:
+        print("Using default q_fr3_starts")
         q_fr3_starts = DEFAULT_Q_FR3[None, ...].repeat(N_GRASPS, axis=0)
     assert q_fr3_starts.shape == (
         N_GRASPS,
         7,
     ), f"q_fr3_starts.shape: {q_fr3_starts.shape}"
+    if q_algr_starts is None:
+        print("Using default q_algr_starts")
+        q_algr_starts = DEFAULT_Q_ALGR[None, ...].repeat(N_GRASPS, axis=0)
+    assert q_algr_starts.shape == (
+        N_GRASPS,
+        16,
+    ), f"q_algr_starts.shape: {q_algr_starts.shape}"
 
     trans = X_W_Hs[:, :3, 3]
     rot_matrix = X_W_Hs[:, :3, :3]
@@ -216,7 +225,7 @@ def solve_trajopt_batch(
             np.concatenate(
                 [
                     q_fr3_starts,
-                    q_algrs,
+                    q_algr_starts,
                 ],
                 axis=1,
             )

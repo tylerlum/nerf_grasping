@@ -706,7 +706,7 @@ def run_curobo(
     ik_success_idxs2 = ik_result2.success.flatten().nonzero().flatten().tolist()
 
     qs, qds, dts = get_trajectories_from_result(
-        result=motion_gen_result, desired_trajectory_time=7.5
+        result=motion_gen_result, desired_trajectory_time=5,
     )
     nonzero_q_idxs = [i for i, q in enumerate(qs) if np.absolute(q).sum() > 1e-2]
     overall_success_idxs = sorted(

@@ -34,6 +34,9 @@ from nerf_grasping.curobo_fr3_algr_zed2i.trajopt_fr3_algr_zed2i import (
     DEFAULT_Q_FR3,
     DEFAULT_Q_ALGR,
 )
+from nerf_grasping.curobo_fr3_algr_zed2i.joint_limit_utils import (
+    modify_robot_cfg_to_add_joint_limit_buffer,
+)
 
 from nerf_grasping.optimizer_utils import (
     is_in_limits,
@@ -96,143 +99,8 @@ def matrix_to_quat_wxyz(matrix: torch.Tensor) -> torch.Tensor:
         F.one_hot(q_abs.argmax(dim=-1), num_classes=4) > 0.5, :
     ].reshape(batch_dim + (4,))
 
-def solve_trajopt_batch_debug(
-    X_W_Hs: np.ndarray,
-    q_algrs: np.ndarray,
-    q_fr3_starts: Optional[np.ndarray] = None,
-    q_algr_starts: Optional[np.ndarray] = None,
-    collision_check_object: bool = True,
-    obj_filepath: Optional[pathlib.Path] = pathlib.Path(
-        "/juno/u/tylerlum/github_repos/nerf_grasping/experiments/2024-05-02_16-19-22/nerf_to_mesh/mug_330/coacd/decomposed.obj"
-    ),
-    obj_xyz: Tuple[float, float, float] = (0.65, 0.0, 0.0),
-    obj_quat_wxyz: Tuple[float, float, float, float] = (1.0, 0.0, 0.0, 0.0),
-    collision_check_table: bool = True,
-    use_cuda_graph: bool = False,  # Getting some errors from setting this to True
-    enable_graph: bool = True,
-    enable_opt: bool = False,  # Getting some errors from setting this to True
-    timeout: float = 5.0,
-    collision_sphere_buffer: Optional[float] = None,
-) -> Tuple[MotionGenResult, IKResult, IKResult]:
-    start_time = time.time()
-    print("Step 1: Prepare cfg")
-    N_GRASPS = X_W_Hs.shape[0]
-    assert X_W_Hs.shape == (N_GRASPS, 4, 4), f"X_W_Hs.shape: {X_W_Hs.shape}"
-    assert q_algrs.shape == (N_GRASPS, 16), f"q_algrs.shape: {q_algrs.shape}"
-    assert is_in_limits(q_algrs).all(), f"q_algrs: {q_algrs}"
 
-    if q_fr3_starts is None:
-        print("Using default q_fr3_starts")
-        q_fr3_starts = DEFAULT_Q_FR3[None, ...].repeat(N_GRASPS, axis=0)
-    assert q_fr3_starts.shape == (
-        N_GRASPS,
-        7,
-    ), f"q_fr3_starts.shape: {q_fr3_starts.shape}"
-    if q_algr_starts is None:
-        print("Using default q_algr_starts")
-        q_algr_starts = DEFAULT_Q_ALGR[None, ...].repeat(N_GRASPS, axis=0)
-    assert q_algr_starts.shape == (
-        N_GRASPS,
-        16,
-    ), f"q_algr_starts.shape: {q_algr_starts.shape}"
-
-    trans = X_W_Hs[:, :3, 3]
-    rot_matrix = X_W_Hs[:, :3, :3]
-    quat_wxyz = matrix_to_quat_wxyz(torch.from_numpy(rot_matrix).float().cuda())
-
-    target_pose = Pose(
-        torch.from_numpy(trans).float().cuda(),
-        quaternion=quat_wxyz,
-    )
-
-    tensor_args = TensorDeviceType()
-    robot_file = "fr3_algr_zed2i_with_fingertips.yml"
-    robot_cfg = load_yaml(join_path(get_robot_configs_path(), robot_file))["robot_cfg"]
-    if collision_sphere_buffer is not None:
-        robot_cfg["kinematics"]["collision_sphere_buffer"] = collision_sphere_buffer
-    robot_cfg = RobotConfig.from_dict(robot_cfg)
-
-    world_cfg = get_world_cfg(
-        collision_check_object=collision_check_object,
-        obj_filepath=obj_filepath,
-        obj_xyz=obj_xyz,
-        obj_quat_wxyz=obj_quat_wxyz,
-        collision_check_table=collision_check_table,
-    )
-
-    print("Step 2: Solve IK for arm q")
-    ik_config = IKSolverConfig.load_from_robot_config(
-        robot_cfg,
-        world_cfg,
-        rotation_threshold=0.01,
-        position_threshold=0.001,
-        num_seeds=20,
-        self_collision_check=True,
-        self_collision_opt=True,
-        tensor_args=tensor_args,
-        use_cuda_graph=use_cuda_graph,
-    )
-    ik_solver = IKSolver(ik_config)
-
-    ik_result = ik_solver.solve_batch(target_pose)
-
-    print("Step 3: Solve FK for fingertip poses")
-    kin_model = CudaRobotModel(robot_cfg.kinematics)
-    q_fr3s = ik_result.solution[..., :7].squeeze(dim=1).detach().cpu().numpy()
-    q = torch.from_numpy(np.concatenate([q_fr3s, q_algrs], axis=1)).float().cuda()
-    assert q.shape == (N_GRASPS, 23)
-    state = kin_model.get_state(q)
-
-    print("Step 4: Solve IK for arm q and hand q")
-    ik_config2 = IKSolverConfig.load_from_robot_config(
-        robot_cfg,
-        world_cfg,
-        rotation_threshold=0.05,
-        position_threshold=0.005,
-        num_seeds=20,
-        self_collision_check=True,
-        self_collision_opt=True,
-        tensor_args=tensor_args,
-        use_cuda_graph=use_cuda_graph,
-    )
-    ik_solver2 = IKSolver(ik_config2)
-    ik_result2 = ik_solver2.solve_batch(
-        goal_pose=target_pose, link_poses=state.link_pose
-    )
-    # print(f"ik_result2.success: {ik_result2.success.nonzero()}")
-
-    print("Step 5: Solve FK for new fingertip poses")
-    kin_model2 = CudaRobotModel(robot_cfg.kinematics)
-    q2 = ik_result2.solution.squeeze(dim=1)
-
-    assert q2.shape == (N_GRASPS, 23)
-    state2 = kin_model2.get_state(q2)
-
-    print("Step 6: Solve motion generation")
-    motion_gen_config = MotionGenConfig.load_from_robot_config(
-        robot_cfg,
-        world_cfg,
-        tensor_args,
-        collision_checker_type=CollisionCheckerType.MESH,
-        use_cuda_graph=use_cuda_graph,
-    )
-
-    start_state = JointState.from_position(
-        torch.from_numpy(
-            np.concatenate(
-                [
-                    q_fr3_starts,
-                    q_algr_starts,
-                ],
-                axis=1,
-            )
-        )
-        .float()
-        .cuda()
-    )
-    return motion_gen_config, start_state
-
-def solve_trajopt_batch_debug2(
+def debug_start_state_invalid(
     motion_gen_config: MotionGenConfig,
     start_state: JointState,
 ):
@@ -250,15 +118,29 @@ def solve_trajopt_batch_debug2(
         print(f"mask.nonzero(): {mask.nonzero()}")
         print(f"mask.nonzero().shape: {mask.nonzero().shape}")
         print(f"torch.logical_not(mask).nonzero(): {torch.logical_not(mask).nonzero()}")
-        print(f"torch.logical_not(mask).nonzero().shape: {torch.logical_not(mask).nonzero().shape}")
-        act_seq = node_set.unsqueeze(1)
-        state = graph_planner.safety_rollout_fn.dynamics_model.forward(graph_planner.safety_rollout_fn.start_state, act_seq)
-        metrics = graph_planner.safety_rollout_fn.constraint_fn(state, use_batch_env=False)
-        bound_constraint = graph_planner.safety_rollout_fn.bound_constraint.forward(state.state_seq)
-        coll_constraint = graph_planner.safety_rollout_fn.primitive_collision_constraint.forward(
-            state.robot_spheres, env_query_idx=None
+        print(
+            f"torch.logical_not(mask).nonzero().shape: {torch.logical_not(mask).nonzero().shape}"
         )
-        self_constraint = graph_planner.safety_rollout_fn.robot_self_collision_constraint.forward(state.robot_spheres)
+        act_seq = node_set.unsqueeze(1)
+        state = graph_planner.safety_rollout_fn.dynamics_model.forward(
+            graph_planner.safety_rollout_fn.start_state, act_seq
+        )
+        metrics = graph_planner.safety_rollout_fn.constraint_fn(
+            state, use_batch_env=False
+        )
+        bound_constraint = graph_planner.safety_rollout_fn.bound_constraint.forward(
+            state.state_seq
+        )
+        coll_constraint = (
+            graph_planner.safety_rollout_fn.primitive_collision_constraint.forward(
+                state.robot_spheres, env_query_idx=None
+            )
+        )
+        self_constraint = (
+            graph_planner.safety_rollout_fn.robot_self_collision_constraint.forward(
+                state.robot_spheres
+            )
+        )
         print(f"metrics: {metrics}")
         print(f"bound_constraint: {bound_constraint}")
         print(f"coll_constraint: {coll_constraint}")
@@ -280,7 +162,7 @@ def solve_trajopt_batch(
     obj_xyz: Tuple[float, float, float] = (0.65, 0.0, 0.0),
     obj_quat_wxyz: Tuple[float, float, float, float] = (1.0, 0.0, 0.0, 0.0),
     collision_check_table: bool = True,
-    use_cuda_graph: bool = False,  # Getting some errors from setting this to True
+    use_cuda_graph: bool = True,  # Getting some errors from setting this to True
     enable_graph: bool = True,
     enable_opt: bool = False,  # Getting some errors from setting this to True
     timeout: float = 5.0,
@@ -323,6 +205,7 @@ def solve_trajopt_batch(
     if collision_sphere_buffer is not None:
         robot_cfg["kinematics"]["collision_sphere_buffer"] = collision_sphere_buffer
     robot_cfg = RobotConfig.from_dict(robot_cfg)
+    modify_robot_cfg_to_add_joint_limit_buffer(robot_cfg)
 
     world_cfg = get_world_cfg(
         collision_check_object=collision_check_object,
@@ -387,9 +270,15 @@ def solve_trajopt_batch(
         tensor_args,
         collision_checker_type=CollisionCheckerType.MESH,
         use_cuda_graph=use_cuda_graph,
+        num_ik_seeds=4,  # Reduced to save time?
+        num_graph_seeds=1,  # Reduced to save time?
+        num_trajopt_seeds=1,  # Reduced to save time?
+        num_batch_ik_seeds=4,  # Reduced to save time?
+        num_batch_trajopt_seeds=1,  # Reduced to save time?
+        num_trajopt_noisy_seeds=1,  # Reduced to save time?
     )
     motion_gen = MotionGen(motion_gen_config)
-    motion_gen.warmup(batch=N_GRASPS)
+    # motion_gen.warmup(batch=N_GRASPS)  # Can cause issues with CUDA graph
 
     start_state = JointState.from_position(
         torch.from_numpy(
@@ -405,6 +294,12 @@ def solve_trajopt_batch(
         .cuda()
     )
 
+    DEBUG_START_STATE_INVALID = False
+    if DEBUG_START_STATE_INVALID:
+        debug_start_state_invalid(
+            motion_gen_config=motion_gen_config, start_state=start_state
+        )
+
     target_pose2 = Pose(
         state2.ee_position,
         quaternion=state2.ee_quaternion,
@@ -415,8 +310,9 @@ def solve_trajopt_batch(
         plan_config=MotionGenPlanConfig(
             enable_graph=enable_graph,
             enable_opt=enable_opt,
-            max_attempts=10,
-            num_trajopt_seeds=10,
+            # max_attempts=10,
+            max_attempts=4,  # Reduce to save time?
+            num_trajopt_seeds=1,  # Reduce to save time?
             num_graph_seeds=1,  # Must be 1 for plan_batch
             timeout=timeout,
         ),
@@ -450,7 +346,9 @@ def get_trajectories_from_result(
             assert (np.absolute(qd) > 1e-4).any()  # qd is populated
 
             if desired_trajectory_time is not None:
-                print("WARNING: desired_trajectory_time is provided, but trajopt is used, so it is ignored")
+                print(
+                    "WARNING: desired_trajectory_time is provided, but trajopt is used, so it is ignored"
+                )
 
             dt = result.interpolation_dt
             total_time = n_timesteps * dt
@@ -480,6 +378,107 @@ def get_trajectories_from_result(
         qds,
         dts,
     )
+
+
+def compute_over_limit_factors(
+    qds: List[np.ndarray], dts: List[float]
+) -> List[float]:
+    n_trajs = len(qds)
+    assert len(dts) == n_trajs
+    for qd in qds:
+        assert qd.shape[1] == 23 and len(qd.shape) == 2
+
+    robot_file = "fr3_algr_zed2i.yml"
+    robot_cfg = RobotConfig.from_dict(
+        load_yaml(join_path(get_robot_configs_path(), robot_file))["robot_cfg"]
+    )
+
+    qd_limits = (
+        robot_cfg.kinematics.kinematics_config.joint_limits.velocity.detach()
+        .cpu()
+        .numpy()
+    )
+    qdd_limits = (
+        robot_cfg.kinematics.kinematics_config.joint_limits.acceleration.detach()
+        .cpu()
+        .numpy()
+    )
+    qddd_limits = (
+        robot_cfg.kinematics.kinematics_config.joint_limits.jerk.detach().cpu().numpy()
+    )
+
+    qd_limits_min, qd_limits_max = qd_limits[0], qd_limits[1]
+    qdd_limits_min, qdd_limits_max = qdd_limits[0], qdd_limits[1]
+    qddd_limits_min, qddd_limits_max = qddd_limits[0], qddd_limits[1]
+
+    assert qd_limits_min.shape == qd_limits_max.shape == (23,)
+    assert qdd_limits_min.shape == qdd_limits_max.shape == (23,)
+    assert qddd_limits_min.shape == qddd_limits_max.shape == (23,)
+
+    assert (qd_limits_min < 0).all()
+    assert (qd_limits_max > 0).all()
+    assert (qdd_limits_min < 0).all()
+    assert (qdd_limits_max > 0).all()
+    assert (qddd_limits_min < 0).all()
+    assert (qddd_limits_max > 0).all()
+
+    rescale_factors = []
+    for i, (qd, dt) in enumerate(zip(qds, dts)):
+        n_timesteps = qd.shape[0]
+        assert qd.shape == (n_timesteps, 23)
+        qdd = np.diff(qd, axis=0) / dt
+        qddd = np.diff(qdd, axis=0) / dt
+
+        qd_min = qd.min(axis=0)
+        qd_max = qd.max(axis=0)
+        qdd_min = qdd.min(axis=0)
+        qdd_max = qdd.max(axis=0)
+        qddd_min = qddd.min(axis=0)
+        qddd_max = qddd.max(axis=0)
+
+        qd_min_under_scale = np.where(
+            qd_min < qd_limits_min,
+            np.abs(qd_min / qd_limits_min),
+            1.0,
+        ).max()
+        qd_max_over_scale = np.where(
+            qd_max > qd_limits_max,
+            np.abs(qd_max / qd_limits_max),
+            1.0,
+        ).max()
+        qdd_min_under_scale = np.where(
+            qdd_min < qdd_limits_min,
+            np.abs(qdd_min / qdd_limits_min),
+            1.0,
+        ).max()
+        qdd_max_over_scale = np.where(
+            qdd_max > qdd_limits_max,
+            np.abs(qdd_max / qdd_limits_max),
+            1.0,
+        ).max()
+        qddd_min_under_scale = np.where(
+            qddd_min < qddd_limits_min,
+            np.abs(qddd_min / qddd_limits_min),
+            1.0,
+        ).max()
+        qddd_max_over_scale = np.where(
+            qddd_max > qddd_limits_max,
+            np.abs(qddd_max / qddd_limits_max),
+            1.0,
+        ).max()
+
+        # Rescale qd if needed to stay within limits
+        rescale_factor = max(
+            qd_min_under_scale,
+            qd_max_over_scale,
+            # qdd_min_under_scale,  # Ignore qdd and qddd for now because it was too conservative
+            # qdd_max_over_scale,
+            # qddd_min_under_scale,
+            # qddd_max_over_scale,
+        )
+        rescale_factors.append(rescale_factor)
+
+    return rescale_factors
 
 
 def main() -> None:
@@ -515,7 +514,7 @@ def main() -> None:
         obj_xyz=(0.65, 0.0, 0.0),
         obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
         collision_check_table=True,
-        use_cuda_graph=False,
+        use_cuda_graph=True,
         enable_graph=True,
         enable_opt=True,
         timeout=10.0,

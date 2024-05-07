@@ -59,6 +59,12 @@ class PipelineConfig:
     object_scale: float = 0.9999
     nerf_config: Optional[pathlib.Path] = None
 
+    approach_time: float = 5.0
+    stay_open_time: float = 0.5
+    close_time: float = 0.5
+    stay_closed_time: float = 0.5
+    lift_time: float = 2.0
+
     def __post_init__(self) -> None:
         assert (
             self.init_grasp_config_dict_path.exists()
@@ -631,11 +637,11 @@ def run_curobo(
     q_algr: Optional[np.ndarray] = None,
 ) -> Tuple[List[np.ndarray], List[np.ndarray], List[float], List[int], tuple]:
     # Timing
-    APPROACH_TIME = 3.5
-    STAY_OPEN_TIME = 0.5
-    CLOSE_TIME = 0.5
-    STAY_CLOSED_TIME = 0.5
-    LIFT_TIME = 2.0
+    APPROACH_TIME = cfg.approach_time
+    STAY_OPEN_TIME = cfg.stay_open_time
+    CLOSE_TIME = cfg.close_time
+    STAY_CLOSED_TIME = cfg.stay_closed_time
+    LIFT_TIME = cfg.lift_time
 
     from nerf_grasping.curobo_fr3_algr_zed2i.ik_fr3_algr_zed2i import (
         solve_iks,

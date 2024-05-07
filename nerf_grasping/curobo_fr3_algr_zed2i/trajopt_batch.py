@@ -260,6 +260,7 @@ def solve_trajopt_batch(
 
 def get_trajectories_from_result(
     result: MotionGenResult,
+    desired_trajectory_time: Optional[float] = None,
 ) -> Tuple[List[np.ndarray], List[np.ndarray], List[float]]:
     used_trajopt = result.trajopt_time > 0
 
@@ -277,6 +278,9 @@ def get_trajectories_from_result(
             # When using trajopt, interpolation_dt is correct and qd is populated
             assert (np.absolute(qd) > 1e-4).any()  # qd is populated
 
+            if desired_trajectory_time is not None:
+                print("WARNING: desired_trajectory_time is provided, but trajopt is used, so it is ignored")
+
             dt = result.interpolation_dt
             total_time = n_timesteps * dt
         else:
@@ -288,7 +292,8 @@ def get_trajectories_from_result(
                 n_timesteps * result.interpolation_dt > 60
             )  # interpolation_dt is too big
 
-            total_time = 3.5  # Hardcoded trajectory time
+            assert desired_trajectory_time is not None
+            total_time = desired_trajectory_time
             dt = total_time / n_timesteps
 
             qd = np.diff(q, axis=0) / dt

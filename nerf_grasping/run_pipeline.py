@@ -698,7 +698,7 @@ def run_curobo(
         result=motion_gen_result,
         desired_trajectory_time=APPROACH_TIME,
     )
-    qds, dts = rescale_if_out_of_velocity_limits(qds=qds, dts=dts, verbose=True)
+    # qds, dts = rescale_if_out_of_velocity_limits(qds=qds, dts=dts, verbose=True)
     nonzero_q_idxs = [i for i, q in enumerate(qs) if np.absolute(q).sum() > 1e-2]
     overall_success_idxs = sorted(
         list(
@@ -791,139 +791,195 @@ def run_curobo(
         q_start_lifts[i] = q_start_lifts[valid_idx]
         X_W_H_lifts[i] = X_W_H_lifts[valid_idx]
 
-    # Solve IK in N_WAYPOINTS between X_W_Hs and X_W_H_lifts
-    # Then interpolate between those waypoints
-    N_WAYPOINTS = 5
+    USE_IK_WAYPOINTS = False
+    if USE_IK_WAYPOINTS:
+        # Solve IK in N_WAYPOINTS between X_W_Hs and X_W_H_lifts
+        # Then interpolate between those waypoints
+        N_WAYPOINTS = 5
 
-    X_W_H_interps_list = []
-    for i in range(n_grasps):
-        X_W_H = X_W_Hs[i]
-        X_W_H_lift = X_W_H_lifts[i]
+        X_W_H_interps_list = []
+        for i in range(n_grasps):
+            X_W_H = X_W_Hs[i]
+            X_W_H_lift = X_W_H_lifts[i]
 
-        # We don't want to solve IK for the current X_W_H because that is what we already have from the planned trajectory
-        # Doing it again would break things by potentially causing a sudden change in q
-        X_W_H_interps = X_W_H[None, ...].repeat(N_WAYPOINTS, axis=0)
-        X_W_H_interps[:, 2, 3] = np.linspace(
-            X_W_H[2, 3], X_W_H_lift[2, 3], N_WAYPOINTS + 1
-        )[
-            1:
-        ]  # Skip the first one
-        assert X_W_H_interps.shape == (N_WAYPOINTS, 4, 4)
+            # We don't want to solve IK for the current X_W_H because that is what we already have from the planned trajectory
+            # Doing it again would break things by potentially causing a sudden change in q
+            X_W_H_interps = X_W_H[None, ...].repeat(N_WAYPOINTS, axis=0)
+            X_W_H_interps[:, 2, 3] = np.linspace(
+                X_W_H[2, 3], X_W_H_lift[2, 3], N_WAYPOINTS + 1
+            )[
+                1:
+            ]  # Skip the first one
+            assert X_W_H_interps.shape == (N_WAYPOINTS, 4, 4)
 
-        X_W_H_interps_list.append(X_W_H_interps)
-    X_W_H_interps = np.stack(X_W_H_interps_list, axis=0)
-    assert X_W_H_interps.shape == (n_grasps, N_WAYPOINTS, 4, 4)
-    X_W_H_interps = X_W_H_interps.reshape(-1, 4, 4)
+            X_W_H_interps_list.append(X_W_H_interps)
+        X_W_H_interps = np.stack(X_W_H_interps_list, axis=0)
+        assert X_W_H_interps.shape == (n_grasps, N_WAYPOINTS, 4, 4)
+        X_W_H_interps = X_W_H_interps.reshape(-1, 4, 4)
 
-    lift_ik_start_time = time.time()
-    (
-        lift_waypoint_qs,
-        lift_waypoint_success,
-        DEBUG_lift_ik_result,
-        DEBUG_lift_ik_solver,
-    ) = solve_iks(
-        X_W_Hs=X_W_H_interps,
-        collision_check_object=False,
-        obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
-        obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
-        obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
-        collision_check_table=True,  # Not sure if needed, but safer to avoid table collisions
-        use_cuda_graph=True,
-    )
-    lift_ik_end_time = time.time()
-    print(f"Time to solve_iks: {lift_ik_end_time - lift_ik_start_time:.2f}s")
-    assert lift_waypoint_qs.shape == (
-        n_grasps * N_WAYPOINTS,
-        23,
-    ), f"lift_waypoint_qs.shape: {lift_waypoint_qs.shape}"
-    assert lift_waypoint_success.shape == (
-        n_grasps * N_WAYPOINTS,
-    ), f"lift_waypoint_success.shape: {lift_waypoint_success.shape}"
-    lift_waypoint_qs = lift_waypoint_qs.reshape(n_grasps, N_WAYPOINTS, 23)
-    lift_waypoint_success = lift_waypoint_success.reshape(n_grasps, N_WAYPOINTS)
-    lift_waypoint_qs = lift_waypoint_qs.reshape(n_grasps, N_WAYPOINTS, 23)
+        lift_ik_start_time = time.time()
+        (
+            lift_waypoint_qs,
+            lift_waypoint_success,
+            DEBUG_lift_ik_result,
+            DEBUG_lift_ik_solver,
+        ) = solve_iks(
+            X_W_Hs=X_W_H_interps,
+            collision_check_object=False,
+            obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
+            obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
+            obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+            collision_check_table=True,  # Not sure if needed, but safer to avoid table collisions
+            use_cuda_graph=True,
+        )
+        lift_ik_end_time = time.time()
+        print(f"Time to solve_iks: {lift_ik_end_time - lift_ik_start_time:.2f}s")
+        assert lift_waypoint_qs.shape == (
+            n_grasps * N_WAYPOINTS,
+            23,
+        ), f"lift_waypoint_qs.shape: {lift_waypoint_qs.shape}"
+        assert lift_waypoint_success.shape == (
+            n_grasps * N_WAYPOINTS,
+        ), f"lift_waypoint_success.shape: {lift_waypoint_success.shape}"
+        lift_waypoint_qs = lift_waypoint_qs.reshape(n_grasps, N_WAYPOINTS, 23)
+        lift_waypoint_success = lift_waypoint_success.reshape(n_grasps, N_WAYPOINTS)
+        lift_waypoint_qs = lift_waypoint_qs.reshape(n_grasps, N_WAYPOINTS, 23)
 
-    if not lift_waypoint_success.all():
-        print("WARNING: Not all lift IK waypoints were successful")
-        print(f"lift_waypoint_success: {lift_waypoint_success}")
+        if not lift_waypoint_success.all():
+            print("WARNING: Not all lift IK waypoints were successful")
+            print(f"lift_waypoint_success: {lift_waypoint_success}")
 
-    lift_success = lift_waypoint_success.all(axis=1)
-    assert lift_success.shape == (n_grasps,)
-    lift_success_idxs = [i for i in range(n_grasps) if lift_success[i]]
-    print(
-        f"lift_success_idxs: {lift_success_idxs} ({len(lift_success_idxs)} / {n_grasps} = {len(lift_success_idxs) / n_grasps * 100:.2f}%)"
-    )
+        lift_success = lift_waypoint_success.all(axis=1)
+        assert lift_success.shape == (n_grasps,)
+        lift_success_idxs = [i for i in range(n_grasps) if lift_success[i]]
+        print(
+            f"lift_success_idxs: {lift_success_idxs} ({len(lift_success_idxs)} / {n_grasps} = {len(lift_success_idxs) / n_grasps * 100:.2f}%)"
+        )
 
-    # Interpolate between waypoints
-    raw_lift_qs = []
-    raw_lift_qds = []
-    raw_lift_dts = []
-    TIME_BETWEEN_WAYPOINTS = LIFT_TIME / N_WAYPOINTS
-    for i in range(n_grasps):
-        waypoints = lift_waypoint_qs[i]
-        assert waypoints.shape == (N_WAYPOINTS, 23)
-        dt = dts[i]
-        closing_q = closing_qs[i]
+        # Interpolate between waypoints
+        raw_lift_qs = []
+        raw_lift_qds = []
+        raw_lift_dts = []
+        TIME_BETWEEN_WAYPOINTS = LIFT_TIME / N_WAYPOINTS
+        for i in range(n_grasps):
+            waypoints = lift_waypoint_qs[i]
+            assert waypoints.shape == (N_WAYPOINTS, 23)
+            dt = dts[i]
+            closing_q = closing_qs[i]
 
-        N_INTERPOLATED = int(TIME_BETWEEN_WAYPOINTS / dt)
+            N_INTERPOLATED = int(TIME_BETWEEN_WAYPOINTS / dt)
 
-        all_interpolated_qs = []
-        all_interpolated_qds = []
-        # There are N_WAYPOINTS new waypoints, but including the first one N_WAYPOINTS + 1
-        # Thus there are N_WAYPOINTS segments
-        for curr_waypoint_idx in range(N_WAYPOINTS):
-            curr_waypoint = waypoints[curr_waypoint_idx]
-            if curr_waypoint_idx == 0:
-                prev_waypoint = closing_q[-1]
-            else:
-                prev_waypoint = waypoints[curr_waypoint_idx - 1]
-            assert (
-                curr_waypoint.shape == prev_waypoint.shape == (23,)
-            ), f"curr_waypoint.shape: {curr_waypoint.shape}, prev_waypoint.shape: {prev_waypoint.shape}"
+            all_interpolated_qs = []
+            all_interpolated_qds = []
+            # There are N_WAYPOINTS new waypoints, but including the first one N_WAYPOINTS + 1
+            # Thus there are N_WAYPOINTS segments
+            for curr_waypoint_idx in range(N_WAYPOINTS):
+                curr_waypoint = waypoints[curr_waypoint_idx]
+                if curr_waypoint_idx == 0:
+                    prev_waypoint = closing_q[-1]
+                else:
+                    prev_waypoint = waypoints[curr_waypoint_idx - 1]
+                assert (
+                    curr_waypoint.shape == prev_waypoint.shape == (23,)
+                ), f"curr_waypoint.shape: {curr_waypoint.shape}, prev_waypoint.shape: {prev_waypoint.shape}"
 
-            interpolated_qs = interpolate(
-                start=prev_waypoint, end=curr_waypoint, N=N_INTERPOLATED
-            )
-            assert interpolated_qs.shape == (N_INTERPOLATED, 23)
-
-            interpolated_qds = np.diff(interpolated_qs, axis=0) / dt
-            interpolated_qds = np.concatenate(
-                [interpolated_qds, interpolated_qds[-1:]], axis=0
-            )
-
-            # Handle joint velocity limits
-            rescale_factor = compute_rescale_factors_to_stay_within_limits(
-                qds=[interpolated_qds], dts=[dt]
-            )[0]
-            assert rescale_factor >= 1.0
-            if rescale_factor > 1.0:
-                print(
-                    f"Rescaling interpolated_qs by {rescale_factor} for grasp {i} segment {curr_waypoint_idx}"
-                )
-                NEW_N_INTERPOLATED = math.ceil(N_INTERPOLATED * rescale_factor)
                 interpolated_qs = interpolate(
-                    start=prev_waypoint, end=curr_waypoint, N=NEW_N_INTERPOLATED
+                    start=prev_waypoint, end=curr_waypoint, N=N_INTERPOLATED
                 )
-                assert interpolated_qs.shape == (NEW_N_INTERPOLATED, 23)
+                assert interpolated_qs.shape == (N_INTERPOLATED, 23)
 
                 interpolated_qds = np.diff(interpolated_qs, axis=0) / dt
                 interpolated_qds = np.concatenate(
                     [interpolated_qds, interpolated_qds[-1:]], axis=0
                 )
 
-            all_interpolated_qs.append(interpolated_qs)
-            all_interpolated_qds.append(interpolated_qds)
+                # Handle joint velocity limits
+                rescale_factor = compute_rescale_factors_to_stay_within_limits(
+                    qds=[interpolated_qds], dts=[dt]
+                )[0]
+                assert rescale_factor >= 1.0
+                if rescale_factor > 1.0:
+                    print(
+                        f"Rescaling interpolated_qs by {rescale_factor} for grasp {i} segment {curr_waypoint_idx}"
+                    )
+                    NEW_N_INTERPOLATED = math.ceil(N_INTERPOLATED * rescale_factor)
+                    interpolated_qs = interpolate(
+                        start=prev_waypoint, end=curr_waypoint, N=NEW_N_INTERPOLATED
+                    )
+                    assert interpolated_qs.shape == (NEW_N_INTERPOLATED, 23)
 
-        all_interpolated_qs = np.concatenate(all_interpolated_qs, axis=0)
-        all_interpolated_qds = np.concatenate(all_interpolated_qds, axis=0)
+                    interpolated_qds = np.diff(interpolated_qs, axis=0) / dt
+                    interpolated_qds = np.concatenate(
+                        [interpolated_qds, interpolated_qds[-1:]], axis=0
+                    )
 
-        raw_lift_qs.append(all_interpolated_qs)
-        raw_lift_qds.append(all_interpolated_qds)
-        raw_lift_dts.append(dt)
+                all_interpolated_qs.append(interpolated_qs)
+                all_interpolated_qds.append(interpolated_qds)
 
-    final_success_idxs = sorted(
-        list(set(overall_success_idxs).intersection(set(lift_success_idxs)))
-    )
+            all_interpolated_qs = np.concatenate(all_interpolated_qs, axis=0)
+            all_interpolated_qds = np.concatenate(all_interpolated_qds, axis=0)
+
+            raw_lift_qs.append(all_interpolated_qs)
+            raw_lift_qds.append(all_interpolated_qds)
+            raw_lift_dts.append(dt)
+
+        final_success_idxs = sorted(
+            list(set(overall_success_idxs).intersection(set(lift_success_idxs)))
+        )
+    else:
+        lift_motion_gen_result, lift_ik_result, lift_ik_result2 = solve_trajopt_batch(
+            X_W_Hs=X_W_H_lifts,
+            q_algrs=q_algr_pres,
+            q_fr3_starts=q_start_lifts[:, :7],
+            q_algr_starts=q_start_lifts[:, 7:],  # We don't want to care about hand joints, just arm joints, so this doesn't matter much as long as not in collision with table
+            collision_check_object=False,  # Don't need object collision check for lifting
+            obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
+            obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
+            obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+            collision_check_table=True,  # Probably don't need to check this since we are going up, but can leave on to be safe
+            use_cuda_graph=True,
+            enable_graph=True,
+            enable_opt=False,  # Consider trajopt maybe faster?
+            timeout=10.0,
+            collision_sphere_buffer=0.005,  # Reduce buffer for lift because not using object collision, less uncertainty
+        )
+        lift_motion_gen_success_idxs = (
+            lift_motion_gen_result.success.flatten().nonzero().flatten().tolist()
+        )
+        lift_ik_success_idxs = lift_ik_result.success.flatten().nonzero().flatten().tolist()
+        lift_ik_success_idxs2 = (
+            lift_ik_result2.success.flatten().nonzero().flatten().tolist()
+        )
+        lift_overall_success_idxs = sorted(
+            list(
+                set(lift_motion_gen_success_idxs).intersection(
+                    set(lift_ik_success_idxs).intersection(set(lift_ik_success_idxs2))
+                )
+            )
+        )  # All must be successful or else it may be successful for the wrong trajectory
+        print(
+            f"lift_motion_gen_success_idxs: {lift_motion_gen_success_idxs} ({len(lift_motion_gen_success_idxs)} / {n_grasps} = {len(lift_motion_gen_success_idxs) / n_grasps * 100:.2f}%)"
+        )
+        print(
+            f"lift_ik_success_idxs: {lift_ik_success_idxs} ({len(lift_ik_success_idxs)} / {n_grasps} = {len(lift_ik_success_idxs) / n_grasps * 100:.2f}%)"
+        )
+        print(
+            f"lift_ik_success_idxs2: {lift_ik_success_idxs2} ({len(lift_ik_success_idxs2)} / {n_grasps} = {len(lift_ik_success_idxs2) / n_grasps * 100:.2f}%)"
+        )
+        print(
+            f"lift_overall_success_idxs: {lift_overall_success_idxs} ({len(lift_overall_success_idxs)} / {n_grasps} = {len(lift_overall_success_idxs) / n_grasps * 100:.2f}%)"
+        )
+
+        print("WARNING: Currently not ready for different dts, so forcing LIFT_TIME = APPROACH_TIME")
+        LIFT_TIME = APPROACH_TIME  # HACK fix with interpolation
+        raw_lift_qs, raw_lift_qds, raw_lift_dts = get_trajectories_from_result(
+            result=lift_motion_gen_result, desired_trajectory_time=LIFT_TIME
+        )
+
+        final_success_idxs = sorted(
+            list(set(overall_success_idxs).intersection(set(lift_overall_success_idxs)))
+        )
+
     print("\n" + "~" * 80)
     print(
         f"final_success_idxs: {final_success_idxs} ({len(final_success_idxs)} / {n_grasps} = {len(final_success_idxs) / n_grasps * 100:.2f}%)"
@@ -985,7 +1041,7 @@ def run_curobo(
         motion_gen_result,
         ik_result,
         ik_result2,
-        DEBUG_lift_ik_result,
+        # DEBUG_lift_ik_result,
     )
     return q_trajs, qd_trajs, T_trajs, final_success_idxs, DEBUG_TUPLE
 

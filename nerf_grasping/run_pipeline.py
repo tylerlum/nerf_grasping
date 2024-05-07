@@ -770,7 +770,7 @@ def run_curobo(
         closing_qds.append(closing_qd)
 
     print("\n" + "=" * 80)
-    print("Step 11: Add lifing motion")
+    print("Step 11: Add lifting motion")
     print("=" * 80 + "\n")
     # Using same qs found from motion gen to ensure they are not starting in collision
     # Not using closing_qs because they potentially could have issues?

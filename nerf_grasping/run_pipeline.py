@@ -31,9 +31,6 @@ from dataclasses import dataclass
 import plotly.graph_objects as go
 from datetime import datetime
 
-from nerf_grasping.curobo_fr3_algr_zed2i.ik_fr3_algr_zed2i import (
-    solve_iks,
-)
 from nerf_grasping.curobo_fr3_algr_zed2i.trajopt_batch import (
     solve_trajopt_batch,
     get_trajectories_from_result,
@@ -688,7 +685,6 @@ def run_curobo(
         collision_sphere_buffer=0.01,
     )
 
-    start_extracting_results = time.time()
     motion_gen_success_idxs = (
         motion_gen_result.success.flatten().nonzero().flatten().tolist()
     )
@@ -738,13 +734,10 @@ def run_curobo(
     print(
         f"overall_success_idxs: {overall_success_idxs} ({len(overall_success_idxs)} / {n_grasps} = {len(overall_success_idxs) / n_grasps * 100:.2f}%)"
     )
-    end_extracting_results = time.time()
-    print(f"Time to extract results: {end_extracting_results - start_extracting_results:.2f}s")
 
     print("\n" + "=" * 80)
     print("Step 10: Add closing motion")
     print("=" * 80 + "\n")
-    start_closing_time = time.time()
     closing_qs, closing_qds = [], []
     for i, (q, qd, dt) in enumerate(zip(qs, qds, dts)):
         # Keep arm joints same, change hand joints
@@ -781,8 +774,6 @@ def run_curobo(
 
         closing_qs.append(closing_q)
         closing_qds.append(closing_qd)
-    end_closing_time = time.time()
-    print(f"Time to add closing motion: {end_closing_time - start_closing_time:.2f}s")
 
     print("\n" + "=" * 80)
     print("Step 11: Add lifting motion")
@@ -856,7 +847,6 @@ def run_curobo(
     )
 
     # Need to adjust raw_lift_qs, raw_lift_qds, raw_lift_dts to match dts from trajopt
-    start_interp1_time = time.time()
     new_raw_lift_qs, new_raw_lift_qds, new_raw_lift_dts = [], [], []
     for i, (raw_lift_q, raw_lift_qd, raw_lift_dt, dt) in enumerate(
         zip(raw_lift_qs, raw_lift_qds, raw_lift_dts, dts)
@@ -883,8 +873,6 @@ def run_curobo(
         new_raw_lift_qs.append(new_raw_lift_q)
         new_raw_lift_qds.append(new_raw_lift_qd)
         new_raw_lift_dts.append(dt)
-    end_interp1_time = time.time()
-    print(f"Interpolating took {end_interp1_time - start_interp1_time:.2f}s")
 
     raw_lift_qs, raw_lift_qds, raw_lift_dts = (
         new_raw_lift_qs,
@@ -893,7 +881,6 @@ def run_curobo(
     )
 
     # Handle exceeding joint limits
-    start_interp2_time = time.time()
     over_limit_factors = compute_over_limit_factors(qds=raw_lift_qds, dts=raw_lift_dts)
     new2_raw_lift_qs, new2_raw_lift_qds = [], []
     for i, (raw_lift_q, raw_lift_qd, raw_lift_dt, over_limit_factor) in enumerate(
@@ -929,8 +916,6 @@ def run_curobo(
             new2_raw_lift_qs.append(raw_lift_q)
             new2_raw_lift_qds.append(raw_lift_qd)
     raw_lift_qs, raw_lift_qds = new2_raw_lift_qs, new2_raw_lift_qds
-    end_interp2_time = time.time()
-    print(f"Interpolating took {end_interp2_time - start_interp2_time:.2f}s")
 
     final_success_idxs = sorted(
         list(set(overall_success_idxs).intersection(set(lift_overall_success_idxs)))
@@ -948,7 +933,6 @@ def run_curobo(
 
     # Adjust the lift qs to have the same hand position as the closing qs
     # We only want the arm position of the lift qs
-    start_adjust_time = time.time()
     adjusted_lift_qs, adjusted_lift_qds = [], []
     for i, (
         closing_q,
@@ -973,13 +957,10 @@ def run_curobo(
 
         adjusted_lift_qs.append(adjusted_lift_q)
         adjusted_lift_qds.append(adjusted_lift_qd)
-    end_adjust_time = time.time()
-    print(f"Adjusting lift qs took {end_adjust_time - start_adjust_time:.2f}s")
 
     print("\n" + "=" * 80)
     print("Step 12: Aggregate qs and qds")
     print("=" * 80 + "\n")
-    start_aggregate_time = time.time()
     q_trajs, qd_trajs = [], []
     for q, qd, closing_q, closing_qd, lift_q, lift_qd in zip(
         qs, qds, closing_qs, closing_qds, adjusted_lift_qs, adjusted_lift_qds
@@ -996,14 +977,11 @@ def run_curobo(
     for q, dt in zip(q_trajs, dts):
         n_timesteps = q.shape[0]
         T_trajs.append(n_timesteps * dt)
-    end_aggregate_time = time.time()
-    print(f"Aggregating took {end_aggregate_time - start_aggregate_time:.2f}s")
 
     DEBUG_TUPLE = (
         motion_gen_result,
         ik_result,
         ik_result2,
-        # DEBUG_lift_ik_result,
     )
     return q_trajs, qd_trajs, T_trajs, final_success_idxs, DEBUG_TUPLE
 
@@ -1105,7 +1083,6 @@ def visualize(
                 "v to visualize traj",
                 "d to print collision distance",
                 "i to move hand to exact X_W_H and q_algr_pre IK solution",
-                "w to visualize waypoints of lift",
                 "n to go to next traj",
                 "p to go to prev traj",
                 "c to draw collision spheres",
@@ -1158,24 +1135,6 @@ def visualize(
             )
             print(f"np.max(d_world): {np.max(d_world)}")
             print(f"np.max(d_self): {np.max(d_self)}")
-        elif x == "w":
-            print(f"Visualizing waypoints of trajectory {TRAJ_IDX}")
-            lift_ik_result = DEBUG_TUPLE[3]  # BRITTLE
-
-            ik_qs = lift_ik_result.solution.detach().cpu().numpy()
-            N = ik_qs.shape[0]
-            assert ik_qs.shape == (N, 1, 23)
-            ik_qs = ik_qs.reshape(N, 23)
-
-            n_grasps = len(qs)
-            assert N % n_grasps == 0
-            n_waypoints = N // n_grasps
-
-            ik_qs = ik_qs.reshape(n_grasps, n_waypoints, 23)
-            ik_q = ik_qs[TRAJ_IDX]
-            ik_q[:, 7:] = qs[TRAJ_IDX][-1, 7:]  # Keep hand position the same as closing
-
-            animate_robot(robot=pb_robot, qs=ik_q, dt=1)
         elif x == "n":
             TRAJ_IDX += 1
             if TRAJ_IDX >= len(qs):

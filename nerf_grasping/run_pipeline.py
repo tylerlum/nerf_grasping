@@ -731,14 +731,23 @@ def run_curobo(
     qs_with_closing, qds_with_closing = [], []
     for i, (q, qd, dt) in enumerate(zip(qs, qds, dts)):
         CLOSE_TIME = 0.5
+        STAY_CLOSED_TIME = 1
 
         # Keep arm joints same, change hand joints
         open_q = q[-1]
         close_q = np.concatenate([open_q[:7], q_algr_posts[i]])
 
+        # Close
         N_CLOSE_STEPS = int(CLOSE_TIME / dt)
-        interpolated_qs = interpolate(start=open_q, end=close_q, N=N_CLOSE_STEPS)
-        assert interpolated_qs.shape == (N_CLOSE_STEPS, 23)
+        interpolated_qs1 = interpolate(start=open_q, end=close_q, N=N_CLOSE_STEPS)
+        assert interpolated_qs1.shape == (N_CLOSE_STEPS, 23)
+
+        # Stay closed
+        N_STAY_CLOSED_STEPS = int(STAY_CLOSED_TIME / dt)
+        interpolated_qs2 = interpolate(start=close_q, end=close_q, N=N_STAY_CLOSED_STEPS)
+        assert interpolated_qs2.shape == (N_STAY_CLOSED_STEPS, 23)
+
+        interpolated_qs = np.concatenate([interpolated_qs1, interpolated_qs2], axis=0)
 
         interpolated_qds = np.diff(interpolated_qs, axis=0) / dt
         interpolated_qds = np.concatenate(

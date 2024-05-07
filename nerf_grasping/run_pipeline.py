@@ -743,12 +743,18 @@ def run_curobo(
     print("=" * 80 + "\n")
     closing_qs, closing_qds = [], []
     for i, (q, qd, dt) in enumerate(zip(qs, qds, dts)):
+        STAY_OPEN_TIME = 1
         CLOSE_TIME = 0.5
         STAY_CLOSED_TIME = 1
 
         # Keep arm joints same, change hand joints
         open_q = q[-1]
         close_q = np.concatenate([open_q[:7], q_algr_posts[i]])
+
+        # Stay open
+        N_STAY_OPEN_STEPS = int(STAY_OPEN_TIME / dt)
+        interpolated_qs0 = interpolate(start=open_q, end=open_q, N=N_STAY_OPEN_STEPS)
+        assert interpolated_qs0.shape == (N_STAY_OPEN_STEPS, 23)
 
         # Close
         N_CLOSE_STEPS = int(CLOSE_TIME / dt)
@@ -762,7 +768,13 @@ def run_curobo(
         )
         assert interpolated_qs2.shape == (N_STAY_CLOSED_STEPS, 23)
 
-        closing_q = np.concatenate([interpolated_qs1, interpolated_qs2], axis=0)
+        closing_q = np.concatenate(
+            [interpolated_qs0, interpolated_qs1, interpolated_qs2], axis=0
+        )
+        assert closing_q.shape == (
+            N_STAY_OPEN_STEPS + N_CLOSE_STEPS + N_STAY_CLOSED_STEPS,
+            23,
+        )
 
         closing_qd = np.diff(closing_q, axis=0) / dt
         closing_qd = np.concatenate([closing_qd, closing_qd[-1:]], axis=0)
@@ -773,7 +785,8 @@ def run_curobo(
     print("\n" + "=" * 80)
     print("Step 11: Add lifing motion")
     print("=" * 80 + "\n")
-    # NOTE: Must use same qs found from motion gen to ensure they are not starting in collision
+    # Using same qs found from motion gen to ensure they are not starting in collision
+    # Not using closing_qs because they potentially could have issues?
     q_start_lifts = np.array([q[-1] for q in qs])
     assert q_start_lifts.shape == (n_grasps, 23)
 
@@ -783,7 +796,7 @@ def run_curobo(
 
     # HACK: If motion_gen above fails, then it leaves q as all 0s, which causes next step to fail
     #       So we populate those with another valid one
-    assert len(overall_success_idxs) > 0
+    assert len(overall_success_idxs) > 0, "overall_success_idxs is empty"
     valid_idx = overall_success_idxs[0]
     for i in range(n_grasps):
         if i in overall_success_idxs:
@@ -791,87 +804,8 @@ def run_curobo(
         q_start_lifts[i] = q_start_lifts[valid_idx]
         X_W_H_lifts[i] = X_W_H_lifts[valid_idx]
 
-    # TODO: Consider adding start state safety check inside solve_trajopt_batch
-    # Do collision check to ensure they are not starting in collision
-    # d_world, d_self = max_penetration_from_qs(
-    #     qs=q_start_lifts,
-    #     # collision_activation_distance=0.01,
-    #     include_object=False,
-    #     obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
-    #     obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
-    #     obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
-    #     include_table=True,
-    # )
-    # print(f"np.max(d_world): {np.max(d_world)}")
-    # print(f"np.max(d_self): {np.max(d_self)}")
-
-    motion_gen_config, start_state = solve_trajopt_batch_debug(
-        X_W_Hs=X_W_H_lifts,
-        q_algrs=q_algr_pres,
-        q_fr3_starts=q_start_lifts[:, :7],
-        q_algr_starts=q_start_lifts[
-            :, 7:
-        ],  # We don't want to care about hand joints, just arm joints, so this doesn't matter much as long as not in collision with table
-        collision_check_object=False,  # Don't need object collision check for lifting
-        obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
-        obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
-        obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
-        collision_check_table=False,  # Probably don't need to check this since we are going up, but leave on to be safe
-        use_cuda_graph=False,
-        enable_graph=True,
-        enable_opt=False,
-        timeout=10.0,
-        collision_sphere_buffer=0.005,  # Reduce buffer for lift because not using object collision, less uncertainty
-    )
-    solve_trajopt_batch_debug2(motion_gen_config, start_state)
-
-    # lift_motion_gen_result, lift_ik_result, lift_ik_result2 = solve_trajopt_batch(
-    #     X_W_Hs=X_W_H_lifts,
-    #     q_algrs=q_algr_pres,
-    #     q_fr3_starts=q_start_lifts[:, :7],
-    #     q_algr_starts=q_start_lifts[:, 7:],  # We don't want to care about hand joints, just arm joints, so this doesn't matter much as long as not in collision with table
-    #     collision_check_object=False,  # Don't need object collision check for lifting
-    #     obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
-    #     obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
-    #     obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
-    #     collision_check_table=False,  # Probably don't need to check this since we are going up, but leave on to be safe
-    #     use_cuda_graph=False,
-    #     enable_graph=True,
-    #     enable_opt=False,
-    #     timeout=10.0,
-    #     collision_sphere_buffer=0.005,  # Reduce buffer for lift because not using object collision, less uncertainty
-    # )
-    # lift_motion_gen_success_idxs = (
-    #     lift_motion_gen_result.success.flatten().nonzero().flatten().tolist()
-    # )
-    # lift_ik_success_idxs = lift_ik_result.success.flatten().nonzero().flatten().tolist()
-    # lift_ik_success_idxs2 = (
-    #     lift_ik_result2.success.flatten().nonzero().flatten().tolist()
-    # )
-    # lift_overall_success_idxs = sorted(
-    #     list(
-    #         set(lift_motion_gen_success_idxs).intersection(
-    #             set(lift_ik_success_idxs).intersection(set(lift_ik_success_idxs2))
-    #         )
-    #     )
-    # )  # All must be successful or else it may be successful for the wrong trajectory
-    # print(
-    #     f"lift_motion_gen_success_idxs: {lift_motion_gen_success_idxs} ({len(lift_motion_gen_success_idxs)} / {n_grasps} = {len(lift_motion_gen_success_idxs) / n_grasps * 100:.2f}%)"
-    # )
-    # print(
-    #     f"lift_ik_success_idxs: {lift_ik_success_idxs} ({len(lift_ik_success_idxs)} / {n_grasps} = {len(lift_ik_success_idxs) / n_grasps * 100:.2f}%)"
-    # )
-    # print(
-    #     f"lift_ik_success_idxs2: {lift_ik_success_idxs2} ({len(lift_ik_success_idxs2)} / {n_grasps} = {len(lift_ik_success_idxs2) / n_grasps * 100:.2f}%)"
-    # )
-    # print(
-    #     f"lift_overall_success_idxs: {lift_overall_success_idxs} ({len(lift_overall_success_idxs)} / {n_grasps} = {len(lift_overall_success_idxs) / n_grasps * 100:.2f}%)"
-    # )
-    # raw_lift_qs, raw_lift_qds, raw_lift_dts = get_trajectories_from_result(
-    #     result=lift_motion_gen_result, desired_trajectory_time=7.5
-    # )
-
     # Solve IK in N_WAYPOINTS between X_W_Hs and X_W_H_lifts
+    # Then interpolate between those waypoints
     N_WAYPOINTS = 5
 
     X_W_H_interps_list = []
@@ -881,13 +815,20 @@ def run_curobo(
 
         X_W_H_interps = X_W_H[None, ...].repeat(N_WAYPOINTS, axis=0)
         X_W_H_interps[:, 2, 3] = np.linspace(X_W_H[2, 3], X_W_H_lift[2, 3], N_WAYPOINTS)
+        assert X_W_H_interps.shape == (N_WAYPOINTS, 4, 4)
+
         X_W_H_interps_list.append(X_W_H_interps)
     X_W_H_interps = np.stack(X_W_H_interps_list, axis=0)
     assert X_W_H_interps.shape == (n_grasps, N_WAYPOINTS, 4, 4)
     X_W_H_interps = X_W_H_interps.reshape(-1, 4, 4)
 
-    start_time_1 = time.time()
-    WAYPOINT_Qs, WAYPOINT_SUCCESSES, DEBUG, DEBUG2 = solve_iks(
+    lift_ik_start_time = time.time()
+    (
+        lift_waypoint_qs,
+        lift_waypoint_success,
+        DEBUG_lift_ik_result,
+        DEBUG_lift_ik_solver,
+    ) = solve_iks(
         X_W_Hs=X_W_H_interps,
         collision_check_object=False,
         obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
@@ -896,32 +837,47 @@ def run_curobo(
         collision_check_table=False,
         use_cuda_graph=False,
     )
-    end_time_2 = time.time()
-    print(f"Time to solve_iks: {end_time_2 - start_time_1:.2f}s")
-    assert WAYPOINT_Qs.shape == (
+    lift_ik_end_time = time.time()
+    print(f"Time to solve_iks: {lift_ik_end_time - lift_ik_start_time:.2f}s")
+    assert lift_waypoint_qs.shape == (
         n_grasps * N_WAYPOINTS,
         23,
-    ), f"WAYPOINT_Qs.shape: {WAYPOINT_Qs.shape}"
-    assert WAYPOINT_SUCCESSES.shape == (
+    ), f"lift_waypoint_qs.shape: {lift_waypoint_qs.shape}"
+    assert lift_waypoint_success.shape == (
         n_grasps * N_WAYPOINTS,
-    ), f"WAYPOINT_SUCCESSES.shape: {WAYPOINT_SUCCESSES.shape}"
-    WAYPOINT_Qs = WAYPOINT_Qs.reshape(n_grasps, N_WAYPOINTS, 23)
-    WAYPOINT_SUCCESSES = WAYPOINT_SUCCESSES.reshape(n_grasps, N_WAYPOINTS)
-    WAYPOINT_Qs = WAYPOINT_Qs.reshape(n_grasps, N_WAYPOINTS, 23)
-    passed_this = WAYPOINT_SUCCESSES.all(axis=1)
-    assert passed_this.all(), f"passed_this: {passed_this}"
+    ), f"lift_waypoint_success.shape: {lift_waypoint_success.shape}"
+    lift_waypoint_qs = lift_waypoint_qs.reshape(n_grasps, N_WAYPOINTS, 23)
+    lift_waypoint_success = lift_waypoint_success.reshape(n_grasps, N_WAYPOINTS)
+    lift_waypoint_qs = lift_waypoint_qs.reshape(n_grasps, N_WAYPOINTS, 23)
 
+    if not lift_waypoint_success.all():
+        print("WARNING: Not all lift IK waypoints were successful")
+        print(
+            f"lift_waypoint_success: {lift_waypoint_success}, {lift_waypoint_success.nonzero()}"
+        )
+
+    lift_success = lift_waypoint_success.all(axis=1)
+    assert lift_success.shape == (n_grasps,)
+    lift_success_idxs = lift_success.flatten().nonzero().flatten().tolist()
+    print(
+        f"lift_success_idxs: {lift_success_idxs} ({len(lift_success_idxs)} / {n_grasps} = {len(lift_success_idxs) / n_grasps * 100:.2f}%)"
+    )
+
+    # Interpolate between waypoints
     raw_lift_qs = []
     raw_lift_qds = []
     raw_lift_dts = []
     for i in range(n_grasps):
-        waypoints = WAYPOINT_Qs[i]
+        waypoints = lift_waypoint_qs[i]
+        assert waypoints.shape == (N_WAYPOINTS, 23)
         dt = dts[i]
+
+        TIME_BETWEEN_WAYPOINTS = 0.5
+        N_INTERPOLATED = int(TIME_BETWEEN_WAYPOINTS / dt)
+
         all_interpolated_qs = []
         all_interpolated_qds = []
         for curr_waypoint_idx in range(N_WAYPOINTS - 1):
-            TIME_BETWEEN_WAYPOINTS = 0.5
-            N_INTERPOLATED = int(TIME_BETWEEN_WAYPOINTS / dt)
 
             next_waypoint_idx = curr_waypoint_idx + 1
             curr_waypoint = waypoints[curr_waypoint_idx]
@@ -938,18 +894,23 @@ def run_curobo(
 
             all_interpolated_qs.append(interpolated_qs)
             all_interpolated_qds.append(interpolated_qds)
+
         all_interpolated_qs = np.concatenate(all_interpolated_qs, axis=0)
         assert all_interpolated_qs.shape == ((N_WAYPOINTS - 1) * N_INTERPOLATED, 23)
         all_interpolated_qds = np.concatenate(all_interpolated_qds, axis=0)
+
         raw_lift_qs.append(all_interpolated_qs)
         raw_lift_qds.append(all_interpolated_qds)
         raw_lift_dts.append(dt)
 
-    final_success_idxs = sorted(list(set(overall_success_idxs)))
+    final_success_idxs = sorted(
+        list(set(overall_success_idxs).intersection(set(lift_success_idxs)))
+    )
     print(
         f"final_success_idxs: {final_success_idxs} ({len(final_success_idxs)} / {n_grasps} = {len(final_success_idxs) / n_grasps * 100:.2f}%)"
     )
 
+    # Adjust the lift qs to have the same hand position as the closing qs
     adjusted_lift_qs, adjusted_lift_qds = [], []
     for i, (
         closing_q,

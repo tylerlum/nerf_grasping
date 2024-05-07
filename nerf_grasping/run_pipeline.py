@@ -153,6 +153,7 @@ def compute_grasps(
     np.ndarray,
     trimesh.Trimesh,
     np.ndarray,
+    np.ndarray,
 ]:
     print("=" * 80)
     print("Step 1: Figuring out frames")
@@ -380,6 +381,7 @@ def compute_grasps(
     print("\n" + "=" * 80)
     print("Step 7: Convert optimized grasps to joint angles")
     print("=" * 80 + "\n")
+    losses = optimized_grasp_config_dict["loss"]
     X_Oy_Hs, q_algr_pres, q_algr_posts, q_algr_extra_open = get_sorted_grasps_from_dict(
         optimized_grasp_config_dict=optimized_grasp_config_dict,
         error_if_no_loss=True,
@@ -434,6 +436,7 @@ def compute_grasps(
         q_algr_posts,
         mesh_W,
         X_N_Oy,
+        losses,
     )
 
 
@@ -643,6 +646,7 @@ def run_curobo(
     X_W_Hs: np.ndarray,
     q_algr_pres: np.ndarray,
     q_algr_posts: np.ndarray,
+    losses: Optional[np.ndarray] = None,
     q_fr3: Optional[np.ndarray] = None,
     q_algr: Optional[np.ndarray] = None,
 ) -> Tuple[List[np.ndarray], List[np.ndarray], List[float], List[int], tuple]:
@@ -909,6 +913,12 @@ def run_curobo(
     print(
         f"final_success_idxs: {final_success_idxs} ({len(final_success_idxs)} / {n_grasps} = {len(final_success_idxs) / n_grasps * 100:.2f}%)"
     )
+    if losses is not None:
+        assert losses.shape == (n_grasps,)
+        print(
+            f"losses = {losses}"
+        )
+        print(f"losses of successful grasps: {[losses[i] for i in final_success_idxs]}")
 
     # Adjust the lift qs to have the same hand position as the closing qs
     adjusted_lift_qs, adjusted_lift_qds = [], []
@@ -977,6 +987,7 @@ def run_pipeline(
         q_algr_posts,
         mesh_W,
         X_N_Oy,
+        losses,
     ) = compute_grasps(nerf_model=nerf_model, cfg=cfg)
 
     qs, qds, T_trajs, success_idxs, DEBUG_TUPLE = run_curobo(
@@ -984,6 +995,7 @@ def run_pipeline(
         X_W_Hs=X_W_Hs,
         q_algr_pres=q_algr_pres,
         q_algr_posts=q_algr_posts,
+        losses=losses,
         q_fr3=q_fr3,
         q_algr=q_algr,
     )

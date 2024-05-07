@@ -1061,6 +1061,7 @@ def visualize(
                 "v to visualize traj",
                 "d to print collision distance",
                 "i to move hand to exact X_W_H and q_algr_pre IK solution",
+                "w to visualize waypoints of lift",
                 "n to go to next traj",
                 "p to go to prev traj",
                 "c to draw collision spheres",
@@ -1078,6 +1079,8 @@ def visualize(
             print(f"Visualizing trajectory {TRAJ_IDX}")
             animate_robot(robot=pb_robot, qs=q, dt=dt)
         elif x == "d":
+            print("WARNING: This doesn't make sense when we include the full trajectory of grasping")
+
             q, qd, dt = qs[TRAJ_IDX], qds[TRAJ_IDX], dts[TRAJ_IDX]
             print(f"For trajectory {TRAJ_IDX}")
             d_world, d_self = max_penetration_from_qs(
@@ -1112,8 +1115,21 @@ def visualize(
         elif x == "w":
             print(f"Visualizing waypoints of trajectory {TRAJ_IDX}")
             lift_ik_result = DEBUG_TUPLE[3]  # BRITTLE
+
             ik_qs = lift_ik_result.solution.detach().cpu().numpy()
-            breakpoint()
+            N = ik_qs.shape[0]
+            assert ik_qs.shape == (N, 1, 23)
+            ik_qs = ik_qs.reshape(N, 23)
+
+            n_grasps = len(qs)
+            assert N % n_grasps == 0
+            n_waypoints = N // n_grasps
+
+            ik_qs = ik_qs.reshape(n_grasps, n_waypoints, 23)
+            ik_q = ik_qs[TRAJ_IDX]
+            ik_q[:, 7:] = qs[TRAJ_IDX][-1, 7:]  # Keep hand position the same as closing
+
+            animate_robot(robot=pb_robot, qs=ik_q, dt=1)
         elif x == "n":
             TRAJ_IDX += 1
             if TRAJ_IDX >= len(qs):

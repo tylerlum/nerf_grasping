@@ -280,7 +280,7 @@ def solve_trajopt_batch(
     motion_gen = MotionGen(motion_gen_config)
     # motion_gen.warmup(batch=N_GRASPS)  # Can cause issues with CUDA graph
 
-    start_state = JointState.from_position(
+    q_starts = (
         torch.from_numpy(
             np.concatenate(
                 [
@@ -293,6 +293,52 @@ def solve_trajopt_batch(
         .float()
         .cuda()
     )
+    # Can't succeed in motion planning if joint limits are violated
+    CHECK_JOINT_LIMITS = True
+    if CHECK_JOINT_LIMITS:
+        joint_limits = robot_cfg.kinematics.kinematics_config.joint_limits.position
+        assert joint_limits.shape == (2, 23)
+        joint_lower_limits, joint_upper_limits = joint_limits[0], joint_limits[1]
+        if (q_starts < joint_lower_limits[None]).any() or (
+            q_starts > joint_upper_limits[None]
+        ).any():
+            print("#" * 80)
+            print("q_starts out of joint limits!")
+            print("#" * 80)
+            print(
+                f"q_starts = {q_starts}, joint_lower_limits = {joint_lower_limits}, joint_upper_limits = {joint_upper_limits}"
+            )
+            print(
+                f"q_starts < joint_lower_limits = {(q_starts < joint_lower_limits[None]).any()}"
+            )
+            print(
+                f"q_starts > joint_upper_limits = {(q_starts > joint_upper_limits[None]).any()}"
+            )
+            print(
+                f"(q_starts < joint_lower_limits[None]).nonzero() = {(q_starts < joint_lower_limits[None]).nonzero()}"
+            )
+            print(
+                f"(q_starts > joint_upper_limits[None]).nonzero() = {(q_starts > joint_upper_limits[None]).nonzero()}"
+            )
+
+            # HACK: Check if out of joint limits due to small numerical issues
+            eps = 1e-4
+            if (q_starts > joint_lower_limits[None] - eps).all() and (
+                q_starts < joint_upper_limits[None] + eps
+            ).all():
+                print(
+                    f"q_starts is close to joint limits within {eps}, so clamping to limits with some margin"
+                )
+                q_starts = torch.clamp(
+                    q_starts,
+                    joint_lower_limits[None] + eps,
+                    joint_upper_limits[None] - eps,
+                )
+            else:
+                print("q_starts is far from joint limits, so not clamping")
+                raise ValueError("q_starts out of joint limits!")
+
+    start_state = JointState.from_position(q_starts)
 
     DEBUG_START_STATE_INVALID = False
     if DEBUG_START_STATE_INVALID:
@@ -380,9 +426,7 @@ def get_trajectories_from_result(
     )
 
 
-def compute_over_limit_factors(
-    qds: List[np.ndarray], dts: List[float]
-) -> List[float]:
+def compute_over_limit_factors(qds: List[np.ndarray], dts: List[float]) -> List[float]:
     n_trajs = len(qds)
     assert len(dts) == n_trajs
     for qd in qds:

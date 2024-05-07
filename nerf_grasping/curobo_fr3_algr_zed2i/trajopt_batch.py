@@ -380,32 +380,7 @@ def get_trajectories_from_result(
     )
 
 
-def rescale_if_out_of_velocity_limits(
-    qds: List[np.ndarray], dts: List[float], verbose: bool = False
-) -> Tuple[List[np.ndarray], List[float]]:
-    n_trajs = len(qds)
-    assert len(dts) == n_trajs
-    for qd in qds:
-        assert qd.shape[1] == 23 and len(qd.shape) == 2
-
-    rescale_factors = compute_rescale_factors_to_stay_within_limits(qds=qds, dts=dts)
-    assert len(rescale_factors) == len(qds)
-    assert np.all(np.array(rescale_factors) >= 1.0)
-
-    new_qds, new_dts = [], []
-    for i, (qd, dt, rescale_factor) in enumerate(zip(qds, dts, rescale_factors)):
-        assert rescale_factor >= 1.0
-        if rescale_factor > 1.0 and verbose:
-            print(f"Rescaling qd by {rescale_factor} for trajectory {i}")
-        new_qd = qd / rescale_factor
-        new_dt = dt * rescale_factor
-        new_qds.append(new_qd)
-        new_dts.append(new_dt)
-
-    return new_qds, new_dts
-
-
-def compute_rescale_factors_to_stay_within_limits(
+def compute_over_limit_factors(
     qds: List[np.ndarray], dts: List[float]
 ) -> List[float]:
     n_trajs = len(qds)

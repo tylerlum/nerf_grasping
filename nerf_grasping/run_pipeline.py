@@ -1,4 +1,5 @@
 from tqdm import tqdm
+from scipy.interpolate import interp1d
 import math
 import time
 from typing import Optional, Tuple, List
@@ -642,8 +643,7 @@ def run_curobo(
     from nerf_grasping.curobo_fr3_algr_zed2i.trajopt_batch import (
         solve_trajopt_batch,
         get_trajectories_from_result,
-        rescale_if_out_of_velocity_limits,
-        compute_rescale_factors_to_stay_within_limits,
+        compute_over_limit_factors,
     )
 
     n_grasps = X_W_Hs.shape[0]
@@ -698,7 +698,16 @@ def run_curobo(
         result=motion_gen_result,
         desired_trajectory_time=APPROACH_TIME,
     )
-    # qds, dts = rescale_if_out_of_velocity_limits(qds=qds, dts=dts, verbose=True)
+
+    # Fix issue with going over limit
+    over_limit_factors = compute_over_limit_factors(qds=qds, dts=dts)
+    qds = [
+        qd / over_limit_factor for qd, over_limit_factor in zip(qds, over_limit_factors)
+    ]
+    dts = [
+        dt * over_limit_factor for dt, over_limit_factor in zip(dts, over_limit_factors)
+    ]
+
     nonzero_q_idxs = [i for i, q in enumerate(qs) if np.absolute(q).sum() > 1e-2]
     overall_success_idxs = sorted(
         list(
@@ -894,15 +903,15 @@ def run_curobo(
                 )
 
                 # Handle joint velocity limits
-                rescale_factor = compute_rescale_factors_to_stay_within_limits(
+                over_limit_factor = compute_over_limit_factors(
                     qds=[interpolated_qds], dts=[dt]
                 )[0]
-                assert rescale_factor >= 1.0
-                if rescale_factor > 1.0:
+                assert over_limit_factor >= 1.0
+                if over_limit_factor > 1.0:
                     print(
-                        f"Rescaling interpolated_qs by {rescale_factor} for grasp {i} segment {curr_waypoint_idx}"
+                        f"Rescaling interpolated_qs by {over_limit_factor} for grasp {i} segment {curr_waypoint_idx}"
                     )
-                    NEW_N_INTERPOLATED = math.ceil(N_INTERPOLATED * rescale_factor)
+                    NEW_N_INTERPOLATED = math.ceil(N_INTERPOLATED * over_limit_factor)
                     interpolated_qs = interpolate(
                         start=prev_waypoint, end=curr_waypoint, N=NEW_N_INTERPOLATED
                     )
@@ -931,7 +940,9 @@ def run_curobo(
             X_W_Hs=X_W_H_lifts,
             q_algrs=q_algr_pres,
             q_fr3_starts=q_start_lifts[:, :7],
-            q_algr_starts=q_start_lifts[:, 7:],  # We don't want to care about hand joints, just arm joints, so this doesn't matter much as long as not in collision with table
+            q_algr_starts=q_start_lifts[
+                :, 7:
+            ],  # We don't want to care about hand joints, just arm joints, so this doesn't matter much as long as not in collision with table
             collision_check_object=False,  # Don't need object collision check for lifting
             obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
             obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
@@ -946,7 +957,9 @@ def run_curobo(
         lift_motion_gen_success_idxs = (
             lift_motion_gen_result.success.flatten().nonzero().flatten().tolist()
         )
-        lift_ik_success_idxs = lift_ik_result.success.flatten().nonzero().flatten().tolist()
+        lift_ik_success_idxs = (
+            lift_ik_result.success.flatten().nonzero().flatten().tolist()
+        )
         lift_ik_success_idxs2 = (
             lift_ik_result2.success.flatten().nonzero().flatten().tolist()
         )
@@ -970,11 +983,84 @@ def run_curobo(
             f"lift_overall_success_idxs: {lift_overall_success_idxs} ({len(lift_overall_success_idxs)} / {n_grasps} = {len(lift_overall_success_idxs) / n_grasps * 100:.2f}%)"
         )
 
-        print("WARNING: Currently not ready for different dts, so forcing LIFT_TIME = APPROACH_TIME")
-        LIFT_TIME = APPROACH_TIME  # HACK fix with interpolation
         raw_lift_qs, raw_lift_qds, raw_lift_dts = get_trajectories_from_result(
             result=lift_motion_gen_result, desired_trajectory_time=LIFT_TIME
         )
+
+        # Need to adjust raw_lift_qs, raw_lift_qds, raw_lift_dts to match dts from trajopt
+        new_raw_lift_qs, new_raw_lift_qds, new_raw_lift_dts = [], [], []
+        for i, (raw_lift_q, raw_lift_qd, raw_lift_dt, dt) in enumerate(
+            zip(raw_lift_qs, raw_lift_qds, raw_lift_dts, dts)
+        ):
+            n_timepoints = raw_lift_q.shape[0]
+            assert raw_lift_q.shape == (n_timepoints, 23)
+            total_time = n_timepoints * raw_lift_dt
+
+            ts = np.arange(n_timepoints) * raw_lift_dt
+            interps = []
+            for j in range(23):
+                interp = interp1d(ts, raw_lift_q[:, j], kind="cubic")
+                interps.append(interp)
+
+            n_new_timepoints = int(total_time / dt)
+            new_raw_lift_q = np.zeros((n_new_timepoints, 23))
+            for j in range(23):
+                new_raw_lift_q[:, j] = interps[j](np.arange(n_new_timepoints) * dt)
+            new_raw_lift_qd = np.diff(new_raw_lift_q, axis=0) / dt
+            new_raw_lift_qd = np.concatenate(
+                [new_raw_lift_qd, new_raw_lift_qd[-1:]], axis=0
+            )
+
+            new_raw_lift_qs.append(new_raw_lift_q)
+            new_raw_lift_qds.append(new_raw_lift_qd)
+            new_raw_lift_dts.append(dt)
+
+        raw_lift_qs, raw_lift_qds, raw_lift_dts = (
+            new_raw_lift_qs,
+            new_raw_lift_qds,
+            new_raw_lift_dts,
+        )
+
+        # Handle exceeding joint limits
+        over_limit_factors = compute_over_limit_factors(qds=raw_lift_qds, dts=raw_lift_dts)
+        new2_raw_lift_qs, new2_raw_lift_qds = [], []
+        for i, (raw_lift_q, raw_lift_qd, raw_lift_dt, over_limit_factor) in enumerate(
+            zip(raw_lift_qs, raw_lift_qds, raw_lift_dts, over_limit_factors)
+        ):
+            assert over_limit_factor >= 1.0
+            if over_limit_factor > 1.0:
+                print(
+                    f"Rescaling raw_lift_qs by {over_limit_factor} for grasp {i}"
+                )
+                n_timepoints = raw_lift_q.shape[0]
+                assert raw_lift_q.shape == (n_timepoints, 23)
+
+                previous_total_time = n_timepoints * raw_lift_dt
+                new2_total_time = previous_total_time * over_limit_factor
+                new2_n_timepoints = int(new2_total_time / raw_lift_dt)
+
+                ts = np.arange(n_timepoints) * raw_lift_dt
+                interps = []
+                for j in range(23):
+                    interp = interp1d(ts, raw_lift_q[:, j], kind="cubic")
+                    interps.append(interp)
+
+                new2_raw_lift_q = np.zeros((new2_n_timepoints, 23))
+                for j in range(23):
+                    new2_raw_lift_q[:, j] = interps[j](
+                        np.arange(new2_n_timepoints) * raw_lift_dt
+                    )
+                new2_raw_lift_qd = np.diff(new2_raw_lift_q, axis=0) / raw_lift_dt
+                new2_raw_lift_qd = np.concatenate(
+                    [new2_raw_lift_qd, new2_raw_lift_qd[-1:]], axis=0
+                )
+
+                new2_raw_lift_qs.append(new2_raw_lift_q)
+                new2_raw_lift_qds.append(new2_raw_lift_qd)
+            else:
+                new2_raw_lift_qs.append(raw_lift_q)
+                new2_raw_lift_qds.append(raw_lift_qd)
+        raw_lift_qs, raw_lift_qds = new2_raw_lift_qs, new2_raw_lift_qds
 
         final_success_idxs = sorted(
             list(set(overall_success_idxs).intersection(set(lift_overall_success_idxs)))

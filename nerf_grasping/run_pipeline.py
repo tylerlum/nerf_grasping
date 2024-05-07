@@ -844,26 +844,6 @@ def run_curobo(
         qd_with_lift = np.concatenate([qd, adjusted_lift_qd], axis=0)
         qds_with_lift.append(qd_with_lift)
 
-    ################ Visualize ################
-    from nerf_grasping.curobo_fr3_algr_zed2i.visualizer import (
-        start_visualizer,
-        draw_collision_spheres_default_config,
-        remove_collision_spheres_default_config,
-        set_robot_state,
-        animate_robot,
-        create_urdf,
-    )
-
-    OBJECT_URDF_PATH = create_urdf(obj_path=pathlib.Path("/tmp/mesh_viz_object.obj"))
-    pb_robot = start_visualizer(object_urdf_path=OBJECT_URDF_PATH)
-    draw_collision_spheres_default_config(pb_robot)
-    time.sleep(1.0)
-
-    remove_collision_spheres_default_config()
-    animate_robot(robot=pb_robot, qs=qs_with_lift[0], dt=dts[0])
-    breakpoint()
-    ################ Visualize ################
-
     print("\n" + "=" * 80)
     print("Step 12: Compute T_trajs")
     print("=" * 80 + "\n")
@@ -1144,7 +1124,35 @@ def main() -> None:
         )
 
     args.nerf_config = nerf_config
-    qs, qds, T_trajs, success_idxs, DEBUG_TUPLE = run_pipeline(nerf_model=nerf_model, cfg=args)
+    qs, qds, T_trajs, success_idxs, DEBUG_TUPLE = run_pipeline(
+        nerf_model=nerf_model, cfg=args
+    )
+
+    dts = []
+    for q, T_traj in zip(qs, T_trajs):
+        n_timesteps = q.shape[0]
+        dt = T_traj / n_timesteps
+        dts.append(dt)
+
+    ################ Visualize ################
+    from nerf_grasping.curobo_fr3_algr_zed2i.visualizer import (
+        start_visualizer,
+        draw_collision_spheres_default_config,
+        remove_collision_spheres_default_config,
+        set_robot_state,
+        animate_robot,
+        create_urdf,
+    )
+
+    OBJECT_URDF_PATH = create_urdf(obj_path=pathlib.Path("/tmp/mesh_viz_object.obj"))
+    pb_robot = start_visualizer(object_urdf_path=OBJECT_URDF_PATH)
+    draw_collision_spheres_default_config(pb_robot)
+    time.sleep(1.0)
+
+    remove_collision_spheres_default_config()
+    animate_robot(robot=pb_robot, qs=qs[0], dt=dts[0])
+    breakpoint()
+    ################ Visualize ################
 
 
 if __name__ == "__main__":

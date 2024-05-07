@@ -656,8 +656,6 @@ def run_curobo(
     )
     from nerf_grasping.curobo_fr3_algr_zed2i.trajopt_batch import (
         solve_trajopt_batch,
-        solve_trajopt_batch_debug,
-        solve_trajopt_batch_debug2,
         get_trajectories_from_result,
     )
 

@@ -290,7 +290,9 @@ def solve_trajopt_batch(
 
     DEBUG_START_STATE_INVALID = False
     if DEBUG_START_STATE_INVALID:
-        debug_start_state_invalid(motion_gen_config=motion_gen_config, start_state=start_state)
+        debug_start_state_invalid(
+            motion_gen_config=motion_gen_config, start_state=start_state
+        )
 
     target_pose2 = Pose(
         state2.ee_position,

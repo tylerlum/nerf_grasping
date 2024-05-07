@@ -205,7 +205,7 @@ def solve_trajopt_batch(
     if collision_sphere_buffer is not None:
         robot_cfg["kinematics"]["collision_sphere_buffer"] = collision_sphere_buffer
     robot_cfg = RobotConfig.from_dict(robot_cfg)
-    modify_robot_cfg_to_add_joint_limit_buffer(robot_cfg, buffer=0.05)
+    modify_robot_cfg_to_add_joint_limit_buffer(robot_cfg)
 
     world_cfg = get_world_cfg(
         collision_check_object=collision_check_object,

@@ -107,7 +107,7 @@ def solve_iks(
     robot_cfg = load_yaml(join_path(get_robot_configs_path(), robot_file))["robot_cfg"]
     robot_cfg["kinematics"]["link_names"] = []
     robot_cfg = RobotConfig.from_dict(robot_cfg)
-    modify_robot_cfg_to_add_joint_limit_buffer(robot_cfg, buffer=0.05)
+    modify_robot_cfg_to_add_joint_limit_buffer(robot_cfg)
 
     world_cfg = get_world_cfg(
         collision_check_object=collision_check_object,
@@ -170,7 +170,7 @@ def solve_ik(
     robot_cfg = RobotConfig.from_dict(
         load_yaml(join_path(get_robot_configs_path(), robot_file))["robot_cfg"]
     )
-    modify_robot_cfg_to_add_joint_limit_buffer(robot_cfg, buffer=0.05)
+    modify_robot_cfg_to_add_joint_limit_buffer(robot_cfg)
 
     # Apply joint limits
     if q_algr_constraint is not None:
@@ -240,7 +240,7 @@ def max_penetration_from_q(
     robot_cfg = RobotConfig.from_dict(
         load_yaml(join_path(get_robot_configs_path(), robot_file))["robot_cfg"]
     )
-    modify_robot_cfg_to_add_joint_limit_buffer(robot_cfg, buffer=0.05)
+    modify_robot_cfg_to_add_joint_limit_buffer(robot_cfg)
 
     world_cfg = get_world_cfg(
         collision_check_object=include_object,
@@ -285,7 +285,7 @@ def max_penetration_from_qs(
     robot_cfg = RobotConfig.from_dict(
         load_yaml(join_path(get_robot_configs_path(), robot_file))["robot_cfg"]
     )
-    modify_robot_cfg_to_add_joint_limit_buffer(robot_cfg, buffer=0.05)
+    modify_robot_cfg_to_add_joint_limit_buffer(robot_cfg)
 
     world_cfg = get_world_cfg(
         collision_check_object=include_object,

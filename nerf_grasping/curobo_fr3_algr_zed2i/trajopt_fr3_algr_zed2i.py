@@ -67,7 +67,7 @@ def solve_trajopt(
     robot_cfg = RobotConfig.from_dict(
         load_yaml(join_path(get_robot_configs_path(), robot_file))["robot_cfg"]
     )
-    modify_robot_cfg_to_add_joint_limit_buffer(robot_cfg, buffer=0.05)
+    modify_robot_cfg_to_add_joint_limit_buffer(robot_cfg)
 
     # Apply joint limits
     if q_algr_constraint is not None:

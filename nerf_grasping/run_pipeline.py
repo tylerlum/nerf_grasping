@@ -1,6 +1,4 @@
 from tqdm import tqdm
-from scipy.interpolate import interp1d
-import math
 import time
 from typing import Optional, Tuple, List
 from nerfstudio.models.base_model import Model
@@ -694,6 +692,7 @@ def run_curobo(
         collision_sphere_buffer=0.01,
     )
 
+    start_extracting_results = time.time()
     motion_gen_success_idxs = (
         motion_gen_result.success.flatten().nonzero().flatten().tolist()
     )
@@ -743,10 +742,13 @@ def run_curobo(
     print(
         f"overall_success_idxs: {overall_success_idxs} ({len(overall_success_idxs)} / {n_grasps} = {len(overall_success_idxs) / n_grasps * 100:.2f}%)"
     )
+    end_extracting_results = time.time()
+    print(f"Time to extract results: {end_extracting_results - start_extracting_results:.2f}s")
 
     print("\n" + "=" * 80)
     print("Step 10: Add closing motion")
     print("=" * 80 + "\n")
+    start_closing_time = time.time()
     closing_qs, closing_qds = [], []
     for i, (q, qd, dt) in enumerate(zip(qs, qds, dts)):
         # Keep arm joints same, change hand joints
@@ -783,6 +785,8 @@ def run_curobo(
 
         closing_qs.append(closing_q)
         closing_qds.append(closing_qd)
+    end_closing_time = time.time()
+    print(f"Time to add closing motion: {end_closing_time - start_closing_time:.2f}s")
 
     print("\n" + "=" * 80)
     print("Step 11: Add lifting motion")
@@ -817,19 +821,17 @@ def run_curobo(
         obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
         obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
         obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
-        collision_check_table=True,  # Probably don't need to check this since we are going up, but can leave on to be safe
+        collision_check_table=True,  # Might not need to check this since we are going up, but can leave on to be safe
         use_cuda_graph=True,
         enable_graph=True,
-        enable_opt=False,  # Consider trajopt maybe faster?
+        enable_opt=False,
         timeout=3.0,
         collision_sphere_buffer=0.005,  # Reduce buffer for lift because not using object collision, less uncertainty
     )
     lift_motion_gen_success_idxs = (
         lift_motion_gen_result.success.flatten().nonzero().flatten().tolist()
     )
-    lift_ik_success_idxs = (
-        lift_ik_result.success.flatten().nonzero().flatten().tolist()
-    )
+    lift_ik_success_idxs = lift_ik_result.success.flatten().nonzero().flatten().tolist()
     lift_ik_success_idxs2 = (
         lift_ik_result2.success.flatten().nonzero().flatten().tolist()
     )
@@ -858,6 +860,7 @@ def run_curobo(
     )
 
     # Need to adjust raw_lift_qs, raw_lift_qds, raw_lift_dts to match dts from trajopt
+    start_interp1_time = time.time()
     new_raw_lift_qs, new_raw_lift_qds, new_raw_lift_dts = [], [], []
     for i, (raw_lift_q, raw_lift_qd, raw_lift_dt, dt) in enumerate(
         zip(raw_lift_qs, raw_lift_qds, raw_lift_dts, dts)
@@ -866,16 +869,16 @@ def run_curobo(
         assert raw_lift_q.shape == (n_timepoints, 23)
         total_time = n_timepoints * raw_lift_dt
 
-        ts = np.linspace(0, total_time, n_timepoints)
-        interps = []
-        for j in range(23):
-            interp = interp1d(ts, raw_lift_q[:, j], kind="cubic")
-            interps.append(interp)
-
+        # Interpolate with new timepoints
         n_new_timepoints = int(total_time / dt)
         new_raw_lift_q = np.zeros((n_new_timepoints, 23))
         for j in range(23):
-            new_raw_lift_q[:, j] = interps[j](np.arange(n_new_timepoints) * dt)
+            new_raw_lift_q[:, j] = np.interp(
+                np.arange(n_new_timepoints) * dt,
+                np.linspace(0, total_time, n_timepoints),
+                raw_lift_q[:, j],
+            )
+
         new_raw_lift_qd = np.diff(new_raw_lift_q, axis=0) / dt
         new_raw_lift_qd = np.concatenate(
             [new_raw_lift_qd, new_raw_lift_qd[-1:]], axis=0
@@ -884,6 +887,8 @@ def run_curobo(
         new_raw_lift_qs.append(new_raw_lift_q)
         new_raw_lift_qds.append(new_raw_lift_qd)
         new_raw_lift_dts.append(dt)
+    end_interp1_time = time.time()
+    print(f"Interpolating took {end_interp1_time - start_interp1_time:.2f}s")
 
     raw_lift_qs, raw_lift_qds, raw_lift_dts = (
         new_raw_lift_qs,
@@ -892,6 +897,7 @@ def run_curobo(
     )
 
     # Handle exceeding joint limits
+    start_interp2_time = time.time()
     over_limit_factors = compute_over_limit_factors(qds=raw_lift_qds, dts=raw_lift_dts)
     new2_raw_lift_qs, new2_raw_lift_qds = [], []
     for i, (raw_lift_q, raw_lift_qd, raw_lift_dt, over_limit_factor) in enumerate(
@@ -899,9 +905,7 @@ def run_curobo(
     ):
         assert over_limit_factor >= 1.0
         if over_limit_factor > 1.0:
-            print(
-                f"Rescaling raw_lift_qs by {over_limit_factor} for grasp {i}"
-            )
+            print(f"Rescaling raw_lift_qs by {over_limit_factor} for grasp {i}")
             n_timepoints = raw_lift_q.shape[0]
             assert raw_lift_q.shape == (n_timepoints, 23)
 
@@ -909,17 +913,15 @@ def run_curobo(
             new2_total_time = previous_total_time * over_limit_factor
             new2_n_timepoints = int(new2_total_time / raw_lift_dt)
 
-            ts = np.linspace(0, new2_total_time, n_timepoints)
-            interps = []
-            for j in range(23):
-                interp = interp1d(ts, raw_lift_q[:, j], kind="cubic")
-                interps.append(interp)
-
+            # Interpolate with new timepoints
             new2_raw_lift_q = np.zeros((new2_n_timepoints, 23))
             for j in range(23):
-                new2_raw_lift_q[:, j] = interps[j](
-                    np.arange(new2_n_timepoints) * raw_lift_dt
+                new2_raw_lift_q[:, j] = np.interp(
+                    np.arange(new2_n_timepoints) * raw_lift_dt,
+                    np.linspace(0, new2_total_time, n_timepoints),
+                    raw_lift_q[:, j],
                 )
+
             new2_raw_lift_qd = np.diff(new2_raw_lift_q, axis=0) / raw_lift_dt
             new2_raw_lift_qd = np.concatenate(
                 [new2_raw_lift_qd, new2_raw_lift_qd[-1:]], axis=0
@@ -931,6 +933,8 @@ def run_curobo(
             new2_raw_lift_qs.append(raw_lift_q)
             new2_raw_lift_qds.append(raw_lift_qd)
     raw_lift_qs, raw_lift_qds = new2_raw_lift_qs, new2_raw_lift_qds
+    end_interp2_time = time.time()
+    print(f"Interpolating took {end_interp2_time - start_interp2_time:.2f}s")
 
     final_success_idxs = sorted(
         list(set(overall_success_idxs).intersection(set(lift_overall_success_idxs)))
@@ -948,6 +952,7 @@ def run_curobo(
 
     # Adjust the lift qs to have the same hand position as the closing qs
     # We only want the arm position of the lift qs
+    start_adjust_time = time.time()
     adjusted_lift_qs, adjusted_lift_qds = [], []
     for i, (
         closing_q,
@@ -972,10 +977,13 @@ def run_curobo(
 
         adjusted_lift_qs.append(adjusted_lift_q)
         adjusted_lift_qds.append(adjusted_lift_qd)
+    end_adjust_time = time.time()
+    print(f"Adjusting lift qs took {end_adjust_time - start_adjust_time:.2f}s")
 
     print("\n" + "=" * 80)
     print("Step 12: Aggregate qs and qds")
     print("=" * 80 + "\n")
+    start_aggregate_time = time.time()
     q_trajs, qd_trajs = [], []
     for q, qd, closing_q, closing_qd, lift_q, lift_qd in zip(
         qs, qds, closing_qs, closing_qds, adjusted_lift_qs, adjusted_lift_qds
@@ -992,6 +1000,8 @@ def run_curobo(
     for q, dt in zip(q_trajs, dts):
         n_timesteps = q.shape[0]
         T_trajs.append(n_timesteps * dt)
+    end_aggregate_time = time.time()
+    print(f"Aggregating took {end_aggregate_time - start_aggregate_time:.2f}s")
 
     DEBUG_TUPLE = (
         motion_gen_result,

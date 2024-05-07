@@ -1,4 +1,5 @@
 from tqdm import tqdm
+import math
 import time
 from typing import Optional, Tuple, List
 from nerfstudio.models.base_model import Model
@@ -628,6 +629,13 @@ def run_curobo(
     q_fr3: Optional[np.ndarray] = None,
     q_algr: Optional[np.ndarray] = None,
 ) -> Tuple[List[np.ndarray], List[np.ndarray], List[float], List[int], tuple]:
+    # Timing
+    APPROACH_TIME = 5
+    STAY_OPEN_TIME = 0.5
+    CLOSE_TIME = 0.5
+    STAY_CLOSED_TIME = 0.5
+    LIFT_TIME = 3.0
+
     from nerf_grasping.curobo_fr3_algr_zed2i.ik_fr3_algr_zed2i import (
         solve_iks,
     )
@@ -635,6 +643,7 @@ def run_curobo(
         solve_trajopt_batch,
         get_trajectories_from_result,
         rescale_if_out_of_velocity_limits,
+        compute_rescale_factors_to_stay_within_limits,
     )
 
     n_grasps = X_W_Hs.shape[0]
@@ -687,10 +696,9 @@ def run_curobo(
 
     qs, qds, dts = get_trajectories_from_result(
         result=motion_gen_result,
-        desired_trajectory_time=5.0,
-        verbose=True,
+        desired_trajectory_time=APPROACH_TIME,
     )
-    qds, dts = rescale_if_out_of_velocity_limits(qds=qds, dts=dts)
+    qds, dts = rescale_if_out_of_velocity_limits(qds=qds, dts=dts, verbose=True)
     nonzero_q_idxs = [i for i, q in enumerate(qs) if np.absolute(q).sum() > 1e-2]
     overall_success_idxs = sorted(
         list(
@@ -726,10 +734,6 @@ def run_curobo(
     print("=" * 80 + "\n")
     closing_qs, closing_qds = [], []
     for i, (q, qd, dt) in enumerate(zip(qs, qds, dts)):
-        STAY_OPEN_TIME = 1
-        CLOSE_TIME = 0.5
-        STAY_CLOSED_TIME = 1
-
         # Keep arm joints same, change hand joints
         open_q = q[-1]
         close_q = np.concatenate([open_q[:7], q_algr_posts[i]])
@@ -854,13 +858,13 @@ def run_curobo(
     raw_lift_qs = []
     raw_lift_qds = []
     raw_lift_dts = []
+    TIME_BETWEEN_WAYPOINTS = LIFT_TIME / N_WAYPOINTS
     for i in range(n_grasps):
         waypoints = lift_waypoint_qs[i]
         assert waypoints.shape == (N_WAYPOINTS, 23)
         dt = dts[i]
         closing_q = closing_qs[i]
 
-        TIME_BETWEEN_WAYPOINTS = 0.5
         N_INTERPOLATED = int(TIME_BETWEEN_WAYPOINTS / dt)
 
         all_interpolated_qs = []
@@ -887,11 +891,30 @@ def run_curobo(
                 [interpolated_qds, interpolated_qds[-1:]], axis=0
             )
 
+            # Handle joint velocity limits
+            rescale_factor = compute_rescale_factors_to_stay_within_limits(
+                qds=[interpolated_qds], dts=[dt]
+            )[0]
+            assert rescale_factor >= 1.0
+            if rescale_factor > 1.0:
+                print(
+                    f"Rescaling interpolated_qs by {rescale_factor} for grasp {i} segment {curr_waypoint_idx}"
+                )
+                NEW_N_INTERPOLATED = math.ceil(N_INTERPOLATED * rescale_factor)
+                interpolated_qs = interpolate(
+                    start=prev_waypoint, end=curr_waypoint, N=NEW_N_INTERPOLATED
+                )
+                assert interpolated_qs.shape == (NEW_N_INTERPOLATED, 23)
+
+                interpolated_qds = np.diff(interpolated_qs, axis=0) / dt
+                interpolated_qds = np.concatenate(
+                    [interpolated_qds, interpolated_qds[-1:]], axis=0
+                )
+
             all_interpolated_qs.append(interpolated_qs)
             all_interpolated_qds.append(interpolated_qds)
 
         all_interpolated_qs = np.concatenate(all_interpolated_qs, axis=0)
-        assert all_interpolated_qs.shape == (N_WAYPOINTS * N_INTERPOLATED, 23)
         all_interpolated_qds = np.concatenate(all_interpolated_qds, axis=0)
 
         raw_lift_qs.append(all_interpolated_qs)
@@ -1082,7 +1105,9 @@ def visualize(
             print(f"Visualizing trajectory {TRAJ_IDX}")
             animate_robot(robot=pb_robot, qs=q, dt=dt)
         elif x == "d":
-            print("WARNING: This doesn't make sense when we include the full trajectory of grasping")
+            print(
+                "WARNING: This doesn't make sense when we include the full trajectory of grasping"
+            )
 
             q, qd, dt = qs[TRAJ_IDX], qds[TRAJ_IDX], dts[TRAJ_IDX]
             print(f"For trajectory {TRAJ_IDX}")

@@ -440,28 +440,6 @@ def compute_grasps(
     )
 
 
-def compute_trajectories(
-    cfg: PipelineConfig,
-    X_W_Hs: np.ndarray,
-    q_algr_pres: np.ndarray,
-    q_algr_posts: np.ndarray,
-) -> Tuple[List[np.ndarray], List[np.ndarray], List[float]]:
-    METHOD = "CUROBO"  # TODO: Compare these
-    print("=" * 80)
-    print(f"METHOD: {METHOD}")
-    print("=" * 80 + "\n")
-    if METHOD == "DRAKE":
-        run_drake(
-            cfg=cfg, X_W_Hs=X_W_Hs, q_algr_pres=q_algr_pres, q_algr_posts=q_algr_posts
-        )
-    elif METHOD == "CUROBO":
-        run_curobo(
-            cfg=cfg, X_W_Hs=X_W_Hs, q_algr_pres=q_algr_pres, q_algr_posts=q_algr_posts
-        )
-    else:
-        raise ValueError(f"Invalid METHOD: {METHOD}")
-
-
 def run_drake(
     cfg: PipelineConfig,
     X_W_Hs: np.ndarray,
@@ -651,7 +629,6 @@ def run_curobo(
     q_algr: Optional[np.ndarray] = None,
 ) -> Tuple[List[np.ndarray], List[np.ndarray], List[float], List[int], tuple]:
     from nerf_grasping.curobo_fr3_algr_zed2i.ik_fr3_algr_zed2i import (
-        max_penetration_from_qs,
         solve_iks,
     )
     from nerf_grasping.curobo_fr3_algr_zed2i.trajopt_batch import (
@@ -708,7 +685,8 @@ def run_curobo(
     ik_success_idxs2 = ik_result2.success.flatten().nonzero().flatten().tolist()
 
     qs, qds, dts = get_trajectories_from_result(
-        result=motion_gen_result, desired_trajectory_time=5,
+        result=motion_gen_result,
+        desired_trajectory_time=5,
     )
     nonzero_q_idxs = [i for i, q in enumerate(qs) if np.absolute(q).sum() > 1e-2]
     overall_success_idxs = sorted(
@@ -854,9 +832,7 @@ def run_curobo(
 
     if not lift_waypoint_success.all():
         print("WARNING: Not all lift IK waypoints were successful")
-        print(
-            f"lift_waypoint_success: {lift_waypoint_success}"
-        )
+        print(f"lift_waypoint_success: {lift_waypoint_success}")
 
     lift_success = lift_waypoint_success.all(axis=1)
     assert lift_success.shape == (n_grasps,)
@@ -914,9 +890,7 @@ def run_curobo(
     )
     if losses is not None:
         assert losses.shape == (n_grasps,)
-        print(
-            f"losses = {losses}"
-        )
+        print(f"losses = {losses}")
         print(f"losses of successful grasps: {[losses[i] for i in final_success_idxs]}")
     print("~" * 80 + "\n")
 
@@ -970,6 +944,7 @@ def run_curobo(
         motion_gen_result,
         ik_result,
         ik_result2,
+        DEBUG_lift_ik_result,
     )
     return q_trajs, qd_trajs, T_trajs, final_success_idxs, DEBUG_TUPLE
 
@@ -1015,7 +990,14 @@ def run_pipeline(
     return qs, qds, T_trajs, success_idxs, DEBUG_TUPLE
 
 
-def visualize():
+def visualize(
+    cfg: PipelineConfig,
+    qs: List[np.ndarray],
+    qds: List[np.ndarray],
+    T_trajs: List[float],
+    success_idxs: List[int],
+    DEBUG_TUPLE: tuple,
+) -> None:
     # Visualize
     print("\n" + "=" * 80)
     print("Visualizing")
@@ -1029,10 +1011,26 @@ def visualize():
         create_urdf,
     )
 
+    from nerf_grasping.curobo_fr3_algr_zed2i.ik_fr3_algr_zed2i import (
+        max_penetration_from_qs,
+        max_penetration_from_q,
+    )
+
     OBJECT_URDF_PATH = create_urdf(obj_path=pathlib.Path("/tmp/mesh_viz_object.obj"))
     pb_robot = start_visualizer(object_urdf_path=OBJECT_URDF_PATH)
     draw_collision_spheres_default_config(pb_robot)
     time.sleep(1.0)
+
+    if len(success_idxs) == 0:
+        print("WARNING: No successful trajectories")
+
+    TRAJ_IDX = success_idxs[0] if len(success_idxs) > 0 else 0
+
+    dts = []
+    for q, T_traj in zip(qs, T_trajs):
+        n_timesteps = q.shape[0]
+        dt = T_traj / n_timesteps
+        dts.append(dt)
 
     remove_collision_spheres_default_config()
     q, qd, dt = qs[TRAJ_IDX], qds[TRAJ_IDX], dts[TRAJ_IDX]
@@ -1047,11 +1045,7 @@ def visualize():
                 "b for breakpoint",
                 "v to visualize traj",
                 "d to print collision distance",
-                "vt for visualize trajopt traj",
-                "dt for print trajopt collision distance",
-                "i to move hand to exact X_W_H and q_algr_pre without collision check",
-                "i2 to move hand to exact X_W_H and q_algr_pre with collision check",
-                "e for execute the grasp",
+                "i to move hand to exact X_W_H and q_algr_pre IK solution",
                 "n to go to next traj",
                 "p to go to prev traj",
                 "c to draw collision spheres",
@@ -1082,72 +1076,11 @@ def visualize():
             )
             print(f"np.max(d_world): {np.max(d_world)}")
             print(f"np.max(d_self): {np.max(d_self)}")
-        elif x == "vt":
-            if RUN_TRAJOPT_AS_WELL:
-                q, qd, dt = (
-                    trajopt_qs[TRAJ_IDX],
-                    trajopt_qds[TRAJ_IDX],
-                    trajopt_dts[TRAJ_IDX],
-                )
-                print(f"Visualizing trajectory {TRAJ_IDX}")
-                animate_robot(robot=pb_robot, qs=q, dt=dt)
-            else:
-                print("Trajopt was not run")
-        elif x == "dt":
-            if RUN_TRAJOPT_AS_WELL:
-                q, qd, dt = (
-                    trajopt_qs[TRAJ_IDX],
-                    trajopt_qds[TRAJ_IDX],
-                    trajopt_dts[TRAJ_IDX],
-                )
-                print(f"For trajectory {TRAJ_IDX}")
-                d_world, d_self = max_penetration_from_qs(
-                    qs=q,
-                    collision_activation_distance=0.0,
-                    include_object=True,
-                    obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
-                    obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
-                    obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
-                    include_table=True,
-                )
-                print(f"np.max(d_world): {np.max(d_world)}")
-                print(f"np.max(d_self): {np.max(d_self)}")
-            else:
-                print("Trajopt was not run")
-        elif x == "e":
-            q, qd, dt = qs[TRAJ_IDX], qds[TRAJ_IDX], dts[TRAJ_IDX]
-            print(f"Executing trajectory {TRAJ_IDX}")
-            start_q = q[-1]
-            end_q = np.concatenate([start_q[:7], q_algr_posts[TRAJ_IDX]])
-            assert start_q.shape == end_q.shape == (23,)
-            n_steps = 100
-            total_time = 2.0
-            interp_dt = total_time / n_steps
-            interpolated_qs = interpolate(start=start_q, end=end_q, N=n_steps)
-            assert interpolated_qs.shape == (n_steps, 23)
-            animate_robot(robot=pb_robot, qs=interpolated_qs, dt=interp_dt)
         elif x == "i":
-            print(
-                f"Moving hand to exact X_W_H and q_algr_pre of trajectory {TRAJ_IDX} with IK no collision check"
-            )
-            ik_q = ik_result.solution[TRAJ_IDX].flatten().detach().cpu().numpy()
-            assert ik_q.shape == (23,)
-            ik_q[7:] = q_algr_pres[TRAJ_IDX]
-            set_robot_state(robot=pb_robot, q=ik_q)
-            d_world, d_self = max_penetration_from_q(
-                q=ik_q,
-                include_object=True,
-                obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
-                obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
-                obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
-                include_table=True,
-            )
-            print(f"np.max(d_world): {np.max(d_world)}")
-            print(f"np.max(d_self): {np.max(d_self)}")
-        elif x == "i2":
             print(
                 f"Moving hand to exact X_W_H and q_algr_pre of trajectory {TRAJ_IDX} with IK collision check"
             )
+            ik_result2 = DEBUG_TUPLE[2]  # BRITTLE
             ik_q = ik_result2.solution[TRAJ_IDX].flatten().detach().cpu().numpy()
             assert ik_q.shape == (23,)
             set_robot_state(robot=pb_robot, q=ik_q)
@@ -1264,32 +1197,14 @@ def main() -> None:
         nerf_model=nerf_model, cfg=args
     )
 
-    dts = []
-    for q, T_traj in zip(qs, T_trajs):
-        n_timesteps = q.shape[0]
-        dt = T_traj / n_timesteps
-        dts.append(dt)
-
-    ################ Visualize ################
-    from nerf_grasping.curobo_fr3_algr_zed2i.visualizer import (
-        start_visualizer,
-        draw_collision_spheres_default_config,
-        remove_collision_spheres_default_config,
-        set_robot_state,
-        animate_robot,
-        create_urdf,
+    visualize(
+        cfg=args,
+        qs=qs,
+        qds=qds,
+        T_trajs=T_trajs,
+        success_idxs=success_idxs,
+        DEBUG_TUPLE=DEBUG_TUPLE,
     )
-
-    OBJECT_URDF_PATH = create_urdf(obj_path=pathlib.Path("/tmp/mesh_viz_object.obj"))
-    pb_robot = start_visualizer(object_urdf_path=OBJECT_URDF_PATH)
-    draw_collision_spheres_default_config(pb_robot)
-    time.sleep(1.0)
-
-    remove_collision_spheres_default_config()
-    valid_idx = success_idxs[0]
-    animate_robot(robot=pb_robot, qs=qs[valid_idx], dt=dts[valid_idx])
-    breakpoint()
-    ################ Visualize ################
 
 
 if __name__ == "__main__":

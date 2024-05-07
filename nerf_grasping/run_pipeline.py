@@ -888,7 +888,7 @@ def run_curobo(
             all_interpolated_qds.append(interpolated_qds)
 
         all_interpolated_qs = np.concatenate(all_interpolated_qs, axis=0)
-        assert all_interpolated_qs.shape == ((N_WAYPOINTS - 1) * N_INTERPOLATED, 23)
+        assert all_interpolated_qs.shape == (N_WAYPOINTS * N_INTERPOLATED, 23)
         all_interpolated_qds = np.concatenate(all_interpolated_qds, axis=0)
 
         raw_lift_qs.append(all_interpolated_qs)

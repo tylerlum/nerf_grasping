@@ -62,6 +62,7 @@ def get_world_cfg(
             )
         )
     if len(world_dict) == 0:
+        # Error if there are no objects, so add a dummy object
         world_dict.update(get_dummy_collision_dict())
     world_cfg = WorldConfig.from_dict(world_dict)
     return world_cfg

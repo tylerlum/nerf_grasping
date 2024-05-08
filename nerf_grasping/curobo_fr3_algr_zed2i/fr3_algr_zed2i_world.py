@@ -18,10 +18,11 @@ def get_object_collision_dict(
     file_path: pathlib.Path,
     xyz: Tuple[float, float, float],
     quat_wxyz: Tuple[float, float, float, float],
+    obj_name: str = "object",
 ) -> dict:
     return {
         "mesh": {
-            "object": {
+            obj_name: {
                 "pose": [*xyz, *quat_wxyz],
                 "file_path": str(file_path),
             }
@@ -57,7 +58,7 @@ def get_world_cfg(
     if collision_check_object and obj_filepath is not None:
         world_dict.update(
             get_object_collision_dict(
-                file_path=obj_filepath, xyz=obj_xyz, quat_wxyz=obj_quat_wxyz
+                file_path=obj_filepath, xyz=obj_xyz, quat_wxyz=obj_quat_wxyz, obj_name=obj_name
             )
         )
     if len(world_dict) == 0:

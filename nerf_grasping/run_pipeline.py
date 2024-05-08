@@ -487,24 +487,6 @@ def run_curobo(
     motion_gen_config: Optional[MotionGenConfig] = None,
     losses: Optional[np.ndarray] = None,
 ) -> Tuple[List[np.ndarray], List[np.ndarray], List[float], List[int], tuple]:
-    if (
-        robot_cfg is None
-        or ik_solver is None
-        or ik_solver2 is None
-        or motion_gen is None
-        or motion_gen_config is None
-    ):
-        print("\n" + "=" * 80)
-        print(f"robot_cfg is None: {robot_cfg is None}")
-        print(f"ik_solver is None: {ik_solver is None}")
-        print(f"ik_solver2 is None: {ik_solver2 is None}")
-        print(f"motion_gen is None: {motion_gen is None}")
-        print(f"motion_gen_config is None: {motion_gen_config is None}")
-        print("=" * 80 + "\n")
-        print(
-            "Creating new robot, ik_solver, ik_solver2, motion_gen, motion_gen_config"
-        )
-
     # Timing
     APPROACH_TIME = cfg.approach_time
     STAY_OPEN_TIME = cfg.stay_open_time
@@ -523,6 +505,36 @@ def run_curobo(
         q_algr = DEFAULT_Q_ALGR
     assert q_fr3.shape == (7,)
     assert q_algr.shape == (16,)
+
+    if (
+        robot_cfg is None
+        or ik_solver is None
+        or ik_solver2 is None
+        or motion_gen is None
+        or motion_gen_config is None
+    ):
+        print("\n" + "=" * 80)
+        print(f"robot_cfg is None: {robot_cfg is None}")
+        print(f"ik_solver is None: {ik_solver is None}")
+        print(f"ik_solver2 is None: {ik_solver2 is None}")
+        print(f"motion_gen is None: {motion_gen is None}")
+        print(f"motion_gen_config is None: {motion_gen_config is None}")
+        print("=" * 80 + "\n")
+        print(
+            "Creating new robot, ik_solver, ik_solver2, motion_gen, motion_gen_config"
+        )
+        robot_cfg, ik_solver, ik_solver2, motion_gen, motion_gen_config = (
+            prepare_trajopt_batch(
+                n_grasps=n_grasps,
+                collision_check_object=True,
+                obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
+                obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
+                obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+                collision_check_table=True,
+                use_cuda_graph=True,
+                collision_sphere_buffer=0.01,
+            )
+        )
 
     print("\n" + "=" * 80)
     print("Step 9: Solve motion gen for each grasp")

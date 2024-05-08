@@ -59,6 +59,7 @@ print = partial(
     print, file=sys.stderr
 )  # Redirect print to stderr to get around ROS issue
 
+HACK_OFFSET = -0.05
 
 @dataclass
 class PipelineConfig:
@@ -509,8 +510,8 @@ def run_curobo(
             prepare_solve_trajopt_batch(
                 n_grasps=cfg.num_grasps,
                 collision_check_object=True,
-                obj_filepath=pathlib.Path("/tmp/DUMMY_mesh_viz_object.obj"),
-                obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
+                obj_filepath=pathlib.Path("/juno/u/tylerlum/Downloads/cube.obj"),
+                obj_xyz=(cfg.nerf_frame_offset_x + HACK_OFFSET, 0.0, 0.0),
                 obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
                 collision_check_table=True,
                 use_cuda_graph=True,
@@ -541,8 +542,8 @@ def run_curobo(
     print("=" * 80 + "\n")
     objects_world_cfg = get_world_cfg(
         collision_check_object=True,
-        obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
-        obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
+        obj_filepath=pathlib.Path("/juno/u/tylerlum/Downloads/cube.obj"),
+        obj_xyz=(cfg.nerf_frame_offset_x + HACK_OFFSET, 0.0, 0.0),
         obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
         collision_check_table=True,
     )
@@ -679,8 +680,8 @@ def run_curobo(
     # Update world to remove object collision check
     no_objects_world_cfg = get_world_cfg(
         collision_check_object=False,
-        obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
-        obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
+        obj_filepath=pathlib.Path("/juno/u/tylerlum/Downloads/cube.obj"),
+        obj_xyz=(cfg.nerf_frame_offset_x + HACK_OFFSET, 0.0, 0.0),
         obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
         collision_check_table=True,
     )
@@ -955,10 +956,10 @@ def visualize(
         max_penetration_from_q,
     )
 
-    OBJECT_URDF_PATH = create_urdf(obj_path=pathlib.Path("/tmp/mesh_viz_object.obj"))
+    OBJECT_URDF_PATH = create_urdf(obj_path=pathlib.Path("/juno/u/tylerlum/Downloads/cube.obj"))
     pb_robot = start_visualizer(
         object_urdf_path=OBJECT_URDF_PATH,
-        obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
+        obj_xyz=(cfg.nerf_frame_offset_x + HACK_OFFSET, 0.0, 0.0),
         obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
     )
     draw_collision_spheres_default_config(pb_robot)
@@ -1016,8 +1017,8 @@ def visualize(
                 qs=q,
                 collision_activation_distance=0.0,
                 include_object=True,
-                obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
-                obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
+                obj_filepath=pathlib.Path("/juno/u/tylerlum/Downloads/cube.obj"),
+                obj_xyz=(cfg.nerf_frame_offset_x + HACK_OFFSET, 0.0, 0.0),
                 obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
                 include_table=True,
             )
@@ -1034,8 +1035,8 @@ def visualize(
             d_world, d_self = max_penetration_from_q(
                 q=ik_q,
                 include_object=True,
-                obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
-                obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
+                obj_filepath=pathlib.Path("/juno/u/tylerlum/Downloads/cube.obj"),
+                obj_xyz=(cfg.nerf_frame_offset_x + HACK_OFFSET, 0.0, 0.0),
                 obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
                 include_table=True,
             )
@@ -1144,23 +1145,18 @@ def main() -> None:
     # Prepare curobo
     start_prepare_solve_trajopt_batch = time.time()
     # HACK: Need to include a mesh into the world for the motion_gen warmup or else it will not prepare mesh buffers
-    # dummy_mesh = trimesh.creation.icosphere(radius=0.01)
-    dummy_mesh = trimesh.creation.box(extents=(0.01, 0.01, 0.01))
-    dummy_mesh.export(file_obj="/tmp/DUMMY_mesh_viz_object.obj")
-
-    robot_cfg, ik_solver, ik_solver2, motion_gen, motion_gen_config = (
-        prepare_solve_trajopt_batch(
-            n_grasps=args.num_grasps,
-            collision_check_object=True,
-            obj_filepath=pathlib.Path("/tmp/DUMMY_mesh_viz_object.obj"),
-            # obj_filepath=pathlib.Path("/juno/u/tylerlum/Downloads/cube.obj"),
-            obj_xyz=(10, 0.0, 0.0),
-            obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
-            collision_check_table=True,
-            use_cuda_graph=True,
-            collision_sphere_buffer=0.01,
-        )
-    )
+    # robot_cfg, ik_solver, ik_solver2, motion_gen, motion_gen_config = (
+    #     prepare_solve_trajopt_batch(
+    #         n_grasps=args.num_grasps,
+    #         collision_check_object=True,
+    #         obj_filepath=pathlib.Path("/juno/u/tylerlum/Downloads/cube.obj"),
+    #         obj_xyz=(args.nerf_frame_offset_x + HACK_OFFSET, 0.0, 0.0),
+    #         obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+    #         collision_check_table=True,
+    #         use_cuda_graph=True,
+    #         collision_sphere_buffer=0.01,
+    #     )
+    # )
     end_prepare_solve_trajopt_batch = time.time()
     print("@" * 80)
     print(
@@ -1173,11 +1169,11 @@ def main() -> None:
         cfg=args,
         q_fr3=DEFAULT_Q_FR3,
         q_algr=DEFAULT_Q_ALGR,
-        robot_cfg=robot_cfg,
-        ik_solver=ik_solver,
-        ik_solver2=ik_solver2,
-        motion_gen=motion_gen,
-        motion_gen_config=motion_gen_config,
+        # robot_cfg=robot_cfg,
+        # ik_solver=ik_solver,
+        # ik_solver2=ik_solver2,
+        # motion_gen=motion_gen,
+        # motion_gen_config=motion_gen_config,
     )
 
     visualize(

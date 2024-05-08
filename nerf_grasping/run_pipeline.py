@@ -725,24 +725,24 @@ def run_curobo(
     #     timeout=5.0,
     #     collision_sphere_buffer=0.01,
     # )
-    mesh = Mesh(
-        "/tmp/mesh_viz_object.obj",
-        # pose=[cfg.nerf_frame_offset_x, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0],
-        pose=[0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0],
-    )
-    ik_solver.world_coll_checker.world_model.add_obstacle(mesh)
-    ik_solver2.world_coll_checker.world_model.add_obstacle(mesh)
-    motion_gen.world_coll_checker.world_model.add_obstacle(mesh)
-    # objects_world_cfg = get_world_cfg(
-    #     collision_check_object=True,
-    #     obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
-    #     obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
-    #     obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
-    #     collision_check_table=True,
+    # mesh = Mesh(
+    #     "/tmp/mesh_viz_object.obj",
+    #     # pose=[cfg.nerf_frame_offset_x, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0],
+    #     pose=[0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0],
     # )
-    # ik_solver.update_world(objects_world_cfg)
-    # ik_solver2.update_world(objects_world_cfg)
-    # motion_gen.update_world(objects_world_cfg)
+    # ik_solver.world_coll_checker.world_model.add_obstacle(mesh)
+    # ik_solver2.world_coll_checker.world_model.add_obstacle(mesh)
+    # motion_gen.world_coll_checker.world_model.add_obstacle(mesh)
+    objects_world_cfg = get_world_cfg(
+        collision_check_object=True,
+        obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
+        obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
+        obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+        collision_check_table=True,
+    )
+    ik_solver.update_world(objects_world_cfg)
+    ik_solver2.update_world(objects_world_cfg)
+    motion_gen.update_world(objects_world_cfg)
     motion_gen_result, ik_result, ik_result2 = new_solve_trajopt_batch(
         X_W_Hs=X_W_Hs,
         q_algrs=q_algr_pres,

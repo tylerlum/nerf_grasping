@@ -61,49 +61,52 @@ class CustomPipeline(VanillaPipeline):
         self.config = config
         self.test_mode = test_mode
         # HACK: Don't load datamanager yet
-        self.datamanager = self.DummyDataManager()
-        # self.datamanager: DataManager = config.datamanager.setup(
-        #     device=device, test_mode=test_mode, world_size=world_size, local_rank=local_rank
-        # )
-        # # TODO make cleaner
-        # seed_pts = None
-        # if (
-        #     hasattr(self.datamanager, "train_dataparser_outputs")
-        #     and "points3D_xyz" in self.datamanager.train_dataparser_outputs.metadata
-        # ):
-        #     pts = self.datamanager.train_dataparser_outputs.metadata["points3D_xyz"]
-        #     pts_rgb = self.datamanager.train_dataparser_outputs.metadata["points3D_rgb"]
-        #     seed_pts = (pts, pts_rgb)
-        # self.datamanager.to(device)
-        # # TODO(ethan): get rid of scene_bounds from the model
-        # assert self.datamanager.train_dataset is not None, "Missing input dataset"
+        # self.datamanager = self.DummyDataManager()
+        self.datamanager: DataManager = config.datamanager.setup(
+            device=device, test_mode=test_mode, world_size=world_size, local_rank=local_rank
+        )
+        # TODO make cleaner
+        seed_pts = None
+        if (
+            hasattr(self.datamanager, "train_dataparser_outputs")
+            and "points3D_xyz" in self.datamanager.train_dataparser_outputs.metadata
+        ):
+            pts = self.datamanager.train_dataparser_outputs.metadata["points3D_xyz"]
+            pts_rgb = self.datamanager.train_dataparser_outputs.metadata["points3D_rgb"]
+            seed_pts = (pts, pts_rgb)
+        self.datamanager.to(device)
+        # TODO(ethan): get rid of scene_bounds from the model
+        assert self.datamanager.train_dataset is not None, "Missing input dataset"
 
         # Manually populate this
         # ASSUME seed_pts is None
-        seed_pts = None
-        aabb_scale = self.config.datamanager.dataparser.scene_scale
-        scene_box = SceneBox(
-            aabb=torch.tensor(
-                [
-                    [-aabb_scale, -aabb_scale, -aabb_scale],
-                    [aabb_scale, aabb_scale, aabb_scale],
-                ],
-                dtype=torch.float32,
-            )
-        )
-        num_train_data = 100  # WARNING: VERY HARCODED
-        metadata = (
-            {
-                "depth_filenames": None,
-                "depth_unit_scale_factor": self.config.datamanager.dataparser.depth_unit_scale_factor,
-                "mask_color": self.config.datamanager.dataparser.mask_color,
-            },
-        )
+        # seed_pts = None
+        # aabb_scale = self.config.datamanager.dataparser.scene_scale
+        # scene_box = SceneBox(
+        #     aabb=torch.tensor(
+        #         [
+        #             [-aabb_scale, -aabb_scale, -aabb_scale],
+        #             [aabb_scale, aabb_scale, aabb_scale],
+        #         ],
+        #         dtype=torch.float32,
+        #     )
+        # )
+        # num_train_data = 100  # WARNING: VERY HARCODED
+        # metadata = (
+        #     {
+        #         "depth_filenames": None,
+        #         "depth_unit_scale_factor": self.config.datamanager.dataparser.depth_unit_scale_factor,
+        #         "mask_color": self.config.datamanager.dataparser.mask_color,
+        #     },
+        # )
 
         self._model = config.model.setup(
-            scene_box=scene_box,  # self.datamanager.train_dataset.scene_box,
-            num_train_data=num_train_data,  # len(self.datamanager.train_dataset),
-            metadata=metadata,  # self.datamanager.train_dataset.metadata,
+            # scene_box=scene_box,  # self.datamanager.train_dataset.scene_box,
+            # num_train_data=num_train_data,  # len(self.datamanager.train_dataset),
+            # metadata=metadata,  # self.datamanager.train_dataset.metadata,
+            scene_box=self.datamanager.train_dataset.scene_box,
+            num_train_data=len(self.datamanager.train_dataset),
+            metadata=self.datamanager.train_dataset.metadata,
             device=device,
             grad_scaler=grad_scaler,
             seed_points=seed_pts,
@@ -145,17 +148,17 @@ def finish_train_loop_return_trainer(
     global_rank: int = 0,
 ) -> Trainer:
     # Setup datamanager now that data has arrived (same as start as original VanillaPipeline)
-    trainer.pipeline.datamanager = trainer.pipeline.config.datamanager.setup(
-        device=trainer.pipeline.device,
-        test_mode=trainer.pipeline.test_mode,
-        world_size=world_size,
-        local_rank=local_rank,
-    )
+    # trainer.pipeline.datamanager = trainer.pipeline.config.datamanager.setup(
+    #     device=trainer.pipeline.device,
+    #     test_mode=trainer.pipeline.test_mode,
+    #     world_size=world_size,
+    #     local_rank=local_rank,
+    # )
 
-    trainer.pipeline.datamanager.to(trainer.pipeline.device)
-    assert (
-        trainer.pipeline.datamanager.train_dataset is not None
-    ), "Missing input dataset"
+    # # trainer.pipeline.datamanager.to(trainer.pipeline.device)
+    # assert (
+    #     trainer.pipeline.datamanager.train_dataset is not None
+    # ), "Missing input dataset"
 
     trainer.train()
 

@@ -18,10 +18,11 @@ def get_object_collision_dict(
     file_path: pathlib.Path,
     xyz: Tuple[float, float, float],
     quat_wxyz: Tuple[float, float, float, float],
+    obj_name: str = "object",
 ) -> dict:
     return {
         "mesh": {
-            "object": {
+            obj_name: {
                 "pose": [*xyz, *quat_wxyz],
                 "file_path": str(file_path),
             }
@@ -49,6 +50,7 @@ def get_world_cfg(
     obj_xyz: Tuple[float, float, float] = (0.65, 0.0, 0.0),
     obj_quat_wxyz: Tuple[float, float, float, float] = (1.0, 0.0, 0.0, 0.0),
     collision_check_table: bool = True,
+    obj_name: str = "object",
 ) -> WorldConfig:
     world_dict = {}
     if collision_check_table:
@@ -56,10 +58,11 @@ def get_world_cfg(
     if collision_check_object and obj_filepath is not None:
         world_dict.update(
             get_object_collision_dict(
-                file_path=obj_filepath, xyz=obj_xyz, quat_wxyz=obj_quat_wxyz
+                file_path=obj_filepath, xyz=obj_xyz, quat_wxyz=obj_quat_wxyz, obj_name=obj_name
             )
         )
     if len(world_dict) == 0:
+        # Error if there are no objects, so add a dummy object
         world_dict.update(get_dummy_collision_dict())
     world_cfg = WorldConfig.from_dict(world_dict)
     return world_cfg

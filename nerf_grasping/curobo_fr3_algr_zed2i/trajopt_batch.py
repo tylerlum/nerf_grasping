@@ -4,7 +4,6 @@ from typing import Optional, Tuple, List
 
 import numpy as np
 import torch
-import torch.nn.functional as F
 
 from curobo.cuda_robot_model.cuda_robot_model import (
     CudaRobotModel,
@@ -42,62 +41,9 @@ from nerf_grasping.optimizer_utils import (
     is_in_limits,
 )
 
-
-def _sqrt_positive_part(x: torch.Tensor) -> torch.Tensor:
-    """
-    Returns torch.sqrt(torch.max(0, x))
-    subgradient is zero where x is 0.
-    """
-    ret = torch.zeros_like(x)
-    positive_mask = x > 0
-    ret[positive_mask] = torch.sqrt(x[positive_mask])
-    return ret
-
-
-def matrix_to_quat_wxyz(matrix: torch.Tensor) -> torch.Tensor:
-    """
-    Convert rotations given as rotation matrices to quat_wxyz.
-    Args:
-        matrix: Rotation matrices as tensor of shape (..., 3, 3).
-    Returns:
-        quat_wxyz with real part first, as tensor of shape (..., 4).
-    """
-    if matrix.size(-1) != 3 or matrix.size(-2) != 3:
-        raise ValueError(f"Invalid rotation matrix shape {matrix.shape}.")
-
-    batch_dim = matrix.shape[:-2]
-    m00, m01, m02, m10, m11, m12, m20, m21, m22 = torch.unbind(
-        matrix.reshape(batch_dim + (9,)), dim=-1
-    )
-
-    q_abs = _sqrt_positive_part(
-        torch.stack(
-            [
-                1.0 + m00 + m11 + m22,
-                1.0 + m00 - m11 - m22,
-                1.0 - m00 + m11 - m22,
-                1.0 - m00 - m11 + m22,
-            ],
-            dim=-1,
-        )
-    )
-
-    quat_by_rijk = torch.stack(
-        [
-            torch.stack([q_abs[..., 0] ** 2, m21 - m12, m02 - m20, m10 - m01], dim=-1),
-            torch.stack([m21 - m12, q_abs[..., 1] ** 2, m10 + m01, m02 + m20], dim=-1),
-            torch.stack([m02 - m20, m10 + m01, q_abs[..., 2] ** 2, m12 + m21], dim=-1),
-            torch.stack([m10 - m01, m20 + m02, m21 + m12, q_abs[..., 3] ** 2], dim=-1),
-        ],
-        dim=-2,
-    )
-
-    flr = torch.tensor(0.1).to(dtype=q_abs.dtype, device=q_abs.device)
-    quat_candidates = quat_by_rijk / (2.0 * q_abs[..., None].max(flr))
-
-    return quat_candidates[
-        F.one_hot(q_abs.argmax(dim=-1), num_classes=4) > 0.5, :
-    ].reshape(batch_dim + (4,))
+from nerf_grasping.curobo_fr3_algr_zed2i.math_utils import (
+    matrix_to_quat_wxyz,
+)
 
 
 def debug_start_state_invalid(
@@ -105,7 +51,6 @@ def debug_start_state_invalid(
     start_state: JointState,
 ):
     # TYLER DEBUG
-    breakpoint()
     graph_planner = motion_gen_config.graph_planner
     x_init_batch = start_state.position
     x_goal_batch = x_init_batch  # HACK
@@ -145,16 +90,14 @@ def debug_start_state_invalid(
         print(f"bound_constraint: {bound_constraint}")
         print(f"coll_constraint: {coll_constraint}")
         print(f"self_constraint: {self_constraint}")
+        print("PROBLEM WITH START_STATE")
         breakpoint()
     else:
-        print("mask.all() == True")
+        print("mask.all() == True, so no issues with start_state")
 
 
-def solve_trajopt_batch(
-    X_W_Hs: np.ndarray,
-    q_algrs: np.ndarray,
-    q_fr3_starts: Optional[np.ndarray] = None,
-    q_algr_starts: Optional[np.ndarray] = None,
+def prepare_trajopt_batch(
+    n_grasps: int,
     collision_check_object: bool = True,
     obj_filepath: Optional[pathlib.Path] = pathlib.Path(
         "/juno/u/tylerlum/github_repos/nerf_grasping/experiments/2024-05-02_16-19-22/nerf_to_mesh/mug_330/coacd/decomposed.obj"
@@ -162,14 +105,97 @@ def solve_trajopt_batch(
     obj_xyz: Tuple[float, float, float] = (0.65, 0.0, 0.0),
     obj_quat_wxyz: Tuple[float, float, float, float] = (1.0, 0.0, 0.0, 0.0),
     collision_check_table: bool = True,
-    use_cuda_graph: bool = True,  # Getting some errors from setting this to True
+    use_cuda_graph: bool = True,
+    collision_sphere_buffer: Optional[float] = None,
+    warmup: bool = True,  # warmup=True helps amortize downstream calls, but makes it slower overall
+) -> Tuple[RobotConfig, IKSolver, IKSolver, MotionGen, MotionGenConfig]:
+    """Sets up the necessary objects for solving trajopt_batch and runs warmup on motion_gen"""
+    # robot_cfg
+    tensor_args = TensorDeviceType()
+    robot_file = "fr3_algr_zed2i_with_fingertips.yml"
+    robot_cfg = load_yaml(join_path(get_robot_configs_path(), robot_file))["robot_cfg"]
+    if collision_sphere_buffer is not None:
+        robot_cfg["kinematics"]["collision_sphere_buffer"] = collision_sphere_buffer
+    robot_cfg = RobotConfig.from_dict(robot_cfg)
+    modify_robot_cfg_to_add_joint_limit_buffer(robot_cfg)
+
+    # world_cfg
+    world_cfg = get_world_cfg(
+        collision_check_object=collision_check_object,
+        obj_filepath=obj_filepath,
+        obj_xyz=obj_xyz,
+        obj_quat_wxyz=obj_quat_wxyz,
+        collision_check_table=collision_check_table,
+        obj_name="MY_object",
+    )
+
+    # ik_solver
+    ik_config = IKSolverConfig.load_from_robot_config(
+        robot_cfg,
+        world_cfg,
+        rotation_threshold=0.01,
+        position_threshold=0.001,
+        num_seeds=20,
+        self_collision_check=True,
+        self_collision_opt=True,
+        tensor_args=tensor_args,
+        use_cuda_graph=use_cuda_graph,
+    )
+    ik_solver = IKSolver(ik_config)
+
+    # ik_solver2
+    ik_config2 = IKSolverConfig.load_from_robot_config(
+        robot_cfg,
+        world_cfg,
+        rotation_threshold=0.05,
+        position_threshold=0.005,
+        num_seeds=20,
+        self_collision_check=True,
+        self_collision_opt=True,
+        tensor_args=tensor_args,
+        use_cuda_graph=use_cuda_graph,
+    )
+    ik_solver2 = IKSolver(ik_config2)
+
+    # motion_gen
+    motion_gen_config = MotionGenConfig.load_from_robot_config(
+        robot_cfg,
+        world_cfg,
+        tensor_args,
+        collision_checker_type=CollisionCheckerType.MESH,
+        use_cuda_graph=use_cuda_graph,
+        num_ik_seeds=1,  # Reduced to save time?
+        num_graph_seeds=1,  # Reduced to save time?
+        num_trajopt_seeds=1,  # Reduced to save time?
+        num_batch_ik_seeds=1,  # Reduced to save time?
+        num_batch_trajopt_seeds=1,  # Reduced to save time?
+        num_trajopt_noisy_seeds=1,  # Reduced to save time?
+        collision_cache={"obb": 2, "mesh": 2},
+    )
+    motion_gen = MotionGen(motion_gen_config)
+
+    if warmup:
+        # Careful: make sure warmup inputs are correct or else causes issues with CUDA graph
+        motion_gen.warmup(batch=n_grasps, enable_graph=True, use_link_poses=True)
+
+    return robot_cfg, ik_solver, ik_solver2, motion_gen, motion_gen_config
+
+
+def solve_prepared_trajopt_batch(
+    X_W_Hs: np.ndarray,
+    q_algrs: np.ndarray,
+    robot_cfg: RobotConfig,
+    ik_solver: IKSolver,
+    ik_solver2: IKSolver,
+    motion_gen: MotionGen,
+    motion_gen_config: MotionGenConfig,
+    q_fr3_starts: Optional[np.ndarray] = None,
+    q_algr_starts: Optional[np.ndarray] = None,
     enable_graph: bool = True,
     enable_opt: bool = False,  # Getting some errors from setting this to True
     timeout: float = 5.0,
-    collision_sphere_buffer: Optional[float] = None,
 ) -> Tuple[MotionGenResult, IKResult, IKResult]:
-    start_time = time.time()
-    print("Step 1: Prepare cfg")
+    print("Step 1: Prepare inputs")
     N_GRASPS = X_W_Hs.shape[0]
     assert X_W_Hs.shape == (N_GRASPS, 4, 4), f"X_W_Hs.shape: {X_W_Hs.shape}"
     assert q_algrs.shape == (N_GRASPS, 16), f"q_algrs.shape: {q_algrs.shape}"
@@ -190,95 +216,37 @@ def solve_trajopt_batch(
         16,
     ), f"q_algr_starts.shape: {q_algr_starts.shape}"
 
+    print("Step 2: Prepare target_pose")
     trans = X_W_Hs[:, :3, 3]
     rot_matrix = X_W_Hs[:, :3, :3]
     quat_wxyz = matrix_to_quat_wxyz(torch.from_numpy(rot_matrix).float().cuda())
-
     target_pose = Pose(
         torch.from_numpy(trans).float().cuda(),
         quaternion=quat_wxyz,
     )
 
-    tensor_args = TensorDeviceType()
-    robot_file = "fr3_algr_zed2i_with_fingertips.yml"
-    robot_cfg = load_yaml(join_path(get_robot_configs_path(), robot_file))["robot_cfg"]
-    if collision_sphere_buffer is not None:
-        robot_cfg["kinematics"]["collision_sphere_buffer"] = collision_sphere_buffer
-    robot_cfg = RobotConfig.from_dict(robot_cfg)
-    modify_robot_cfg_to_add_joint_limit_buffer(robot_cfg)
-
-    world_cfg = get_world_cfg(
-        collision_check_object=collision_check_object,
-        obj_filepath=obj_filepath,
-        obj_xyz=obj_xyz,
-        obj_quat_wxyz=obj_quat_wxyz,
-        collision_check_table=collision_check_table,
-    )
-
-    print("Step 2: Solve IK for arm q")
-    ik_config = IKSolverConfig.load_from_robot_config(
-        robot_cfg,
-        world_cfg,
-        rotation_threshold=0.01,
-        position_threshold=0.001,
-        num_seeds=20,
-        self_collision_check=True,
-        self_collision_opt=True,
-        tensor_args=tensor_args,
-        use_cuda_graph=use_cuda_graph,
-    )
-    ik_solver = IKSolver(ik_config)
-
+    print("Step 3: Solve IK for arm q")
     ik_result = ik_solver.solve_batch(target_pose)
 
-    print("Step 3: Solve FK for fingertip poses")
+    print("Step 4: Solve FK for fingertip poses")
     kin_model = CudaRobotModel(robot_cfg.kinematics)
     q_fr3s = ik_result.solution[..., :7].squeeze(dim=1).detach().cpu().numpy()
     q = torch.from_numpy(np.concatenate([q_fr3s, q_algrs], axis=1)).float().cuda()
     assert q.shape == (N_GRASPS, 23)
     state = kin_model.get_state(q)
 
-    print("Step 4: Solve IK for arm q and hand q")
-    ik_config2 = IKSolverConfig.load_from_robot_config(
-        robot_cfg,
-        world_cfg,
-        rotation_threshold=0.05,
-        position_threshold=0.005,
-        num_seeds=20,
-        self_collision_check=True,
-        self_collision_opt=True,
-        tensor_args=tensor_args,
-        use_cuda_graph=use_cuda_graph,
-    )
-    ik_solver2 = IKSolver(ik_config2)
+    print("Step 5: Solve IK for arm q and hand q")
     ik_result2 = ik_solver2.solve_batch(
         goal_pose=target_pose, link_poses=state.link_pose
     )
 
-    print("Step 5: Solve FK for new fingertip poses")
+    print("Step 6: Solve FK for new fingertip poses")
     kin_model2 = CudaRobotModel(robot_cfg.kinematics)
     q2 = ik_result2.solution.squeeze(dim=1)
-
     assert q2.shape == (N_GRASPS, 23)
     state2 = kin_model2.get_state(q2)
 
-    print("Step 6: Solve motion generation")
-    motion_gen_config = MotionGenConfig.load_from_robot_config(
-        robot_cfg,
-        world_cfg,
-        tensor_args,
-        collision_checker_type=CollisionCheckerType.MESH,
-        use_cuda_graph=use_cuda_graph,
-        num_ik_seeds=1,  # Reduced to save time?
-        num_graph_seeds=1,  # Reduced to save time?
-        num_trajopt_seeds=1,  # Reduced to save time?
-        num_batch_ik_seeds=1,  # Reduced to save time?
-        num_batch_trajopt_seeds=1,  # Reduced to save time?
-        num_trajopt_noisy_seeds=1,  # Reduced to save time?
-    )
-    motion_gen = MotionGen(motion_gen_config)
-    # motion_gen.warmup(batch=N_GRASPS)  # Can cause issues with CUDA graph
-
+    print("Step 7: Set up start_state for motion generation")
     q_starts = (
         torch.from_numpy(
             np.concatenate(
@@ -304,21 +272,6 @@ def solve_trajopt_batch(
             print("#" * 80)
             print("q_starts out of joint limits!")
             print("#" * 80)
-            print(
-                f"q_starts = {q_starts}, joint_lower_limits = {joint_lower_limits}, joint_upper_limits = {joint_upper_limits}"
-            )
-            print(
-                f"q_starts < joint_lower_limits = {(q_starts < joint_lower_limits[None]).any()}"
-            )
-            print(
-                f"q_starts > joint_upper_limits = {(q_starts > joint_upper_limits[None]).any()}"
-            )
-            print(
-                f"(q_starts < joint_lower_limits[None]).nonzero() = {(q_starts < joint_lower_limits[None]).nonzero()}"
-            )
-            print(
-                f"(q_starts > joint_upper_limits[None]).nonzero() = {(q_starts > joint_upper_limits[None]).nonzero()}"
-            )
 
             # HACK: Check if out of joint limits due to small numerical issues
             eps = 1e-4
@@ -335,16 +288,31 @@ def solve_trajopt_batch(
                 )
             else:
                 print("q_starts is far from joint limits, so not clamping")
+                print(
+                    f"q_starts = {q_starts}, joint_lower_limits = {joint_lower_limits}, joint_upper_limits = {joint_upper_limits}"
+                )
+                print(
+                    f"q_starts < joint_lower_limits = {(q_starts < joint_lower_limits[None]).any()}"
+                )
+                print(
+                    f"q_starts > joint_upper_limits = {(q_starts > joint_upper_limits[None]).any()}"
+                )
+                print(
+                    f"(q_starts < joint_lower_limits[None]).nonzero() = {(q_starts < joint_lower_limits[None]).nonzero()}"
+                )
+                print(
+                    f"(q_starts > joint_upper_limits[None]).nonzero() = {(q_starts > joint_upper_limits[None]).nonzero()}"
+                )
                 raise ValueError("q_starts out of joint limits!")
-
     start_state = JointState.from_position(q_starts)
 
-    DEBUG_START_STATE_INVALID = False
+    DEBUG_START_STATE_INVALID = True
     if DEBUG_START_STATE_INVALID:
         debug_start_state_invalid(
             motion_gen_config=motion_gen_config, start_state=start_state
         )
 
+    print("Step 8: Solve motion generation")
     target_pose2 = Pose(
         state2.ee_position,
         quaternion=state2.ee_quaternion,
@@ -355,7 +323,6 @@ def solve_trajopt_batch(
         plan_config=MotionGenPlanConfig(
             enable_graph=enable_graph,
             enable_opt=enable_opt,
-            # max_attempts=10,
             max_attempts=1,  # Reduce to save time?
             num_trajopt_seeds=1,  # Reduce to save time?
             num_graph_seeds=1,  # Must be 1 for plan_batch
@@ -363,11 +330,56 @@ def solve_trajopt_batch(
         ),
         link_poses=state2.link_pose,
     )
-
-    end_time = time.time()
-    print(f"Total time taken: {end_time - start_time} seconds")
-
     return motion_result, ik_result, ik_result2
+
+
+def solve_trajopt_batch(
+    X_W_Hs: np.ndarray,
+    q_algrs: np.ndarray,
+    q_fr3_starts: Optional[np.ndarray] = None,
+    q_algr_starts: Optional[np.ndarray] = None,
+    collision_check_object: bool = True,
+    obj_filepath: Optional[pathlib.Path] = pathlib.Path(
+        "/juno/u/tylerlum/github_repos/nerf_grasping/experiments/2024-05-02_16-19-22/nerf_to_mesh/mug_330/coacd/decomposed.obj"
+    ),
+    obj_xyz: Tuple[float, float, float] = (0.65, 0.0, 0.0),
+    obj_quat_wxyz: Tuple[float, float, float, float] = (1.0, 0.0, 0.0, 0.0),
+    collision_check_table: bool = True,
+    use_cuda_graph: bool = True,
+    enable_graph: bool = True,
+    enable_opt: bool = False,  # Getting some errors from setting this to True
+    timeout: float = 5.0,
+    collision_sphere_buffer: Optional[float] = None,
+) -> Tuple[MotionGenResult, IKResult, IKResult]:
+    N_GRASPS = X_W_Hs.shape[0]
+    robot_cfg, ik_solver, ik_solver2, motion_gen, motion_gen_config = (
+        prepare_trajopt_batch(
+            n_grasps=N_GRASPS,
+            collision_check_object=collision_check_object,
+            obj_filepath=obj_filepath,
+            obj_xyz=obj_xyz,
+            obj_quat_wxyz=obj_quat_wxyz,
+            collision_check_table=collision_check_table,
+            use_cuda_graph=use_cuda_graph,
+            collision_sphere_buffer=collision_sphere_buffer,
+            warmup=False,  # warmup=False because we are not using motion_gen for anything else with this
+        )
+    )
+
+    return solve_prepared_trajopt_batch(
+        X_W_Hs=X_W_Hs,
+        q_algrs=q_algrs,
+        robot_cfg=robot_cfg,
+        ik_solver=ik_solver,
+        ik_solver2=ik_solver2,
+        motion_gen=motion_gen,
+        motion_gen_config=motion_gen_config,
+        q_fr3_starts=q_fr3_starts,
+        q_algr_starts=q_algr_starts,
+        enable_graph=enable_graph,
+        enable_opt=enable_opt,
+        timeout=timeout,
+    )
 
 
 def get_trajectories_from_result(
@@ -425,7 +437,9 @@ def get_trajectories_from_result(
     )
 
 
-def compute_over_limit_factors(qds: List[np.ndarray], dts: List[float]) -> List[float]:
+def compute_over_limit_factors(
+    qds: List[np.ndarray], dts: List[float], safety_buffer: float = 0.1
+) -> List[float]:
     n_trajs = len(qds)
     assert len(dts) == n_trajs
     for qd in qds:
@@ -472,12 +486,12 @@ def compute_over_limit_factors(qds: List[np.ndarray], dts: List[float]) -> List[
         qdd = np.diff(qd, axis=0) / dt
         qddd = np.diff(qdd, axis=0) / dt
 
-        qd_min = qd.min(axis=0)
-        qd_max = qd.max(axis=0)
-        qdd_min = qdd.min(axis=0)
-        qdd_max = qdd.max(axis=0)
-        qddd_min = qddd.min(axis=0)
-        qddd_max = qddd.max(axis=0)
+        qd_min = qd.min(axis=0) * (1 + safety_buffer)
+        qd_max = qd.max(axis=0) * (1 + safety_buffer)
+        qdd_min = qdd.min(axis=0) * (1 + safety_buffer)
+        qdd_max = qdd.max(axis=0) * (1 + safety_buffer)
+        qddd_min = qddd.min(axis=0) * (1 + safety_buffer)
+        qddd_max = qddd.max(axis=0) * (1 + safety_buffer)
 
         qd_min_under_scale = np.where(
             qd_min < qd_limits_min,
@@ -519,6 +533,7 @@ def compute_over_limit_factors(qds: List[np.ndarray], dts: List[float]) -> List[
             # qddd_min_under_scale,
             # qddd_max_over_scale,
         )
+        assert rescale_factor >= 1.0
         rescale_factors.append(rescale_factor)
 
     return rescale_factors

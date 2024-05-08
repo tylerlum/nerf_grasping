@@ -61,7 +61,7 @@ def nerf_to_mesh(
     lb: np.ndarray = -np.ones(3),
     ub: np.ndarray = np.ones(3),
     scale: float = 1.0,
-    min_len: Optional[float] = None,
+    min_len: Optional[float] = 200,  # Default 200 to get rid of floaters
     flip_faces: bool = True,
     save_path: Optional[Path] = None,
 ) -> trimesh.Trimesh:

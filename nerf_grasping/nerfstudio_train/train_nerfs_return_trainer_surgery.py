@@ -20,7 +20,18 @@ class Args:
     nerfcheckpoints_folder: pathlib.Path
     max_num_iterations: int = 200
 
+def monitor_calls(func):
+    def wrapper(*args, **kwargs):
+        print(f"Calling {func.__name__} with args {args[1:]}, kwargs {kwargs}")
+        return func(*args, **kwargs)
+    return wrapper
+def auto_decorate(cls):
+    for attr_name, attr_value in cls.__dict__.items():
+        if callable(attr_value):
+            setattr(cls, attr_name, monitor_calls(attr_value))
+    return cls
 
+@auto_decorate
 class CustomPipeline(VanillaPipeline):
 
     # HACK: trainer will look for pipeline.datamanager for .get_param_groups() and .get_training_callbacks()
@@ -158,8 +169,9 @@ def get_nerfacto_default_config():
 
 def get_nerfacto_custom_config():
     config = get_nerfacto_default_config()
+    # config.pipeline._target = VanillaPipeline
     config.pipeline._target = CustomPipeline
-    # Before: _target: Type = field(default_factory=lambda: VanillaPipeline)
+    ## Before: _target: Type = field(default_factory=lambda: VanillaPipeline)
     return config
 
 
@@ -193,6 +205,7 @@ def train_nerf(
     start_time = time.time()
     trainer = setup_train_loop_return_trainer(local_rank=0, world_size=1, config=config)
     mid_time = time.time()
+    print("!" * 80)
     trainer = finish_train_loop_return_trainer(
         trainer=trainer, local_rank=0, world_size=1, config=config
     )

@@ -32,8 +32,6 @@ from datetime import datetime
 
 from nerf_grasping.curobo_fr3_algr_zed2i.trajopt_batch import (
     solve_trajopt_batch,
-    prepare_solve_trajopt_batch,
-    solve_prepared_trajopt_batch,
     get_trajectories_from_result,
     compute_over_limit_factors,
 )
@@ -506,17 +504,6 @@ def run_curobo(
         print(
             "Creating new robot, ik_solver, ik_solver2, motion_gen, motion_gen_config"
         )
-        robot_cfg, ik_solver, ik_solver2, motion_gen, motion_gen_config = (
-            prepare_solve_trajopt_batch(
-                n_grasps=cfg.num_grasps,
-                collision_check_object=True,
-                obj_filepath=pathlib.Path("/juno/u/tylerlum/Downloads/cube.obj"),
-                obj_xyz=(cfg.nerf_frame_offset_x + HACK_OFFSET, 0.0, 0.0),
-                obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
-                collision_check_table=True,
-                use_cuda_graph=True,
-            )
-        )
 
     # Timing
     APPROACH_TIME = cfg.approach_time
@@ -540,26 +527,17 @@ def run_curobo(
     print("\n" + "=" * 80)
     print("Step 9: Solve motion gen for each grasp")
     print("=" * 80 + "\n")
-    objects_world_cfg = get_world_cfg(
+    motion_gen_result, ik_result, ik_result2 = solve_trajopt_batch(
+        X_W_Hs=X_W_Hs,
+        q_algrs=q_algr_pres,
+        q_fr3_starts=q_fr3[None, ...].repeat(n_grasps, axis=0),
+        q_algr_starts=q_algr[None, ...].repeat(n_grasps, axis=0),
         collision_check_object=True,
         obj_filepath=pathlib.Path("/juno/u/tylerlum/Downloads/cube.obj"),
         obj_xyz=(cfg.nerf_frame_offset_x + HACK_OFFSET, 0.0, 0.0),
         obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
         collision_check_table=True,
-    )
-    ik_solver.update_world(objects_world_cfg)
-    ik_solver2.update_world(objects_world_cfg)
-    motion_gen.update_world(objects_world_cfg)
-    motion_gen_result, ik_result, ik_result2 = solve_prepared_trajopt_batch(
-        X_W_Hs=X_W_Hs,
-        q_algrs=q_algr_pres,
-        robot_cfg=robot_cfg,
-        ik_solver=ik_solver,
-        ik_solver2=ik_solver2,
-        motion_gen=motion_gen,
-        motion_gen_config=motion_gen_config,
-        q_fr3_starts=q_fr3[None, ...].repeat(n_grasps, axis=0),
-        q_algr_starts=q_algr[None, ...].repeat(n_grasps, axis=0),
+        use_cuda_graph=True,
         enable_graph=True,
         enable_opt=False,
         timeout=5.0,
@@ -678,32 +656,23 @@ def run_curobo(
         X_W_H_lifts[i] = X_W_H_lifts[valid_idx]
 
     # Update world to remove object collision check
-    no_objects_world_cfg = get_world_cfg(
-        collision_check_object=False,
-        obj_filepath=pathlib.Path("/juno/u/tylerlum/Downloads/cube.obj"),
-        obj_xyz=(cfg.nerf_frame_offset_x + HACK_OFFSET, 0.0, 0.0),
-        obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
-        collision_check_table=True,
-    )
-    ik_solver.update_world(no_objects_world_cfg)
-    ik_solver2.update_world(no_objects_world_cfg)
-    motion_gen.update_world(no_objects_world_cfg)
     lift_motion_gen_result, lift_ik_result, lift_ik_result2 = (
-        solve_prepared_trajopt_batch(
+        solve_trajopt_batch(
             X_W_Hs=X_W_H_lifts,
             q_algrs=q_algr_pres,
             q_fr3_starts=q_start_lifts[:, :7],
             q_algr_starts=q_start_lifts[
                 :, 7:
             ],  # We don't want to care about hand joints, just arm joints, so this doesn't matter much as long as not in collision with table
-            robot_cfg=robot_cfg,
-            ik_solver=ik_solver,
-            ik_solver2=ik_solver2,
-            motion_gen=motion_gen,
-            motion_gen_config=motion_gen_config,
+            collision_check_object=False,
+            obj_filepath=pathlib.Path("/juno/u/tylerlum/Downloads/cube.obj"),
+            obj_xyz=(cfg.nerf_frame_offset_x + HACK_OFFSET, 0.0, 0.0),
+            obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+            collision_check_table=True,
+            use_cuda_graph=True,
             enable_graph=True,
             enable_opt=False,
-            timeout=3.0,
+            timeout=5.0,
         )
     )
 

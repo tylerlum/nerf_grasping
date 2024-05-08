@@ -47,6 +47,7 @@ from nerf_grasping.curobo_fr3_algr_zed2i.fr3_algr_zed2i_world import (
     get_world_cfg,
 )
 from functools import partial
+from curobo.geom.types import Mesh
 
 import sys
 print = partial(print, file=sys.stderr)
@@ -725,16 +726,10 @@ def run_curobo(
     #     collision_sphere_buffer=0.01,
     # )
 
-    objects_world_cfg = get_world_cfg(
-        collision_check_object=True,
-        obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
-        obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
-        obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
-        collision_check_table=True,
-    )
-    ik_solver.update_world(objects_world_cfg)
-    ik_solver2.update_world(objects_world_cfg)
-    motion_gen.update_world(objects_world_cfg)
+    object_mesh = Mesh("/tmp/mesh_viz_object.obj")
+    ik_solver.world_coll_checker.world_model.add_obstacle(object_mesh)
+    ik_solver2.world_coll_checker.world_model.add_obstacle(object_mesh)
+    motion_gen.world_coll_checker.world_model.add_obstacle(object_mesh)
     motion_gen_result, ik_result, ik_result2 = new_solve_trajopt_batch(
         X_W_Hs=X_W_Hs,
         q_algrs=q_algr_pres,
@@ -863,16 +858,9 @@ def run_curobo(
         X_W_H_lifts[i] = X_W_H_lifts[valid_idx]
 
     # Update world to remove object collision check
-    no_objects_world_cfg = get_world_cfg(
-        collision_check_object=False,
-        obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
-        obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
-        obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
-        collision_check_table=True,
-    )
-    ik_solver.update_world(no_objects_world_cfg)
-    ik_solver2.update_world(no_objects_world_cfg)
-    motion_gen.update_world(no_objects_world_cfg)
+    ik_solver.world_coll_checker.world_model.remove_obstacle("/tmp/mesh_viz_object.obj")
+    ik_solver2.world_coll_checker.world_model.remove_obstacle("/tmp/mesh_viz_object.obj")
+    motion_gen.world_coll_checker.world_model.remove_obstacle("/tmp/mesh_viz_object.obj")
     lift_motion_gen_result, lift_ik_result, lift_ik_result2 = new_solve_trajopt_batch(
         X_W_Hs=X_W_H_lifts,
         q_algrs=q_algr_pres,
@@ -1104,10 +1092,9 @@ def run_pipeline(
     # TODO: Check if warmup ik_solver
     robot_cfg, ik_solver, ik_solver2, motion_gen, motion_gen_config = prepare_solve_trajopt_batch(
         n_grasps=X_W_Hs.shape[0],
-        collision_check_object=True,
-        # obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
-        obj_filepath=pathlib.Path("/juno/u/tylerlum/Downloads/cube.obj"),
-        obj_xyz=(10, 0.0, 0.0),
+        collision_check_object=False,
+        obj_filepath=None,  # Object hasn't been made yet when this will be used
+        obj_xyz=(0.0, 0.0, 0.0),
         obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
         collision_check_table=True,
         use_cuda_graph=True,

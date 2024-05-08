@@ -31,7 +31,6 @@ import plotly.graph_objects as go
 from datetime import datetime
 
 from nerf_grasping.curobo_fr3_algr_zed2i.trajopt_batch import (
-    solve_trajopt_batch,
     prepare_solve_trajopt_batch,
     solve_prepared_trajopt_batch,
     get_trajectories_from_result,
@@ -59,7 +58,6 @@ print = partial(
     print, file=sys.stderr
 )  # Redirect print to stderr to get around ROS issue
 
-HACK_OFFSET = 0.0
 
 @dataclass
 class PipelineConfig:
@@ -531,11 +529,8 @@ def run_curobo(
     print("=" * 80 + "\n")
     object_world_cfg = get_world_cfg(
         collision_check_object=True,
-        obj_filepath=pathlib.Path(
-            # "/juno/u/tylerlum/github_repos/DexGraspNet/data/rotated_meshdata/core-bottle-1071fa4cddb2da2fc8724d5673a063a6/coacd/decomposed.obj"
-            "/tmp/mesh_viz_object.obj"
-        ),
-        obj_xyz=(cfg.nerf_frame_offset_x + HACK_OFFSET, 0.0, 0.0),
+        obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
+        obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
         obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
         collision_check_table=True,
         obj_name="mesh_object",
@@ -543,36 +538,19 @@ def run_curobo(
     ik_solver.update_world(object_world_cfg)
     ik_solver2.update_world(object_world_cfg)
     motion_gen.update_world(object_world_cfg)
-    motion_gen_result, ik_result, ik_result2 = (
-        # solve_trajopt_batch(
-        #     X_W_Hs=X_W_Hs,
-        #     q_algrs=q_algr_pres,
-        #     q_fr3_starts=q_fr3[None, ...].repeat(n_grasps, axis=0),
-        #     q_algr_starts=q_algr[None, ...].repeat(n_grasps, axis=0),
-        #     collision_check_object=True,
-        #     obj_filepath=pathlib.Path("/juno/u/tylerlum/github_repos/DexGraspNet/data/rotated_meshdata/core-bottle-1071fa4cddb2da2fc8724d5673a063a6/coacd/decomposed.obj"),
-        #     obj_xyz=(cfg.nerf_frame_offset_x + HACK_OFFSET, 0.0, 0.0),
-        #     obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
-        #     collision_check_table=True,
-        #     use_cuda_graph=True,
-        #     enable_graph=True,
-        #     enable_opt=False,
-        #     timeout=5.0,
-        # )
-        solve_prepared_trajopt_batch(
-            X_W_Hs=X_W_Hs,
-            q_algrs=q_algr_pres,
-            robot_cfg=robot_cfg,
-            ik_solver=ik_solver,
-            ik_solver2=ik_solver2,
-            motion_gen=motion_gen,
-            motion_gen_config=motion_gen_config,
-            q_fr3_starts=q_fr3[None, ...].repeat(n_grasps, axis=0),
-            q_algr_starts=q_algr[None, ...].repeat(n_grasps, axis=0),
-            enable_graph=True,
-            enable_opt=False,
-            timeout=5.0,
-        )
+    motion_gen_result, ik_result, ik_result2 = solve_prepared_trajopt_batch(
+        X_W_Hs=X_W_Hs,
+        q_algrs=q_algr_pres,
+        robot_cfg=robot_cfg,
+        ik_solver=ik_solver,
+        ik_solver2=ik_solver2,
+        motion_gen=motion_gen,
+        motion_gen_config=motion_gen_config,
+        q_fr3_starts=q_fr3[None, ...].repeat(n_grasps, axis=0),
+        q_algr_starts=q_algr[None, ...].repeat(n_grasps, axis=0),
+        enable_graph=True,
+        enable_opt=False,
+        timeout=5.0,
     )
 
     motion_gen_success_idxs = (
@@ -690,11 +668,8 @@ def run_curobo(
     # Update world to remove object collision check
     no_object_world_cfg = get_world_cfg(
         collision_check_object=True,
-        obj_filepath=pathlib.Path(
-            # "/juno/u/tylerlum/github_repos/DexGraspNet/data/rotated_meshdata/core-bottle-1071fa4cddb2da2fc8724d5673a063a6/coacd/decomposed.obj"
-            "/tmp/mesh_viz_object.obj"
-        ),
-        obj_xyz=(cfg.nerf_frame_offset_x + HACK_OFFSET, 0.0, 1.0),
+        obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
+        obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 1.0),
         obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
         collision_check_table=True,
         obj_name="no_object",
@@ -703,23 +678,6 @@ def run_curobo(
     ik_solver2.update_world(no_object_world_cfg)
 
     lift_motion_gen_result, lift_ik_result, lift_ik_result2 = (
-        # solve_trajopt_batch(
-        #     X_W_Hs=X_W_H_lifts,
-        #     q_algrs=q_algr_pres,
-        #     q_fr3_starts=q_start_lifts[:, :7],
-        #     q_algr_starts=q_start_lifts[
-        #         :, 7:
-        #     ],  # We don't want to care about hand joints, just arm joints, so this doesn't matter much as long as not in collision with table
-        #     collision_check_object=False,
-        #     obj_filepath=pathlib.Path("/juno/u/tylerlum/github_repos/DexGraspNet/data/rotated_meshdata/core-bottle-1071fa4cddb2da2fc8724d5673a063a6/coacd/decomposed.obj"),
-        #     obj_xyz=(cfg.nerf_frame_offset_x + HACK_OFFSET, 0.0, 0.0),
-        #     obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
-        #     collision_check_table=True,
-        #     use_cuda_graph=True,
-        #     enable_graph=True,
-        #     enable_opt=False,
-        #     timeout=5.0,
-        # )
         solve_prepared_trajopt_batch(
             X_W_Hs=X_W_H_lifts,
             q_algrs=q_algr_pres,
@@ -985,10 +943,10 @@ def visualize(
         max_penetration_from_q,
     )
 
-    OBJECT_URDF_PATH = create_urdf(obj_path=pathlib.Path("/juno/u/tylerlum/github_repos/DexGraspNet/data/rotated_meshdata/core-bottle-1071fa4cddb2da2fc8724d5673a063a6/coacd/decomposed.obj"))
+    OBJECT_URDF_PATH = create_urdf(obj_path=pathlib.Path("/tmp/mesh_viz_object.obj"))
     pb_robot = start_visualizer(
         object_urdf_path=OBJECT_URDF_PATH,
-        obj_xyz=(cfg.nerf_frame_offset_x + HACK_OFFSET, 0.0, 0.0),
+        obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
         obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
     )
     draw_collision_spheres_default_config(pb_robot)
@@ -1046,8 +1004,10 @@ def visualize(
                 qs=q,
                 collision_activation_distance=0.0,
                 include_object=True,
-                obj_filepath=pathlib.Path("/juno/u/tylerlum/github_repos/DexGraspNet/data/rotated_meshdata/core-bottle-1071fa4cddb2da2fc8724d5673a063a6/coacd/decomposed.obj"),
-                obj_xyz=(cfg.nerf_frame_offset_x + HACK_OFFSET, 0.0, 0.0),
+                obj_filepath=pathlib.Path(
+                    "/juno/u/tylerlum/github_repos/DexGraspNet/data/rotated_meshdata/core-bottle-1071fa4cddb2da2fc8724d5673a063a6/coacd/decomposed.obj"
+                ),
+                obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
                 obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
                 include_table=True,
             )
@@ -1064,8 +1024,10 @@ def visualize(
             d_world, d_self = max_penetration_from_q(
                 q=ik_q,
                 include_object=True,
-                obj_filepath=pathlib.Path("/juno/u/tylerlum/github_repos/DexGraspNet/data/rotated_meshdata/core-bottle-1071fa4cddb2da2fc8724d5673a063a6/coacd/decomposed.obj"),
-                obj_xyz=(cfg.nerf_frame_offset_x + HACK_OFFSET, 0.0, 0.0),
+                obj_filepath=pathlib.Path(
+                    "/juno/u/tylerlum/github_repos/DexGraspNet/data/rotated_meshdata/core-bottle-1071fa4cddb2da2fc8724d5673a063a6/coacd/decomposed.obj"
+                ),
+                obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
                 obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
                 include_table=True,
             )
@@ -1174,12 +1136,14 @@ def main() -> None:
     # Prepare curobo
     start_prepare_solve_trajopt_batch = time.time()
     # HACK: Need to include a mesh into the world for the motion_gen warmup or else it will not prepare mesh buffers
+    mesh = trimesh.creation.box(extents=(0.1, 0.1, 0.1))
+    mesh.export("/tmp/DUMMY_mesh_viz_object.obj")
     robot_cfg, ik_solver, ik_solver2, motion_gen, motion_gen_config = (
         prepare_solve_trajopt_batch(
             n_grasps=args.num_grasps,
             collision_check_object=True,
-            obj_filepath=pathlib.Path("/juno/u/tylerlum/github_repos/DexGraspNet/data/rotated_meshdata/core-bottle-1071fa4cddb2da2fc8724d5673a063a6/coacd/decomposed.obj"),
-            obj_xyz=(args.nerf_frame_offset_x + HACK_OFFSET, 0.0, 0.0),
+            obj_filepath=pathlib.Path("/tmp/DUMMY_mesh_viz_object.obj"),
+            obj_xyz=(args.nerf_frame_offset_x, 0.0, 0.0),
             obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
             collision_check_table=True,
             use_cuda_graph=True,

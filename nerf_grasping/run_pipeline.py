@@ -725,7 +725,11 @@ def run_curobo(
     #     timeout=5.0,
     #     collision_sphere_buffer=0.01,
     # )
-    mesh = Mesh("/tmp/mesh_viz_object.obj")
+    mesh = Mesh(
+        "/tmp/mesh_viz_object.obj",
+        # pose=[cfg.nerf_frame_offset_x, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0],
+        pose=[0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0],
+    )
     ik_solver.world_coll_checker.world_model.add_obstacle(mesh)
     ik_solver2.world_coll_checker.world_model.add_obstacle(mesh)
     motion_gen.world_coll_checker.world_model.add_obstacle(mesh)

@@ -497,12 +497,6 @@ def run_curobo(
     n_grasps = X_W_Hs.shape[0]
     assert X_W_Hs.shape == (n_grasps, 4, 4)
     assert q_algr_pres.shape == (n_grasps, 16)
-    if q_fr3 is None:
-        print("Using default q_fr3")
-        q_fr3 = DEFAULT_Q_FR3
-    if q_algr is None:
-        print("Using default q_algr")
-        q_algr = DEFAULT_Q_ALGR
     assert q_fr3.shape == (7,)
     assert q_algr.shape == (16,)
 

@@ -33,6 +33,8 @@ from datetime import datetime
 
 from nerf_grasping.curobo_fr3_algr_zed2i.trajopt_batch import (
     solve_trajopt_batch,
+    prepare_solve_trajopt_batch,
+    new_solve_trajopt_batch,
     get_trajectories_from_result,
     compute_over_limit_factors,
 )
@@ -41,7 +43,22 @@ from nerf_grasping.curobo_fr3_algr_zed2i.trajopt_fr3_algr_zed2i import (
     DEFAULT_Q_FR3,
     DEFAULT_Q_ALGR,
 )
+from nerf_grasping.curobo_fr3_algr_zed2i.fr3_algr_zed2i_world import (
+    get_world_cfg,
+)
+from functools import partial
 
+import sys
+print = partial(print, file=sys.stderr)
+
+from curobo.types.robot import RobotConfig, JointState
+from curobo.wrap.reacher.ik_solver import IKSolver, IKSolverConfig, IKResult
+from curobo.wrap.reacher.motion_gen import (
+    MotionGen,
+    MotionGenConfig,
+    MotionGenPlanConfig,
+    MotionGenResult,
+)
 
 @dataclass
 class PipelineConfig:
@@ -641,6 +658,11 @@ def run_curobo(
     X_W_Hs: np.ndarray,
     q_algr_pres: np.ndarray,
     q_algr_posts: np.ndarray,
+    robot_cfg: RobotConfig,
+    ik_solver: IKSolver,
+    ik_solver2: IKSolver,
+    motion_gen: MotionGen,
+    motion_gen_config: MotionGenConfig,
     losses: Optional[np.ndarray] = None,
     q_fr3: Optional[np.ndarray] = None,
     q_algr: Optional[np.ndarray] = None,
@@ -686,21 +708,47 @@ def run_curobo(
     # )
 
     # Enable trajopt often makes it fail, haven't been able to figure out why
-    motion_gen_result, ik_result, ik_result2 = solve_trajopt_batch(
-        X_W_Hs=X_W_Hs,
-        q_algrs=q_algr_pres,
-        q_fr3_starts=q_fr3[None, ...].repeat(n_grasps, axis=0),
-        q_algr_starts=q_algr[None, ...].repeat(n_grasps, axis=0),
+    # motion_gen_result, ik_result, ik_result2 = solve_trajopt_batch(
+    #     X_W_Hs=X_W_Hs,
+    #     q_algrs=q_algr_pres,
+    #     q_fr3_starts=q_fr3[None, ...].repeat(n_grasps, axis=0),
+    #     q_algr_starts=q_algr[None, ...].repeat(n_grasps, axis=0),
+    #     collision_check_object=True,
+    #     obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
+    #     obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
+    #     obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+    #     collision_check_table=True,
+    #     use_cuda_graph=True,
+    #     enable_graph=True,
+    #     enable_opt=False,
+    #     timeout=5.0,
+    #     collision_sphere_buffer=0.01,
+    # )
+
+    objects_world_cfg = get_world_cfg(
         collision_check_object=True,
         obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
         obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
         obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
         collision_check_table=True,
-        use_cuda_graph=True,
+    )
+    ik_solver.update_world(objects_world_cfg)
+    ik_solver2.update_world(objects_world_cfg)
+    motion_gen.update_world(objects_world_cfg)
+    ik_solver.world_coll_checker.world_model.save_world_as_mesh("/tmp/CORRECT_world_mesh.obj")
+    motion_gen_result, ik_result, ik_result2 = new_solve_trajopt_batch(
+        X_W_Hs=X_W_Hs,
+        q_algrs=q_algr_pres,
+        q_fr3_starts=q_fr3[None, ...].repeat(n_grasps, axis=0),
+        q_algr_starts=q_algr[None, ...].repeat(n_grasps, axis=0),
+        robot_cfg=robot_cfg,
+        ik_solver=ik_solver,
+        ik_solver2=ik_solver2,
+        motion_gen=motion_gen,
+        motion_gen_config=motion_gen_config,
         enable_graph=True,
         enable_opt=False,
         timeout=5.0,
-        collision_sphere_buffer=0.01,
     )
 
     motion_gen_success_idxs = (
@@ -815,24 +863,52 @@ def run_curobo(
         q_start_lifts[i] = q_start_lifts[valid_idx]
         X_W_H_lifts[i] = X_W_H_lifts[valid_idx]
 
-    lift_motion_gen_result, lift_ik_result, lift_ik_result2 = solve_trajopt_batch(
+    # Update world to remove object collision check
+    no_objects_world_cfg = get_world_cfg(
+        collision_check_object=False,
+        obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
+        obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
+        obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+        collision_check_table=True,
+    )
+    ik_solver.update_world(no_objects_world_cfg)
+    ik_solver2.update_world(no_objects_world_cfg)
+    motion_gen.update_world(no_objects_world_cfg)
+    lift_motion_gen_result, lift_ik_result, lift_ik_result2 = new_solve_trajopt_batch(
         X_W_Hs=X_W_H_lifts,
         q_algrs=q_algr_pres,
         q_fr3_starts=q_start_lifts[:, :7],
         q_algr_starts=q_start_lifts[
             :, 7:
         ],  # We don't want to care about hand joints, just arm joints, so this doesn't matter much as long as not in collision with table
-        collision_check_object=False,  # Don't need object collision check for lifting
-        obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
-        obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
-        obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
-        collision_check_table=True,  # Might not need to check this since we are going up, but can leave on to be safe
-        use_cuda_graph=True,
+        robot_cfg=robot_cfg,
+        ik_solver=ik_solver,
+        ik_solver2=ik_solver2,
+        motion_gen=motion_gen,
+        motion_gen_config=motion_gen_config,
         enable_graph=True,
         enable_opt=False,
         timeout=3.0,
-        collision_sphere_buffer=0.005,  # Reduce buffer for lift because not using object collision, less uncertainty
     )
+
+    # lift_motion_gen_result, lift_ik_result, lift_ik_result2 = solve_trajopt_batch(
+    #     X_W_Hs=X_W_H_lifts,
+    #     q_algrs=q_algr_pres,
+    #     q_fr3_starts=q_start_lifts[:, :7],
+    #     q_algr_starts=q_start_lifts[
+    #         :, 7:
+    #     ],  # We don't want to care about hand joints, just arm joints, so this doesn't matter much as long as not in collision with table
+    #     collision_check_object=False,  # Don't need object collision check for lifting
+    #     obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
+    #     obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
+    #     obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+    #     collision_check_table=True,  # Might not need to check this since we are going up, but can leave on to be safe
+    #     use_cuda_graph=True,
+    #     enable_graph=True,
+    #     enable_opt=False,
+    #     timeout=3.0,
+    #     collision_sphere_buffer=0.005,  # Reduce buffer for lift because not using object collision, less uncertainty
+    # )
     lift_motion_gen_success_idxs = (
         lift_motion_gen_result.success.flatten().nonzero().flatten().tolist()
     )
@@ -1025,6 +1101,30 @@ def run_pipeline(
     print(f"Time to compute_grasps: {compute_grasps_time - start_time:.2f}s")
     print("@" * 80 + "\n")
 
+    start_prepare_solve_trajopt_batch = time.time()
+    # HACK: Need to include a mesh into the world for the motion_gen warmup or else it will not prepare mesh buffers
+    # dummy_mesh = trimesh.creation.icosphere(radius=0.01)
+    dummy_mesh = trimesh.creation.box(extents=(0.01, 0.01, 0.01))
+    dummy_mesh.export(file_obj="/tmp/DUMMY_mesh_viz_object.obj")
+
+    # TODO: Check if warmup ik_solver
+    robot_cfg, ik_solver, ik_solver2, motion_gen, motion_gen_config = prepare_solve_trajopt_batch(
+        n_grasps=X_W_Hs.shape[0],
+        collision_check_object=True,
+        # obj_filepath=pathlib.Path("/tmp/DUMMY_mesh_viz_object.obj"),
+        obj_filepath=pathlib.Path("/juno/u/tylerlum/Downloads/cube.obj"),
+        obj_xyz=(10, 0.0, 0.0),
+        obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+        collision_check_table=True,
+        use_cuda_graph=True,
+        collision_sphere_buffer=0.01,
+    )
+    end_prepare_solve_trajopt_batch = time.time()
+    print("@" * 80)
+    print(f"Time to prepare_solve_trajopt_batch: {end_prepare_solve_trajopt_batch - start_prepare_solve_trajopt_batch:.2f}s")
+    print("@" * 80 + "\n")
+
+    start_run_curobo = time.time()
     qs, qds, T_trajs, success_idxs, DEBUG_TUPLE = run_curobo(
         cfg=cfg,
         X_W_Hs=X_W_Hs,
@@ -1033,10 +1133,15 @@ def run_pipeline(
         losses=losses,
         q_fr3=q_fr3,
         q_algr=q_algr,
+        robot_cfg=robot_cfg,
+        ik_solver=ik_solver,
+        ik_solver2=ik_solver2,
+        motion_gen=motion_gen,
+        motion_gen_config=motion_gen_config,
     )
     curobo_time = time.time()
     print("@" * 80)
-    print(f"Time to run_curobo: {curobo_time - compute_grasps_time:.2f}s")
+    print(f"Time to run_curobo: {curobo_time - start_run_curobo:.2f}s")
     print("@" * 80 + "\n")
 
     print("\n" + "=" * 80)
@@ -1071,7 +1176,8 @@ def visualize(
         max_penetration_from_q,
     )
 
-    OBJECT_URDF_PATH = create_urdf(obj_path=pathlib.Path("/tmp/mesh_viz_object.obj"))
+    # OBJECT_URDF_PATH = create_urdf(obj_path=pathlib.Path("/tmp/mesh_viz_object.obj"))
+    OBJECT_URDF_PATH = create_urdf(obj_path=pathlib.Path("/juno/u/tylerlum/Downloads/cube.obj"))
     pb_robot = start_visualizer(object_urdf_path=OBJECT_URDF_PATH)
     draw_collision_spheres_default_config(pb_robot)
     time.sleep(1.0)

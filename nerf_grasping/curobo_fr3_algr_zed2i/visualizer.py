@@ -43,12 +43,13 @@ def start_visualizer(object_urdf_path: Optional[pathlib.Path] = None):
     assert num_total_joints == 39
 
     if object_urdf_path is not None:
+        # TODO: Make htis not hardcoded
         assert object_urdf_path.exists()
         obj = pb.loadURDF(
             str(object_urdf_path),
             useFixedBase=True,
             basePosition=[
-                0.65,
+                10,
                 0,
                 0,
             ],

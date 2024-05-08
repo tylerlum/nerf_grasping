@@ -682,7 +682,7 @@ def run_curobo(
     )
     ik_solver.update_world(no_object_world_cfg)
     ik_solver2.update_world(no_object_world_cfg)
-    motion_gen.update_world(object_world_cfg)
+    motion_gen.update_world(no_object_world_cfg)
     lift_motion_gen_result, lift_ik_result, lift_ik_result2 = (
         solve_prepared_trajopt_batch(
             X_W_Hs=X_W_H_lifts,

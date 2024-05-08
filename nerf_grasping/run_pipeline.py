@@ -46,11 +46,6 @@ from nerf_grasping.curobo_fr3_algr_zed2i.trajopt_fr3_algr_zed2i import (
 from nerf_grasping.curobo_fr3_algr_zed2i.fr3_algr_zed2i_world import (
     get_world_cfg,
 )
-from functools import partial
-
-import sys
-print = partial(print, file=sys.stderr)
-
 from curobo.types.robot import RobotConfig, JointState
 from curobo.wrap.reacher.ik_solver import IKSolver, IKSolverConfig, IKResult
 from curobo.wrap.reacher.motion_gen import (
@@ -59,6 +54,14 @@ from curobo.wrap.reacher.motion_gen import (
     MotionGenPlanConfig,
     MotionGenResult,
 )
+
+from functools import partial
+import sys
+
+print = partial(
+    print, file=sys.stderr
+)  # Redirect print to stderr to get around ROS issue
+
 
 @dataclass
 class PipelineConfig:
@@ -728,14 +731,16 @@ def run_curobo(
     objects_world_cfg = get_world_cfg(
         collision_check_object=True,
         obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
-        obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
+        obj_xyz=(cfg.nerf_frame_offset_x + 0.05, 0.0, 0.0),
         obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
         collision_check_table=True,
     )
     ik_solver.update_world(objects_world_cfg)
     ik_solver2.update_world(objects_world_cfg)
     motion_gen.update_world(objects_world_cfg)
-    ik_solver.world_coll_checker.world_model.save_world_as_mesh("/tmp/CORRECT_world_mesh.obj")
+    ik_solver.world_coll_checker.world_model.save_world_as_mesh(
+        "/tmp/INCORRECT_world_mesh.obj"
+    )
     motion_gen_result, ik_result, ik_result2 = new_solve_trajopt_batch(
         X_W_Hs=X_W_Hs,
         q_algrs=q_algr_pres,
@@ -1108,20 +1113,26 @@ def run_pipeline(
     dummy_mesh.export(file_obj="/tmp/DUMMY_mesh_viz_object.obj")
 
     # TODO: Check if warmup ik_solver
-    robot_cfg, ik_solver, ik_solver2, motion_gen, motion_gen_config = prepare_solve_trajopt_batch(
-        n_grasps=X_W_Hs.shape[0],
-        collision_check_object=True,
-        # obj_filepath=pathlib.Path("/tmp/DUMMY_mesh_viz_object.obj"),
-        obj_filepath=pathlib.Path("/juno/u/tylerlum/Downloads/cube.obj"),
-        obj_xyz=(10, 0.0, 0.0),
-        obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
-        collision_check_table=True,
-        use_cuda_graph=True,
-        collision_sphere_buffer=0.01,
+    robot_cfg, ik_solver, ik_solver2, motion_gen, motion_gen_config = (
+        prepare_solve_trajopt_batch(
+            n_grasps=X_W_Hs.shape[0],
+            collision_check_object=True,
+            obj_filepath=pathlib.Path("/tmp/DUMMY_mesh_viz_object.obj"),
+            # obj_filepath=pathlib.Path("/juno/u/tylerlum/Downloads/cube.obj"),
+            obj_xyz=(10, 0.0, 0.0),
+            obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+            collision_check_table=True,
+            use_cuda_graph=True,
+            collision_sphere_buffer=0.01,
+        )
     )
+    # ik_solver.world_coll_checker.world_model.save_world_as_mesh("/tmp/DUMMY_world_mesh.obj")
+    # breakpoint()
     end_prepare_solve_trajopt_batch = time.time()
     print("@" * 80)
-    print(f"Time to prepare_solve_trajopt_batch: {end_prepare_solve_trajopt_batch - start_prepare_solve_trajopt_batch:.2f}s")
+    print(
+        f"Time to prepare_solve_trajopt_batch: {end_prepare_solve_trajopt_batch - start_prepare_solve_trajopt_batch:.2f}s"
+    )
     print("@" * 80 + "\n")
 
     start_run_curobo = time.time()
@@ -1177,8 +1188,14 @@ def visualize(
     )
 
     # OBJECT_URDF_PATH = create_urdf(obj_path=pathlib.Path("/tmp/mesh_viz_object.obj"))
-    OBJECT_URDF_PATH = create_urdf(obj_path=pathlib.Path("/juno/u/tylerlum/Downloads/cube.obj"))
-    pb_robot = start_visualizer(object_urdf_path=OBJECT_URDF_PATH)
+    OBJECT_URDF_PATH = create_urdf(
+        obj_path=pathlib.Path("/juno/u/tylerlum/Downloads/cube.obj")
+    )
+    pb_robot = start_visualizer(
+        object_urdf_path=OBJECT_URDF_PATH,
+        obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
+        obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+    )
     draw_collision_spheres_default_config(pb_robot)
     time.sleep(1.0)
 

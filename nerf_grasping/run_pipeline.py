@@ -533,7 +533,7 @@ def run_curobo(
         q_fr3_starts=q_fr3[None, ...].repeat(n_grasps, axis=0),
         q_algr_starts=q_algr[None, ...].repeat(n_grasps, axis=0),
         collision_check_object=True,
-        obj_filepath=pathlib.Path("/juno/u/tylerlum/Downloads/cube.obj"),
+        obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
         obj_xyz=(cfg.nerf_frame_offset_x + HACK_OFFSET, 0.0, 0.0),
         obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
         collision_check_table=True,
@@ -665,7 +665,7 @@ def run_curobo(
                 :, 7:
             ],  # We don't want to care about hand joints, just arm joints, so this doesn't matter much as long as not in collision with table
             collision_check_object=False,
-            obj_filepath=pathlib.Path("/juno/u/tylerlum/Downloads/cube.obj"),
+            obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
             obj_xyz=(cfg.nerf_frame_offset_x + HACK_OFFSET, 0.0, 0.0),
             obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
             collision_check_table=True,
@@ -925,7 +925,7 @@ def visualize(
         max_penetration_from_q,
     )
 
-    OBJECT_URDF_PATH = create_urdf(obj_path=pathlib.Path("/juno/u/tylerlum/Downloads/cube.obj"))
+    OBJECT_URDF_PATH = create_urdf(obj_path=pathlib.Path("/tmp/mesh_viz_object.obj"))
     pb_robot = start_visualizer(
         object_urdf_path=OBJECT_URDF_PATH,
         obj_xyz=(cfg.nerf_frame_offset_x + HACK_OFFSET, 0.0, 0.0),
@@ -986,7 +986,7 @@ def visualize(
                 qs=q,
                 collision_activation_distance=0.0,
                 include_object=True,
-                obj_filepath=pathlib.Path("/juno/u/tylerlum/Downloads/cube.obj"),
+                obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
                 obj_xyz=(cfg.nerf_frame_offset_x + HACK_OFFSET, 0.0, 0.0),
                 obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
                 include_table=True,
@@ -1004,7 +1004,7 @@ def visualize(
             d_world, d_self = max_penetration_from_q(
                 q=ik_q,
                 include_object=True,
-                obj_filepath=pathlib.Path("/juno/u/tylerlum/Downloads/cube.obj"),
+                obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
                 obj_xyz=(cfg.nerf_frame_offset_x + HACK_OFFSET, 0.0, 0.0),
                 obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
                 include_table=True,
@@ -1118,7 +1118,7 @@ def main() -> None:
     #     prepare_solve_trajopt_batch(
     #         n_grasps=args.num_grasps,
     #         collision_check_object=True,
-    #         obj_filepath=pathlib.Path("/juno/u/tylerlum/Downloads/cube.obj"),
+    #         obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
     #         obj_xyz=(args.nerf_frame_offset_x + HACK_OFFSET, 0.0, 0.0),
     #         obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
     #         collision_check_table=True,

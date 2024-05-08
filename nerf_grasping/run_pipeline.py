@@ -533,7 +533,7 @@ def run_curobo(
         obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
         obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
         collision_check_table=True,
-        obj_name="mesh_object",
+        obj_name="NERF_OBJECT",  # HACK: MUST BE DIFFERENT FROM EXISTING OBJECT NAME "object" OR ELSE COLLISION DETECTION WILL FAIL
     )
     ik_solver.update_world(object_world_cfg)
     ik_solver2.update_world(object_world_cfg)
@@ -672,7 +672,7 @@ def run_curobo(
         obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
         obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
         collision_check_table=True,
-        obj_name="no_object",
+        obj_name="NO_OBJECT",  # HACK: MUST BE DIFFERENT FROM EXISTING OBJECT NAME "object" OR ELSE COLLISION DETECTION WILL FAIL
     )
     ik_solver.update_world(no_object_world_cfg)
     ik_solver2.update_world(no_object_world_cfg)
@@ -1004,9 +1004,7 @@ def visualize(
                 qs=q,
                 collision_activation_distance=0.0,
                 include_object=True,
-                obj_filepath=pathlib.Path(
-                    "/juno/u/tylerlum/github_repos/DexGraspNet/data/rotated_meshdata/core-bottle-1071fa4cddb2da2fc8724d5673a063a6/coacd/decomposed.obj"
-                ),
+                obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
                 obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
                 obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
                 include_table=True,
@@ -1024,9 +1022,7 @@ def visualize(
             d_world, d_self = max_penetration_from_q(
                 q=ik_q,
                 include_object=True,
-                obj_filepath=pathlib.Path(
-                    "/juno/u/tylerlum/github_repos/DexGraspNet/data/rotated_meshdata/core-bottle-1071fa4cddb2da2fc8724d5673a063a6/coacd/decomposed.obj"
-                ),
+                obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
                 obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
                 obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
                 include_table=True,

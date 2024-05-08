@@ -105,7 +105,6 @@ def debug_start_state_invalid(
     start_state: JointState,
 ):
     # TYLER DEBUG
-    breakpoint()
     graph_planner = motion_gen_config.graph_planner
     x_init_batch = start_state.position
     x_goal_batch = x_init_batch  # HACK
@@ -350,7 +349,7 @@ def new_solve_trajopt_batch(
 
     start_state = JointState.from_position(q_starts)
 
-    DEBUG_START_STATE_INVALID = False
+    DEBUG_START_STATE_INVALID = True
     if DEBUG_START_STATE_INVALID:
         debug_start_state_invalid(
             motion_gen_config=motion_gen_config, start_state=start_state
@@ -566,7 +565,7 @@ def solve_trajopt_batch(
 
     start_state = JointState.from_position(q_starts)
 
-    DEBUG_START_STATE_INVALID = False
+    DEBUG_START_STATE_INVALID = True
     if DEBUG_START_STATE_INVALID:
         debug_start_state_invalid(
             motion_gen_config=motion_gen_config, start_state=start_state

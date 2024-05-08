@@ -851,18 +851,17 @@ def run_curobo(
         q_start_lifts[i] = q_start_lifts[valid_idx]
         X_W_H_lifts[i] = X_W_H_lifts[valid_idx]
 
-    # Using existing motion_gen means that object collisions are still checked for lift
-    # May want to create new world
-    # no_objects_world_cfg = get_world_cfg(
-    #     collision_check_object=False,
-    #     obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
-    #     obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
-    #     obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
-    #     collision_check_table=True,
-    # )
-    # ik_solver.update_world(no_objects_world_cfg)
-    # ik_solver2.update_world(no_objects_world_cfg)
-    # motion_gen.update_world(no_objects_world_cfg)
+    # Update world to remove object collision check
+    no_objects_world_cfg = get_world_cfg(
+        collision_check_object=False,
+        obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
+        obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
+        obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+        collision_check_table=True,
+    )
+    ik_solver.update_world(no_objects_world_cfg)
+    ik_solver2.update_world(no_objects_world_cfg)
+    motion_gen.update_world(no_objects_world_cfg)
     lift_motion_gen_result, lift_ik_result, lift_ik_result2 = new_solve_trajopt_batch(
         X_W_Hs=X_W_H_lifts,
         q_algrs=q_algr_pres,

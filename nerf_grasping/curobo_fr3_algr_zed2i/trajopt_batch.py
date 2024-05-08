@@ -96,7 +96,7 @@ def debug_start_state_invalid(
         print("mask.all() == True, so no issues with start_state")
 
 
-def prepare_solve_trajopt_batch(
+def prepare_trajopt_batch(
     n_grasps: int,
     collision_check_object: bool = True,
     obj_filepath: Optional[pathlib.Path] = pathlib.Path(
@@ -353,7 +353,7 @@ def solve_trajopt_batch(
 ) -> Tuple[MotionGenResult, IKResult, IKResult]:
     N_GRASPS = X_W_Hs.shape[0]
     robot_cfg, ik_solver, ik_solver2, motion_gen, motion_gen_config = (
-        prepare_solve_trajopt_batch(
+        prepare_trajopt_batch(
             n_grasps=N_GRASPS,
             collision_check_object=collision_check_object,
             obj_filepath=obj_filepath,

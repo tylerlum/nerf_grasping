@@ -31,7 +31,7 @@ import plotly.graph_objects as go
 from datetime import datetime
 
 from nerf_grasping.curobo_fr3_algr_zed2i.trajopt_batch import (
-    prepare_solve_trajopt_batch,
+    prepare_trajopt_batch,
     solve_prepared_trajopt_batch,
     get_trajectories_from_result,
     compute_over_limit_factors,
@@ -1130,13 +1130,13 @@ def main() -> None:
     args.nerf_config = nerf_config
 
     # Prepare curobo
-    start_prepare_solve_trajopt_batch = time.time()
+    start_prepare_trajopt_batch = time.time()
     # HACK: Need to include a mesh into the world for the motion_gen warmup or else it will not prepare mesh buffers
     mesh = trimesh.creation.box(extents=(0.1, 0.1, 0.1))
     mesh.export("/tmp/DUMMY.obj")
     FAR_AWAY_OBJ_XYZ = (10.0, 0.0, 0.0)
     robot_cfg, ik_solver, ik_solver2, motion_gen, motion_gen_config = (
-        prepare_solve_trajopt_batch(
+        prepare_trajopt_batch(
             n_grasps=args.num_grasps,
             collision_check_object=True,
             obj_filepath=pathlib.Path("/tmp/DUMMY.obj"),
@@ -1147,10 +1147,10 @@ def main() -> None:
             collision_sphere_buffer=0.01,
         )
     )
-    end_prepare_solve_trajopt_batch = time.time()
+    end_prepare_trajopt_batch = time.time()
     print("@" * 80)
     print(
-        f"Time to prepare_solve_trajopt_batch: {end_prepare_solve_trajopt_batch - start_prepare_solve_trajopt_batch:.2f}s"
+        f"Time to prepare_trajopt_batch: {end_prepare_trajopt_batch - start_prepare_trajopt_batch:.2f}s"
     )
     print("@" * 80 + "\n")
 

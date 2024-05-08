@@ -735,7 +735,6 @@ def run_curobo(
     ik_solver.update_world(objects_world_cfg)
     ik_solver2.update_world(objects_world_cfg)
     motion_gen.update_world(objects_world_cfg)
-    ik_solver.world_coll_checker.world_model.save_world_as_mesh("/tmp/CORRECT_world_mesh.obj")
     motion_gen_result, ik_result, ik_result2 = new_solve_trajopt_batch(
         X_W_Hs=X_W_Hs,
         q_algrs=q_algr_pres,
@@ -1085,6 +1084,11 @@ def run_pipeline(
     cfg: PipelineConfig,
     q_fr3: Optional[np.ndarray] = None,
     q_algr: Optional[np.ndarray] = None,
+    robot_cfg: Optional[RobotConfig] = None,
+    ik_solver: Optional[IKSolver] = None,
+    ik_solver2: Optional[IKSolver] = None,
+    motion_gen: Optional[MotionGen] = None,
+    motion_gen_config: Optional[MotionGenConfig] = None,
 ) -> Tuple[List[np.ndarray], List[np.ndarray], List[float], List[int], tuple]:
 
     start_time = time.time()
@@ -1102,27 +1106,15 @@ def run_pipeline(
     print("@" * 80 + "\n")
 
     start_prepare_solve_trajopt_batch = time.time()
-    # HACK: Need to include a mesh into the world for the motion_gen warmup or else it will not prepare mesh buffers
-    # dummy_mesh = trimesh.creation.icosphere(radius=0.01)
-    dummy_mesh = trimesh.creation.box(extents=(0.01, 0.01, 0.01))
-    dummy_mesh.export(file_obj="/tmp/DUMMY_mesh_viz_object.obj")
 
-    # TODO: Check if warmup ik_solver
-    robot_cfg, ik_solver, ik_solver2, motion_gen, motion_gen_config = prepare_solve_trajopt_batch(
-        n_grasps=X_W_Hs.shape[0],
-        collision_check_object=True,
-        # obj_filepath=pathlib.Path("/tmp/DUMMY_mesh_viz_object.obj"),
-        obj_filepath=pathlib.Path("/juno/u/tylerlum/Downloads/cube.obj"),
-        obj_xyz=(10, 0.0, 0.0),
-        obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
-        collision_check_table=True,
-        use_cuda_graph=True,
-        collision_sphere_buffer=0.01,
-    )
-    end_prepare_solve_trajopt_batch = time.time()
-    print("@" * 80)
-    print(f"Time to prepare_solve_trajopt_batch: {end_prepare_solve_trajopt_batch - start_prepare_solve_trajopt_batch:.2f}s")
-    print("@" * 80 + "\n")
+    if (
+        robot_cfg is None
+        or ik_solver is None
+        or ik_solver2 is None
+        or motion_gen is None
+        or motion_gen_config is None
+    ):
+        raise ValueError("Need to provide robot_cfg, ik_solver, ik_solver2, motion_gen, motion_gen_config")
 
     start_run_curobo = time.time()
     qs, qds, T_trajs, success_idxs, DEBUG_TUPLE = run_curobo(

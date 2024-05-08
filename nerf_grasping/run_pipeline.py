@@ -32,6 +32,8 @@ from datetime import datetime
 
 from nerf_grasping.curobo_fr3_algr_zed2i.trajopt_batch import (
     solve_trajopt_batch,
+    prepare_solve_trajopt_batch,
+    solve_prepared_trajopt_batch,
     get_trajectories_from_result,
     compute_over_limit_factors,
 )
@@ -527,20 +529,36 @@ def run_curobo(
     print("\n" + "=" * 80)
     print("Step 9: Solve motion gen for each grasp")
     print("=" * 80 + "\n")
-    motion_gen_result, ik_result, ik_result2 = solve_trajopt_batch(
-        X_W_Hs=X_W_Hs,
-        q_algrs=q_algr_pres,
-        q_fr3_starts=q_fr3[None, ...].repeat(n_grasps, axis=0),
-        q_algr_starts=q_algr[None, ...].repeat(n_grasps, axis=0),
-        collision_check_object=True,
-        obj_filepath=pathlib.Path("/juno/u/tylerlum/github_repos/DexGraspNet/data/rotated_meshdata/core-bottle-1071fa4cddb2da2fc8724d5673a063a6/coacd/decomposed.obj"),
-        obj_xyz=(cfg.nerf_frame_offset_x + HACK_OFFSET, 0.0, 0.0),
-        obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
-        collision_check_table=True,
-        use_cuda_graph=True,
-        enable_graph=True,
-        enable_opt=False,
-        timeout=5.0,
+    motion_gen_result, ik_result, ik_result2 = (
+        # solve_trajopt_batch(
+        #     X_W_Hs=X_W_Hs,
+        #     q_algrs=q_algr_pres,
+        #     q_fr3_starts=q_fr3[None, ...].repeat(n_grasps, axis=0),
+        #     q_algr_starts=q_algr[None, ...].repeat(n_grasps, axis=0),
+        #     collision_check_object=True,
+        #     obj_filepath=pathlib.Path("/juno/u/tylerlum/github_repos/DexGraspNet/data/rotated_meshdata/core-bottle-1071fa4cddb2da2fc8724d5673a063a6/coacd/decomposed.obj"),
+        #     obj_xyz=(cfg.nerf_frame_offset_x + HACK_OFFSET, 0.0, 0.0),
+        #     obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+        #     collision_check_table=True,
+        #     use_cuda_graph=True,
+        #     enable_graph=True,
+        #     enable_opt=False,
+        #     timeout=5.0,
+        # )
+        solve_prepared_trajopt_batch(
+            X_W_Hs=X_W_Hs,
+            q_algrs=q_algr_pres,
+            robot_cfg=robot_cfg,
+            ik_solver=ik_solver,
+            ik_solver2=ik_solver2,
+            motion_gen=motion_gen,
+            motion_gen_config=motion_gen_config,
+            q_fr3_starts=q_fr3[None, ...].repeat(n_grasps, axis=0),
+            q_algr_starts=q_algr[None, ...].repeat(n_grasps, axis=0),
+            enable_graph=True,
+            enable_opt=False,
+            timeout=5.0,
+        )
     )
 
     motion_gen_success_idxs = (
@@ -657,19 +675,33 @@ def run_curobo(
 
     # Update world to remove object collision check
     lift_motion_gen_result, lift_ik_result, lift_ik_result2 = (
-        solve_trajopt_batch(
+        # solve_trajopt_batch(
+        #     X_W_Hs=X_W_H_lifts,
+        #     q_algrs=q_algr_pres,
+        #     q_fr3_starts=q_start_lifts[:, :7],
+        #     q_algr_starts=q_start_lifts[
+        #         :, 7:
+        #     ],  # We don't want to care about hand joints, just arm joints, so this doesn't matter much as long as not in collision with table
+        #     collision_check_object=False,
+        #     obj_filepath=pathlib.Path("/juno/u/tylerlum/github_repos/DexGraspNet/data/rotated_meshdata/core-bottle-1071fa4cddb2da2fc8724d5673a063a6/coacd/decomposed.obj"),
+        #     obj_xyz=(cfg.nerf_frame_offset_x + HACK_OFFSET, 0.0, 0.0),
+        #     obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+        #     collision_check_table=True,
+        #     use_cuda_graph=True,
+        #     enable_graph=True,
+        #     enable_opt=False,
+        #     timeout=5.0,
+        # )
+        solve_prepared_trajopt_batch(
             X_W_Hs=X_W_H_lifts,
             q_algrs=q_algr_pres,
+            robot_cfg=robot_cfg,
+            ik_solver=ik_solver,
+            ik_solver2=ik_solver2,
+            motion_gen=motion_gen,
+            motion_gen_config=motion_gen_config,
             q_fr3_starts=q_start_lifts[:, :7],
-            q_algr_starts=q_start_lifts[
-                :, 7:
-            ],  # We don't want to care about hand joints, just arm joints, so this doesn't matter much as long as not in collision with table
-            collision_check_object=False,
-            obj_filepath=pathlib.Path("/juno/u/tylerlum/github_repos/DexGraspNet/data/rotated_meshdata/core-bottle-1071fa4cddb2da2fc8724d5673a063a6/coacd/decomposed.obj"),
-            obj_xyz=(cfg.nerf_frame_offset_x + HACK_OFFSET, 0.0, 0.0),
-            obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
-            collision_check_table=True,
-            use_cuda_graph=True,
+            q_algr_starts=q_start_lifts[:, 7:],
             enable_graph=True,
             enable_opt=False,
             timeout=5.0,
@@ -1114,18 +1146,18 @@ def main() -> None:
     # Prepare curobo
     start_prepare_solve_trajopt_batch = time.time()
     # HACK: Need to include a mesh into the world for the motion_gen warmup or else it will not prepare mesh buffers
-    # robot_cfg, ik_solver, ik_solver2, motion_gen, motion_gen_config = (
-    #     prepare_solve_trajopt_batch(
-    #         n_grasps=args.num_grasps,
-    #         collision_check_object=True,
-    #         obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
-    #         obj_xyz=(args.nerf_frame_offset_x + HACK_OFFSET, 0.0, 0.0),
-    #         obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
-    #         collision_check_table=True,
-    #         use_cuda_graph=True,
-    #         collision_sphere_buffer=0.01,
-    #     )
-    # )
+    robot_cfg, ik_solver, ik_solver2, motion_gen, motion_gen_config = (
+        prepare_solve_trajopt_batch(
+            n_grasps=args.num_grasps,
+            collision_check_object=True,
+            obj_filepath=pathlib.Path("/juno/u/tylerlum/github_repos/DexGraspNet/data/rotated_meshdata/core-bottle-1071fa4cddb2da2fc8724d5673a063a6/coacd/decomposed.obj"),
+            obj_xyz=(args.nerf_frame_offset_x + HACK_OFFSET, 0.0, 0.0),
+            obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+            collision_check_table=True,
+            use_cuda_graph=True,
+            collision_sphere_buffer=0.01,
+        )
+    )
     end_prepare_solve_trajopt_batch = time.time()
     print("@" * 80)
     print(
@@ -1138,11 +1170,11 @@ def main() -> None:
         cfg=args,
         q_fr3=DEFAULT_Q_FR3,
         q_algr=DEFAULT_Q_ALGR,
-        # robot_cfg=robot_cfg,
-        # ik_solver=ik_solver,
-        # ik_solver2=ik_solver2,
-        # motion_gen=motion_gen,
-        # motion_gen_config=motion_gen_config,
+        robot_cfg=robot_cfg,
+        ik_solver=ik_solver,
+        ik_solver2=ik_solver2,
+        motion_gen=motion_gen,
+        motion_gen_config=motion_gen_config,
     )
 
     visualize(

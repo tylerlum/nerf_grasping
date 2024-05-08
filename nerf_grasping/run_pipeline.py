@@ -667,7 +667,7 @@ def run_curobo(
 
     # Update world to remove object collision check
     no_object_world_cfg = get_world_cfg(
-        collision_check_object=True,
+        collision_check_object=False,
         obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
         obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 1.0),
         obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
@@ -1137,13 +1137,14 @@ def main() -> None:
     start_prepare_solve_trajopt_batch = time.time()
     # HACK: Need to include a mesh into the world for the motion_gen warmup or else it will not prepare mesh buffers
     mesh = trimesh.creation.box(extents=(0.1, 0.1, 0.1))
-    mesh.export("/tmp/DUMMY_mesh_viz_object.obj")
+    mesh.export("/tmp/DUMMY.obj")
+    FAR_AWAY_OBJ_XYZ = (10.0, 0.0, 0.0)
     robot_cfg, ik_solver, ik_solver2, motion_gen, motion_gen_config = (
         prepare_solve_trajopt_batch(
             n_grasps=args.num_grasps,
             collision_check_object=True,
-            obj_filepath=pathlib.Path("/tmp/DUMMY_mesh_viz_object.obj"),
-            obj_xyz=(args.nerf_frame_offset_x, 0.0, 0.0),
+            obj_filepath=pathlib.Path("/tmp/DUMMY.obj"),
+            obj_xyz=FAR_AWAY_OBJ_XYZ,
             obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
             collision_check_table=True,
             use_cuda_graph=True,

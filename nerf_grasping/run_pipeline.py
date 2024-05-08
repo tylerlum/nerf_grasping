@@ -728,7 +728,7 @@ def run_curobo(
     objects_world_cfg = get_world_cfg(
         collision_check_object=True,
         obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
-        obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
+        obj_xyz=(cfg.nerf_frame_offset_x + 0.05, 0.0, 0.0),
         obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
         collision_check_table=True,
     )
@@ -1101,12 +1101,15 @@ def run_pipeline(
     print("@" * 80 + "\n")
 
     start_prepare_solve_trajopt_batch = time.time()
+    # HACK: Need to include a mesh into the world for the motion_gen warmup or else it will not prepare mesh buffers
+    dummy_mesh = trimesh.creation.icosphere(radius=0.01)
+    dummy_mesh.export(file_obj="/tmp/DUMMY_mesh_viz_object.obj")
+
     # TODO: Check if warmup ik_solver
     robot_cfg, ik_solver, ik_solver2, motion_gen, motion_gen_config = prepare_solve_trajopt_batch(
         n_grasps=X_W_Hs.shape[0],
         collision_check_object=True,
-        # obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
-        obj_filepath=pathlib.Path("/juno/u/tylerlum/Downloads/cube.obj"),
+        obj_filepath=pathlib.Path("/tmp/DUMMY_mesh_viz_object.obj"),
         obj_xyz=(10, 0.0, 0.0),
         obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
         collision_check_table=True,

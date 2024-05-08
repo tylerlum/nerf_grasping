@@ -728,13 +728,14 @@ def run_curobo(
     objects_world_cfg = get_world_cfg(
         collision_check_object=True,
         obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
-        obj_xyz=(cfg.nerf_frame_offset_x + 0.05, 0.0, 0.0),
+        obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
         obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
         collision_check_table=True,
     )
     ik_solver.update_world(objects_world_cfg)
     ik_solver2.update_world(objects_world_cfg)
     motion_gen.update_world(objects_world_cfg)
+    ik_solver.world_coll_checker.world_model.save_world_as_mesh("/tmp/CORRECT_world_mesh.obj")
     motion_gen_result, ik_result, ik_result2 = new_solve_trajopt_batch(
         X_W_Hs=X_W_Hs,
         q_algrs=q_algr_pres,
@@ -1102,14 +1103,16 @@ def run_pipeline(
 
     start_prepare_solve_trajopt_batch = time.time()
     # HACK: Need to include a mesh into the world for the motion_gen warmup or else it will not prepare mesh buffers
-    dummy_mesh = trimesh.creation.icosphere(radius=0.01)
+    # dummy_mesh = trimesh.creation.icosphere(radius=0.01)
+    dummy_mesh = trimesh.creation.box(extents=(0.01, 0.01, 0.01))
     dummy_mesh.export(file_obj="/tmp/DUMMY_mesh_viz_object.obj")
 
     # TODO: Check if warmup ik_solver
     robot_cfg, ik_solver, ik_solver2, motion_gen, motion_gen_config = prepare_solve_trajopt_batch(
         n_grasps=X_W_Hs.shape[0],
         collision_check_object=True,
-        obj_filepath=pathlib.Path("/tmp/DUMMY_mesh_viz_object.obj"),
+        # obj_filepath=pathlib.Path("/tmp/DUMMY_mesh_viz_object.obj"),
+        obj_filepath=pathlib.Path("/juno/u/tylerlum/Downloads/cube.obj"),
         obj_xyz=(10, 0.0, 0.0),
         obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
         collision_check_table=True,
@@ -1173,7 +1176,8 @@ def visualize(
         max_penetration_from_q,
     )
 
-    OBJECT_URDF_PATH = create_urdf(obj_path=pathlib.Path("/tmp/mesh_viz_object.obj"))
+    # OBJECT_URDF_PATH = create_urdf(obj_path=pathlib.Path("/tmp/mesh_viz_object.obj"))
+    OBJECT_URDF_PATH = create_urdf(obj_path=pathlib.Path("/juno/u/tylerlum/Downloads/cube.obj"))
     pb_robot = start_visualizer(object_urdf_path=OBJECT_URDF_PATH)
     draw_collision_spheres_default_config(pb_robot)
     time.sleep(1.0)

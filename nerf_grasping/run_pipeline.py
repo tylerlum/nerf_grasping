@@ -724,6 +724,17 @@ def run_curobo(
     #     timeout=5.0,
     #     collision_sphere_buffer=0.01,
     # )
+
+    objects_world_cfg = get_world_cfg(
+        collision_check_object=True,
+        obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
+        obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
+        obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+        collision_check_table=True,
+    )
+    ik_solver.update_world(objects_world_cfg)
+    ik_solver2.update_world(objects_world_cfg)
+    motion_gen.update_world(objects_world_cfg)
     motion_gen_result, ik_result, ik_result2 = new_solve_trajopt_batch(
         X_W_Hs=X_W_Hs,
         q_algrs=q_algr_pres,
@@ -1090,11 +1101,13 @@ def run_pipeline(
     print("@" * 80 + "\n")
 
     start_prepare_solve_trajopt_batch = time.time()
+    # TODO: Check if warmup ik_solver
     robot_cfg, ik_solver, ik_solver2, motion_gen, motion_gen_config = prepare_solve_trajopt_batch(
         n_grasps=X_W_Hs.shape[0],
         collision_check_object=True,
-        obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
-        obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
+        # obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
+        obj_filepath=pathlib.Path("/juno/u/tylerlum/Downloads/cube.obj"),
+        obj_xyz=(10, 0.0, 0.0),
         obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
         collision_check_table=True,
         use_cuda_graph=True,

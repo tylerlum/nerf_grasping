@@ -1,7 +1,7 @@
 import pathlib
 from tqdm import tqdm
 import numpy as np
-from typing import Optional
+from typing import Optional, Tuple
 import pybullet as pb
 from curobo.util_file import (
     get_assets_path,
@@ -23,7 +23,11 @@ from nerf_grasping.curobo_fr3_algr_zed2i.trajopt_fr3_algr_zed2i import (
 )
 
 
-def start_visualizer(object_urdf_path: Optional[pathlib.Path] = None):
+def start_visualizer(
+    object_urdf_path: Optional[pathlib.Path] = None,
+    obj_xyz: Tuple[float, float, float] = (0.65, 0.0, 0.0),
+    obj_quat_wxyz: Tuple[float, float, float, float] = (1.0, 0.0, 0.0, 0.0),
+):
     FR3_ALGR_ZED2I_URDF_PATH = load_yaml(
         join_path(get_robot_configs_path(), "fr3_algr_zed2i_with_fingertips.yml")
     )["robot_cfg"]["kinematics"]["urdf_path"]
@@ -44,15 +48,12 @@ def start_visualizer(object_urdf_path: Optional[pathlib.Path] = None):
 
     if object_urdf_path is not None:
         assert object_urdf_path.exists()
+        obj_quat_xyzw = obj_quat_wxyz[1:] + obj_quat_wxyz[:1]
         obj = pb.loadURDF(
             str(object_urdf_path),
             useFixedBase=True,
-            basePosition=[
-                0.65,
-                0,
-                0,
-            ],
-            baseOrientation=[0, 0, 0, 1],
+            basePosition=obj_xyz,
+            baseOrientation=obj_quat_xyzw,  # Must be xyzw
         )
 
     actuatable_joint_idxs = [

@@ -1,24 +1,11 @@
-import pathlib
-from typing import Optional, Tuple
-
 import numpy as np
 import torch
-import transforms3d
-from curobo.geom.types import WorldConfig
 from curobo.types.base import TensorDeviceType
-from curobo.types.math import Pose
 from curobo.types.robot import RobotConfig
 from curobo.util_file import (
     get_robot_configs_path,
     join_path,
     load_yaml,
-)
-from curobo.wrap.model.robot_world import RobotWorld, RobotWorldConfig
-from curobo.wrap.reacher.ik_solver import IKSolver, IKSolverConfig
-from nerf_grasping.curobo_fr3_algr_zed2i.fr3_algr_zed2i_world import (
-    get_dummy_collision_dict,
-    get_object_collision_dict,
-    get_table_collision_dict,
 )
 
 # Third Party
@@ -27,40 +14,11 @@ import torch
 # cuRobo
 from curobo.cuda_robot_model.cuda_robot_model import (
     CudaRobotModel,
-    CudaRobotModelConfig,
 )
-from curobo.types.base import TensorDeviceType
 from curobo.types.robot import RobotConfig
-from curobo.util_file import get_robot_path, join_path, load_yaml
+from curobo.util_file import join_path, load_yaml
 
-
-def quat_wxyz_to_matrix(quat_wxyzs: torch.Tensor) -> torch.Tensor:
-    """
-    Convert rotations given as quat_wxyzs to rotation matrices.
-    Args:
-        quat_wxyzs: quaternions with real part first,
-            as tensor of shape (..., 4).
-    Returns:
-        Rotation matrices as tensor of shape (..., 3, 3).
-    """
-    r, i, j, k = torch.unbind(quat_wxyzs, -1)
-    two_s = 2.0 / (quat_wxyzs * quat_wxyzs).sum(-1)
-
-    mat = torch.stack(
-        (
-            1 - two_s * (j * j + k * k),
-            two_s * (i * j - k * r),
-            two_s * (i * k + j * r),
-            two_s * (i * j + k * r),
-            1 - two_s * (i * i + k * k),
-            two_s * (j * k - i * r),
-            two_s * (i * k - j * r),
-            two_s * (j * k + i * r),
-            1 - two_s * (i * i + j * j),
-        ),
-        -1,
-    )
-    return mat.reshape(quat_wxyzs.shape[:-1] + (3, 3))
+from nerf_grasping.curobo_fr3_algr_zed2i.math_utils import quat_wxyz_to_matrix
 
 
 def solve_fk(

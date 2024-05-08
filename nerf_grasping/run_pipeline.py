@@ -59,7 +59,7 @@ print = partial(
     print, file=sys.stderr
 )  # Redirect print to stderr to get around ROS issue
 
-HACK_OFFSET = 0.1
+HACK_OFFSET = 0.0
 
 @dataclass
 class PipelineConfig:
@@ -533,17 +533,20 @@ def run_curobo(
         collision_check_object=True,
         obj_filepath=pathlib.Path(
             "/juno/u/tylerlum/github_repos/DexGraspNet/data/rotated_meshdata/core-bottle-1071fa4cddb2da2fc8724d5673a063a6/coacd/decomposed.obj"
+            # "/tmp/mesh_viz_object.obj"
         ),
         obj_xyz=(cfg.nerf_frame_offset_x + HACK_OFFSET, 0.0, 0.0),
         obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
         collision_check_table=True,
     )
-    ik_solver.world_coll_checker.clear_cache()
+    # ik_solver.world_coll_checker.clear_cache()
     ik_solver.update_world(object_world_cfg)
-    ik_solver2.world_coll_checker.clear_cache()
+    # ik_solver2.world_coll_checker.clear_cache()
     ik_solver2.update_world(object_world_cfg)
-    motion_gen.world_coll_checker.clear_cache()
+    # motion_gen.world_coll_checker.clear_cache()
+    breakpoint()
     motion_gen.update_world(object_world_cfg)
+    breakpoint()
     motion_gen_result, ik_result, ik_result2 = (
         # solve_trajopt_batch(
         #     X_W_Hs=X_W_Hs,

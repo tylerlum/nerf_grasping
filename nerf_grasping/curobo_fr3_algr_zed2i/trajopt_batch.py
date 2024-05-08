@@ -169,6 +169,7 @@ def prepare_solve_trajopt_batch(
         num_batch_ik_seeds=1,  # Reduced to save time?
         num_batch_trajopt_seeds=1,  # Reduced to save time?
         num_trajopt_noisy_seeds=1,  # Reduced to save time?
+        collision_cache={"obb": 2, "mesh": 2},
     )
     motion_gen = MotionGen(motion_gen_config)
 

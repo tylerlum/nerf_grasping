@@ -538,8 +538,11 @@ def run_curobo(
         obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
         collision_check_table=True,
     )
+    ik_solver.world_coll_checker.clear_cache()
     ik_solver.update_world(object_world_cfg)
+    ik_solver2.world_coll_checker.clear_cache()
     ik_solver2.update_world(object_world_cfg)
+    motion_gen.world_coll_checker.clear_cache()
     motion_gen.update_world(object_world_cfg)
     motion_gen_result, ik_result, ik_result2 = (
         # solve_trajopt_batch(

@@ -144,9 +144,10 @@ def debug_start_state_invalid(
         print(f"bound_constraint: {bound_constraint}")
         print(f"coll_constraint: {coll_constraint}")
         print(f"self_constraint: {self_constraint}")
+        print("PROBLEM WITH START_STATE")
         breakpoint()
     else:
-        print("mask.all() == True")
+        print("mask.all() == True, so no issues with start_state")
 
 
 def prepare_solve_trajopt_batch(
@@ -314,21 +315,6 @@ def new_solve_trajopt_batch(
             print("#" * 80)
             print("q_starts out of joint limits!")
             print("#" * 80)
-            print(
-                f"q_starts = {q_starts}, joint_lower_limits = {joint_lower_limits}, joint_upper_limits = {joint_upper_limits}"
-            )
-            print(
-                f"q_starts < joint_lower_limits = {(q_starts < joint_lower_limits[None]).any()}"
-            )
-            print(
-                f"q_starts > joint_upper_limits = {(q_starts > joint_upper_limits[None]).any()}"
-            )
-            print(
-                f"(q_starts < joint_lower_limits[None]).nonzero() = {(q_starts < joint_lower_limits[None]).nonzero()}"
-            )
-            print(
-                f"(q_starts > joint_upper_limits[None]).nonzero() = {(q_starts > joint_upper_limits[None]).nonzero()}"
-            )
 
             # HACK: Check if out of joint limits due to small numerical issues
             eps = 1e-4
@@ -345,6 +331,21 @@ def new_solve_trajopt_batch(
                 )
             else:
                 print("q_starts is far from joint limits, so not clamping")
+                print(
+                    f"q_starts = {q_starts}, joint_lower_limits = {joint_lower_limits}, joint_upper_limits = {joint_upper_limits}"
+                )
+                print(
+                    f"q_starts < joint_lower_limits = {(q_starts < joint_lower_limits[None]).any()}"
+                )
+                print(
+                    f"q_starts > joint_upper_limits = {(q_starts > joint_upper_limits[None]).any()}"
+                )
+                print(
+                    f"(q_starts < joint_lower_limits[None]).nonzero() = {(q_starts < joint_lower_limits[None]).nonzero()}"
+                )
+                print(
+                    f"(q_starts > joint_upper_limits[None]).nonzero() = {(q_starts > joint_upper_limits[None]).nonzero()}"
+                )
                 raise ValueError("q_starts out of joint limits!")
 
     start_state = JointState.from_position(q_starts)

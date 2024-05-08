@@ -126,6 +126,7 @@ def prepare_solve_trajopt_batch(
         obj_xyz=obj_xyz,
         obj_quat_wxyz=obj_quat_wxyz,
         collision_check_table=collision_check_table,
+        obj_name="MY_object",
     )
 
     # ik_solver

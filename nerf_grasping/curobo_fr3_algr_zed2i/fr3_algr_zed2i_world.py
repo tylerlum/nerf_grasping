@@ -49,6 +49,7 @@ def get_world_cfg(
     obj_xyz: Tuple[float, float, float] = (0.65, 0.0, 0.0),
     obj_quat_wxyz: Tuple[float, float, float, float] = (1.0, 0.0, 0.0, 0.0),
     collision_check_table: bool = True,
+    obj_name: str = "object",
 ) -> WorldConfig:
     world_dict = {}
     if collision_check_table:

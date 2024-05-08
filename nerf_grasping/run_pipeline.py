@@ -532,12 +532,13 @@ def run_curobo(
     object_world_cfg = get_world_cfg(
         collision_check_object=True,
         obj_filepath=pathlib.Path(
-            "/juno/u/tylerlum/github_repos/DexGraspNet/data/rotated_meshdata/core-bottle-1071fa4cddb2da2fc8724d5673a063a6/coacd/decomposed.obj"
-            # "/tmp/mesh_viz_object.obj"
+            # "/juno/u/tylerlum/github_repos/DexGraspNet/data/rotated_meshdata/core-bottle-1071fa4cddb2da2fc8724d5673a063a6/coacd/decomposed.obj"
+            "/tmp/mesh_viz_object.obj"
         ),
         obj_xyz=(cfg.nerf_frame_offset_x + HACK_OFFSET, 0.0, 0.0),
         obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
         collision_check_table=True,
+        obj_name="mesh_object",
     )
     # ik_solver.world_coll_checker.clear_cache()
     ik_solver.update_world(object_world_cfg)
@@ -1168,8 +1169,8 @@ def main() -> None:
         prepare_solve_trajopt_batch(
             n_grasps=args.num_grasps,
             collision_check_object=True,
-            # obj_filepath=pathlib.Path("/juno/u/tylerlum/github_repos/DexGraspNet/data/rotated_meshdata/core-bottle-1071fa4cddb2da2fc8724d5673a063a6/coacd/decomposed.obj"),
-            obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
+            obj_filepath=pathlib.Path("/juno/u/tylerlum/github_repos/DexGraspNet/data/rotated_meshdata/core-bottle-1071fa4cddb2da2fc8724d5673a063a6/coacd/decomposed.obj"),
+            # obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
             obj_xyz=(args.nerf_frame_offset_x + HACK_OFFSET, 0.0, 0.0),
             obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
             collision_check_table=True,

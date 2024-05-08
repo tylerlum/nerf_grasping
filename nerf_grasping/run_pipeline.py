@@ -33,6 +33,8 @@ from datetime import datetime
 
 from nerf_grasping.curobo_fr3_algr_zed2i.trajopt_batch import (
     solve_trajopt_batch,
+    prepare_solve_trajopt_batch,
+    new_solve_trajopt_batch,
     get_trajectories_from_result,
     compute_over_limit_factors,
 )
@@ -42,6 +44,14 @@ from nerf_grasping.curobo_fr3_algr_zed2i.trajopt_fr3_algr_zed2i import (
     DEFAULT_Q_ALGR,
 )
 
+from curobo.types.robot import RobotConfig, JointState
+from curobo.wrap.reacher.ik_solver import IKSolver, IKSolverConfig, IKResult
+from curobo.wrap.reacher.motion_gen import (
+    MotionGen,
+    MotionGenConfig,
+    MotionGenPlanConfig,
+    MotionGenResult,
+)
 
 @dataclass
 class PipelineConfig:
@@ -641,6 +651,11 @@ def run_curobo(
     X_W_Hs: np.ndarray,
     q_algr_pres: np.ndarray,
     q_algr_posts: np.ndarray,
+    robot_cfg: RobotConfig,
+    ik_solver: IKSolver,
+    ik_solver2: IKSolver,
+    motion_gen: MotionGen,
+    motion_gen_config: MotionGenConfig,
     losses: Optional[np.ndarray] = None,
     q_fr3: Optional[np.ndarray] = None,
     q_algr: Optional[np.ndarray] = None,
@@ -686,21 +701,35 @@ def run_curobo(
     # )
 
     # Enable trajopt often makes it fail, haven't been able to figure out why
-    motion_gen_result, ik_result, ik_result2 = solve_trajopt_batch(
+    # motion_gen_result, ik_result, ik_result2 = solve_trajopt_batch(
+    #     X_W_Hs=X_W_Hs,
+    #     q_algrs=q_algr_pres,
+    #     q_fr3_starts=q_fr3[None, ...].repeat(n_grasps, axis=0),
+    #     q_algr_starts=q_algr[None, ...].repeat(n_grasps, axis=0),
+    #     collision_check_object=True,
+    #     obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
+    #     obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
+    #     obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+    #     collision_check_table=True,
+    #     use_cuda_graph=True,
+    #     enable_graph=True,
+    #     enable_opt=False,
+    #     timeout=5.0,
+    #     collision_sphere_buffer=0.01,
+    # )
+    motion_gen_result, ik_result, ik_result2 = new_solve_trajopt_batch(
         X_W_Hs=X_W_Hs,
         q_algrs=q_algr_pres,
         q_fr3_starts=q_fr3[None, ...].repeat(n_grasps, axis=0),
         q_algr_starts=q_algr[None, ...].repeat(n_grasps, axis=0),
-        collision_check_object=True,
-        obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
-        obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
-        obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
-        collision_check_table=True,
-        use_cuda_graph=True,
+        robot_cfg=robot_cfg,
+        ik_solver=ik_solver,
+        ik_solver2=ik_solver2,
+        motion_gen=motion_gen,
+        motion_gen_config=motion_gen_config,
         enable_graph=True,
         enable_opt=False,
         timeout=5.0,
-        collision_sphere_buffer=0.01,
     )
 
     motion_gen_success_idxs = (
@@ -1025,6 +1054,21 @@ def run_pipeline(
     print(f"Time to compute_grasps: {compute_grasps_time - start_time:.2f}s")
     print("@" * 80 + "\n")
 
+    start_prepare_solve_trajopt_batch = time.time()
+    robot_cfg, ik_solver, ik_solver2, motion_gen, motion_gen_config = prepare_solve_trajopt_batch(
+        collision_check_object=True,
+        obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
+        obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
+        obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+        collision_check_table=True,
+        use_cuda_graph=True,
+        collision_sphere_buffer=0.01,
+    )
+    end_prepare_solve_trajopt_batch = time.time()
+    print("@" * 80)
+    print(f"Time to prepare_solve_trajopt_batch: {end_prepare_solve_trajopt_batch - start_prepare_solve_trajopt_batch:.2f}s")
+    print("@" * 80 + "\n")
+
     qs, qds, T_trajs, success_idxs, DEBUG_TUPLE = run_curobo(
         cfg=cfg,
         X_W_Hs=X_W_Hs,
@@ -1033,6 +1077,11 @@ def run_pipeline(
         losses=losses,
         q_fr3=q_fr3,
         q_algr=q_algr,
+        robot_cfg=robot_cfg,
+        ik_solver=ik_solver,
+        ik_solver2=ik_solver2,
+        motion_gen=motion_gen,
+        motion_gen_config=motion_gen_config,
     )
     curobo_time = time.time()
     print("@" * 80)

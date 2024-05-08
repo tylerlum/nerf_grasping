@@ -150,6 +150,232 @@ def debug_start_state_invalid(
         print("mask.all() == True")
 
 
+def prepare_solve_trajopt_batch(
+    collision_check_object: bool = True,
+    obj_filepath: Optional[pathlib.Path] = pathlib.Path(
+        "/juno/u/tylerlum/github_repos/nerf_grasping/experiments/2024-05-02_16-19-22/nerf_to_mesh/mug_330/coacd/decomposed.obj"
+    ),
+    obj_xyz: Tuple[float, float, float] = (0.65, 0.0, 0.0),
+    obj_quat_wxyz: Tuple[float, float, float, float] = (1.0, 0.0, 0.0, 0.0),
+    collision_check_table: bool = True,
+    use_cuda_graph: bool = True,
+    collision_sphere_buffer: Optional[float] = None,
+) -> Tuple[RobotConfig, IKSolver, IKSolver, MotionGen, MotionGenConfig]:
+    start_time = time.time()
+
+    tensor_args = TensorDeviceType()
+    robot_file = "fr3_algr_zed2i_with_fingertips.yml"
+    robot_cfg = load_yaml(join_path(get_robot_configs_path(), robot_file))["robot_cfg"]
+    if collision_sphere_buffer is not None:
+        robot_cfg["kinematics"]["collision_sphere_buffer"] = collision_sphere_buffer
+    robot_cfg = RobotConfig.from_dict(robot_cfg)
+    modify_robot_cfg_to_add_joint_limit_buffer(robot_cfg)
+
+    world_cfg = get_world_cfg(
+        collision_check_object=collision_check_object,
+        obj_filepath=obj_filepath,
+        obj_xyz=obj_xyz,
+        obj_quat_wxyz=obj_quat_wxyz,
+        collision_check_table=collision_check_table,
+    )
+
+    ik_config = IKSolverConfig.load_from_robot_config(
+        robot_cfg,
+        world_cfg,
+        rotation_threshold=0.01,
+        position_threshold=0.001,
+        num_seeds=20,
+        self_collision_check=True,
+        self_collision_opt=True,
+        tensor_args=tensor_args,
+        use_cuda_graph=use_cuda_graph,
+    )
+    ik_solver = IKSolver(ik_config)
+
+    ik_config2 = IKSolverConfig.load_from_robot_config(
+        robot_cfg,
+        world_cfg,
+        rotation_threshold=0.05,
+        position_threshold=0.005,
+        num_seeds=20,
+        self_collision_check=True,
+        self_collision_opt=True,
+        tensor_args=tensor_args,
+        use_cuda_graph=use_cuda_graph,
+    )
+    ik_solver2 = IKSolver(ik_config2)
+
+    print("Step 6: Solve motion generation")
+    motion_gen_config = MotionGenConfig.load_from_robot_config(
+        robot_cfg,
+        world_cfg,
+        tensor_args,
+        collision_checker_type=CollisionCheckerType.MESH,
+        use_cuda_graph=use_cuda_graph,
+        num_ik_seeds=1,  # Reduced to save time?
+        num_graph_seeds=1,  # Reduced to save time?
+        num_trajopt_seeds=1,  # Reduced to save time?
+        num_batch_ik_seeds=1,  # Reduced to save time?
+        num_batch_trajopt_seeds=1,  # Reduced to save time?
+        num_trajopt_noisy_seeds=1,  # Reduced to save time?
+    )
+    motion_gen = MotionGen(motion_gen_config)
+    # motion_gen.warmup(batch=N_GRASPS)  # Can cause issues with CUDA graph
+
+    end_time = time.time()
+    print(f"Total time taken: {end_time - start_time} seconds")
+
+    return robot_cfg, ik_solver, ik_solver2, motion_gen, motion_gen_config
+
+
+def new_solve_trajopt_batch(
+    X_W_Hs: np.ndarray,
+    q_algrs: np.ndarray,
+    robot_cfg: RobotConfig,
+    ik_solver: IKSolver,
+    ik_solver2: IKSolver,
+    motion_gen: MotionGen,
+    motion_gen_config: MotionGenConfig,
+    q_fr3_starts: Optional[np.ndarray] = None,
+    q_algr_starts: Optional[np.ndarray] = None,
+    enable_graph: bool = True,
+    enable_opt: bool = False,  # Getting some errors from setting this to True
+    timeout: float = 5.0,
+) -> Tuple[MotionGenResult, IKResult, IKResult]:
+    N_GRASPS = X_W_Hs.shape[0]
+    assert X_W_Hs.shape == (N_GRASPS, 4, 4), f"X_W_Hs.shape: {X_W_Hs.shape}"
+    assert q_algrs.shape == (N_GRASPS, 16), f"q_algrs.shape: {q_algrs.shape}"
+    assert is_in_limits(q_algrs).all(), f"q_algrs: {q_algrs}"
+
+    if q_fr3_starts is None:
+        print("Using default q_fr3_starts")
+        q_fr3_starts = DEFAULT_Q_FR3[None, ...].repeat(N_GRASPS, axis=0)
+    assert q_fr3_starts.shape == (
+        N_GRASPS,
+        7,
+    ), f"q_fr3_starts.shape: {q_fr3_starts.shape}"
+    if q_algr_starts is None:
+        print("Using default q_algr_starts")
+        q_algr_starts = DEFAULT_Q_ALGR[None, ...].repeat(N_GRASPS, axis=0)
+    assert q_algr_starts.shape == (
+        N_GRASPS,
+        16,
+    ), f"q_algr_starts.shape: {q_algr_starts.shape}"
+
+    trans = X_W_Hs[:, :3, 3]
+    rot_matrix = X_W_Hs[:, :3, :3]
+    quat_wxyz = matrix_to_quat_wxyz(torch.from_numpy(rot_matrix).float().cuda())
+
+    target_pose = Pose(
+        torch.from_numpy(trans).float().cuda(),
+        quaternion=quat_wxyz,
+    )
+
+    ik_result = ik_solver.solve_batch(target_pose)
+
+    kin_model = CudaRobotModel(robot_cfg.kinematics)
+    q_fr3s = ik_result.solution[..., :7].squeeze(dim=1).detach().cpu().numpy()
+    q = torch.from_numpy(np.concatenate([q_fr3s, q_algrs], axis=1)).float().cuda()
+    assert q.shape == (N_GRASPS, 23)
+    state = kin_model.get_state(q)
+
+    ik_result2 = ik_solver2.solve_batch(
+        goal_pose=target_pose, link_poses=state.link_pose
+    )
+
+    kin_model2 = CudaRobotModel(robot_cfg.kinematics)
+    q2 = ik_result2.solution.squeeze(dim=1)
+
+    assert q2.shape == (N_GRASPS, 23)
+    state2 = kin_model2.get_state(q2)
+
+    q_starts = (
+        torch.from_numpy(
+            np.concatenate(
+                [
+                    q_fr3_starts,
+                    q_algr_starts,
+                ],
+                axis=1,
+            )
+        )
+        .float()
+        .cuda()
+    )
+    # Can't succeed in motion planning if joint limits are violated
+    CHECK_JOINT_LIMITS = True
+    if CHECK_JOINT_LIMITS:
+        joint_limits = robot_cfg.kinematics.kinematics_config.joint_limits.position
+        assert joint_limits.shape == (2, 23)
+        joint_lower_limits, joint_upper_limits = joint_limits[0], joint_limits[1]
+        if (q_starts < joint_lower_limits[None]).any() or (
+            q_starts > joint_upper_limits[None]
+        ).any():
+            print("#" * 80)
+            print("q_starts out of joint limits!")
+            print("#" * 80)
+            print(
+                f"q_starts = {q_starts}, joint_lower_limits = {joint_lower_limits}, joint_upper_limits = {joint_upper_limits}"
+            )
+            print(
+                f"q_starts < joint_lower_limits = {(q_starts < joint_lower_limits[None]).any()}"
+            )
+            print(
+                f"q_starts > joint_upper_limits = {(q_starts > joint_upper_limits[None]).any()}"
+            )
+            print(
+                f"(q_starts < joint_lower_limits[None]).nonzero() = {(q_starts < joint_lower_limits[None]).nonzero()}"
+            )
+            print(
+                f"(q_starts > joint_upper_limits[None]).nonzero() = {(q_starts > joint_upper_limits[None]).nonzero()}"
+            )
+
+            # HACK: Check if out of joint limits due to small numerical issues
+            eps = 1e-4
+            if (q_starts > joint_lower_limits[None] - eps).all() and (
+                q_starts < joint_upper_limits[None] + eps
+            ).all():
+                print(
+                    f"q_starts is close to joint limits within {eps}, so clamping to limits with some margin"
+                )
+                q_starts = torch.clamp(
+                    q_starts,
+                    joint_lower_limits[None] + eps,
+                    joint_upper_limits[None] - eps,
+                )
+            else:
+                print("q_starts is far from joint limits, so not clamping")
+                raise ValueError("q_starts out of joint limits!")
+
+    start_state = JointState.from_position(q_starts)
+
+    DEBUG_START_STATE_INVALID = False
+    if DEBUG_START_STATE_INVALID:
+        debug_start_state_invalid(
+            motion_gen_config=motion_gen_config, start_state=start_state
+        )
+
+    target_pose2 = Pose(
+        state2.ee_position,
+        quaternion=state2.ee_quaternion,
+    )
+    motion_result = motion_gen.plan_batch(
+        start_state=start_state,
+        goal_pose=target_pose2,
+        plan_config=MotionGenPlanConfig(
+            enable_graph=enable_graph,
+            enable_opt=enable_opt,
+            # max_attempts=10,
+            max_attempts=1,  # Reduce to save time?
+            num_trajopt_seeds=1,  # Reduce to save time?
+            num_graph_seeds=1,  # Must be 1 for plan_batch
+            timeout=timeout,
+        ),
+        link_poses=state2.link_pose,
+    )
+    return motion_result, ik_result, ik_result2
+
+
 def solve_trajopt_batch(
     X_W_Hs: np.ndarray,
     q_algrs: np.ndarray,
@@ -162,7 +388,7 @@ def solve_trajopt_batch(
     obj_xyz: Tuple[float, float, float] = (0.65, 0.0, 0.0),
     obj_quat_wxyz: Tuple[float, float, float, float] = (1.0, 0.0, 0.0, 0.0),
     collision_check_table: bool = True,
-    use_cuda_graph: bool = True,  # Getting some errors from setting this to True
+    use_cuda_graph: bool = True,
     enable_graph: bool = True,
     enable_opt: bool = False,  # Getting some errors from setting this to True
     timeout: float = 5.0,

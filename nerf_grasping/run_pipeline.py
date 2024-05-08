@@ -51,6 +51,7 @@ from functools import partial
 import sys
 print = partial(print, file=sys.stderr)
 
+from curobo.geom.types import Mesh
 from curobo.types.robot import RobotConfig, JointState
 from curobo.wrap.reacher.ik_solver import IKSolver, IKSolverConfig, IKResult
 from curobo.wrap.reacher.motion_gen import (
@@ -724,7 +725,6 @@ def run_curobo(
     #     timeout=5.0,
     #     collision_sphere_buffer=0.01,
     # )
-    from curobo.geom.types import Mesh
     mesh = Mesh("/tmp/mesh_viz_object.obj")
     ik_solver.world_coll_checker.world_model.add_obstacle(mesh)
     ik_solver2.world_coll_checker.world_model.add_obstacle(mesh)

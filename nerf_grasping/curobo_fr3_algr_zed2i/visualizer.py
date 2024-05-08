@@ -49,7 +49,7 @@ def start_visualizer(object_urdf_path: Optional[pathlib.Path] = None):
             str(object_urdf_path),
             useFixedBase=True,
             basePosition=[
-                10,
+                0.65,
                 0,
                 0,
             ],

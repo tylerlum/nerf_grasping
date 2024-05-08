@@ -43,6 +43,10 @@ from nerf_grasping.curobo_fr3_algr_zed2i.trajopt_fr3_algr_zed2i import (
     DEFAULT_Q_FR3,
     DEFAULT_Q_ALGR,
 )
+from functools import partial
+
+import sys
+print = partial(print, file=sys.stderr)
 
 from curobo.types.robot import RobotConfig, JointState
 from curobo.wrap.reacher.ik_solver import IKSolver, IKSolverConfig, IKResult
@@ -1056,6 +1060,7 @@ def run_pipeline(
 
     start_prepare_solve_trajopt_batch = time.time()
     robot_cfg, ik_solver, ik_solver2, motion_gen, motion_gen_config = prepare_solve_trajopt_batch(
+        n_grasps=X_W_Hs.shape[0],
         collision_check_object=True,
         obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
         obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
@@ -1069,6 +1074,7 @@ def run_pipeline(
     print(f"Time to prepare_solve_trajopt_batch: {end_prepare_solve_trajopt_batch - start_prepare_solve_trajopt_batch:.2f}s")
     print("@" * 80 + "\n")
 
+    start_run_curobo = time.time()
     qs, qds, T_trajs, success_idxs, DEBUG_TUPLE = run_curobo(
         cfg=cfg,
         X_W_Hs=X_W_Hs,
@@ -1085,7 +1091,7 @@ def run_pipeline(
     )
     curobo_time = time.time()
     print("@" * 80)
-    print(f"Time to run_curobo: {curobo_time - compute_grasps_time:.2f}s")
+    print(f"Time to run_curobo: {curobo_time - start_run_curobo:.2f}s")
     print("@" * 80 + "\n")
 
     print("\n" + "=" * 80)

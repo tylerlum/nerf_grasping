@@ -151,6 +151,7 @@ def debug_start_state_invalid(
 
 
 def prepare_solve_trajopt_batch(
+    n_grasps: int,
     collision_check_object: bool = True,
     obj_filepath: Optional[pathlib.Path] = pathlib.Path(
         "/juno/u/tylerlum/github_repos/nerf_grasping/experiments/2024-05-02_16-19-22/nerf_to_mesh/mug_330/coacd/decomposed.obj"
@@ -220,7 +221,7 @@ def prepare_solve_trajopt_batch(
         num_trajopt_noisy_seeds=1,  # Reduced to save time?
     )
     motion_gen = MotionGen(motion_gen_config)
-    # motion_gen.warmup(batch=N_GRASPS)  # Can cause issues with CUDA graph
+    motion_gen.warmup(batch=n_grasps)  # Can cause issues with CUDA graph
 
     end_time = time.time()
     print(f"Total time taken: {end_time - start_time} seconds")

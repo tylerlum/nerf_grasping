@@ -1,4 +1,3 @@
-from tqdm import tqdm
 import time
 from typing import Optional, Tuple, List
 from nerfstudio.models.base_model import Model
@@ -475,199 +474,49 @@ def compute_grasps(
     )
 
 
-def run_drake(
-    cfg: PipelineConfig,
-    X_W_Hs: np.ndarray,
-    q_algr_pres: np.ndarray,
-    q_algr_posts: np.ndarray,
-) -> None:
-    from nerf_grasping.fr3_algr_ik.ik import solve_ik
-
-    num_grasps = X_W_Hs.shape[0]
-    q_stars = []
-    for i in tqdm(range(num_grasps)):
-        X_W_H = X_W_Hs[i]
-        q_algr_pre = q_algr_pres[i]
-
-        try:
-            q_star = solve_ik(X_W_H=X_W_H, q_algr_pre=q_algr_pre, visualize=False)
-            print(f"Success for grasp {i}")
-            q_stars.append(q_star)
-        except RuntimeError as e:
-            print(f"Failed to solve IK for grasp {i}")
-            q_stars.append(None)
-    assert len(q_stars) == num_grasps
-    num_passed = sum([q_star is not None for q_star in q_stars])
-    print(
-        f"Number of grasps passed IK: {num_passed} / {num_grasps} ({num_passed / num_grasps * 100:.2f}%)"
-    )
-
-    print("\n" + "=" * 80)
-    print("Step 9: Solve trajopt for each grasp")
-    print("=" * 80 + "\n")
-
-    from nerf_grasping.fr3_algr_trajopt.trajopt import (
-        solve_trajopt,
-        TrajOptParams,
-        DEFAULT_Q_FR3,
-        DEFAULT_Q_ALGR,
-    )
-
-    trajopt_cfg = TrajOptParams(
-        num_control_points=21,
-        min_self_coll_dist=0.005,
-        influence_dist=0.01,
-        nerf_frame_offset=cfg.nerf_frame_offset_x,
-        s_start_self_col=0.5,
-        lqr_pos_weight=1e-1,
-        lqr_vel_weight=20.0,
-        presolve_no_collision=True,
-    )
-    USE_DEFAULT_Q_0 = True
-    if USE_DEFAULT_Q_0:
-        print("Using default q_0")
-        q_fr3_0 = DEFAULT_Q_FR3
-        q_algr_0 = DEFAULT_Q_ALGR
-    else:
-        raise NotImplementedError
-
-    passing_trajopt_idxs = []
-    failed_trajopt_idxs = []
-    not_attempted_trajopt_idxs = []
-    for i, q_star in tqdm(enumerate(q_stars), total=num_grasps):
-        if q_star is None:
-            not_attempted_trajopt_idxs.append(i)
-            continue
-
-        try:
-            spline, dspline, T_traj, trajopt = solve_trajopt(
-                q_fr3_0=q_fr3_0,
-                q_algr_0=q_algr_0,
-                q_fr3_f=q_star[:7],
-                q_algr_f=q_star[7:],
-                cfg=trajopt_cfg,
-                mesh_path=pathlib.Path("/tmp/mesh_viz_object.obj"),
-                visualize=False,
-                verbose=False,
-                ignore_obj_collision=False,
-            )
-            passing_trajopt_idxs.append(i)
-
-        except RuntimeError as e:
-            failed_trajopt_idxs.append(i)
-
-    print(f"passing_trajopt_idxs: {passing_trajopt_idxs}")
-    print(f"failed_trajopt_idxs: {failed_trajopt_idxs}")
-    print(f"not_attempted_trajopt_idxs: {not_attempted_trajopt_idxs}")
-
-    TRAJ_IDX = passing_trajopt_idxs[0] if len(passing_trajopt_idxs) > 0 else 0
-    print(f"Visualizing trajectory {TRAJ_IDX}")
-    try:
-        spline, dspline, T_traj, trajopt = solve_trajopt(
-            q_fr3_0=q_fr3_0,
-            q_algr_0=q_algr_0,
-            q_fr3_f=q_stars[TRAJ_IDX][:7],
-            q_algr_f=q_stars[TRAJ_IDX][7:],
-            cfg=trajopt_cfg,
-            mesh_path=pathlib.Path("/tmp/mesh_viz_object.obj"),
-            visualize=True,
-            verbose=False,
-            ignore_obj_collision=False,
-        )
-    except RuntimeError as e:
-        print(f"Failed to visualize trajectory {TRAJ_IDX}")
-
-    while True:
-        input_options = "\n".join(
-            [
-                "=====================",
-                "OPTIONS",
-                "b for breakpoint",
-                "r to run trajopt with object collision",
-                "o to run trajopt without object collision",
-                "n to go to next traj",
-                "p to go to prev traj",
-                "q to quit",
-                "=====================",
-            ]
-        )
-
-        x = input("\n" + input_options + "\n\n")
-        if x == "b":
-            print("Breakpoint")
-            breakpoint()
-        elif x == "r":
-            print(f"Visualizing trajectory {TRAJ_IDX} with object collision")
-            if q_stars[TRAJ_IDX] is not None:
-                try:
-                    spline, dspline, T_traj, trajopt = solve_trajopt(
-                        q_fr3_0=q_fr3_0,
-                        q_algr_0=q_algr_0,
-                        q_fr3_f=q_stars[TRAJ_IDX][:7],
-                        q_algr_f=q_stars[TRAJ_IDX][7:],
-                        cfg=trajopt_cfg,
-                        mesh_path=pathlib.Path("/tmp/mesh_viz_object.obj"),
-                        visualize=True,
-                        verbose=False,
-                        ignore_obj_collision=False,
-                    )
-                except RuntimeError as e:
-                    print(f"Failed to visualize trajectory {TRAJ_IDX}")
-            else:
-                print(f"Trajectory {TRAJ_IDX} is None, skipping")
-        elif x == "o":
-            print(f"Visualizing trajectory {TRAJ_IDX} without object collision")
-            if q_stars[TRAJ_IDX] is not None:
-                try:
-                    spline, dspline, T_traj, trajopt = solve_trajopt(
-                        q_fr3_0=q_fr3_0,
-                        q_algr_0=q_algr_0,
-                        q_fr3_f=q_stars[TRAJ_IDX][:7],
-                        q_algr_f=q_stars[TRAJ_IDX][7:],
-                        cfg=trajopt_cfg,
-                        mesh_path=pathlib.Path("/tmp/mesh_viz_object.obj"),
-                        visualize=True,
-                        verbose=False,
-                        ignore_obj_collision=True,
-                    )
-                except RuntimeError as e:
-                    print(f"Failed to visualize trajectory {TRAJ_IDX}")
-            else:
-                print(f"Trajectory {TRAJ_IDX} is None, skipping")
-        elif x == "n":
-            TRAJ_IDX += 1
-            if TRAJ_IDX >= num_grasps:
-                TRAJ_IDX = 0
-            print(f"Using trajectory {TRAJ_IDX}")
-        elif x == "p":
-            TRAJ_IDX -= 1
-            if TRAJ_IDX < 0:
-                TRAJ_IDX = num_grasps - 1
-            print(f"Using trajectory {TRAJ_IDX}")
-        elif x == "q":
-            print("Quitting")
-            break
-        else:
-            print(f"Invalid input: {x}")
-
-    print("Breakpoint to visualize")
-    breakpoint()
-
-
 def run_curobo(
     cfg: PipelineConfig,
     X_W_Hs: np.ndarray,
     q_algr_pres: np.ndarray,
     q_algr_posts: np.ndarray,
-    robot_cfg: RobotConfig,
-    ik_solver: IKSolver,
-    ik_solver2: IKSolver,
-    motion_gen: MotionGen,
-    motion_gen_config: MotionGenConfig,
+    q_fr3: np.ndarray,
+    q_algr: np.ndarray,
+    robot_cfg: Optional[RobotConfig] = None,
+    ik_solver: Optional[IKSolver] = None,
+    ik_solver2: Optional[IKSolver] = None,
+    motion_gen: Optional[MotionGen] = None,
+    motion_gen_config: Optional[MotionGenConfig] = None,
     losses: Optional[np.ndarray] = None,
-    q_fr3: Optional[np.ndarray] = None,
-    q_algr: Optional[np.ndarray] = None,
 ) -> Tuple[List[np.ndarray], List[np.ndarray], List[float], List[int], tuple]:
+    if (
+        robot_cfg is None
+        or ik_solver is None
+        or ik_solver2 is None
+        or motion_gen is None
+        or motion_gen_config is None
+    ):
+        print("\n" + "=" * 80)
+        print(f"robot_cfg is None: {robot_cfg is None}")
+        print(f"ik_solver is None: {ik_solver is None}")
+        print(f"ik_solver2 is None: {ik_solver2 is None}")
+        print(f"motion_gen is None: {motion_gen is None}")
+        print(f"motion_gen_config is None: {motion_gen_config is None}")
+        print("=" * 80 + "\n")
+        print(
+            "Creating new robot, ik_solver, ik_solver2, motion_gen, motion_gen_config"
+        )
+        robot_cfg, ik_solver, ik_solver2, motion_gen, motion_gen_config = (
+            prepare_solve_trajopt_batch(
+                n_grasps=cfg.num_grasps,
+                collision_check_object=True,
+                obj_filepath=pathlib.Path("/tmp/DUMMY_mesh_viz_object.obj"),
+                obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
+                obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+                collision_check_table=True,
+                use_cuda_graph=True,
+            )
+        )
+
     # Timing
     APPROACH_TIME = cfg.approach_time
     STAY_OPEN_TIME = cfg.stay_open_time
@@ -838,21 +687,23 @@ def run_curobo(
     ik_solver.update_world(no_objects_world_cfg)
     ik_solver2.update_world(no_objects_world_cfg)
     motion_gen.update_world(no_objects_world_cfg)
-    lift_motion_gen_result, lift_ik_result, lift_ik_result2 = solve_prepared_trajopt_batch(
-        X_W_Hs=X_W_H_lifts,
-        q_algrs=q_algr_pres,
-        q_fr3_starts=q_start_lifts[:, :7],
-        q_algr_starts=q_start_lifts[
-            :, 7:
-        ],  # We don't want to care about hand joints, just arm joints, so this doesn't matter much as long as not in collision with table
-        robot_cfg=robot_cfg,
-        ik_solver=ik_solver,
-        ik_solver2=ik_solver2,
-        motion_gen=motion_gen,
-        motion_gen_config=motion_gen_config,
-        enable_graph=True,
-        enable_opt=False,
-        timeout=3.0,
+    lift_motion_gen_result, lift_ik_result, lift_ik_result2 = (
+        solve_prepared_trajopt_batch(
+            X_W_Hs=X_W_H_lifts,
+            q_algrs=q_algr_pres,
+            q_fr3_starts=q_start_lifts[:, :7],
+            q_algr_starts=q_start_lifts[
+                :, 7:
+            ],  # We don't want to care about hand joints, just arm joints, so this doesn't matter much as long as not in collision with table
+            robot_cfg=robot_cfg,
+            ik_solver=ik_solver,
+            ik_solver2=ik_solver2,
+            motion_gen=motion_gen,
+            motion_gen_config=motion_gen_config,
+            enable_graph=True,
+            enable_opt=False,
+            timeout=3.0,
+        )
     )
 
     lift_motion_gen_success_idxs = (
@@ -1029,8 +880,13 @@ def run_curobo(
 def run_pipeline(
     nerf_model: Model,
     cfg: PipelineConfig,
-    q_fr3: Optional[np.ndarray] = None,
-    q_algr: Optional[np.ndarray] = None,
+    q_fr3: np.ndarray,
+    q_algr: np.ndarray,
+    robot_cfg: Optional[RobotConfig] = None,
+    ik_solver: Optional[IKSolver] = None,
+    ik_solver2: Optional[IKSolver] = None,
+    motion_gen: Optional[MotionGen] = None,
+    motion_gen_config: Optional[MotionGenConfig] = None,
 ) -> Tuple[List[np.ndarray], List[np.ndarray], List[float], List[int], tuple]:
 
     start_time = time.time()
@@ -1313,7 +1169,15 @@ def main() -> None:
     print("@" * 80 + "\n")
 
     qs, qds, T_trajs, success_idxs, DEBUG_TUPLE = run_pipeline(
-        nerf_model=nerf_model, cfg=args
+        nerf_model=nerf_model,
+        cfg=args,
+        q_fr3=DEFAULT_Q_FR3,
+        q_algr=DEFAULT_Q_ALGR,
+        robot_cfg=robot_cfg,
+        ik_solver=ik_solver,
+        ik_solver2=ik_solver2,
+        motion_gen=motion_gen,
+        motion_gen_config=motion_gen_config,
     )
 
     visualize(

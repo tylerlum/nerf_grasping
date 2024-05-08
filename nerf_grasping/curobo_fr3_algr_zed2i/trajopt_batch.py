@@ -258,8 +258,6 @@ def solve_prepared_trajopt_batch(
         .float()
         .cuda()
     )
-    start_state = JointState.from_position(q_starts)
-
     # Can't succeed in motion planning if joint limits are violated
     CHECK_JOINT_LIMITS = True
     if CHECK_JOINT_LIMITS:
@@ -304,6 +302,7 @@ def solve_prepared_trajopt_batch(
                     f"(q_starts > joint_upper_limits[None]).nonzero() = {(q_starts > joint_upper_limits[None]).nonzero()}"
                 )
                 raise ValueError("q_starts out of joint limits!")
+    start_state = JointState.from_position(q_starts)
 
     DEBUG_START_STATE_INVALID = True
     if DEBUG_START_STATE_INVALID:
@@ -485,12 +484,12 @@ def compute_over_limit_factors(
         qdd = np.diff(qd, axis=0) / dt
         qddd = np.diff(qdd, axis=0) / dt
 
-        qd_min = qd.min(axis=0)
-        qd_max = qd.max(axis=0)
-        qdd_min = qdd.min(axis=0)
-        qdd_max = qdd.max(axis=0)
-        qddd_min = qddd.min(axis=0)
-        qddd_max = qddd.max(axis=0)
+        qd_min = qd.min(axis=0) * (1 + safety_buffer)
+        qd_max = qd.max(axis=0) * (1 + safety_buffer)
+        qdd_min = qdd.min(axis=0) * (1 + safety_buffer)
+        qdd_max = qdd.max(axis=0) * (1 + safety_buffer)
+        qddd_min = qddd.min(axis=0) * (1 + safety_buffer)
+        qddd_max = qddd.max(axis=0) * (1 + safety_buffer)
 
         qd_min_under_scale = np.where(
             qd_min < qd_limits_min,
@@ -533,7 +532,6 @@ def compute_over_limit_factors(
             # qddd_max_over_scale,
         )
         assert rescale_factor >= 1.0
-        rescale_factor *= 1.0 + safety_buffer  # Add safety buffer
         rescale_factors.append(rescale_factor)
 
     return rescale_factors

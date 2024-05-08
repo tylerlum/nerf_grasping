@@ -43,6 +43,9 @@ from nerf_grasping.curobo_fr3_algr_zed2i.trajopt_fr3_algr_zed2i import (
     DEFAULT_Q_FR3,
     DEFAULT_Q_ALGR,
 )
+from nerf_grasping.curobo_fr3_algr_zed2i.fr3_algr_zed2i_world import (
+    get_world_cfg,
+)
 from functools import partial
 
 import sys
@@ -848,24 +851,53 @@ def run_curobo(
         q_start_lifts[i] = q_start_lifts[valid_idx]
         X_W_H_lifts[i] = X_W_H_lifts[valid_idx]
 
-    lift_motion_gen_result, lift_ik_result, lift_ik_result2 = solve_trajopt_batch(
+    # Using existing motion_gen means that object collisions are still checked for lift
+    # May want to create new world
+    # no_objects_world_cfg = get_world_cfg(
+    #     collision_check_object=False,
+    #     obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
+    #     obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
+    #     obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+    #     collision_check_table=True,
+    # )
+    # ik_solver.update_world(no_objects_world_cfg)
+    # ik_solver2.update_world(no_objects_world_cfg)
+    # motion_gen.update_world(no_objects_world_cfg)
+    lift_motion_gen_result, lift_ik_result, lift_ik_result2 = new_solve_trajopt_batch(
         X_W_Hs=X_W_H_lifts,
         q_algrs=q_algr_pres,
         q_fr3_starts=q_start_lifts[:, :7],
         q_algr_starts=q_start_lifts[
             :, 7:
         ],  # We don't want to care about hand joints, just arm joints, so this doesn't matter much as long as not in collision with table
-        collision_check_object=False,  # Don't need object collision check for lifting
-        obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
-        obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
-        obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
-        collision_check_table=True,  # Might not need to check this since we are going up, but can leave on to be safe
-        use_cuda_graph=True,
+        robot_cfg=robot_cfg,
+        ik_solver=ik_solver,
+        ik_solver2=ik_solver2,
+        motion_gen=motion_gen,
+        motion_gen_config=motion_gen_config,
         enable_graph=True,
         enable_opt=False,
         timeout=3.0,
-        collision_sphere_buffer=0.005,  # Reduce buffer for lift because not using object collision, less uncertainty
     )
+
+    # lift_motion_gen_result, lift_ik_result, lift_ik_result2 = solve_trajopt_batch(
+    #     X_W_Hs=X_W_H_lifts,
+    #     q_algrs=q_algr_pres,
+    #     q_fr3_starts=q_start_lifts[:, :7],
+    #     q_algr_starts=q_start_lifts[
+    #         :, 7:
+    #     ],  # We don't want to care about hand joints, just arm joints, so this doesn't matter much as long as not in collision with table
+    #     collision_check_object=False,  # Don't need object collision check for lifting
+    #     obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
+    #     obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
+    #     obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+    #     collision_check_table=True,  # Might not need to check this since we are going up, but can leave on to be safe
+    #     use_cuda_graph=True,
+    #     enable_graph=True,
+    #     enable_opt=False,
+    #     timeout=3.0,
+    #     collision_sphere_buffer=0.005,  # Reduce buffer for lift because not using object collision, less uncertainty
+    # )
     lift_motion_gen_success_idxs = (
         lift_motion_gen_result.success.flatten().nonzero().flatten().tolist()
     )

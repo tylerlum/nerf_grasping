@@ -57,7 +57,7 @@ print = partial(
     print, file=sys.stderr
 )  # Redirect print to stderr to get around ROS issue
 
-HACK_OFFSET = 2
+HACK_OFFSET = 0.1
 
 @dataclass
 class PipelineConfig:

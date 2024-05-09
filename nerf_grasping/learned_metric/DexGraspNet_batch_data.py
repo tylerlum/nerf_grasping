@@ -21,8 +21,10 @@ NUM_XYZ = 3
 
 
 @functools.lru_cache()
-def get_ray_origins_finger_frame_cached(cfg: BaseFingertipConfig) -> torch.Tensor:
-    ray_origins_finger_frame = get_ray_origins_finger_frame(cfg)
+def get_ray_origins_finger_frame_cached(
+    cfg: BaseFingertipConfig, device: torch.device | str = "cuda"
+) -> torch.Tensor:
+    ray_origins_finger_frame = get_ray_origins_finger_frame(cfg, device=device)
     return ray_origins_finger_frame
 
 
@@ -230,13 +232,11 @@ class BatchDataInput:
             self.fingertip_config.n_fingers,
         )
         ray_origins_finger_frame = get_ray_origins_finger_frame_cached(
-            self.fingertip_config
+            self.fingertip_config, device=grasp_transforms.device
         )
 
         all_query_points = get_ray_samples(
-            ray_origins_finger_frame.to(
-                device=grasp_transforms.device, dtype=grasp_transforms.dtype
-            ),
+            ray_origins_finger_frame,
             grasp_transforms,
             self.fingertip_config,
         ).frustums.get_positions()

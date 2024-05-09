@@ -65,15 +65,16 @@ class AllegroHandConfig(torch.nn.Module):
         batch_size: int = 1,  # TODO(pculbert): refactor for arbitrary batch sizes.
         chain: Chain = load_allegro(),
         requires_grad: bool = True,
+        device: torch.device | str = "cuda",
+        dtype: type = torch.float32,
     ) -> None:
-        # TODO(pculbert): add device/dtype kwargs.
         super().__init__()
         self.chain = chain
         self.wrist_pose = pp.Parameter(
-            pp.randn_SE3(batch_size), requires_grad=requires_grad
+            pp.randn_SE3(batch_size, device=device, dtype=dtype), requires_grad=requires_grad
         )
         self.joint_angles = torch.nn.Parameter(
-            torch.zeros(batch_size, 16), requires_grad=requires_grad
+            torch.zeros(batch_size, 16, device=device, dtype=dtype), requires_grad=requires_grad
         )
         self.batch_size = batch_size
 
@@ -95,8 +96,8 @@ class AllegroHandConfig(torch.nn.Module):
         assert wrist_pose.shape == (batch_size, 7)
         assert joint_angles.shape == (batch_size, 16)
 
-        hand_config = cls(batch_size, chain, requires_grad).to(
-            device=wrist_pose.device, dtype=wrist_pose.dtype
+        hand_config = cls(
+            batch_size, chain, requires_grad, device=wrist_pose.device, dtype=wrist_pose.dtype
         )
         hand_config.set_wrist_pose(wrist_pose)
         hand_config.set_joint_angles(joint_angles)
@@ -104,11 +105,17 @@ class AllegroHandConfig(torch.nn.Module):
 
     @classmethod
     def from_hand_config_dict(
-        cls, hand_config_dict: Dict[str, Any], check: bool = True
+        cls, hand_config_dict: Dict[str, Any], check: bool = True, numpy_inputs: bool = True
     ) -> AllegroHandConfig:
-        trans = torch.from_numpy(hand_config_dict["trans"]).float()
-        rot = torch.from_numpy(hand_config_dict["rot"]).float()
-        joint_angles = torch.from_numpy(hand_config_dict["joint_angles"]).float()
+        if numpy_inputs:
+            trans = torch.from_numpy(hand_config_dict["trans"]).float()
+            rot = torch.from_numpy(hand_config_dict["rot"]).float()
+            joint_angles = torch.from_numpy(hand_config_dict["joint_angles"]).float()
+        else:
+            trans = hand_config_dict["trans"]
+            rot = hand_config_dict["rot"]
+            joint_angles = hand_config_dict["joint_angles"]
+
         batch_size = trans.shape[0]
         assert trans.shape == (batch_size, 3)
         assert rot.shape == (batch_size, 3, 3)
@@ -124,7 +131,8 @@ class AllegroHandConfig(torch.nn.Module):
         assert (
             wrist_pose.shape == self.wrist_pose.shape
         ), f"New wrist pose, shape {wrist_pose.shape} does not match current wrist pose shape {self.wrist_pose.shape}"
-        self.wrist_pose.data = wrist_pose.data.clone()
+        # self.wrist_pose.data = wrist_pose.data.clone()
+        self.wrist_pose.data = wrist_pose.data
 
     def set_joint_angles(self, joint_angles: torch.Tensor) -> None:
         assert (
@@ -249,9 +257,10 @@ class AllegroGraspConfig(torch.nn.Module):
         chain: Chain = load_allegro(),
         requires_grad: bool = True,
         num_fingers: int = 4,
+        device: torch.device | str = "cuda",
+        dtype: type = torch.float32,
     ) -> None:
         # TODO(pculbert): refactor for arbitrary batch sizes.
-        # TODO(pculbert): add device/dtype kwargs.
 
         self.batch_size = batch_size
         super().__init__()
@@ -262,7 +271,7 @@ class AllegroGraspConfig(torch.nn.Module):
         # grasp_orientations refers to the orientation of each finger in world frame
         # (i.e. the third column of grasp_orientations rotation matrix is the finger approach direction in world frame)
         self.grasp_orientations = pp.Parameter(
-            pp.identity_SO3(batch_size, num_fingers),
+            pp.identity_SO3(batch_size, num_fingers, device=device),
             requires_grad=requires_grad,
         )
         self.num_fingers = num_fingers
@@ -301,8 +310,8 @@ class AllegroGraspConfig(torch.nn.Module):
         assert wrist_pose.shape == (batch_size, 7)
         assert grasp_orientations.shape == (batch_size, num_fingers, 4)
 
-        grasp_config = cls(batch_size, num_fingers=num_fingers).to(
-            device=wrist_pose.device, dtype=wrist_pose.dtype
+        grasp_config = cls(
+            batch_size, num_fingers=num_fingers, device=wrist_pose.device, dtype=wrist_pose.dtype
         )
         grasp_config.hand_config.set_wrist_pose(wrist_pose)
         grasp_config.hand_config.set_joint_angles(joint_angles)
@@ -362,6 +371,7 @@ class AllegroGraspConfig(torch.nn.Module):
         grasp_config_dict: Dict[str, Any],
         num_fingers: int = 4,
         check: bool = True,
+        numpy_inputs: bool = True,
     ) -> AllegroGraspConfig:
         """
         Factory method get grasp configs from grasp config_dict
@@ -374,14 +384,19 @@ class AllegroGraspConfig(torch.nn.Module):
 
         # Load hand config
         grasp_config.hand_config = AllegroHandConfig.from_hand_config_dict(
-            grasp_config_dict, check=check
+            grasp_config_dict, check=check, numpy_inputs=numpy_inputs
         )
 
-        grasp_orientations = (
-            torch.from_numpy(grasp_config_dict["grasp_orientations"])
-            .to(device)
-            .to(dtype)
-        )
+        if numpy_inputs:
+            grasp_orientations = (
+                torch.from_numpy(grasp_config_dict["grasp_orientations"])
+                .to(device)
+                .to(dtype)
+            )
+        else:
+            grasp_orientations = (
+                grasp_config_dict["grasp_orientations"]
+            )
         assert grasp_orientations.shape == (batch_size, num_fingers, 3, 3)
 
         # Set the grasp config's data.
@@ -392,7 +407,6 @@ class AllegroGraspConfig(torch.nn.Module):
                 grasp_orientations, pp.SO3_type, atol=1e-4, rtol=1e-4, check=check
             )
         )
-
         return grasp_config
 
     def as_dict(self) -> Dict[str, Any]:
@@ -454,7 +468,8 @@ class AllegroGraspConfig(torch.nn.Module):
         assert (
             grasp_orientations.shape == self.grasp_orientations.shape
         ), f"New grasp orientations, shape {grasp_orientations.shape}, do not match current grasp orientations shape {self.grasp_orientations.shape}"
-        self.grasp_orientations.data = grasp_orientations.data.clone()
+        # self.grasp_orientations.data = grasp_orientations.data.clone()
+        self.grasp_orientations.data = grasp_orientations.data
 
     def __getitem__(self, idxs) -> AllegroGraspConfig:
         """
@@ -507,9 +522,10 @@ class AllegroGraspConfig(torch.nn.Module):
 
     @property
     def grasp_dirs(self) -> torch.Tensor:  # shape [B, 4, 3].
-        return self.grasp_frame_transforms.rotation() @ Z_AXIS.to(
-            device=self.grasp_orientations.device, dtype=self.grasp_orientations.dtype
-        ).unsqueeze(0).unsqueeze(0)
+        Z_AXIS = torch.tensor(
+            [0, 0, 1], device=self.grasp_orientations.device, dtype=self.grasp_orientations.dtype
+        )
+        return self.grasp_frame_transforms.rotation() @ Z_AXIS[None, None, :]
 
     @property
     def target_joint_angles(self) -> torch.Tensor:
@@ -693,6 +709,38 @@ class GraspMetric(torch.nn.Module):
             grasp_configs=grasp_config.as_tensor(),
             object_y_wrt_table=None,  # ? NEED TO PASS THIS IN?
         ).to(grasp_config.hand_config.wrist_pose.device)
+
+        # Pass grasp transforms, densities into classifier.
+        if self.return_type == "failure_probability":
+            return self.classifier_model.get_failure_probability(batch_data_input)
+        elif self.return_type == "failure_logits":
+            return self.classifier_model(batch_data_input)[:, -1]
+        else:
+            raise ValueError(f"return_type {self.return_type} not recognized")
+
+    def forward_alt(
+        self,
+        grasp_config_transforms: torch.Tensor,
+    ) -> torch.Tensor:
+        """Alternative forward pass that doesn't use the grasp_config.
+
+        The above breaks the compute graph and prevents us from getting gradients.
+        """
+        # Generate RaySamples.
+        ray_samples = grasp_utils.get_ray_samples(
+            self.ray_origins_finger_frame,
+            grasp_config_transforms,
+            self.fingertip_config,
+        )
+
+        # Query NeRF at RaySamples
+        densities = self.nerf_field.get_density(ray_samples)[0][..., 0]
+        batch_data_input = BatchDataInput(
+            nerf_densities=densities,
+            grasp_transforms=grasp_config_transforms,
+            fingertip_config=self.fingertip_config,
+            grasp_configs=torch.zeros(1),  # [DEBUG] this shouldn't matter?
+        )
 
         # Pass grasp transforms, densities into classifier.
         if self.return_type == "failure_probability":

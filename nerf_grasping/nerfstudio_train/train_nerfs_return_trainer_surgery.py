@@ -16,27 +16,15 @@ import torch.distributed as dist
 
 @dataclass
 class Args:
+    """The goal of this is to start creating nerfstudio things before data is ready to amortize setup time"""
     nerfdata_folder: pathlib.Path
     nerfcheckpoints_folder: pathlib.Path
     max_num_iterations: int = 200
 
 
-def monitor_calls(func):
-    def wrapper(*args, **kwargs):
-        print(f"Calling {func.__name__} with args {args[1:]}, kwargs {kwargs}")
-        return func(*args, **kwargs)
-
-    return wrapper
+USE_CUSTOM_APPROACH = True
 
 
-def auto_decorate(cls):
-    for attr_name, attr_value in cls.__dict__.items():
-        if callable(attr_value):
-            setattr(cls, attr_name, monitor_calls(attr_value))
-    return cls
-
-
-@auto_decorate
 class CustomPipeline(VanillaPipeline):
 
     # HACK: trainer will look for pipeline.datamanager for .get_param_groups() and .get_training_callbacks()
@@ -60,66 +48,71 @@ class CustomPipeline(VanillaPipeline):
         local_rank: int = 0,
         grad_scaler: Optional[GradScaler] = None,
     ):
-        """THIS IS A COPY OF __init__ in https://github.com/nerfstudio-project/nerfstudio/blob/main/nerfstudio/pipelines/base_pipeline.py"""
+        """THIS IS A SMALL MODIFICATION OF __init__ in VanillaPipeline https://github.com/nerfstudio-project/nerfstudio/blob/main/nerfstudio/pipelines/base_pipeline.py"""
         # HACK: Don't call VanillaPipeline.__init__, but its super
-        # super().__init__()
         super(VanillaPipeline, self).__init__()
 
         self.config = config
         self.test_mode = test_mode
-        # HACK: Don't load datamanager yet
-        self.datamanager = self.DummyDataManager()
 
-        # self.datamanager: DataManager = config.datamanager.setup(
-        #     device=device, test_mode=test_mode, world_size=world_size, local_rank=local_rank
-        # )
-        # # TODO make cleaner
-        # seed_pts = None
-        # if (
-        #     hasattr(self.datamanager, "train_dataparser_outputs")
-        #     and "points3D_xyz" in self.datamanager.train_dataparser_outputs.metadata
-        # ):
-        #     pts = self.datamanager.train_dataparser_outputs.metadata["points3D_xyz"]
-        #     pts_rgb = self.datamanager.train_dataparser_outputs.metadata["points3D_rgb"]
-        #     seed_pts = (pts, pts_rgb)
-        # print(f"seed_pts: {seed_pts}")
-        # self.datamanager.to(device)
-        # # TODO(ethan): get rid of scene_bounds from the model
-        # assert self.datamanager.train_dataset is not None, "Missing input dataset"
+        if USE_CUSTOM_APPROACH:
+            # HACK: Don't load datamanager yet
+            self.datamanager = self.DummyDataManager()
 
-        # self.datamanager.get_param_groups = lambda: {}  # Manually populate this
-        # self.datamanager.get_training_callbacks = lambda x: []
-
-        # Manually populate this
-        # ASSUME seed_pts is None
-        seed_pts = None
-        aabb_scale = self.config.datamanager.dataparser.scene_scale
-        scene_box = SceneBox(
-            aabb=torch.tensor(
-                [
-                    [-aabb_scale, -aabb_scale, -aabb_scale],
-                    [aabb_scale, aabb_scale, aabb_scale],
-                ],
-                dtype=torch.float32,
+            # Manually populate this
+            # ASSUME seed_pts is None
+            seed_pts = None
+            aabb_scale = self.config.datamanager.dataparser.scene_scale
+            scene_box = SceneBox(
+                aabb=torch.tensor(
+                    [
+                        [-aabb_scale, -aabb_scale, -aabb_scale],
+                        [aabb_scale, aabb_scale, aabb_scale],
+                    ],
+                    dtype=torch.float32,
+                )
             )
-        )
-        num_train_data = 225  # WARNING: VERY HARCODED
-        metadata = (
-            {
-                "depth_filenames": None,
-                "depth_unit_scale_factor": self.config.datamanager.dataparser.depth_unit_scale_factor,
-                "mask_color": self.config.datamanager.dataparser.mask_color,
-            },
-        )
-        # scene_box = self.datamanager.train_dataset.scene_box
-        # num_train_data = len(self.datamanager.train_dataset)
-        # metadata = self.datamanager.train_dataset.metadata
-        # breakpoint()
+            num_train_data = (
+                225  # WARNING: VERY HARCODED, WILL CAUSE BIG ERRORS IF WRONG
+            )
+            metadata = (
+                {
+                    "depth_filenames": None,
+                    "depth_unit_scale_factor": self.config.datamanager.dataparser.depth_unit_scale_factor,
+                    "mask_color": self.config.datamanager.dataparser.mask_color,
+                },
+            )
+
+        else:
+            self.datamanager: DataManager = config.datamanager.setup(
+                device=device,
+                test_mode=test_mode,
+                world_size=world_size,
+                local_rank=local_rank,
+            )
+            # TODO make cleaner
+            seed_pts = None
+            if (
+                hasattr(self.datamanager, "train_dataparser_outputs")
+                and "points3D_xyz" in self.datamanager.train_dataparser_outputs.metadata
+            ):
+                pts = self.datamanager.train_dataparser_outputs.metadata["points3D_xyz"]
+                pts_rgb = self.datamanager.train_dataparser_outputs.metadata[
+                    "points3D_rgb"
+                ]
+                seed_pts = (pts, pts_rgb)
+            self.datamanager.to(device)
+            # TODO(ethan): get rid of scene_bounds from the model
+            assert self.datamanager.train_dataset is not None, "Missing input dataset"
+
+            scene_box = self.datamanager.train_dataset.scene_box
+            num_train_data = len(self.datamanager.train_dataset)
+            metadata = self.datamanager.train_dataset.metadata
 
         self._model = config.model.setup(
-            scene_box=scene_box,  # self.datamanager.train_dataset.scene_box,
-            num_train_data=num_train_data,  # len(self.datamanager.train_dataset),
-            metadata=metadata,  # self.datamanager.train_dataset.metadata,
+            scene_box=scene_box,
+            num_train_data=num_train_data,
+            metadata=metadata,
             device=device,
             grad_scaler=grad_scaler,
             seed_points=seed_pts,
@@ -139,7 +132,7 @@ def setup_train_loop_return_trainer(
     local_rank: int, world_size: int, config: TrainerConfig, global_rank: int = 0
 ) -> Trainer:
     """Main training function that sets up and runs the trainer per process
-    THIS IS A COPY OF train_loop in https://github.com/nerfstudio-project/nerfstudio/blob/main/nerfstudio/scripts/train.py
+    THIS IS A MODIFICATION OF train_loop in https://github.com/nerfstudio-project/nerfstudio/blob/main/nerfstudio/scripts/train.py
     BUT RETURNS THE TRAINER
 
     Args:
@@ -160,18 +153,19 @@ def finish_train_loop_return_trainer(
     config: TrainerConfig,
     global_rank: int = 0,
 ) -> Trainer:
-    # Setup datamanager now that data has arrived (same as start as original VanillaPipeline)
-    trainer.pipeline.datamanager = trainer.pipeline.config.datamanager.setup(
-        device=trainer.pipeline.device,
-        test_mode=trainer.pipeline.test_mode,
-        world_size=world_size,
-        local_rank=local_rank,
-    )
+    if USE_CUSTOM_APPROACH:
+        # Setup datamanager now that data has arrived (same as start as original VanillaPipeline)
+        trainer.pipeline.datamanager = trainer.pipeline.config.datamanager.setup(
+            device=trainer.pipeline.device,
+            test_mode=trainer.pipeline.test_mode,
+            world_size=world_size,
+            local_rank=local_rank,
+        )
 
-    trainer.pipeline.datamanager.to(trainer.pipeline.device)
-    assert (
-        trainer.pipeline.datamanager.train_dataset is not None
-    ), "Missing input dataset"
+        trainer.pipeline.datamanager.to(trainer.pipeline.device)
+        assert (
+            trainer.pipeline.datamanager.train_dataset is not None
+        ), "Missing input dataset"
 
     trainer.train()
 
@@ -185,9 +179,8 @@ def get_nerfacto_default_config():
 
 def get_nerfacto_custom_config():
     config = get_nerfacto_default_config()
-    # config.pipeline._target = VanillaPipeline
+    assert config.pipeline._target == VanillaPipeline  # Before it was VanillaPipeline
     config.pipeline._target = CustomPipeline
-    ## Before: _target: Type = field(default_factory=lambda: VanillaPipeline)
     return config
 
 
@@ -229,6 +222,7 @@ def train_nerf(
     end_time = time.time()
     print(f"Setup time: {mid_time - start_time}")
     print(f"Train time: {end_time - mid_time}")
+    print(f"Total time: {end_time - start_time}")
     return trainer
 
 

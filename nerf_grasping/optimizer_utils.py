@@ -104,11 +104,17 @@ class AllegroHandConfig(torch.nn.Module):
 
     @classmethod
     def from_hand_config_dict(
-        cls, hand_config_dict: Dict[str, Any], check: bool = True
+        cls, hand_config_dict: Dict[str, Any], check: bool = True, numpy_inputs: bool = True
     ) -> AllegroHandConfig:
-        trans = torch.from_numpy(hand_config_dict["trans"]).float()
-        rot = torch.from_numpy(hand_config_dict["rot"]).float()
-        joint_angles = torch.from_numpy(hand_config_dict["joint_angles"]).float()
+        if numpy_inputs:
+            trans = torch.from_numpy(hand_config_dict["trans"]).float()
+            rot = torch.from_numpy(hand_config_dict["rot"]).float()
+            joint_angles = torch.from_numpy(hand_config_dict["joint_angles"]).float()
+        else:
+            trans = hand_config_dict["trans"].float()
+            rot = hand_config_dict["rot"].float()
+            joint_angles = hand_config_dict["joint_angles"].float()
+
         batch_size = trans.shape[0]
         assert trans.shape == (batch_size, 3)
         assert rot.shape == (batch_size, 3, 3)
@@ -362,6 +368,7 @@ class AllegroGraspConfig(torch.nn.Module):
         grasp_config_dict: Dict[str, Any],
         num_fingers: int = 4,
         check: bool = True,
+        numpy_inputs: bool = True,
     ) -> AllegroGraspConfig:
         """
         Factory method get grasp configs from grasp config_dict
@@ -374,14 +381,19 @@ class AllegroGraspConfig(torch.nn.Module):
 
         # Load hand config
         grasp_config.hand_config = AllegroHandConfig.from_hand_config_dict(
-            grasp_config_dict, check=check
+            grasp_config_dict, check=check, numpy_inputs=numpy_inputs
         )
 
-        grasp_orientations = (
-            torch.from_numpy(grasp_config_dict["grasp_orientations"])
-            .to(device)
-            .to(dtype)
-        )
+        if numpy_inputs:
+            grasp_orientations = (
+                torch.from_numpy(grasp_config_dict["grasp_orientations"])
+                .to(device)
+                .to(dtype)
+            )
+        else:
+            grasp_orientations = (
+                grasp_config_dict["grasp_orientations"].to(device).to(dtype)
+            )
         assert grasp_orientations.shape == (batch_size, num_fingers, 3, 3)
 
         # Set the grasp config's data.

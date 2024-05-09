@@ -2,7 +2,7 @@
 
 This project focuses on performing precision grasp synthesis using Neural Radiance Fields (NeRFs).
 
-# Rough Installation Instructions (2024-01-17)
+# Rough Installation Instructions (2024-03-20)
 
 ```
 conda create -n nerf_grasping_env python=3.8
@@ -10,23 +10,10 @@ conda activate nerf_grasping_env
 
 # Install nerf-studio https://docs.nerf.studio/quickstart/installation.html
 python -m pip install --upgrade pip
-pip uninstall torch torchvision functorch tinycudann
-pip install torch==2.1.2+cu118 torchvision==0.16.2+cu118 --extra-index-url https://download.pytorch.org/whl/cu118
 conda install -c "nvidia/label/cuda-11.8.0" cuda-toolkit
-pip install ninja git+https://github.com/NVlabs/tiny-cuda-nn/#subdirectory=bindings/torch
-pip install nerfstudio
+pip install git+https://github.com/tylerlum/nerf_grasping.git
+pip install git+https://github.com/NVlabs/tiny-cuda-nn/#subdirectory=bindings/torch
 ns-install-cli
-
-# Install other dependencies
-pip install pypose numpy tyro wandb rich pytorch_kinematics mujoco transforms3d torchinfo urdf_parser_py
-
-# Other dependencies for fancy things we haven't used much like transformers and learning rate scheduling
-pip install positional_encodings diffusers
-
-# Install nerf_grasping
-git clone https://github.com/tylerlum/nerf_grasping.git
-cd nerf_grasping
-pip install -e .
 
 # Install pytorch3d
 mkdir thirdparty

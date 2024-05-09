@@ -27,6 +27,9 @@ class Args:
 
 # True to enable amortizing nerfstudio start time, set to False to use normal behavior without any modification
 USE_CUSTOM_APPROACH = True
+LOCAL_RANK = 0
+WORLD_SIZE = 1
+GLOBAL_RANK = 0
 
 
 class CustomPipeline(VanillaPipeline):
@@ -134,38 +137,31 @@ class CustomPipeline(VanillaPipeline):
             dist.barrier(device_ids=[local_rank])
 
 
-def setup_train_loop_without_data(
-    local_rank: int, world_size: int, config: TrainerConfig, global_rank: int = 0
-) -> Trainer:
+def setup_train_loop_without_data(config: TrainerConfig) -> Trainer:
     """Main training function that sets up and runs the trainer per process
     THIS IS A MODIFICATION OF train_loop in https://github.com/nerfstudio-project/nerfstudio/blob/main/nerfstudio/scripts/train.py
     BUT RETURNS THE TRAINER
 
     Args:
-        local_rank: current rank of process
-        world_size: total number of gpus available
         config: config file specifying training regimen
     """
-    _set_random_seed(config.machine.seed + global_rank)
-    trainer = config.setup(local_rank=local_rank, world_size=world_size)
+    _set_random_seed(config.machine.seed + GLOBAL_RANK)
+    trainer = config.setup(local_rank=LOCAL_RANK, world_size=WORLD_SIZE)
     trainer.setup()
     return trainer
 
 
 def finish_train_nerf(
     trainer: Trainer,
-    local_rank: int,
-    world_size: int,
     config: TrainerConfig,
-    global_rank: int = 0,
 ) -> Trainer:
     if USE_CUSTOM_APPROACH:
         # Setup datamanager now that data has arrived (same as start as original VanillaPipeline)
         trainer.pipeline.datamanager = trainer.pipeline.config.datamanager.setup(
             device=trainer.pipeline.device,
             test_mode=trainer.pipeline.test_mode,
-            world_size=world_size,
-            local_rank=local_rank,
+            world_size=WORLD_SIZE,
+            local_rank=LOCAL_RANK,
         )
 
         trainer.pipeline.datamanager.to(trainer.pipeline.device)
@@ -217,7 +213,7 @@ def setup_train_nerf_without_data(
     config.print_to_terminal()
     config.save_config()
 
-    trainer = setup_train_loop_without_data(local_rank=0, world_size=1, config=config)
+    trainer = setup_train_loop_without_data(config=config)
     return trainer, config
 
 
@@ -250,8 +246,6 @@ def main() -> None:
 
     trainer = finish_train_nerf(
         trainer=trainer,
-        local_rank=0,
-        world_size=1,
         config=train_config,
     )
 

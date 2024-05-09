@@ -244,7 +244,7 @@ def main() -> None:
         num_files == args.num_images
     ), f"Expected {args.num_images} files, got {num_files} in {args.nerfdata_folder / 'images'}"
 
-    trainer = finish_train_nerf(
+    finish_train_nerf(
         trainer=trainer,
         config=train_config,
     )

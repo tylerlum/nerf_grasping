@@ -287,23 +287,34 @@ def solve_prepared_trajopt_batch(
                     joint_upper_limits[None] - eps,
                 )
             else:
-                print("q_starts is far from joint limits, so not clamping")
-                print(
-                    f"q_starts = {q_starts}, joint_lower_limits = {joint_lower_limits}, joint_upper_limits = {joint_upper_limits}"
-                )
-                print(
-                    f"q_starts < joint_lower_limits = {(q_starts < joint_lower_limits[None]).any()}"
-                )
-                print(
-                    f"q_starts > joint_upper_limits = {(q_starts > joint_upper_limits[None]).any()}"
-                )
-                print(
-                    f"(q_starts < joint_lower_limits[None]).nonzero() = {(q_starts < joint_lower_limits[None]).nonzero()}"
-                )
-                print(
-                    f"(q_starts > joint_upper_limits[None]).nonzero() = {(q_starts > joint_upper_limits[None]).nonzero()}"
-                )
-                raise ValueError("q_starts out of joint limits!")
+                FAIL_IF_OUT_OF_JOINT_LIMITS = False
+                if FAIL_IF_OUT_OF_JOINT_LIMITS:
+                    print("q_starts is far from joint limits, so not clamping")
+                    print(
+                        f"q_starts = {q_starts}, joint_lower_limits = {joint_lower_limits}, joint_upper_limits = {joint_upper_limits}"
+                    )
+                    print(
+                        f"q_starts < joint_lower_limits = {(q_starts < joint_lower_limits[None]).any()}"
+                    )
+                    print(
+                        f"q_starts > joint_upper_limits = {(q_starts > joint_upper_limits[None]).any()}"
+                    )
+                    print(
+                        f"(q_starts < joint_lower_limits[None]).nonzero() = {(q_starts < joint_lower_limits[None]).nonzero()}"
+                    )
+                    print(
+                        f"(q_starts > joint_upper_limits[None]).nonzero() = {(q_starts > joint_upper_limits[None]).nonzero()}"
+                    )
+                    raise ValueError("q_starts out of joint limits!")
+                else:
+                    print(
+                        "q_starts is far from joint limits, but still clamping to limits with margin to continue"
+                    )
+                    q_starts = torch.clamp(
+                        q_starts,
+                        joint_lower_limits[None] + eps,
+                        joint_upper_limits[None] - eps,
+                    )
     start_state = JointState.from_position(q_starts)
 
     DEBUG_START_STATE_INVALID = True

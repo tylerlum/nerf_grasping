@@ -14,9 +14,57 @@ conda install -c "nvidia/label/cuda-11.8.0" cuda-toolkit
 pip install git+https://github.com/tylerlum/nerf_grasping.git
 pip install git+https://github.com/NVlabs/tiny-cuda-nn/#subdirectory=bindings/torch
 ns-install-cli
+
+# Install pytorch3d
+mkdir thirdparty
+cd thirdparty
+git clone https://github.com/facebookresearch/pytorch3d.git
+cd pytorch3d && pip install -e .
+
+# Install drake
+pip install drake
+
+# Install curobo (Library Installation step in https://curobo.org/get_started/1_install_instructions.html#library-installation, but with custom fork)
+sudo apt install git-lfs
+git clone https://github.com/tylerlum/curobo.git
+cd curobo
+git lfs pull  # Maybe need to add this (https://github.com/NVlabs/curobo/issues/10)
+pip install -e . --no-build-isolation  # ~20 min
+python3 -m pytest .  # To verify
 ```
 
-# How to run at inference time (Albert)
+# How to run at inference time (Albert) (~May 2024)
+
+Running from nerfdata (with a folder that has `images` and `transforms.json`):
+```
+python nerf_grasping/run_pipeline.py \
+--nerfdata-path 2024-04-25_ALBERT_data/nerfdata/upside_down_yellow_cup_0_9999 \
+--init-grasp-config-dict-path /juno/u/tylerlum/github_repos/DexGraspNet/data/2024-04-16_rotated_grasps_aggregated_augmented_pose_HALTON_50/aggregated_evaled_grasp_config_dicts_train/aggregated_evaled_grasp_config_dict_train.npy \
+--classifier-config-path /juno/u/tylerlum/github_repos/nerf_grasping/Train_DexGraspNet_NeRF_Grasp_Metric_workspaces/3000rotated_augmented_pose_HALTON_50_cnn-3d-xyz_l2_all_2024-04-17_00-53-42-594438/config.yaml \
+--object_code upside_down_yellow_cup \
+--visualize \
+--random_seed 0 \
+--num_grasps 32 \
+--n_random_rotations_per_grasp 5 \
+--max_num_iterations 1000 \
+--num_steps 0 
+```
+
+Running from nerfcheckpoint (with a trained nerf):
+```
+python nerf_grasping/run_pipeline.py \
+--nerfcheckpoint-path experiments/2024-05-05_16-24-37/nerfcheckpoints/upside_down_yellow_cup_0_9999/nerfacto/2024-05-05_162437/config.yml \
+--init-grasp-config-dict-path /juno/u/tylerlum/github_repos/DexGraspNet/data/2024-04-16_rotated_grasps_aggregated_augmented_pose_HALTON_50/aggregated_evaled_grasp_config_dicts_train/aggregated_evaled_grasp_config_dict_train.npy \
+--classifier-config-path /juno/u/tylerlum/github_repos/nerf_grasping/Train_DexGraspNet_NeRF_Grasp_Metric_workspaces/3000rotated_augmented_pose_HALTON_50_cnn-3d-xyz_l2_all_2024-04-17_00-53-42-594438/config.yaml \
+--object_code upside_down_yellow_cup \
+--visualize \
+--random_seed 0 \
+--num_grasps 32 \
+--n_random_rotations_per_grasp 5 \
+--num_steps 0 
+```
+
+# How to run at inference time (Albert) (Before April 2024)
 
 ## Step 1: Get Required Starting Files
 
@@ -92,7 +140,6 @@ We have the following API to read in the optimized grasps from above:
 ```
 def get_sorted_grasps_from_file(
     optimized_grasp_config_dict_filepath: pathlib.Path,
-    object_transform_world_frame: Optional[np.ndarray] = None,
     error_if_no_loss: bool = True,
     check: bool = True,
     print_best: bool = True,
@@ -100,37 +147,34 @@ def get_sorted_grasps_from_file(
     """
     This function processes optimized grasping configurations in preparation for hardware tests.
 
-    It reads a given .npy file containing optimized grasps, computes target joint angles for each grasp, and sorts these grasps based on a pre-computed grasp metric, with the most favorable grasp appearing first in the batch dimension.
+    It reads a given .npy file containing optimized grasps, computes target and pre joint angles for each grasp, and sorts these grasps based on a pre-computed grasp metric, with the most favorable grasp appearing first in the batch dimension.
 
     Parameters:
     optimized_grasp_config_dict_filepath (pathlib.Path): The file path to the optimized grasp .npy file. This file should contain wrist poses, joint angles, grasp orientations, and loss from grasp metric.
-    object_transform_world_frame (np.ndarray): Transformation matrix representing the object's pose in world frame. Defaults to None.
     error_if_no_loss (bool): Whether to raise an error if the loss is not found in the grasp config dict. Defaults to True.
     check (bool): Whether to check the validity of the grasp configurations (sometimes sensitive or off manifold from optimization?). Defaults to True.
     print_best (bool): Whether to print the best grasp configurations. Defaults to True.
 
     Returns:
     Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    - A batch of wrist translations in a numpy array of shape (B, 3), representing position in world frame
-    - A batch of wrist rotations in a numpy array of shape (B, 3, 3), representing orientation in world frame (avoid quat to be less ambiguous about order)
+    - A batch of wrist transformations of object yup frame wrt nerf frame in a numpy array of shape (B, 4, 4), representing pose in nerf frame (avoid quat to be less ambiguous about order)
     - A batch of joint angles in a numpy array of shape (B, 16)
     - A batch of target joint angles in a numpy array of shape (B, 16)
+    - A batch of pre joint angles in a numpy array of shape (B, 16)
 
     Example:
-    >>> wrist_trans, wrist_rot, joint_angles, target_joint_angles = get_sorted_grasps(pathlib.Path("path/to/optimized_grasp_config.npy"))
-    >>> B = wrist_trans.shape[0]
-    >>> assert wrist_trans.shape == (B, 3)
-    >>> assert wrist_rot.shape == (B, 3, 3)
-    >>> assert joint_angles.shape == (B, 16)
-    >>> assert target_joint_angles.shape == (B, 16)
+    >>> X_Oy_H_array, joint_angles_array, target_joint_angles_array, pre_joint_angles_array = get_sorted_grasps_from_file(pathlib.Path("path/to/optimized_grasp_config.npy"))
+    >>> B = X_Oy_H_array.shape[0]
+    >>> assert X_Oy_H_array.shape == (B, 4, 4)
+    >>> assert joint_angles_array.shape == (B, 16)
+    >>> assert target_joint_angles_array.shape == (B, 16)
+    >>> assert pre_joint_angles_array.shape == (B, 16)
     """
 ```
 
-This can be imported with `from nerf_grasping.optimizer_utils import get_sorted_grasps`.
+This can be imported with `from nerf_grasping.optimizer_utils import get_sorted_grasps_from_file`.
 
-Start from the beginning of the list. Check if the grasp passes collision checks. If it does, execute the grasp. If it does not, move onto the next grasp.
-
-`object_transform_world_frame` is a transformation matrix that represents the pose of the object center in world frame, which helps move the grasp from object frame to world frame.
+Start from the beginning of the batch dimension. Check if the grasp passes collision checks. If it does, execute the grasp. If it does not, move onto the next grasp.
 
 # How to run (2023-12-04)
 

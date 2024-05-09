@@ -29,13 +29,16 @@ class OptimizationConfig:
     output_path: Optional[pathlib.Path] = None
     wandb: Optional[WandbConfig] = field(
         default_factory=lambda: WandbConfig(
-            project=DEFAULT_WANDB_PROJECT
+            project=DEFAULT_WANDB_PROJECT,
         )
     )
     use_rich: bool = False
     """Whether to use rich for logging (rich is nice but makes breakpoint() not work)."""
     print_freq: int = 5
     save_grasps_freq: int = 5
+    random_seed: Optional[int] = None
+    n_random_rotations_per_grasp: int = 5
+    filter_less_feasible_grasps: bool = True
 
     def __post_init__(self):
         """

@@ -3,6 +3,9 @@ from dataclasses import dataclass, field
 from typing import Optional, Literal, Tuple, List, Union
 from nerf_grasping.config.fingertip_config import UnionFingertipConfig
 from nerf_grasping.classifier import (
+    CNN_3D_XYZXYZ_Classifier,
+    CNN_3D_XYZXYZY_Classifier,
+    CNN_3D_XYZY_Classifier,
     CNN_3D_XYZ_Classifier,
     CNN_2D_1D_Classifier,
     Simple_CNN_2D_1D_Classifier,
@@ -39,6 +42,7 @@ class TaskType(Enum):
     PASSED_PENETRATION_THRESHOLD = auto()
     PASSED_EVAL = auto()
     PASSED_SIMULATION_AND_PENETRATION_THRESHOLD = auto()
+    PASSED_SIMULATION_AND_PENETRATION_THRESHOLD_AND_EVAL = auto()
 
     @property
     def n_tasks(self) -> int:
@@ -56,6 +60,12 @@ class TaskType(Enum):
             return [
                 "passed_simulation",
                 "passed_penetration_threshold",
+            ]
+        elif self == TaskType.PASSED_SIMULATION_AND_PENETRATION_THRESHOLD_AND_EVAL:
+            return [
+                "passed_simulation",
+                "passed_penetration_threshold",
+                "passed_eval",
             ]
         else:
             raise ValueError(f"Unknown task_type: {self}")
@@ -260,6 +270,116 @@ class ClassifierModelConfig:
 
 
 @dataclass(frozen=True)
+class CNN_3D_XYZY_ModelConfig(ClassifierModelConfig):
+    """"Parameters for the CNN_3D_XYZY_Classifier."""
+
+    conv_channels: List[int]
+    """List of channels for each convolutional layer. Length specifies number of layers."""
+
+    mlp_hidden_layers: List[int]
+    """List of hidden layer sizes for the MLP. Length specifies number of layers."""
+
+    n_fingers: int = 4
+    """Number of fingers."""
+
+    def input_shape_from_fingertip_config(self, fingertip_config: UnionFingertipConfig):
+        n_density_channels = 1
+        n_xyz_channels = 3
+        n_y_channels = 1
+        return [
+            n_density_channels + n_xyz_channels + n_y_channels,
+            fingertip_config.num_pts_x,
+            fingertip_config.num_pts_y,
+            fingertip_config.num_pts_z,
+        ]
+
+    def get_classifier_from_fingertip_config(self, fingertip_config: UnionFingertipConfig, n_tasks: int) -> Classifier:
+        """Helper method to return the correct classifier from config."""
+
+        input_shape = self.input_shape_from_fingertip_config(fingertip_config)
+        return CNN_3D_XYZY_Classifier(
+            input_shape=input_shape,
+            n_fingers=fingertip_config.n_fingers,
+            n_tasks=n_tasks,
+            conv_channels=self.conv_channels,
+            mlp_hidden_layers=self.mlp_hidden_layers,
+        )
+
+
+@dataclass(frozen=True)
+class CNN_3D_XYZXYZY_ModelConfig(ClassifierModelConfig):
+    """"Parameters for the CNN_3D_XYZXYZY_Classifier."""
+
+    conv_channels: List[int]
+    """List of channels for each convolutional layer. Length specifies number of layers."""
+
+    mlp_hidden_layers: List[int]
+    """List of hidden layer sizes for the MLP. Length specifies number of layers."""
+
+    n_fingers: int = 4
+    """Number of fingers."""
+
+    def input_shape_from_fingertip_config(self, fingertip_config: UnionFingertipConfig):
+        n_density_channels = 1
+        n_xyz_channels = 3
+        n_y_channels = 1
+        return [
+            n_density_channels + n_xyz_channels + n_xyz_channels + n_y_channels,
+            fingertip_config.num_pts_x,
+            fingertip_config.num_pts_y,
+            fingertip_config.num_pts_z,
+        ]
+
+    def get_classifier_from_fingertip_config(self, fingertip_config: UnionFingertipConfig, n_tasks: int) -> Classifier:
+        """Helper method to return the correct classifier from config."""
+
+        input_shape = self.input_shape_from_fingertip_config(fingertip_config)
+        return CNN_3D_XYZXYZY_Classifier(
+            input_shape=input_shape,
+            n_fingers=fingertip_config.n_fingers,
+            n_tasks=n_tasks,
+            conv_channels=self.conv_channels,
+            mlp_hidden_layers=self.mlp_hidden_layers,
+        )
+
+
+@dataclass(frozen=True)
+class CNN_3D_XYZXYZ_ModelConfig(ClassifierModelConfig):
+    """"Parameters for the CNN_3D_XYZXYZ_Classifier."""
+
+    conv_channels: List[int]
+    """List of channels for each convolutional layer. Length specifies number of layers."""
+
+    mlp_hidden_layers: List[int]
+    """List of hidden layer sizes for the MLP. Length specifies number of layers."""
+
+    n_fingers: int = 4
+    """Number of fingers."""
+
+    def input_shape_from_fingertip_config(self, fingertip_config: UnionFingertipConfig):
+        n_density_channels = 1
+        n_xyz_channels = 3
+        return [
+            n_density_channels + n_xyz_channels + n_xyz_channels,
+            fingertip_config.num_pts_x,
+            fingertip_config.num_pts_y,
+            fingertip_config.num_pts_z,
+        ]
+
+    def get_classifier_from_fingertip_config(self, fingertip_config: UnionFingertipConfig, n_tasks: int) -> Classifier:
+        """Helper method to return the correct classifier from config."""
+
+        input_shape = self.input_shape_from_fingertip_config(fingertip_config)
+        return CNN_3D_XYZXYZ_Classifier(
+            input_shape=input_shape,
+            n_fingers=fingertip_config.n_fingers,
+            n_tasks=n_tasks,
+            conv_channels=self.conv_channels,
+            mlp_hidden_layers=self.mlp_hidden_layers,
+        )
+
+
+@dataclass(frozen=True)
 class CNN_3D_XYZ_ModelConfig(ClassifierModelConfig):
     """Parameters for the CNN_3D_XYZ_Classifier."""
 
@@ -273,8 +393,10 @@ class CNN_3D_XYZ_ModelConfig(ClassifierModelConfig):
     """Number of fingers."""
 
     def input_shape_from_fingertip_config(self, fingertip_config: UnionFingertipConfig):
+        n_density_channels = 1
+        n_xyz_channels = 3
         return [
-            4,
+            n_density_channels + n_xyz_channels,
             fingertip_config.num_pts_x,
             fingertip_config.num_pts_y,
             fingertip_config.num_pts_z,
@@ -574,6 +696,24 @@ class ClassifierConfig:
 
 
 DEFAULTS_DICT = {
+    "cnn-3d-xyzxyz": ClassifierConfig(
+        model_config=CNN_3D_XYZXYZ_ModelConfig(
+            conv_channels=[32, 64, 128], mlp_hidden_layers=[256, 256]
+        ),
+        nerfdata_config=GridNerfDataConfig(),
+    ),
+    "cnn-3d-xyzy": ClassifierConfig(
+        model_config=CNN_3D_XYZY_ModelConfig(
+            conv_channels=[32, 64, 128], mlp_hidden_layers=[256, 256]
+        ),
+        nerfdata_config=GridNerfDataConfig(),
+    ),
+    "cnn-3d-xyzxyzy": ClassifierConfig(
+        model_config=CNN_3D_XYZXYZY_ModelConfig(
+            conv_channels=[32, 64, 128], mlp_hidden_layers=[256, 256]
+        ),
+        nerfdata_config=GridNerfDataConfig(),
+    ),
     "cnn-3d-xyz": ClassifierConfig(
         model_config=CNN_3D_XYZ_ModelConfig(
             conv_channels=[32, 64, 128], mlp_hidden_layers=[256, 256]

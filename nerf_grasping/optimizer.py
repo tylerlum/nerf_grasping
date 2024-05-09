@@ -1,13 +1,19 @@
 from __future__ import annotations
+import math
+import pypose as pp
+from collections import defaultdict
 from nerf_grasping.optimizer_utils import (
     AllegroGraspConfig,
     GraspMetric,
     DepthImageGraspMetric,
+    predict_in_collision_with_object,
+    predict_in_collision_with_table,
+    get_hand_surface_points_Oy,
+    get_joint_limits,
 )
 from dataclasses import asdict
 from nerf_grasping.config.optimization_config import OptimizationConfig
 import pathlib
-import grasp_utils
 import torch
 from nerf_grasping.classifier import Classifier, Simple_CNN_LSTM_Classifier
 from nerf_grasping.config.classifier_config import ClassifierConfig
@@ -146,6 +152,22 @@ class SGDOptimizer(Optimizer):
                 )
             )
 
+        joint_lower_limits, joint_upper_limits = get_joint_limits()
+        self.joint_lower_limits, self.joint_upper_limits = torch.from_numpy(
+            joint_lower_limits
+        ).float().to(self.grasp_config.wrist_pose.device), torch.from_numpy(
+            joint_upper_limits
+        ).float().to(self.grasp_config.wrist_pose.device)
+
+        assert self.joint_lower_limits.shape == (16,)
+        assert self.joint_upper_limits.shape == (16,)
+
+        self.grasp_config.joint_angles.data = torch.clamp(
+            self.grasp_config.joint_angles,
+            min=self.joint_lower_limits,
+            max=self.joint_upper_limits,
+        )
+
     def step(self):
         self.joint_optimizer.zero_grad()
         if self.optimizer_config.opt_wrist_pose:
@@ -160,10 +182,18 @@ class SGDOptimizer(Optimizer):
         losses.sum().backward()  # Should be sum so gradient magnitude per parameter is invariant to batch size.
 
         self.joint_optimizer.step()
+
         if self.optimizer_config.opt_wrist_pose:
             self.wrist_optimizer.step()
         if self.optimizer_config.opt_grasp_dirs:
             self.grasp_dir_optimizer.step()
+
+        # Clip joint angles to feasible range.
+        self.grasp_config.joint_angles.data = torch.clamp(
+            self.grasp_config.joint_angles,
+            min=self.joint_lower_limits,
+            max=self.joint_upper_limits,
+        )
 
 
 class CEMOptimizer(Optimizer):
@@ -271,6 +301,8 @@ def run_optimizer_loop(
     optimizer_config: Union[SGDOptimizerConfig, CEMOptimizerConfig],
     print_freq: int,
     save_grasps_freq: int,
+    output_path: pathlib.Path,
+    use_rich: bool = False,
     console=Console(),
 ) -> Tuple[torch.Tensor, AllegroGraspConfig]:
     """
@@ -286,7 +318,7 @@ def run_optimizer_loop(
             TimeElapsedColumn(),
             console=console,
         )
-        if cfg.use_rich
+        if use_rich
         else nullcontext()
     ) as progress:
         task_id = (
@@ -339,7 +371,7 @@ def run_optimizer_loop(
 
                 # To interface with mid optimization visualizer, need to create new folder (mid_optimization_folder_path)
                 # that has folders with iteration number
-                # TODO: Decide if this should just store in cfg.output_path.parent (does this cause issues?) or store in new folder
+                # TODO: Decide if this should just store in output_path.parent (does this cause issues?) or store in new folder
                 # <mid_optimization_folder_path>
                 #    - 0
                 #        - <object_code_and_scale_str>.py
@@ -350,8 +382,8 @@ def run_optimizer_loop(
                 #    - 3x
                 #        - <object_code_and_scale_str>.py
                 main_output_folder_path, filename = (
-                    cfg.output_path.parent,
-                    cfg.output_path.name,
+                    output_path.parent,
+                    output_path.name,
                 )
                 mid_optimization_folder_path = (
                     main_output_folder_path / "mid_optimization"
@@ -373,14 +405,18 @@ def run_optimizer_loop(
     )
 
 
-def get_optimized_grasps(cfg: OptimizationConfig) -> Dict[str, np.ndarray]:
-    print("=" * 80)
-    print(f"Config:\n{tyro.extras.to_yaml(cfg)}")
-    print("=" * 80 + "\n")
+def get_optimized_grasps(
+    cfg: OptimizationConfig,
+    grasp_metric: Union[GraspMetric, DepthImageGraspMetric] = None,
+) -> Dict[str, np.ndarray]:
+    # print("=" * 80)
+    # print(f"Config:\n{tyro.extras.to_yaml(cfg)}")
+    # print("=" * 80 + "\n")
 
     # Create rich.Console object.
-    torch.random.manual_seed(0)
-    np.random.seed(0)
+    if cfg.random_seed is not None:
+        torch.random.manual_seed(cfg.random_seed)
+        np.random.seed(cfg.random_seed)
 
     console = Console(width=120)
 
@@ -412,29 +448,181 @@ def get_optimized_grasps(cfg: OptimizationConfig) -> Dict[str, np.ndarray]:
             cfg.init_grasp_config_dict_path, allow_pickle=True
         ).item()
 
+        # HACK: For now, just take every 400th grasp.
+        # for key in init_grasp_config_dict.keys():
+        #     init_grasp_config_dict[key] = init_grasp_config_dict[key][::400]
+
         init_grasp_configs = AllegroGraspConfig.from_grasp_config_dict(
             init_grasp_config_dict
         )
 
-        init_grasp_configs = init_grasp_configs[: cfg.optimizer.num_grasps]
+        # HACK: For now, just take the first num_grasps.
+        # init_grasp_configs = init_grasp_configs[: cfg.optimizer.num_grasps]
 
         if progress is not None and task is not None:
             progress.update(task, advance=1)
 
     # Create grasp metric
-    USE_DEPTH_IMAGES = isinstance(
-        cfg.grasp_metric.classifier_config.nerfdata_config, DepthImageNerfDataConfig
-    )
-    if USE_DEPTH_IMAGES:
-        grasp_metric = DepthImageGraspMetric.from_config(
-            cfg.grasp_metric,
-            console=console,
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if grasp_metric is None:
+        print(
+            f"Loading classifier config from {cfg.grasp_metric.classifier_config_path}"
         )
+        USE_DEPTH_IMAGES = isinstance(
+            cfg.grasp_metric.classifier_config.nerfdata_config, DepthImageNerfDataConfig
+        )
+        if USE_DEPTH_IMAGES:
+            grasp_metric = DepthImageGraspMetric.from_config(
+                cfg.grasp_metric,
+                console=console,
+            )
+        else:
+            grasp_metric = GraspMetric.from_config(
+                cfg.grasp_metric,
+                console=console,
+            )
     else:
-        grasp_metric = GraspMetric.from_config(
-            cfg.grasp_metric,
-            console=console,
+        print("Using provided grasp metric.")
+    grasp_metric = grasp_metric.to(device=device)
+
+    # Put this here to ensure that the random seed is set before sampling random rotations.
+    if cfg.random_seed is not None:
+        torch.manual_seed(cfg.random_seed)
+
+    BATCH_SIZE = 64
+    all_preds = []
+    all_predicted_in_collision_obj = []
+    all_predicted_in_collision_table = []
+    with torch.no_grad():
+        # Sample random rotations
+        N_SAMPLES = 1 + cfg.n_random_rotations_per_grasp
+        new_grasp_configs_list = []
+        for i in range(N_SAMPLES):
+            new_grasp_configs = AllegroGraspConfig.from_grasp_config_dict(
+                init_grasp_config_dict
+            )
+            if i != 0:
+                random_rotate_transforms = (
+                    sample_random_rotate_transforms_only_around_y(
+                        new_grasp_configs.batch_size
+                    )
+                )
+                new_grasp_configs.hand_config.set_wrist_pose(
+                    random_rotate_transforms @ new_grasp_configs.hand_config.wrist_pose
+                )
+            new_grasp_configs_list.append(new_grasp_configs)
+
+        new_grasp_config_dicts = defaultdict(list)
+        for i in range(N_SAMPLES):
+            config_dict = new_grasp_configs_list[i].as_dict()
+            for k, v in config_dict.items():
+                new_grasp_config_dicts[k].append(v)
+        for k, v in new_grasp_config_dicts.items():
+            new_grasp_config_dicts[k] = np.concatenate(v, axis=0)
+        new_grasp_configs = AllegroGraspConfig.from_grasp_config_dict(
+            new_grasp_config_dicts
         )
+        assert new_grasp_configs.batch_size == init_grasp_configs.batch_size * N_SAMPLES
+
+        # Filter grasps that are less IK feasible
+        if cfg.filter_less_feasible_grasps:
+            wrist_pose_matrix = new_grasp_configs.wrist_pose.matrix()
+            x_dirs = wrist_pose_matrix[:, :, 0]
+            z_dirs = wrist_pose_matrix[:, :, 2]
+
+            cos_theta = math.cos(math.radians(60))
+            fingers_forward = z_dirs[:, 0] >= cos_theta
+            palm_upwards = x_dirs[:, 1] >= cos_theta
+            new_grasp_configs = new_grasp_configs[fingers_forward & ~palm_upwards]
+
+        # Evaluate grasp metric and collisions
+        n_batches = math.ceil(new_grasp_configs.batch_size / BATCH_SIZE)
+        for batch_i in tqdm(range(n_batches)):
+            start_idx = batch_i * BATCH_SIZE
+            end_idx = np.clip(
+                (batch_i + 1) * BATCH_SIZE,
+                a_min=None,
+                a_max=new_grasp_configs.batch_size,
+            )
+
+            temp_grasp_configs = new_grasp_configs[start_idx:end_idx].to(device=device)
+
+            # Metric
+            preds = grasp_metric.get_failure_probability(temp_grasp_configs)
+            all_preds.append(1 - preds.detach().cpu().numpy())
+
+            # Collision with object
+            hand_surface_points_Oy = get_hand_surface_points_Oy(
+                grasp_config=temp_grasp_configs
+            )
+            predicted_in_collision_obj = predict_in_collision_with_object(
+                nerf_field=grasp_metric.nerf_field,
+                hand_surface_points_Oy=hand_surface_points_Oy,
+            )
+            all_predicted_in_collision_obj.append(predicted_in_collision_obj)
+
+            # Collision with table
+            USE_TABLE = False
+            if USE_TABLE:
+                table_y_Oy = -cfg.grasp_metric.X_N_Oy[2, 3]
+                predicted_in_collision_table = predict_in_collision_with_table(
+                    table_y_Oy=table_y_Oy,
+                    hand_surface_points_Oy=hand_surface_points_Oy,
+                )
+                all_predicted_in_collision_table.append(predicted_in_collision_table)
+            else:
+                all_predicted_in_collision_table.append(
+                    np.zeros_like(predicted_in_collision_obj)
+                )
+
+        # Aggregate
+        all_preds = np.concatenate(all_preds)
+        all_predicted_in_collision_obj = np.concatenate(all_predicted_in_collision_obj)
+        all_predicted_in_collision_table = np.concatenate(
+            all_predicted_in_collision_table
+        )
+        assert all_preds.shape == (new_grasp_configs.batch_size,)
+        assert all_predicted_in_collision_obj.shape == (new_grasp_configs.batch_size,)
+        assert all_predicted_in_collision_table.shape == (new_grasp_configs.batch_size,)
+
+        # Filter out grasps that are in collision
+        new_all_preds = np.where(
+            all_predicted_in_collision_obj | all_predicted_in_collision_table,
+            np.zeros_like(all_preds),
+            all_preds,
+        )
+        ordered_idxs_best_first = np.argsort(new_all_preds)[::-1].copy()
+        print(f"new_all_preds[ordered_idxs_best_first] = {new_all_preds[ordered_idxs_best_first][:10]}")
+        # breakpoint()  # TODO: Debug here
+        new_grasp_configs = new_grasp_configs[ordered_idxs_best_first]
+
+    # HACK: Check how many pass IK
+    # from nerf_grasping.fr3_algr_ik.ik import solve_ik
+    # import trimesh
+    # X_W_N = trimesh.transformations.translation_matrix([0.7, 0, 0])
+    # X_N_O = trimesh.transformations.translation_matrix([0, 0, 0.1])
+    # # Z-up
+    # X_O_Oy = trimesh.transformations.rotation_matrix(
+    #     np.pi / 2, [1, 0, 0]
+    # )
+    # X_Oy_H_array = new_grasp_configs.wrist_pose.matrix().detach().cpu().numpy()
+    # joint_angles_array = new_grasp_configs.joint_angles.detach().cpu().numpy()
+    # print(f"X_Oy_H_array.shape = {X_Oy_H_array.shape}")
+    # print(f"joint_angles_array.shape = {joint_angles_array.shape}")
+    # results = []
+    # for i in tqdm(range(X_Oy_H_array.shape[0])):
+    #     X_Oy_H = X_Oy_H_array[i]
+    #     joint_angles = joint_angles_array[i]
+    #     X_W_H = X_W_N @ X_N_O @ X_O_Oy @ X_Oy_H
+    #     try:
+    #         q_star = solve_ik(X_W_H, joint_angles)
+    #         results.append([i, True])
+    #     except RuntimeError:
+    #         results.append([i, False])
+    # print(f"Number of grasps that pass IK: {sum([r[1] for r in results])} / {len(results)}")
+    # breakpoint()
+
+    init_grasp_configs = new_grasp_configs[: cfg.optimizer.num_grasps]
 
     # Create Optimizer.
     if isinstance(cfg.optimizer, SGDOptimizerConfig):
@@ -474,6 +662,8 @@ def get_optimized_grasps(cfg: OptimizationConfig) -> Dict[str, np.ndarray]:
         optimizer_config=cfg.optimizer,
         print_freq=cfg.print_freq,
         save_grasps_freq=cfg.save_grasps_freq,
+        output_path=cfg.output_path,
+        use_rich=cfg.use_rich,
         console=console,
     )
 
@@ -493,6 +683,8 @@ def get_optimized_grasps(cfg: OptimizationConfig) -> Dict[str, np.ndarray]:
     )
     console.print(table)
 
+    # HACK
+    # grasp_config_dict = COPY.as_dict()
     grasp_config_dict = final_grasp_configs.as_dict()
     grasp_config_dict["loss"] = final_losses.detach().cpu().numpy()
 
@@ -504,9 +696,35 @@ def get_optimized_grasps(cfg: OptimizationConfig) -> Dict[str, np.ndarray]:
     return grasp_config_dict
 
 
-def main(cfg: OptimizationConfig) -> None:
+def main() -> None:
+    cfg = tyro.cli(OptimizationConfig)
     get_optimized_grasps(cfg)
 
+
+def sample_random_rotate_transforms_only_around_y(N: int) -> pp.LieTensor:
+    PP_MATRIX_ATOL, PP_MATRIX_RTOL = 1e-4, 1e-4
+    # Sample big rotations in tangent space of SO(3).
+    # Choose 4 * \pi as a heuristic to get pretty evenly spaced rotations.
+    # TODO(pculbert): Figure out better uniform sampling on SO(3).
+    x_rotations = torch.zeros(N)
+    y_rotations = 4 * torch.pi * (2 * torch.rand(N) - 1)
+    z_rotations = torch.zeros(N)
+    xyz_rotations = torch.stack([x_rotations, y_rotations, z_rotations], dim=-1)
+    log_random_rotations = pp.so3(xyz_rotations)
+
+    # Return exponentiated rotations.
+    random_SO3_rotations = log_random_rotations.Exp()
+
+    # A bit annoying -- need to cast SO(3) -> SE(3).
+    random_rotate_transforms = pp.from_matrix(
+        random_SO3_rotations.matrix(),
+        pp.SE3_type,
+        atol=PP_MATRIX_ATOL,
+        rtol=PP_MATRIX_RTOL,
+    )
+
+    return random_rotate_transforms
+
+
 if __name__ == "__main__":
-    cfg = tyro.cli(OptimizationConfig)
-    main(cfg)
+    main()

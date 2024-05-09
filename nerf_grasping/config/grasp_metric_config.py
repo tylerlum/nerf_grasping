@@ -32,7 +32,7 @@ class GraspMetricConfig:
         / "2024-01-03_235839"
         / "config.yml"
     )
-    object_transform_world_frame: Optional[np.ndarray] = None
+    X_N_Oy: Optional[np.ndarray] = None
 
     def __post_init__(self):
         """
@@ -46,8 +46,31 @@ class GraspMetricConfig:
         else:
             print("Loading default classifier config.")
 
-        if self.object_transform_world_frame is None:
-            self.object_transform_world_frame = np.eye(4)
+        if self.X_N_Oy is None:
+            # HACK: Should try to compute this or use cfg to be told what to do
+            import trimesh
+
+            APPLY_TRANSLATION = False
+            if APPLY_TRANSLATION:
+                # X_N_O = trimesh.transformations.translation_matrix([-0.04092566, -0.05782086,  0.04981683])
+                # X_N_O = trimesh.transformations.translation_matrix([-0.02423195, -0.00194203,  0.13271753])
+                # X_N_O = trimesh.transformations.translation_matrix([0, 0, 0.1])
+                X_N_O = trimesh.transformations.translation_matrix([0.01965157, -0.00010462, 0.05522743])
+            else:
+                X_N_O = np.eye(4)
+
+
+            # Z-up
+            IS_Z_UP = False
+            if IS_Z_UP:
+                X_O_Oy = trimesh.transformations.rotation_matrix(
+                    np.pi / 2, [1, 0, 0]
+                )
+            else:
+                X_O_Oy = np.eye(4)
+
+            self.X_N_Oy = X_N_O @ X_O_Oy
+
 
     @property
     def object_name(self) -> str:

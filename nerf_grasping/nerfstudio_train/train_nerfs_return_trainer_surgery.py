@@ -224,8 +224,7 @@ def setup_train_nerf_without_data(
 def main() -> None:
     args = Args(
         nerfdata_folder=pathlib.Path(
-            # "experiments/2024-04-15_DEBUG/nerfdata/sem-Vase-3a275e00d69810c62600e861c93ad9cc_0_0846"
-            "experiments/2024-04-15_DEBUG/nerfdata/sem-Vase-3a275e00d69810c62600e861c93ad9cc_0_0846_DEBUG"
+            "experiments/2024-04-15_DEBUG/nerfdata/sem-Vase-3a275e00d69810c62600e861c93ad9cc_0_0846"
         ),
         nerfcheckpoints_folder=pathlib.Path(
             "experiments/2024-04-15_DEBUG/nerfcheckpoints/"
@@ -234,8 +233,14 @@ def main() -> None:
     )
     trainer, train_config = setup_train_nerf_without_data(args)
 
-    while not (args.nerfdata_folder / "transforms.json").exists():
-        print(f"Waiting for {args.nerfdata_folder / 'transforms.json'} to exist")
+    first = True
+    while (
+        not (args.nerfdata_folder / "transforms.json").exists()
+        or not (args.nerfdata_folder / "images").exists()
+    ):
+        if first:
+            print(f"Waiting for {args.nerfdata_folder / 'transforms.json'} to exist")
+            first = False
         time.sleep(0.01)
 
     num_files = len(list((args.nerfdata_folder / "images").iterdir()))

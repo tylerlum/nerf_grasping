@@ -681,7 +681,14 @@ def get_optimized_grasps(
         f"{final_losses.max():.5f}",
         f"{final_losses.std():.5f}",
     )
-    console.print(table)
+    if cfg.use_rich:
+        console.print(table)
+    else:
+        table_str = f"""
+        Iteration: {0:4d} | Min loss: {init_losses.min():.5f} | Mean loss: {init_losses.mean():.5f} | Max loss: {init_losses.max():.5f} | Std dev: {init_losses.std():.5f}
+        Iteration: {cfg.optimizer.num_steps:4d} | Min loss: {final_losses.min():.5f} | Mean loss: {final_losses.mean():.5f} | Max loss: {final_losses.max():.5f} | Std dev: {final_losses.std():.5f}
+        """
+        print(table_str)
 
     # HACK
     # grasp_config_dict = COPY.as_dict()

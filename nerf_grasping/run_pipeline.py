@@ -51,12 +51,32 @@ from curobo.wrap.reacher.motion_gen import (
     MotionGenConfig,
 )
 
-from functools import partial
 import sys
 
-print = partial(
-    print, file=sys.stderr
-)  # Redirect print to stderr to get around ROS issue
+
+class MultipleOutputs:
+    def __init__(
+        self, stdout: bool = True, stderr: bool = False, filename: Optional[str] = None
+    ):
+        self.stdout = sys.stdout if stdout else None
+        self.stderr = sys.stderr if stderr else None
+        self.file = open(filename, "a") if filename is not None else None
+
+    def write(self, message: str) -> None:
+        if self.stdout is not None:
+            self.stdout.write(message)
+        if self.stderr is not None:
+            self.stderr.write(message)
+        if self.file is not None:
+            self.file.write(message)
+
+    def flush(self) -> None:
+        if self.stdout is not None:
+            self.stdout.flush()
+        if self.stderr is not None:
+            self.stderr.flush()
+        if self.file is not None:
+            self.file.flush()
 
 
 @dataclass
@@ -201,9 +221,6 @@ def compute_grasps(
     print("X_A_B represents 4x4 transformation matrix of frame B wrt A")
     X_W_N, X_O_Oy = cfg.X_W_N, cfg.X_O_Oy
     lb_N, ub_N = cfg.lb_N, cfg.ub_N
-
-    print(f"Creating a new experiment folder at {cfg.output_folder}")
-    cfg.output_folder.mkdir(parents=True, exist_ok=True)
 
     print("\n" + "=" * 80)
     print("Step 2: Get NERF")
@@ -385,7 +402,7 @@ def compute_grasps(
     print("=" * 80 + "\n")
     optimized_grasp_config_dict = get_optimized_grasps(
         cfg=OptimizationConfig(
-            use_rich=True,
+            use_rich=False,  # Not used because causes issues with logging
             init_grasp_config_dict_path=cfg.init_grasp_config_dict_path,
             grasp_metric=GraspMetricConfig(
                 nerf_checkpoint_path=nerf_config,
@@ -871,7 +888,11 @@ def run_curobo(
         motion_gen_result,
         ik_result,
         ik_result2,
+        lift_motion_gen_result,
+        lift_ik_result,
+        lift_ik_result2,
     )
+
     log_dict = {
         "qs": qs,
         "qds": qds,
@@ -907,7 +928,11 @@ def run_pipeline(
     ik_solver2: Optional[IKSolver] = None,
     motion_gen: Optional[MotionGen] = None,
     motion_gen_config: Optional[MotionGenConfig] = None,
-) -> Tuple[List[np.ndarray], List[np.ndarray], List[float], List[int], tuple]:
+) -> Tuple[List[np.ndarray], List[np.ndarray], List[float], List[int], tuple, dict]:
+
+    print(f"Creating a new experiment folder at {cfg.output_folder}")
+    cfg.output_folder.mkdir(parents=True, exist_ok=True)
+    sys.stdout = MultipleOutputs(stdout=False, stderr=True, filename=str(cfg.output_folder / "nerf_grasping.log"))
 
     start_time = time.time()
     (
@@ -947,7 +972,7 @@ def run_pipeline(
     print(f"Total time: {curobo_time - start_time:.2f}s")
     print("=" * 80 + "\n")
 
-    data_to_save = {
+    pipeline_log_dict = {
         "X_W_Hs": X_W_Hs,
         "q_algr_pres": q_algr_pres,
         "q_algr_posts": q_algr_posts,
@@ -961,7 +986,7 @@ def run_pipeline(
         **log_dict,
     }
 
-    return qs, qds, T_trajs, success_idxs, DEBUG_TUPLE, data_to_save
+    return qs, qds, T_trajs, success_idxs, DEBUG_TUPLE, pipeline_log_dict
 
 
 def visualize(
@@ -1101,13 +1126,28 @@ def visualize(
     breakpoint()
 
 
-def interpolate(start, end, N):
+def interpolate(start: np.ndarray, end: np.ndarray, N: int) -> np.ndarray:
     d = start.shape[0]
     assert start.shape == end.shape == (d,)
     interpolated = np.zeros((N, d))
     for i in range(d):
         interpolated[:, i] = np.linspace(start[i], end[i], N)
     return interpolated
+
+
+def save_to_file(data: dict, filepath: pathlib.Path) -> None:
+    import pickle
+
+    with open(filepath, "wb") as f:
+        pickle.dump(data, f)
+
+
+def load_from_file(filepath: pathlib.Path) -> dict:
+    import pickle
+
+    with open(filepath, "rb") as f:
+        data = pickle.load(f)
+    return data
 
 
 @dataclass
@@ -1201,7 +1241,7 @@ def main() -> None:
     )
     print("@" * 80 + "\n")
 
-    qs, qds, T_trajs, success_idxs, DEBUG_TUPLE = run_pipeline(
+    qs, qds, T_trajs, success_idxs, DEBUG_TUPLE, log_dict = run_pipeline(
         nerf_model=nerf_model,
         cfg=args,
         q_fr3=DEFAULT_Q_FR3,
@@ -1212,6 +1252,17 @@ def main() -> None:
         motion_gen=motion_gen,
         motion_gen_config=motion_gen_config,
     )
+
+    print("Testing save_to_file and load_from_file")
+    start_log_time = time.time()
+    save_to_file(
+        data=log_dict,
+        filepath=args.output_folder / "log_dict.pkl",
+    )
+    end_log_time = time.time()
+    print(f"Saving log_dict took {end_log_time - start_log_time:.2f}s")
+    loaded_log_dict = load_from_file(args.output_folder / "log_dict.pkl")
+    print(f"loaded_log_dict.keys(): {loaded_log_dict.keys()}")
 
     visualize(
         cfg=args,

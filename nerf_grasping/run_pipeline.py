@@ -486,7 +486,7 @@ def run_curobo(
     motion_gen: Optional[MotionGen] = None,
     motion_gen_config: Optional[MotionGenConfig] = None,
     losses: Optional[np.ndarray] = None,
-) -> Tuple[List[np.ndarray], List[np.ndarray], List[float], List[int], tuple]:
+) -> Tuple[List[np.ndarray], List[np.ndarray], List[float], List[int], tuple, dict]:
     # Timing
     APPROACH_TIME = cfg.approach_time
     STAY_OPEN_TIME = cfg.stay_open_time
@@ -571,12 +571,14 @@ def run_curobo(
     )
 
     # Fix issue with going over limit
-    over_limit_factors = compute_over_limit_factors(qds=qds, dts=dts)
+    over_limit_factors_qds = compute_over_limit_factors(qds=qds, dts=dts)
     qds = [
-        qd / over_limit_factor for qd, over_limit_factor in zip(qds, over_limit_factors)
+        qd / over_limit_factor
+        for qd, over_limit_factor in zip(qds, over_limit_factors_qds)
     ]
     dts = [
-        dt * over_limit_factor for dt, over_limit_factor in zip(dts, over_limit_factors)
+        dt * over_limit_factor
+        for dt, over_limit_factor in zip(dts, over_limit_factors_qds)
     ]
 
     nonzero_q_idxs = [i for i, q in enumerate(qs) if np.absolute(q).sum() > 1e-2]
@@ -766,10 +768,12 @@ def run_curobo(
     )
 
     # Handle exceeding joint limits
-    over_limit_factors = compute_over_limit_factors(qds=raw_lift_qds, dts=raw_lift_dts)
+    over_limit_factors_raw_lift_qds = compute_over_limit_factors(
+        qds=raw_lift_qds, dts=raw_lift_dts
+    )
     new2_raw_lift_qs, new2_raw_lift_qds = [], []
     for i, (raw_lift_q, raw_lift_qd, raw_lift_dt, over_limit_factor) in enumerate(
-        zip(raw_lift_qs, raw_lift_qds, raw_lift_dts, over_limit_factors)
+        zip(raw_lift_qs, raw_lift_qds, raw_lift_dts, over_limit_factors_raw_lift_qds)
     ):
         assert over_limit_factor >= 1.0
         if over_limit_factor > 1.0:
@@ -868,7 +872,29 @@ def run_curobo(
         ik_result,
         ik_result2,
     )
-    return q_trajs, qd_trajs, T_trajs, final_success_idxs, DEBUG_TUPLE
+    log_dict = {
+        "qs": qs,
+        "qds": qds,
+        "dts": dts,
+        "closing_qs": closing_qs,
+        "closing_qds": closing_qds,
+        "raw_lift_qs": raw_lift_qs,
+        "raw_lift_qds": raw_lift_qds,
+        "adjusted_lift_qs": adjusted_lift_qs,
+        "adjusted_lift_qds": adjusted_lift_qds,
+        "motion_gen_success_idxs": motion_gen_success_idxs,
+        "ik_success_idxs": ik_success_idxs,
+        "ik_success_idxs2": ik_success_idxs2,
+        "overall_success_idxs": overall_success_idxs,
+        "lift_motion_gen_success_idxs": lift_motion_gen_success_idxs,
+        "lift_ik_success_idxs": lift_ik_success_idxs,
+        "lift_ik_success_idxs2": lift_ik_success_idxs2,
+        "lift_overall_success_idxs": lift_overall_success_idxs,
+        "final_success_idxs": final_success_idxs,
+        "over_limit_factors_qds": over_limit_factors_qds,
+        "over_limit_factors_raw_lift_qds": over_limit_factors_raw_lift_qds,
+    }
+    return q_trajs, qd_trajs, T_trajs, final_success_idxs, DEBUG_TUPLE, log_dict
 
 
 def run_pipeline(
@@ -898,7 +924,7 @@ def run_pipeline(
     print("@" * 80 + "\n")
 
     start_run_curobo = time.time()
-    qs, qds, T_trajs, success_idxs, DEBUG_TUPLE = run_curobo(
+    qs, qds, T_trajs, success_idxs, DEBUG_TUPLE, log_dict = run_curobo(
         cfg=cfg,
         X_W_Hs=X_W_Hs,
         q_algr_pres=q_algr_pres,
@@ -920,7 +946,22 @@ def run_pipeline(
     print("\n" + "=" * 80)
     print(f"Total time: {curobo_time - start_time:.2f}s")
     print("=" * 80 + "\n")
-    return qs, qds, T_trajs, success_idxs, DEBUG_TUPLE
+
+    data_to_save = {
+        "X_W_Hs": X_W_Hs,
+        "q_algr_pres": q_algr_pres,
+        "q_algr_posts": q_algr_posts,
+        "mesh_W": mesh_W,
+        "X_N_Oy": X_N_Oy,
+        "losses": losses,
+        "qs": qs,
+        "qds": qds,
+        "T_trajs": T_trajs,
+        "success_idxs": success_idxs,
+        **log_dict,
+    }
+
+    return qs, qds, T_trajs, success_idxs, DEBUG_TUPLE, data_to_save
 
 
 def visualize(

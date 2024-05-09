@@ -1,10 +1,11 @@
 from dataclasses import dataclass
 import pathlib
+import time
 
 from nerfstudio.scripts.train import _set_random_seed
 from nerfstudio.engine.trainer import TrainerConfig, Trainer
 from nerfstudio.pipelines.base_pipeline import VanillaPipeline, VanillaPipelineConfig
-from typing import Optional, Literal
+from typing import Optional, Literal, Tuple
 import torch
 from torch.cuda.amp.grad_scaler import GradScaler
 from nerfstudio.data.scene_box import SceneBox
@@ -17,22 +18,26 @@ import torch.distributed as dist
 @dataclass
 class Args:
     """The goal of this is to start creating nerfstudio things before data is ready to amortize setup time"""
+
     nerfdata_folder: pathlib.Path
     nerfcheckpoints_folder: pathlib.Path
+    num_images: int
     max_num_iterations: int = 200
 
 
+# True to enable amortizing nerfstudio start time, set to False to use normal behavior without any modification
 USE_CUSTOM_APPROACH = True
 
 
 class CustomPipeline(VanillaPipeline):
+    # HACK: num_images is a class variable that must be defined before the model is created
+    # Very important that this is set before the model is created, as it needs to know
+    # Will give big confusing errors if wrong
+    num_images = None
 
     # HACK: trainer will look for pipeline.datamanager for .get_param_groups() and .get_training_callbacks()
     # Those are empty, so we can just populate those with dummy values
-    @dataclass
     class DummyDataManager:
-        test: int = 1
-
         def get_param_groups(self):
             return {}
 
@@ -72,9 +77,10 @@ class CustomPipeline(VanillaPipeline):
                     dtype=torch.float32,
                 )
             )
-            num_train_data = (
-                225  # WARNING: VERY HARCODED, WILL CAUSE BIG ERRORS IF WRONG
-            )
+            assert hasattr(
+                CustomPipeline, "num_images"
+            ), "HACK: Must define CustomPipeline.num_images or model cannot be created"
+            num_train_data = CustomPipeline.num_images
             metadata = (
                 {
                     "depth_filenames": None,
@@ -128,7 +134,7 @@ class CustomPipeline(VanillaPipeline):
             dist.barrier(device_ids=[local_rank])
 
 
-def setup_train_loop_return_trainer(
+def setup_train_loop_without_data(
     local_rank: int, world_size: int, config: TrainerConfig, global_rank: int = 0
 ) -> Trainer:
     """Main training function that sets up and runs the trainer per process
@@ -146,7 +152,7 @@ def setup_train_loop_return_trainer(
     return trainer
 
 
-def finish_train_loop_return_trainer(
+def finish_train_nerf(
     trainer: Trainer,
     local_rank: int,
     world_size: int,
@@ -177,25 +183,26 @@ def get_nerfacto_default_config():
     return all_methods["nerfacto"]
 
 
-def get_nerfacto_custom_config():
+def get_nerfacto_custom_config(num_images: int):
     config = get_nerfacto_default_config()
     assert config.pipeline._target == VanillaPipeline  # Before it was VanillaPipeline
+
+    CustomPipeline.num_images = num_images  # Must set before model is created
     config.pipeline._target = CustomPipeline
     return config
 
 
-def train_nerf(
+def setup_train_nerf_without_data(
     args: Args,
-) -> Trainer:
-    config = get_nerfacto_custom_config()
+) -> Tuple[Trainer, TrainerConfig]:
+    config = get_nerfacto_custom_config(num_images=args.num_images)
 
     # Modifications
     config.data = args.nerfdata_folder
     config.pipeline.datamanager.data = args.nerfdata_folder
     config.max_num_iterations = args.max_num_iterations
     config.output_dir = args.nerfcheckpoints_folder
-    # config.vis = "wandb"
-    config.vis = "none"
+    config.vis = "none"  # "wandb"
 
     config.pipeline.model.disable_scene_contraction = True
     config.pipeline.datamanager.dataparser.auto_scale_poses = False
@@ -210,20 +217,8 @@ def train_nerf(
     config.print_to_terminal()
     config.save_config()
 
-    import time
-
-    start_time = time.time()
-    trainer = setup_train_loop_return_trainer(local_rank=0, world_size=1, config=config)
-    mid_time = time.time()
-    print("!" * 80)
-    trainer = finish_train_loop_return_trainer(
-        trainer=trainer, local_rank=0, world_size=1, config=config
-    )
-    end_time = time.time()
-    print(f"Setup time: {mid_time - start_time}")
-    print(f"Train time: {end_time - mid_time}")
-    print(f"Total time: {end_time - start_time}")
-    return trainer
+    trainer = setup_train_loop_without_data(local_rank=0, world_size=1, config=config)
+    return trainer, config
 
 
 def main() -> None:
@@ -235,8 +230,25 @@ def main() -> None:
         nerfcheckpoints_folder=pathlib.Path(
             "experiments/2024-04-15_DEBUG/nerfcheckpoints/"
         ),
+        num_images=250,
     )
-    train_nerf(args)
+    trainer, train_config = setup_train_nerf_without_data(args)
+
+    while not (args.nerfdata_folder / "transforms.json").exists():
+        print(f"Waiting for {args.nerfdata_folder / 'transforms.json'} to exist")
+        time.sleep(0.01)
+
+    num_files = len(list((args.nerfdata_folder / "images").iterdir()))
+    assert (
+        num_files == args.num_images
+    ), f"Expected {args.num_images} files, got {num_files} in {args.nerfdata_folder / 'images'}"
+
+    trainer = finish_train_nerf(
+        trainer=trainer,
+        local_rank=0,
+        world_size=1,
+        config=train_config,
+    )
 
 
 if __name__ == "__main__":

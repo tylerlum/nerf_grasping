@@ -66,7 +66,7 @@ def train_nerfs(args: Args) -> pathlib.Path:
                 f"--data {str(object_and_scale_nerfdata_path)}",
                 f"--max-num-iterations {args.max_num_iterations}",
                 f"--output-dir {str(output_nerfcheckpoints_path)}",
-                "--vis wandb",
+                "--vis none",
                 "--pipeline.model.disable-scene-contraction True",
                 "nerfstudio-data",
                 "--auto-scale-poses False",

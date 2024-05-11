@@ -164,13 +164,13 @@ def prepare_trajopt_batch(
         tensor_args,
         collision_checker_type=CollisionCheckerType.MESH,
         use_cuda_graph=use_cuda_graph,
-        num_ik_seeds=1,  # Reduced to save time?
-        num_graph_seeds=1,  # Reduced to save time?
-        num_trajopt_seeds=1,  # Reduced to save time?
-        num_batch_ik_seeds=1,  # Reduced to save time?
-        num_batch_trajopt_seeds=1,  # Reduced to save time?
-        num_trajopt_noisy_seeds=1,  # Reduced to save time?
-        collision_cache={"obb": 2, "mesh": 2},
+        # num_ik_seeds=1,  # Reduced to save time? Actually doesn't make a noticeable difference
+        # num_graph_seeds=1,  # Reduced to save time? Actually doesn't make a noticeable difference
+        # num_trajopt_seeds=1,  # Reduced to save time? Actually doesn't make a noticeable difference
+        # num_batch_ik_seeds=1,  # Reduced to save time? Actually doesn't make a noticeable difference
+        # num_batch_trajopt_seeds=1,  # Reduced to save time? Actually doesn't make a noticeable difference
+        # num_trajopt_noisy_seeds=1,  # Reduced to save time? Actually doesn't make a noticeable difference
+        # collision_cache={"obb": 2, "mesh": 2},  # Actually don't think this is needed how we are using it
     )
     motion_gen = MotionGen(motion_gen_config)
 
@@ -334,8 +334,8 @@ def solve_prepared_trajopt_batch(
         plan_config=MotionGenPlanConfig(
             enable_graph=enable_graph,
             enable_opt=enable_opt,
-            max_attempts=1,  # Reduce to save time?
-            num_trajopt_seeds=1,  # Reduce to save time?
+            # max_attempts=1,  # Reduced to save time? Actually doesn't make a noticeable difference
+            # num_trajopt_seeds=1,  # Reduced to save time? Actually doesn't make a noticeable difference
             num_graph_seeds=1,  # Must be 1 for plan_batch
             timeout=timeout,
         ),

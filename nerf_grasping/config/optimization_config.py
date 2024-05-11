@@ -38,7 +38,7 @@ class OptimizationConfig:
     save_grasps_freq: int = 5
     random_seed: Optional[int] = None
     n_random_rotations_per_grasp: int = 5
-    filter_less_feasible_grasps: bool = True
+    filter_less_feasible_grasps: bool = False
 
     def __post_init__(self):
         """

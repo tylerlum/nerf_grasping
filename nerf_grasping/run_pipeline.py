@@ -104,11 +104,11 @@ class PipelineConfig:
     object_scale: float = 0.9999
     nerf_config: Optional[pathlib.Path] = None
 
-    approach_time: float = 5.0
-    stay_open_time: float = 0.5
+    approach_time: float = 3.0
+    stay_open_time: float = 0.2
     close_time: float = 0.5
-    stay_closed_time: float = 0.5
-    lift_time: float = 2.0
+    stay_closed_time: float = 0.2
+    lift_time: float = 1.0
 
     def __post_init__(self) -> None:
         assert (
@@ -573,7 +573,7 @@ def run_curobo(
         q_algr_starts=q_algr[None, ...].repeat(n_grasps, axis=0),
         enable_graph=True,
         enable_opt=False,
-        timeout=5.0,
+        timeout=1.5,
     )
 
     motion_gen_success_idxs = (
@@ -715,7 +715,7 @@ def run_curobo(
             q_algr_starts=q_start_lifts[:, 7:],
             enable_graph=True,
             enable_opt=False,
-            timeout=5.0,
+            timeout=3.0,
         )
     )
 

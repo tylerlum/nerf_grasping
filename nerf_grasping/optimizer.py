@@ -538,9 +538,9 @@ def get_optimized_grasps(
             fingers_forward = z_dirs[:, 0] >= cos_theta
             palm_upwards = x_dirs[:, 1] >= cos_theta
             new_grasp_configs = new_grasp_configs[fingers_forward & ~palm_upwards]
-        print(
-            f"Filtered less feasible grasps. New batch size: {new_grasp_configs.batch_size}"
-        )
+            print(
+                f"Filtered less feasible grasps. New batch size: {new_grasp_configs.batch_size}"
+            )
 
         # Evaluate grasp metric and collisions
         n_batches = math.ceil(new_grasp_configs.batch_size / BATCH_SIZE)

@@ -1054,6 +1054,7 @@ def visualize(
                 "c to draw collision spheres",
                 "r to remove collision spheres",
                 "q to quit",
+                f"success_idxs = {success_idxs}",
                 "=====================",
             ]
         )

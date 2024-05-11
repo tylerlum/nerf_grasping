@@ -331,8 +331,7 @@ def run_optimizer_loop(
         )
 
         for iter in range(optimizer_config.num_steps):
-            losses = optimizer.grasp_losses
-            losses_np = losses.detach().cpu().numpy()
+            losses_np = optimizer.grasp_losses.detach().cpu().numpy()
 
             if iter % print_freq == 0:
                 print(

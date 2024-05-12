@@ -17,11 +17,7 @@ class Args:
         pathlib.Path(nerf_grasping.get_repo_root()).resolve() / "data"
     )
     randomize_order_seed: Optional[int] = None
-
-
-def print_and_run(cmd: str) -> None:
-    print(f"Running: {cmd}")
-    subprocess.run(cmd, shell=True, check=True)
+    timeout: float = 30.0
 
 
 def export_pointclouds(args: Args) -> pathlib.Path:
@@ -38,6 +34,7 @@ def export_pointclouds(args: Args) -> pathlib.Path:
     output_pointclouds_path.mkdir(exist_ok=True)
 
     nerf_configs = get_nerf_configs(nerfcheckpoints_path)
+    print(f"Found {len(nerf_configs)} NERF configs")
 
     if args.randomize_order_seed is not None:
         import random
@@ -66,7 +63,32 @@ def export_pointclouds(args: Args) -> pathlib.Path:
                 "--num-points 5000",
             ]
         )
-        print_and_run(command)
+
+        # NOTE: Some nerfs are terrible, so computing point clouds never finishes.
+        # In this case, we should know about this and move on.
+        print(f"Running: {command}")
+        try:
+            subprocess.run(command, shell=True, check=True, timeout=args.timeout)
+            print(f"Finished generating {output_path_to_be_created}")
+            print("=" * 80)
+        except subprocess.TimeoutExpired:
+            print(f"Command timed out after {args.timeout} seconds: {command}")
+            print("~" * 80)
+
+            if output_path_to_be_created.exists():
+                print(f"Deleting {output_path_to_be_created}")
+                subprocess.run(
+                    f"rm -r {output_path_to_be_created}", shell=True, check=True
+                )
+
+            timeout_path = (
+                experiment_path
+                / f"{args.nerfcheckpoints_name}_{args.output_pointclouds_name}_timeout.txt"
+            )
+            print(f"Writing to {timeout_path}")
+            with open(timeout_path, "a") as f:
+                f.write(f"{object_code_and_scale_str}\n")
+
     return output_pointclouds_path
 
 

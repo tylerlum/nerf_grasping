@@ -574,7 +574,7 @@ def run_curobo(
         q_algr_starts=q_algr[None, ...].repeat(n_grasps, axis=0),
         enable_graph=True,
         enable_opt=False,
-        timeout=1.5,
+        timeout=2.0,
     )
 
     motion_gen_success_idxs = (
@@ -716,7 +716,7 @@ def run_curobo(
             q_algr_starts=q_start_lifts[:, 7:],
             enable_graph=True,
             enable_opt=False,
-            timeout=3.0,
+            timeout=1.0,
         )
     )
 

@@ -27,9 +27,15 @@ class CEMOptimizerConfig(BaseOptimizerConfig):
     min_cov_std: float = 1e-2
 
 
+@dataclass
+class RandomSamplingConfig(BaseOptimizerConfig):
+    pass
+
+
 UnionGraspOptimizerConfig = tyro.extras.subcommand_type_from_defaults(
     {
         "cem": CEMOptimizerConfig(),
         "sgd": SGDOptimizerConfig(),
+        "random-sampling": RandomSamplingConfig(),
     }
 )

@@ -14,7 +14,7 @@ from nerf_grasping.optimizer_utils import (
 )
 from nerf_grasping.config.nerfdata_config import DepthImageNerfDataConfig
 from nerf_grasping.config.optimization_config import OptimizationConfig
-from nerf_grasping.config.optimizer_config import SGDOptimizerConfig
+from nerf_grasping.config.optimizer_config import SGDOptimizerConfig, CEMOptimizerConfig, RandomSamplingConfig
 from nerf_grasping.config.grasp_metric_config import GraspMetricConfig
 from nerf_grasping.nerfstudio_train import train_nerfs_return_trainer
 from nerf_grasping.baselines.nerf_to_mesh import nerf_to_mesh
@@ -409,12 +409,23 @@ def compute_grasps(
                 classifier_config_path=cfg.classifier_config_path,
                 X_N_Oy=X_N_Oy,
             ),  # This is not used because we are passing in a grasp_metric
-            optimizer=SGDOptimizerConfig(
+            # optimizer=SGDOptimizerConfig(
+            #     num_grasps=cfg.num_grasps,
+            #     num_steps=cfg.num_steps,
+            #     finger_lr=1e-3,
+            #     grasp_dir_lr=1e-4,
+            #     wrist_lr=1e-3,
+            # ),
+            # optimizer=CEMOptimizerConfig(
+            #     num_grasps=cfg.num_grasps,
+            #     num_steps=cfg.num_steps,
+            #     num_samples=cfg.num_grasps,
+            #     num_elite=2,
+            #     min_cov_std=1e-2,
+            # ),
+            optimizer=RandomSamplingConfig(
                 num_grasps=cfg.num_grasps,
                 num_steps=cfg.num_steps,
-                finger_lr=1e-3,
-                grasp_dir_lr=1e-4,
-                wrist_lr=1e-3,
             ),
             output_path=pathlib.Path(
                 cfg.output_folder

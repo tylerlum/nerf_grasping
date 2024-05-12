@@ -30,7 +30,9 @@ class CEMOptimizerConfig(BaseOptimizerConfig):
 
 @dataclass
 class RandomSamplingConfig(BaseOptimizerConfig):
-    pass
+    wrist_pose_noise: float = 0.01
+    joint_angle_noise: float = 0.1
+    grasp_orientation_noise: float = 0.01
 
 
 UnionGraspOptimizerConfig = tyro.extras.subcommand_type_from_defaults(

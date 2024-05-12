@@ -209,6 +209,7 @@ class RandomSamplingOptimizer(Optimizer):
         self,
         init_grasp_config: AllegroGraspConfig,
         grasp_metric: Union[GraspMetric, DepthImageGraspMetric],
+        optimizer_config: RandomSamplingConfig,
     ):
         """
         Constructor for RandomSamplingOptimizer.
@@ -216,8 +217,10 @@ class RandomSamplingOptimizer(Optimizer):
         Args:
             init_grasp_config: Initial grasp configuration.
             grasp_metric: Union[GraspMetric, DepthImageGraspMetric] object defining the metric to optimize.
+            optimizer_config: RandomSamplingConfig object defining the optimizer configuration.
         """
         super().__init__(init_grasp_config, grasp_metric)
+        self.optimizer_config = optimizer_config
 
         joint_lower_limits, joint_upper_limits = get_joint_limits()
         self.joint_lower_limits, self.joint_upper_limits = torch.from_numpy(
@@ -246,13 +249,16 @@ class RandomSamplingOptimizer(Optimizer):
 
         # Add noise
         wrist_pose_perturbations = (
-            pp.randn_se3(new_grasp_config.wrist_pose.lshape) * 0.01
+            pp.randn_se3(new_grasp_config.wrist_pose.lshape)
+            * self.optimizer_config.wrist_pose_noise
         ).Exp()
         joint_angle_perturbations = (
-            torch.randn_like(new_grasp_config.joint_angles) * 0.01
+            torch.randn_like(new_grasp_config.joint_angles)
+            * self.optimizer_config.joint_angle_noise
         )
         grasp_orientation_perturbations = (
-            pp.randn_so3(new_grasp_config.grasp_orientations.lshape) * 0.01
+            pp.randn_so3(new_grasp_config.grasp_orientations.lshape)
+            * self.optimizer_config.grasp_orientation_noise
         ).Exp()
 
         new_grasp_config.hand_config.set_wrist_pose(

@@ -15,8 +15,9 @@ class SGDOptimizerConfig(BaseOptimizerConfig):
     grasp_dir_lr: float = 1e-4
     wrist_lr: float = 1e-4
     momentum: float = 0.9
-    opt_wrist_pose: bool = True
+    opt_fingers: bool = True
     opt_grasp_dirs: bool = True
+    opt_wrist_pose: bool = True
 
 
 @dataclass

@@ -412,9 +412,11 @@ def compute_grasps(
             optimizer=SGDOptimizerConfig(
                 num_grasps=cfg.num_grasps,
                 num_steps=cfg.num_steps,
-                finger_lr=1e-4,
+                # finger_lr=1e-4,
+                finger_lr=1e-3,
                 grasp_dir_lr=1e-4,
-                wrist_lr=1e-4,
+                # wrist_lr=1e-3,
+                wrist_lr=1e-3,
             ),
             output_path=pathlib.Path(
                 cfg.output_folder
@@ -431,8 +433,7 @@ def compute_grasps(
     print("\n" + "=" * 80)
     print("Step 7: Convert optimized grasps to joint angles")
     print("=" * 80 + "\n")
-    losses = optimized_grasp_config_dict["loss"]
-    X_Oy_Hs, q_algr_pres, q_algr_posts, q_algr_extra_open = get_sorted_grasps_from_dict(
+    X_Oy_Hs, q_algr_pres, q_algr_posts, q_algr_extra_open, losses = get_sorted_grasps_from_dict(
         optimized_grasp_config_dict=optimized_grasp_config_dict,
         error_if_no_loss=True,
         check=False,

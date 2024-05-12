@@ -337,7 +337,7 @@ def run_optimizer_loop(
             else None
         )
 
-        for iter in range(optimizer_config.num_steps):
+        for iter in tqdm(range(optimizer_config.num_steps), desc="Optimizing grasps"):
             losses_np = optimizer.compute_grasp_losses_no_grad().detach().cpu().numpy()
 
             if iter % print_freq == 0:

@@ -143,7 +143,7 @@ def get_sorted_grasps_from_file(
     error_if_no_loss: bool = True,
     check: bool = True,
     print_best: bool = True,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """
     This function processes optimized grasping configurations in preparation for hardware tests.
 
@@ -156,19 +156,21 @@ def get_sorted_grasps_from_file(
     print_best (bool): Whether to print the best grasp configurations. Defaults to True.
 
     Returns:
-    Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     - A batch of wrist transformations of object yup frame wrt nerf frame in a numpy array of shape (B, 4, 4), representing pose in nerf frame (avoid quat to be less ambiguous about order)
     - A batch of joint angles in a numpy array of shape (B, 16)
     - A batch of target joint angles in a numpy array of shape (B, 16)
     - A batch of pre joint angles in a numpy array of shape (B, 16)
+    - A batch of sorted losses in a numpy array of shape (B,)
 
     Example:
-    >>> X_Oy_H_array, joint_angles_array, target_joint_angles_array, pre_joint_angles_array = get_sorted_grasps_from_file(pathlib.Path("path/to/optimized_grasp_config.npy"))
+    >>> X_Oy_H_array, joint_angles_array, target_joint_angles_array, pre_joint_angles_array, sorted_losses = get_sorted_grasps_from_file(pathlib.Path("path/to/optimized_grasp_config.npy"))
     >>> B = X_Oy_H_array.shape[0]
     >>> assert X_Oy_H_array.shape == (B, 4, 4)
     >>> assert joint_angles_array.shape == (B, 16)
     >>> assert target_joint_angles_array.shape == (B, 16)
     >>> assert pre_joint_angles_array.shape == (B, 16)
+    >>> assert sorted_losses.shape == (B,)
     """
 ```
 

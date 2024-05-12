@@ -360,7 +360,6 @@ class CEMOptimizer(Optimizer):
                 .expand(self.optimizer_config.num_samples, -1)
                 .unsqueeze(-1)
             )
-            * 0.01
         )
 
         wrist_pose_innovations = (
@@ -379,7 +378,6 @@ class CEMOptimizer(Optimizer):
             torch.randn_like(
                 elite_mean.joint_angles.expand(self.optimizer_config.num_samples, -1)
             ).unsqueeze(-1)
-            * 0.01
         )
 
         joint_angle_innovations = (
@@ -398,7 +396,7 @@ class CEMOptimizer(Optimizer):
             torch.randn_like(elite_mean.grasp_orientations.Log())
             .expand(self.optimizer_config.num_samples, -1, -1)
             .unsqueeze(-1)
-        ) * 0.01
+        )
 
         grasp_orientation_innovations = (
             elite_chol_grasp_orientations @ grasp_orientation_perturbations

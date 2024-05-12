@@ -389,7 +389,7 @@ class AllegroGraspConfig(torch.nn.Module):
             # Set atol and rtol to be a bit larger than default to handle large matrices
             # (numerical errors larger affect the sanity checking)
             pp.from_matrix(
-                grasp_orientations, pp.SO3_type, atol=1e-2, rtol=1e-2, check=check
+                grasp_orientations, pp.SO3_type, atol=1e-4, rtol=1e-4, check=check
             )
         )
 

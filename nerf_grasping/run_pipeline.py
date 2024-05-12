@@ -1,5 +1,5 @@
 import time
-from typing import Optional, Tuple, List
+from typing import Optional, Tuple, List, Literal
 from nerfstudio.models.base_model import Model
 from nerf_grasping.grasp_utils import load_nerf_pipeline
 from nerf_grasping.optimizer import get_optimized_grasps
@@ -101,6 +101,7 @@ class PipelineConfig:
     ub_z: float = 0.3
     nerf_frame_offset_x: float = 0.65
     visualize: bool = False
+    optimizer_type: Literal["sgd", "cem", "random"] = "sgd"
     num_grasps: int = 32
     num_steps: int = 0
     random_seed: Optional[int] = None
@@ -404,8 +405,7 @@ def compute_grasps(
     print("\n" + "=" * 80)
     print("Step 6: Optimize grasps")
     print("=" * 80 + "\n")
-    OPTIMIZATION_TYPE = "sgd"
-    if OPTIMIZATION_TYPE == "sgd":
+    if cfg.optimizer_type == "sgd":
         optimizer = SGDOptimizerConfig(
             num_grasps=cfg.num_grasps,
             num_steps=cfg.num_steps,
@@ -415,7 +415,7 @@ def compute_grasps(
             grasp_dir_lr=0,
             wrist_lr=1e-3,
         )
-    elif OPTIMIZATION_TYPE == "cem":
+    elif cfg.optimizer_type == "cem":
         optimizer = CEMOptimizerConfig(
             num_grasps=cfg.num_grasps,
             num_steps=cfg.num_steps,
@@ -423,13 +423,13 @@ def compute_grasps(
             num_elite=2,
             min_cov_std=1e-2,
         )
-    elif OPTIMIZATION_TYPE == "random":
+    elif cfg.optimizer_type == "random":
         optimizer = RandomSamplingConfig(
             num_grasps=cfg.num_grasps,
             num_steps=cfg.num_steps,
         )
     else:
-        raise ValueError(f"Invalid OPTIMIZATION_TYPE: {OPTIMIZATION_TYPE}")
+        raise ValueError(f"Invalid cfg.optimizer_type: {cfg.optimizer_type}")
 
     optimized_grasp_config_dict = get_optimized_grasps(
         cfg=OptimizationConfig(

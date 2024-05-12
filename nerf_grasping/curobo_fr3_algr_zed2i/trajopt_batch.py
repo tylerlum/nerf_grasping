@@ -449,7 +449,7 @@ def get_trajectories_from_result(
 
 
 def compute_over_limit_factors(
-    qds: List[np.ndarray], dts: List[float], safety_buffer: float = 0.1
+    qds: List[np.ndarray], dts: List[float], safety_buffer: float = 0.5
 ) -> List[float]:
     n_trajs = len(qds)
     assert len(dts) == n_trajs

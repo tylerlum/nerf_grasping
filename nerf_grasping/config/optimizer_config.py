@@ -30,8 +30,8 @@ class CEMOptimizerConfig(BaseOptimizerConfig):
 
 @dataclass
 class RandomSamplingConfig(BaseOptimizerConfig):
-    wrist_pose_noise: float = 0.01
-    joint_angle_noise: float = 0.1
+    wrist_pose_noise: float = 0.005
+    joint_angle_noise: float = 0.01
     grasp_orientation_noise: float = 0.01
 
 

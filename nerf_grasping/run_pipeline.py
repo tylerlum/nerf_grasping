@@ -433,7 +433,7 @@ def compute_grasps(
     print("\n" + "=" * 80)
     print("Step 7: Convert optimized grasps to joint angles")
     print("=" * 80 + "\n")
-    X_Oy_Hs, q_algr_pres, q_algr_posts, q_algr_extra_open, losses = get_sorted_grasps_from_dict(
+    X_Oy_Hs, q_algr_pres, q_algr_posts, q_algr_extra_open, sorted_losses = get_sorted_grasps_from_dict(
         optimized_grasp_config_dict=optimized_grasp_config_dict,
         error_if_no_loss=True,
         check=False,
@@ -487,7 +487,7 @@ def compute_grasps(
         q_algr_posts,
         mesh_W,
         X_N_Oy,
-        losses,
+        sorted_losses,
     )
 
 
@@ -503,7 +503,7 @@ def run_curobo(
     ik_solver2: Optional[IKSolver] = None,
     motion_gen: Optional[MotionGen] = None,
     motion_gen_config: Optional[MotionGenConfig] = None,
-    losses: Optional[np.ndarray] = None,
+    sorted_losses: Optional[np.ndarray] = None,
 ) -> Tuple[List[np.ndarray], List[np.ndarray], List[float], List[int], tuple, dict]:
     # Timing
     APPROACH_TIME = cfg.approach_time
@@ -832,10 +832,10 @@ def run_curobo(
     print(
         f"final_success_idxs: {final_success_idxs} ({len(final_success_idxs)} / {n_grasps} = {len(final_success_idxs) / n_grasps * 100:.2f}%)"
     )
-    if losses is not None:
-        assert losses.shape == (n_grasps,)
-        print(f"losses = {losses}")
-        print(f"losses of successful grasps: {[losses[i] for i in final_success_idxs]}")
+    if sorted_losses is not None:
+        assert sorted_losses.shape == (n_grasps,)
+        print(f"sorted_losses = {sorted_losses}")
+        print(f"sorted_losses of successful grasps: {[sorted_losses[i] for i in final_success_idxs]}")
     print("~" * 80 + "\n")
 
     # Adjust the lift qs to have the same hand position as the closing qs
@@ -942,7 +942,7 @@ def run_pipeline(
         q_algr_posts,
         mesh_W,
         X_N_Oy,
-        losses,
+        sorted_losses,
     ) = compute_grasps(nerf_model=nerf_model, cfg=cfg)
     compute_grasps_time = time.time()
     print("@" * 80)
@@ -955,7 +955,7 @@ def run_pipeline(
         X_W_Hs=X_W_Hs,
         q_algr_pres=q_algr_pres,
         q_algr_posts=q_algr_posts,
-        losses=losses,
+        sorted_losses=sorted_losses,
         q_fr3=q_fr3,
         q_algr=q_algr,
         robot_cfg=robot_cfg,
@@ -979,7 +979,7 @@ def run_pipeline(
         "q_algr_posts": q_algr_posts,
         "mesh_W": mesh_W,
         "X_N_Oy": X_N_Oy,
-        "losses": losses,
+        "sorted_losses": sorted_losses,
         "qs": qs,
         "qds": qds,
         "T_trajs": T_trajs,

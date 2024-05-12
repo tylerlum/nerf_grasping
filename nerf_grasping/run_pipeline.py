@@ -104,11 +104,11 @@ class PipelineConfig:
     object_scale: float = 0.9999
     nerf_config: Optional[pathlib.Path] = None
 
-    approach_time: float = 5.0
-    stay_open_time: float = 0.5
+    approach_time: float = 3.0
+    stay_open_time: float = 0.2
     close_time: float = 0.5
-    stay_closed_time: float = 0.5
-    lift_time: float = 2.0
+    stay_closed_time: float = 0.2
+    lift_time: float = 1.0
 
     def __post_init__(self) -> None:
         assert (
@@ -412,9 +412,9 @@ def compute_grasps(
             optimizer=SGDOptimizerConfig(
                 num_grasps=cfg.num_grasps,
                 num_steps=cfg.num_steps,
-                finger_lr=1e-4,
+                finger_lr=1e-3,
                 grasp_dir_lr=1e-4,
-                wrist_lr=1e-4,
+                wrist_lr=1e-3,
             ),
             output_path=pathlib.Path(
                 cfg.output_folder
@@ -431,8 +431,7 @@ def compute_grasps(
     print("\n" + "=" * 80)
     print("Step 7: Convert optimized grasps to joint angles")
     print("=" * 80 + "\n")
-    losses = optimized_grasp_config_dict["loss"]
-    X_Oy_Hs, q_algr_pres, q_algr_posts, q_algr_extra_open = get_sorted_grasps_from_dict(
+    X_Oy_Hs, q_algr_pres, q_algr_posts, q_algr_extra_open, sorted_losses = get_sorted_grasps_from_dict(
         optimized_grasp_config_dict=optimized_grasp_config_dict,
         error_if_no_loss=True,
         check=False,
@@ -486,7 +485,7 @@ def compute_grasps(
         q_algr_posts,
         mesh_W,
         X_N_Oy,
-        losses,
+        sorted_losses,
     )
 
 
@@ -502,7 +501,7 @@ def run_curobo(
     ik_solver2: Optional[IKSolver] = None,
     motion_gen: Optional[MotionGen] = None,
     motion_gen_config: Optional[MotionGenConfig] = None,
-    losses: Optional[np.ndarray] = None,
+    sorted_losses: Optional[np.ndarray] = None,
 ) -> Tuple[List[np.ndarray], List[np.ndarray], List[float], List[int], tuple, dict]:
     # Timing
     APPROACH_TIME = cfg.approach_time
@@ -573,7 +572,7 @@ def run_curobo(
         q_algr_starts=q_algr[None, ...].repeat(n_grasps, axis=0),
         enable_graph=True,
         enable_opt=False,
-        timeout=5.0,
+        timeout=2.0,
     )
 
     motion_gen_success_idxs = (
@@ -715,7 +714,7 @@ def run_curobo(
             q_algr_starts=q_start_lifts[:, 7:],
             enable_graph=True,
             enable_opt=False,
-            timeout=5.0,
+            timeout=1.0,
         )
     )
 
@@ -831,10 +830,10 @@ def run_curobo(
     print(
         f"final_success_idxs: {final_success_idxs} ({len(final_success_idxs)} / {n_grasps} = {len(final_success_idxs) / n_grasps * 100:.2f}%)"
     )
-    if losses is not None:
-        assert losses.shape == (n_grasps,)
-        print(f"losses = {losses}")
-        print(f"losses of successful grasps: {[losses[i] for i in final_success_idxs]}")
+    if sorted_losses is not None:
+        assert sorted_losses.shape == (n_grasps,)
+        print(f"sorted_losses = {sorted_losses}")
+        print(f"sorted_losses of successful grasps: {[sorted_losses[i] for i in final_success_idxs]}")
     print("~" * 80 + "\n")
 
     # Adjust the lift qs to have the same hand position as the closing qs
@@ -941,7 +940,7 @@ def run_pipeline(
         q_algr_posts,
         mesh_W,
         X_N_Oy,
-        losses,
+        sorted_losses,
     ) = compute_grasps(nerf_model=nerf_model, cfg=cfg)
     compute_grasps_time = time.time()
     print("@" * 80)
@@ -954,7 +953,7 @@ def run_pipeline(
         X_W_Hs=X_W_Hs,
         q_algr_pres=q_algr_pres,
         q_algr_posts=q_algr_posts,
-        losses=losses,
+        sorted_losses=sorted_losses,
         q_fr3=q_fr3,
         q_algr=q_algr,
         robot_cfg=robot_cfg,
@@ -978,7 +977,7 @@ def run_pipeline(
         "q_algr_posts": q_algr_posts,
         "mesh_W": mesh_W,
         "X_N_Oy": X_N_Oy,
-        "losses": losses,
+        "sorted_losses": sorted_losses,
         "qs": qs,
         "qds": qds,
         "T_trajs": T_trajs,
@@ -992,9 +991,9 @@ def run_pipeline(
 def visualize(
     cfg: PipelineConfig,
     qs: List[np.ndarray],
-    qds: List[np.ndarray],
     T_trajs: List[float],
     success_idxs: List[int],
+    sorted_losses: np.ndarray,
     DEBUG_TUPLE: tuple,
 ) -> None:
     # Visualize
@@ -1036,7 +1035,7 @@ def visualize(
         dts.append(dt)
 
     remove_collision_spheres_default_config()
-    q, qd, dt = qs[TRAJ_IDX], qds[TRAJ_IDX], dts[TRAJ_IDX]
+    q, dt = qs[TRAJ_IDX], dts[TRAJ_IDX]
     print(f"Visualizing trajectory {TRAJ_IDX}")
     animate_robot(robot=pb_robot, qs=q, dt=dt)
 
@@ -1054,6 +1053,8 @@ def visualize(
                 "c to draw collision spheres",
                 "r to remove collision spheres",
                 "q to quit",
+                f"success_idxs = {success_idxs}",
+                f"sorted_losses = {np.round([sorted_losses[i] for i in success_idxs], 2)}",
                 "=====================",
             ]
         )
@@ -1062,7 +1063,7 @@ def visualize(
             print("Breakpoint")
             breakpoint()
         elif x == "v":
-            q, qd, dt = qs[TRAJ_IDX], qds[TRAJ_IDX], dts[TRAJ_IDX]
+            q, dt = qs[TRAJ_IDX], dts[TRAJ_IDX]
             print(f"Visualizing trajectory {TRAJ_IDX}")
             animate_robot(robot=pb_robot, qs=q, dt=dt)
         elif x == "d":
@@ -1070,7 +1071,7 @@ def visualize(
                 "WARNING: This doesn't make sense when we include the full trajectory of grasping"
             )
 
-            q, qd, dt = qs[TRAJ_IDX], qds[TRAJ_IDX], dts[TRAJ_IDX]
+            q, dt = qs[TRAJ_IDX], dts[TRAJ_IDX]
             print(f"For trajectory {TRAJ_IDX}")
             d_world, d_self = max_penetration_from_qs(
                 qs=q,
@@ -1267,9 +1268,9 @@ def main() -> None:
     visualize(
         cfg=args,
         qs=qs,
-        qds=qds,
         T_trajs=T_trajs,
         success_idxs=success_idxs,
+        sorted_losses=log_dict["sorted_losses"],
         DEBUG_TUPLE=DEBUG_TUPLE,
     )
 

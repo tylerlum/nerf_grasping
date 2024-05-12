@@ -76,9 +76,12 @@ class Optimizer:
         self.grasp_config = init_grasp_config
         self.grasp_metric = grasp_metric
 
-    @property
-    def grasp_losses(self) -> torch.Tensor:
+    def compute_grasp_losses(self) -> torch.Tensor:
         return self.grasp_metric.get_failure_probability(self.grasp_config)
+
+    def compute_grasp_losses_no_grad(self) -> torch.Tensor:
+        with torch.no_grad():
+            return self.grasp_metric.get_failure_probability(self.grasp_config)
 
     def step(self):
         raise NotImplementedError()
@@ -157,7 +160,9 @@ class SGDOptimizer(Optimizer):
             joint_lower_limits
         ).float().to(self.grasp_config.wrist_pose.device), torch.from_numpy(
             joint_upper_limits
-        ).float().to(self.grasp_config.wrist_pose.device)
+        ).float().to(
+            self.grasp_config.wrist_pose.device
+        )
 
         assert self.joint_lower_limits.shape == (16,)
         assert self.joint_upper_limits.shape == (16,)
@@ -174,7 +179,7 @@ class SGDOptimizer(Optimizer):
             self.wrist_optimizer.zero_grad()
         if self.optimizer_config.opt_grasp_dirs:
             self.grasp_dir_optimizer.zero_grad()
-        losses = self.grasp_losses
+        losses = self.compute_grasp_losses()
         assert losses.shape == (self.grasp_config.batch_size,)
 
         # TODO(pculbert): Think about clipping joint angles
@@ -216,7 +221,9 @@ class CEMOptimizer(Optimizer):
 
     def step(self):
         # Find the elite fraction of samples.
-        elite_inds = torch.argsort(self.grasp_losses)[: self.optimizer_config.num_elite]
+        elite_inds = torch.argsort(self.compute_grasp_losses())[
+            : self.optimizer_config.num_elite
+        ]
         elite_grasps = self.grasp_config[elite_inds]
 
         # Compute the mean and covariance of the grasp config.
@@ -330,8 +337,8 @@ def run_optimizer_loop(
             else None
         )
 
-        for iter in range(optimizer_config.num_steps):
-            losses_np = optimizer.grasp_losses.detach().cpu().numpy()
+        for iter in tqdm(range(optimizer_config.num_steps), desc="Optimizing grasps"):
+            losses_np = optimizer.compute_grasp_losses_no_grad().detach().cpu().numpy()
 
             if iter % print_freq == 0:
                 print(
@@ -396,7 +403,7 @@ def run_optimizer_loop(
     optimizer.grasp_metric.eval()
 
     return (
-        optimizer.grasp_losses,
+        optimizer.compute_grasp_losses_no_grad(),
         optimizer.grasp_config,
     )
 
@@ -451,6 +458,7 @@ def get_optimized_grasps(
         init_grasp_configs = AllegroGraspConfig.from_grasp_config_dict(
             init_grasp_config_dict
         )
+        print(f"Loaded {init_grasp_configs.batch_size} initial grasp configs.")
 
         # HACK: For now, just take the first num_grasps.
         # init_grasp_configs = init_grasp_configs[: cfg.optimizer.num_grasps]
@@ -486,7 +494,7 @@ def get_optimized_grasps(
         torch.manual_seed(cfg.random_seed)
 
     BATCH_SIZE = 64
-    all_preds = []
+    all_success_preds = []
     all_predicted_in_collision_obj = []
     all_predicted_in_collision_table = []
     with torch.no_grad():
@@ -530,10 +538,15 @@ def get_optimized_grasps(
             fingers_forward = z_dirs[:, 0] >= cos_theta
             palm_upwards = x_dirs[:, 1] >= cos_theta
             new_grasp_configs = new_grasp_configs[fingers_forward & ~palm_upwards]
+            print(
+                f"Filtered less feasible grasps. New batch size: {new_grasp_configs.batch_size}"
+            )
 
         # Evaluate grasp metric and collisions
         n_batches = math.ceil(new_grasp_configs.batch_size / BATCH_SIZE)
-        for batch_i in tqdm(range(n_batches)):
+        for batch_i in tqdm(
+            range(n_batches), desc=f"Evaling grasp metric with batch_size={BATCH_SIZE}"
+        ):
             start_idx = batch_i * BATCH_SIZE
             end_idx = np.clip(
                 (batch_i + 1) * BATCH_SIZE,
@@ -544,21 +557,30 @@ def get_optimized_grasps(
             temp_grasp_configs = new_grasp_configs[start_idx:end_idx].to(device=device)
 
             # Metric
-            preds = grasp_metric.get_failure_probability(temp_grasp_configs)
-            all_preds.append(1 - preds.detach().cpu().numpy())
-
-            # Collision with object
-            hand_surface_points_Oy = get_hand_surface_points_Oy(
-                grasp_config=temp_grasp_configs
+            success_preds = (
+                (1 - grasp_metric.get_failure_probability(temp_grasp_configs))
+                .detach()
+                .cpu()
+                .numpy()
             )
-            predicted_in_collision_obj = predict_in_collision_with_object(
-                nerf_field=grasp_metric.nerf_field,
-                hand_surface_points_Oy=hand_surface_points_Oy,
-            )
-            all_predicted_in_collision_obj.append(predicted_in_collision_obj)
+            all_success_preds.append(success_preds)
 
-            # Collision with table
+            # Collision with object and table
+            USE_OBJECT = False
             USE_TABLE = False
+            hand_surface_points_Oy = None
+            if USE_OBJECT or USE_TABLE:
+                hand_surface_points_Oy = get_hand_surface_points_Oy(
+                    grasp_config=temp_grasp_configs
+                )
+            if USE_OBJECT:
+                predicted_in_collision_obj = predict_in_collision_with_object(
+                    nerf_field=grasp_metric.nerf_field,
+                    hand_surface_points_Oy=hand_surface_points_Oy,
+                )
+                all_predicted_in_collision_obj.append(predicted_in_collision_obj)
+            else:
+                all_predicted_in_collision_obj.append(np.zeros_like(success_preds))
             if USE_TABLE:
                 table_y_Oy = -cfg.grasp_metric.X_N_Oy[2, 3]
                 predicted_in_collision_table = predict_in_collision_with_table(
@@ -567,28 +589,27 @@ def get_optimized_grasps(
                 )
                 all_predicted_in_collision_table.append(predicted_in_collision_table)
             else:
-                all_predicted_in_collision_table.append(
-                    np.zeros_like(predicted_in_collision_obj)
-                )
+                all_predicted_in_collision_table.append(np.zeros_like(success_preds))
 
         # Aggregate
-        all_preds = np.concatenate(all_preds)
+        all_success_preds = np.concatenate(all_success_preds)
         all_predicted_in_collision_obj = np.concatenate(all_predicted_in_collision_obj)
         all_predicted_in_collision_table = np.concatenate(
             all_predicted_in_collision_table
         )
-        assert all_preds.shape == (new_grasp_configs.batch_size,)
+        assert all_success_preds.shape == (new_grasp_configs.batch_size,)
         assert all_predicted_in_collision_obj.shape == (new_grasp_configs.batch_size,)
         assert all_predicted_in_collision_table.shape == (new_grasp_configs.batch_size,)
 
         # Filter out grasps that are in collision
-        new_all_preds = np.where(
-            all_predicted_in_collision_obj | all_predicted_in_collision_table,
-            np.zeros_like(all_preds),
-            all_preds,
+        new_all_success_preds = np.where(
+            np.logical_or(
+                all_predicted_in_collision_obj, all_predicted_in_collision_table
+            ),
+            np.zeros_like(all_success_preds),
+            all_success_preds,
         )
-        ordered_idxs_best_first = np.argsort(new_all_preds)[::-1].copy()
-        print(f"new_all_preds[ordered_idxs_best_first] = {new_all_preds[ordered_idxs_best_first][:10]}")
+        ordered_idxs_best_first = np.argsort(new_all_success_preds)[::-1].copy()
         # breakpoint()  # TODO: Debug here
         new_grasp_configs = new_grasp_configs[ordered_idxs_best_first]
 
@@ -636,7 +657,7 @@ def get_optimized_grasps(
     else:
         raise ValueError(f"Invalid optimizer config: {cfg.optimizer}")
 
-    init_losses = optimizer.grasp_losses
+    init_losses = optimizer.compute_grasp_losses_no_grad()
 
     table = Table(title="Grasp loss")
     table.add_column("Iteration", justify="right")

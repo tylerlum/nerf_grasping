@@ -241,59 +241,71 @@ class RandomSamplingOptimizer(Optimizer):
         )
 
     def step(self):
-        losses = self.compute_grasp_losses().detach().cpu().numpy()
+        with torch.no_grad():
+            # Eval old
+            old_losses = self.grasp_metric.get_failure_probability(self.grasp_config)
 
-        # Check causing issues, probably just numerical issues
-        new_grasp_config = AllegroGraspConfig.from_grasp_config_dict(
-            self.grasp_config.as_dict(), check=False
-        )
-
-        # Add noise
-        wrist_pose_perturbations = (
-            pp.randn_se3(new_grasp_config.wrist_pose.lshape)
-            * self.optimizer_config.wrist_pose_noise
-        ).Exp()
-        joint_angle_perturbations = (
-            torch.randn_like(new_grasp_config.joint_angles)
-            * self.optimizer_config.joint_angle_noise
-        )
-        grasp_orientation_perturbations = (
-            pp.randn_so3(new_grasp_config.grasp_orientations.lshape)
-            * self.optimizer_config.grasp_orientation_noise
-        ).Exp()
-
-        new_grasp_config.hand_config.set_wrist_pose(
-            wrist_pose_perturbations @ new_grasp_config.hand_config.wrist_pose
-        )
-        new_grasp_config.hand_config.set_joint_angles(
-            new_grasp_config.hand_config.joint_angles + joint_angle_perturbations
-        )
-        new_grasp_config.set_grasp_orientations(
-            grasp_orientation_perturbations @ new_grasp_config.grasp_orientations
-        )
-        new_losses = (
-            self.grasp_metric.get_failure_probability(
-                new_grasp_config.to(device=self.device)
+            # Sample new
+            new_grasp_config = AllegroGraspConfig.from_grasp_config_dict(
+                self.grasp_config.as_dict(),
+                check=False,  # Check causing issues, probably just numerical issues
             )
-            .detach()
-            .cpu()
-            .numpy()
-        )
 
-        old_dict = self.grasp_config.as_dict()
-        new_dict = new_grasp_config.as_dict()
-        improved_idxs = new_losses < losses
+            wrist_pose_perturbations = (
+                pp.randn_se3(new_grasp_config.wrist_pose.lshape)
+                * self.optimizer_config.wrist_pose_noise
+            ).Exp()
+            joint_angle_perturbations = (
+                torch.randn_like(new_grasp_config.joint_angles)
+                * self.optimizer_config.joint_angle_noise
+            )
+            grasp_orientation_perturbations = (
+                pp.randn_so3(new_grasp_config.grasp_orientations.lshape)
+                * self.optimizer_config.grasp_orientation_noise
+            ).Exp()
 
-        improved_dict = {}
-        for key in old_dict.keys():
-            assert old_dict[key].shape == new_dict[key].shape
-            improved_dict[key] = old_dict[key].copy()
-            improved_dict[key][improved_idxs] = new_dict[key][improved_idxs]
+            new_grasp_config.hand_config.set_wrist_pose(
+                wrist_pose_perturbations @ new_grasp_config.hand_config.wrist_pose
+            )
+            new_grasp_config.hand_config.set_joint_angles(
+                new_grasp_config.hand_config.joint_angles + joint_angle_perturbations
+            )
+            new_grasp_config.set_grasp_orientations(
+                grasp_orientation_perturbations @ new_grasp_config.grasp_orientations
+            )
 
-        # Check causing issues, probably just numerical issues
-        self.grasp_config = AllegroGraspConfig.from_grasp_config_dict(
-            improved_dict, check=False
-        ).to(device=self.device)
+            # Clip joint angles to feasible range.
+            new_grasp_config.joint_angles.data = torch.clamp(
+                new_grasp_config.joint_angles,
+                min=self.joint_lower_limits,
+                max=self.joint_upper_limits,
+            )
+
+            # Eval new
+            new_losses = (
+                self.grasp_metric.get_failure_probability(
+                    new_grasp_config.to(device=self.device)
+                )
+                .detach()
+                .cpu()
+                .numpy()
+            )
+
+            # Update grasp config
+            old_dict = self.grasp_config.as_dict()
+            new_dict = new_grasp_config.as_dict()
+            improved_idxs = new_losses < old_losses
+
+            improved_dict = {}
+            for key in old_dict.keys():
+                assert old_dict[key].shape == new_dict[key].shape
+                improved_dict[key] = old_dict[key].copy()
+                improved_dict[key][improved_idxs] = new_dict[key][improved_idxs]
+
+            self.grasp_config = AllegroGraspConfig.from_grasp_config_dict(
+                improved_dict,
+                check=False,  # Check causing issues, probably just numerical issues
+            ).to(device=self.device)
 
 
 class CEMOptimizer(Optimizer):

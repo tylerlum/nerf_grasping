@@ -17,7 +17,7 @@ class Args:
         pathlib.Path(nerf_grasping.get_repo_root()).resolve() / "data"
     )
     randomize_order_seed: Optional[int] = None
-    timeout: float = 60.0
+    timeout: float = 120.0
 
 
 def export_pointclouds(args: Args) -> pathlib.Path:
@@ -52,6 +52,7 @@ def export_pointclouds(args: Args) -> pathlib.Path:
             continue
 
         # Need to do this here to avoid error when saving the pointclouds
+        print(f"Creating {output_path_to_be_created}")
         output_path_to_be_created.mkdir(exist_ok=False)
 
         command = " ".join(
@@ -77,12 +78,6 @@ def export_pointclouds(args: Args) -> pathlib.Path:
         except subprocess.TimeoutExpired:
             print(f"Command timed out after {args.timeout} seconds: {command}")
             print("~" * 80)
-
-            if output_path_to_be_created.exists():
-                print(f"Deleting {output_path_to_be_created}")
-                subprocess.run(
-                    f"rm -r {output_path_to_be_created}", shell=True, check=True
-                )
 
             timeout_path = (
                 experiment_path

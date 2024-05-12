@@ -993,7 +993,6 @@ def run_pipeline(
 def visualize(
     cfg: PipelineConfig,
     qs: List[np.ndarray],
-    qds: List[np.ndarray],
     T_trajs: List[float],
     success_idxs: List[int],
     sorted_losses: np.ndarray,
@@ -1038,7 +1037,7 @@ def visualize(
         dts.append(dt)
 
     remove_collision_spheres_default_config()
-    q, qd, dt = qs[TRAJ_IDX], qds[TRAJ_IDX], dts[TRAJ_IDX]
+    q, dt = qs[TRAJ_IDX], dts[TRAJ_IDX]
     print(f"Visualizing trajectory {TRAJ_IDX}")
     animate_robot(robot=pb_robot, qs=q, dt=dt)
 
@@ -1066,7 +1065,7 @@ def visualize(
             print("Breakpoint")
             breakpoint()
         elif x == "v":
-            q, qd, dt = qs[TRAJ_IDX], qds[TRAJ_IDX], dts[TRAJ_IDX]
+            q, dt = qs[TRAJ_IDX], dts[TRAJ_IDX]
             print(f"Visualizing trajectory {TRAJ_IDX}")
             animate_robot(robot=pb_robot, qs=q, dt=dt)
         elif x == "d":
@@ -1074,7 +1073,7 @@ def visualize(
                 "WARNING: This doesn't make sense when we include the full trajectory of grasping"
             )
 
-            q, qd, dt = qs[TRAJ_IDX], qds[TRAJ_IDX], dts[TRAJ_IDX]
+            q, dt = qs[TRAJ_IDX], dts[TRAJ_IDX]
             print(f"For trajectory {TRAJ_IDX}")
             d_world, d_self = max_penetration_from_qs(
                 qs=q,
@@ -1271,7 +1270,6 @@ def main() -> None:
     visualize(
         cfg=args,
         qs=qs,
-        qds=qds,
         T_trajs=T_trajs,
         success_idxs=success_idxs,
         sorted_losses=log_dict["sorted_losses"],

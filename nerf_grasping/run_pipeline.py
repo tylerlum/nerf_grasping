@@ -996,6 +996,7 @@ def visualize(
     qds: List[np.ndarray],
     T_trajs: List[float],
     success_idxs: List[int],
+    sorted_losses: np.ndarray,
     DEBUG_TUPLE: tuple,
 ) -> None:
     # Visualize
@@ -1056,6 +1057,7 @@ def visualize(
                 "r to remove collision spheres",
                 "q to quit",
                 f"success_idxs = {success_idxs}",
+                f"sorted_losses = {np.round(sorted_losses, 2).tolist()}",
                 "=====================",
             ]
         )
@@ -1272,6 +1274,7 @@ def main() -> None:
         qds=qds,
         T_trajs=T_trajs,
         success_idxs=success_idxs,
+        sorted_losses=log_dict["sorted_losses"],
         DEBUG_TUPLE=DEBUG_TUPLE,
     )
 

@@ -243,6 +243,7 @@ class RandomSamplingOptimizer(Optimizer):
     def step(self):
         losses = self.compute_grasp_losses().detach().cpu().numpy()
 
+        # Check causing issues, probably just numerical issues
         new_grasp_config = AllegroGraspConfig.from_grasp_config_dict(
             self.grasp_config.as_dict(), check=False
         )
@@ -278,8 +279,6 @@ class RandomSamplingOptimizer(Optimizer):
             .cpu()
             .numpy()
         )
-        print(f"losses.min().item() = {losses.min().item()}")
-        print(f"new_losses.min().item() = {new_losses.min().item()}")
 
         old_dict = self.grasp_config.as_dict()
         new_dict = new_grasp_config.as_dict()
@@ -288,12 +287,10 @@ class RandomSamplingOptimizer(Optimizer):
         improved_dict = {}
         for key in old_dict.keys():
             assert old_dict[key].shape == new_dict[key].shape
-            # improved_dict[key] = np.where(
-            #     losses < new_losses, old_dict[key], new_dict[key]
-            # )
             improved_dict[key] = old_dict[key].copy()
             improved_dict[key][improved_idxs] = new_dict[key][improved_idxs]
 
+        # Check causing issues, probably just numerical issues
         self.grasp_config = AllegroGraspConfig.from_grasp_config_dict(
             improved_dict, check=False
         ).to(device=self.device)
@@ -762,6 +759,7 @@ def get_optimized_grasps(
         optimizer = RandomSamplingOptimizer(
             init_grasp_configs,
             grasp_metric,
+            cfg.optimizer,
         )
     else:
         raise ValueError(f"Invalid optimizer config: {cfg.optimizer}")

@@ -101,7 +101,7 @@ class PipelineConfig:
     ub_z: float = 0.3
     nerf_frame_offset_x: float = 0.65
     visualize: bool = False
-    optimizer_type: Literal["sgd", "cem", "random"] = "sgd"
+    optimizer_type: Literal["sgd", "cem", "random-sampling"] = "sgd"
     num_grasps: int = 32
     num_steps: int = 0
     random_seed: Optional[int] = None
@@ -423,7 +423,7 @@ def compute_grasps(
             num_elite=2,
             min_cov_std=1e-2,
         )
-    elif cfg.optimizer_type == "random":
+    elif cfg.optimizer_type == "random-sampling":
         optimizer = RandomSamplingConfig(
             num_grasps=cfg.num_grasps,
             num_steps=cfg.num_steps,

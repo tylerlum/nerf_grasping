@@ -17,7 +17,7 @@ class Args:
         pathlib.Path(nerf_grasping.get_repo_root()).resolve() / "data"
     )
     randomize_order_seed: Optional[int] = None
-    timeout: float = 30.0
+    timeout: float = 60.0
 
 
 def export_pointclouds(args: Args) -> pathlib.Path:

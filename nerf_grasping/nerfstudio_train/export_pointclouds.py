@@ -51,6 +51,9 @@ def export_pointclouds(args: Args) -> pathlib.Path:
             print(f"Skipping {output_path_to_be_created} because it already exists")
             continue
 
+        # Need to do this here to avoid error when saving the pointclouds
+        output_path_to_be_created.mkdir(exist_ok=False)
+
         command = " ".join(
             [
                 "ns-export",

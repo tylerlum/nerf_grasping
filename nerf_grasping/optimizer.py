@@ -21,6 +21,7 @@ from nerf_grasping.config.nerfdata_config import DepthImageNerfDataConfig
 from nerf_grasping.config.optimizer_config import (
     SGDOptimizerConfig,
     CEMOptimizerConfig,
+    RandomSamplingConfig,
 )
 from typing import Tuple, Union, Dict
 import nerf_grasping
@@ -69,9 +70,9 @@ class Optimizer:
         grasp_metric: Union[GraspMetric, DepthImageGraspMetric],
     ):
         # Put on the correct device. (TODO: DO WE NEED THIS?)
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        grasp_metric = grasp_metric.to(device=device)
-        init_grasp_config = init_grasp_config.to(device=device)
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        grasp_metric = grasp_metric.to(device=self.device)
+        init_grasp_config = init_grasp_config.to(device=self.device)
 
         self.grasp_config = init_grasp_config
         self.grasp_metric = grasp_metric
@@ -106,6 +107,7 @@ class SGDOptimizer(Optimizer):
         self.optimizer_config = optimizer_config
 
         # Add requires_grad to grasp config.
+        init_grasp_config.joint_angles.requires_grad = optimizer_config.opt_fingers
         init_grasp_config.wrist_pose.requires_grad = optimizer_config.opt_wrist_pose
         init_grasp_config.grasp_orientations.requires_grad = (
             optimizer_config.opt_grasp_dirs
@@ -113,6 +115,20 @@ class SGDOptimizer(Optimizer):
 
         # TODO: Config this
         USE_ADAMW = True
+
+        if optimizer_config.opt_fingers:
+            self.joint_optimizer = (
+                torch.optim.SGD(
+                    [self.grasp_config.joint_angles],
+                    lr=optimizer_config.finger_lr,
+                    momentum=optimizer_config.momentum,
+                )
+                if not USE_ADAMW
+                else torch.optim.AdamW(
+                    [self.grasp_config.joint_angles],
+                    lr=optimizer_config.finger_lr,
+                )
+            )
 
         if optimizer_config.opt_wrist_pose:
             self.wrist_optimizer = (
@@ -127,19 +143,6 @@ class SGDOptimizer(Optimizer):
                     lr=optimizer_config.wrist_lr,
                 )
             )
-
-        self.joint_optimizer = (
-            torch.optim.SGD(
-                [self.grasp_config.joint_angles],
-                lr=optimizer_config.finger_lr,
-                momentum=optimizer_config.momentum,
-            )
-            if not USE_ADAMW
-            else torch.optim.AdamW(
-                [self.grasp_config.joint_angles],
-                lr=optimizer_config.finger_lr,
-            )
-        )
 
         if optimizer_config.opt_grasp_dirs:
             self.grasp_dir_optimizer = (
@@ -174,20 +177,20 @@ class SGDOptimizer(Optimizer):
         )
 
     def step(self):
-        self.joint_optimizer.zero_grad()
+        if self.optimizer_config.opt_fingers:
+            self.joint_optimizer.zero_grad()
         if self.optimizer_config.opt_wrist_pose:
             self.wrist_optimizer.zero_grad()
         if self.optimizer_config.opt_grasp_dirs:
             self.grasp_dir_optimizer.zero_grad()
+
         losses = self.compute_grasp_losses()
         assert losses.shape == (self.grasp_config.batch_size,)
 
-        # TODO(pculbert): Think about clipping joint angles
-        # to feasible range.
         losses.sum().backward()  # Should be sum so gradient magnitude per parameter is invariant to batch size.
 
-        self.joint_optimizer.step()
-
+        if self.optimizer_config.opt_fingers:
+            self.joint_optimizer.step()
         if self.optimizer_config.opt_wrist_pose:
             self.wrist_optimizer.step()
         if self.optimizer_config.opt_grasp_dirs:
@@ -199,6 +202,115 @@ class SGDOptimizer(Optimizer):
             min=self.joint_lower_limits,
             max=self.joint_upper_limits,
         )
+
+
+class RandomSamplingOptimizer(Optimizer):
+    def __init__(
+        self,
+        init_grasp_config: AllegroGraspConfig,
+        grasp_metric: Union[GraspMetric, DepthImageGraspMetric],
+        optimizer_config: RandomSamplingConfig,
+    ):
+        """
+        Constructor for RandomSamplingOptimizer.
+
+        Args:
+            init_grasp_config: Initial grasp configuration.
+            grasp_metric: Union[GraspMetric, DepthImageGraspMetric] object defining the metric to optimize.
+            optimizer_config: RandomSamplingConfig object defining the optimizer configuration.
+        """
+        super().__init__(init_grasp_config, grasp_metric)
+        self.optimizer_config = optimizer_config
+
+        joint_lower_limits, joint_upper_limits = get_joint_limits()
+        self.joint_lower_limits, self.joint_upper_limits = torch.from_numpy(
+            joint_lower_limits
+        ).float().to(self.grasp_config.wrist_pose.device), torch.from_numpy(
+            joint_upper_limits
+        ).float().to(
+            self.grasp_config.wrist_pose.device
+        )
+
+        assert self.joint_lower_limits.shape == (16,)
+        assert self.joint_upper_limits.shape == (16,)
+
+        self.grasp_config.joint_angles.data = torch.clamp(
+            self.grasp_config.joint_angles,
+            min=self.joint_lower_limits,
+            max=self.joint_upper_limits,
+        )
+
+    def step(self):
+        with torch.no_grad():
+            # Eval old
+            old_losses = (
+                self.grasp_metric.get_failure_probability(self.grasp_config)
+                .detach()
+                .cpu()
+                .numpy()
+            )
+
+            # Sample new
+            new_grasp_config = AllegroGraspConfig.from_grasp_config_dict(
+                self.grasp_config.as_dict(),
+                check=False,  # Check causing issues, probably just numerical issues
+            )
+
+            wrist_pose_perturbations = (
+                pp.randn_se3(new_grasp_config.wrist_pose.lshape)
+                * self.optimizer_config.wrist_pose_noise
+            ).Exp()
+            joint_angle_perturbations = (
+                torch.randn_like(new_grasp_config.joint_angles)
+                * self.optimizer_config.joint_angle_noise
+            )
+            grasp_orientation_perturbations = (
+                pp.randn_so3(new_grasp_config.grasp_orientations.lshape)
+                * self.optimizer_config.grasp_orientation_noise
+            ).Exp()
+
+            new_grasp_config.hand_config.set_wrist_pose(
+                wrist_pose_perturbations @ new_grasp_config.hand_config.wrist_pose
+            )
+            new_grasp_config.hand_config.set_joint_angles(
+                new_grasp_config.hand_config.joint_angles + joint_angle_perturbations
+            )
+            new_grasp_config.set_grasp_orientations(
+                grasp_orientation_perturbations @ new_grasp_config.grasp_orientations
+            )
+
+            new_grasp_config = new_grasp_config.to(device=self.device)
+
+            # Clip joint angles to feasible range.
+            new_grasp_config.joint_angles.data = torch.clamp(
+                new_grasp_config.joint_angles,
+                min=self.joint_lower_limits,
+                max=self.joint_upper_limits,
+            )
+
+            # Eval new
+            new_losses = (
+                self.grasp_metric.get_failure_probability(new_grasp_config)
+                .detach()
+                .cpu()
+                .numpy()
+            )
+
+            # Update grasp config
+            old_dict = self.grasp_config.as_dict()
+            new_dict = new_grasp_config.as_dict()
+            improved_idxs = new_losses < old_losses
+
+            improved_dict = {}
+            for key in old_dict.keys():
+                assert old_dict[key].shape == new_dict[key].shape
+                improved_dict[key] = old_dict[key].copy()
+                improved_dict[key][improved_idxs] = new_dict[key][improved_idxs]
+
+            self.grasp_config = AllegroGraspConfig.from_grasp_config_dict(
+                improved_dict,
+                check=False,  # Check causing issues, probably just numerical issues
+            ).to(device=self.device)
 
 
 class CEMOptimizer(Optimizer):
@@ -242,10 +354,12 @@ class CEMOptimizer(Optimizer):
             )
         ).unsqueeze(0)
 
-        wrist_pose_perturbations = torch.randn_like(
-            elite_mean.wrist_pose.Log()
-            .expand(self.optimizer_config.num_samples, -1)
-            .unsqueeze(-1)
+        wrist_pose_perturbations = (
+            torch.randn_like(
+                elite_mean.wrist_pose.Log()
+                .expand(self.optimizer_config.num_samples, -1)
+                .unsqueeze(-1)
+            )
         )
 
         wrist_pose_innovations = (
@@ -260,9 +374,11 @@ class CEMOptimizer(Optimizer):
             )
         ).unsqueeze(0)
 
-        joint_angle_perturbations = torch.randn_like(
-            elite_mean.joint_angles.expand(self.optimizer_config.num_samples, -1)
-        ).unsqueeze(-1)
+        joint_angle_perturbations = (
+            torch.randn_like(
+                elite_mean.joint_angles.expand(self.optimizer_config.num_samples, -1)
+            ).unsqueeze(-1)
+        )
 
         joint_angle_innovations = (
             elite_chol_joint_angles @ joint_angle_perturbations
@@ -650,6 +766,12 @@ def get_optimized_grasps(
         )
     elif isinstance(cfg.optimizer, CEMOptimizerConfig):
         optimizer = CEMOptimizer(
+            init_grasp_configs,
+            grasp_metric,
+            cfg.optimizer,
+        )
+    elif isinstance(cfg.optimizer, RandomSamplingConfig):
+        optimizer = RandomSamplingOptimizer(
             init_grasp_configs,
             grasp_metric,
             cfg.optimizer,

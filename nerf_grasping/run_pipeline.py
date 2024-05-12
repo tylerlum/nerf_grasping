@@ -409,8 +409,10 @@ def compute_grasps(
         optimizer = SGDOptimizerConfig(
             num_grasps=cfg.num_grasps,
             num_steps=cfg.num_steps,
-            finger_lr=1e-3,
-            grasp_dir_lr=1e-4,
+            # finger_lr=1e-3,
+            finger_lr=0,
+            # grasp_dir_lr=1e-4,
+            grasp_dir_lr=0,
             wrist_lr=1e-3,
         )
     elif OPTIMIZATION_TYPE == "cem":

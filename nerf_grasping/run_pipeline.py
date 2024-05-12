@@ -1057,7 +1057,7 @@ def visualize(
                 "r to remove collision spheres",
                 "q to quit",
                 f"success_idxs = {success_idxs}",
-                f"sorted_losses = {np.round(sorted_losses, 2).tolist()}",
+                f"sorted_losses = {np.round([sorted_losses[i] for i in success_idxs], 2)}",
                 "=====================",
             ]
         )

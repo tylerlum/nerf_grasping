@@ -14,7 +14,11 @@ from nerf_grasping.optimizer_utils import (
 )
 from nerf_grasping.config.nerfdata_config import DepthImageNerfDataConfig
 from nerf_grasping.config.optimization_config import OptimizationConfig
-from nerf_grasping.config.optimizer_config import SGDOptimizerConfig, CEMOptimizerConfig, RandomSamplingConfig
+from nerf_grasping.config.optimizer_config import (
+    SGDOptimizerConfig,
+    CEMOptimizerConfig,
+    RandomSamplingConfig,
+)
 from nerf_grasping.config.grasp_metric_config import GraspMetricConfig
 from nerf_grasping.nerfstudio_train import train_nerfs_return_trainer
 from nerf_grasping.baselines.nerf_to_mesh import nerf_to_mesh
@@ -400,6 +404,31 @@ def compute_grasps(
     print("\n" + "=" * 80)
     print("Step 6: Optimize grasps")
     print("=" * 80 + "\n")
+    OPTIMIZATION_TYPE = "sgd"
+    if OPTIMIZATION_TYPE == "sgd":
+        optimizer = SGDOptimizerConfig(
+            num_grasps=cfg.num_grasps,
+            num_steps=cfg.num_steps,
+            finger_lr=1e-3,
+            grasp_dir_lr=1e-4,
+            wrist_lr=1e-3,
+        )
+    elif OPTIMIZATION_TYPE == "cem":
+        optimizer = CEMOptimizerConfig(
+            num_grasps=cfg.num_grasps,
+            num_steps=cfg.num_steps,
+            num_samples=cfg.num_grasps,
+            num_elite=2,
+            min_cov_std=1e-2,
+        )
+    elif OPTIMIZATION_TYPE == "random":
+        optimizer = RandomSamplingConfig(
+            num_grasps=cfg.num_grasps,
+            num_steps=cfg.num_steps,
+        )
+    else:
+        raise ValueError(f"Invalid OPTIMIZATION_TYPE: {OPTIMIZATION_TYPE}")
+
     optimized_grasp_config_dict = get_optimized_grasps(
         cfg=OptimizationConfig(
             use_rich=False,  # Not used because causes issues with logging
@@ -409,24 +438,7 @@ def compute_grasps(
                 classifier_config_path=cfg.classifier_config_path,
                 X_N_Oy=X_N_Oy,
             ),  # This is not used because we are passing in a grasp_metric
-            # optimizer=SGDOptimizerConfig(
-            #     num_grasps=cfg.num_grasps,
-            #     num_steps=cfg.num_steps,
-            #     finger_lr=1e-3,
-            #     grasp_dir_lr=1e-4,
-            #     wrist_lr=1e-3,
-            # ),
-            # optimizer=CEMOptimizerConfig(
-            #     num_grasps=cfg.num_grasps,
-            #     num_steps=cfg.num_steps,
-            #     num_samples=cfg.num_grasps,
-            #     num_elite=2,
-            #     min_cov_std=1e-2,
-            # ),
-            optimizer=RandomSamplingConfig(
-                num_grasps=cfg.num_grasps,
-                num_steps=cfg.num_steps,
-            ),
+            optimizer=optimizer,
             output_path=pathlib.Path(
                 cfg.output_folder
                 / "optimized_grasp_config_dicts"
@@ -442,11 +454,13 @@ def compute_grasps(
     print("\n" + "=" * 80)
     print("Step 7: Convert optimized grasps to joint angles")
     print("=" * 80 + "\n")
-    X_Oy_Hs, q_algr_pres, q_algr_posts, q_algr_extra_open, sorted_losses = get_sorted_grasps_from_dict(
-        optimized_grasp_config_dict=optimized_grasp_config_dict,
-        error_if_no_loss=True,
-        check=False,
-        print_best=False,
+    X_Oy_Hs, q_algr_pres, q_algr_posts, q_algr_extra_open, sorted_losses = (
+        get_sorted_grasps_from_dict(
+            optimized_grasp_config_dict=optimized_grasp_config_dict,
+            error_if_no_loss=True,
+            check=False,
+            print_best=False,
+        )
     )
 
     MODE = "EXTRA_OPEN"  # TODO: Compare these
@@ -844,7 +858,9 @@ def run_curobo(
     if sorted_losses is not None:
         assert sorted_losses.shape == (n_grasps,)
         print(f"sorted_losses = {sorted_losses}")
-        print(f"sorted_losses of successful grasps: {[sorted_losses[i] for i in final_success_idxs]}")
+        print(
+            f"sorted_losses of successful grasps: {[sorted_losses[i] for i in final_success_idxs]}"
+        )
     print("~" * 80 + "\n")
 
     # Adjust the lift qs to have the same hand position as the closing qs
@@ -942,7 +958,9 @@ def run_pipeline(
 
     print(f"Creating a new experiment folder at {cfg.output_folder}")
     cfg.output_folder.mkdir(parents=True, exist_ok=True)
-    sys.stdout = MultipleOutputs(stdout=False, stderr=True, filename=str(cfg.output_folder / "nerf_grasping.log"))
+    sys.stdout = MultipleOutputs(
+        stdout=False, stderr=True, filename=str(cfg.output_folder / "nerf_grasping.log")
+    )
 
     start_time = time.time()
     (

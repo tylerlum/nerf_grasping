@@ -243,7 +243,12 @@ class RandomSamplingOptimizer(Optimizer):
     def step(self):
         with torch.no_grad():
             # Eval old
-            old_losses = self.grasp_metric.get_failure_probability(self.grasp_config)
+            old_losses = (
+                self.grasp_metric.get_failure_probability(self.grasp_config)
+                .detach()
+                .cpu()
+                .numpy()
+            )
 
             # Sample new
             new_grasp_config = AllegroGraspConfig.from_grasp_config_dict(
@@ -274,6 +279,8 @@ class RandomSamplingOptimizer(Optimizer):
                 grasp_orientation_perturbations @ new_grasp_config.grasp_orientations
             )
 
+            new_grasp_config = new_grasp_config.to(device=self.device)
+
             # Clip joint angles to feasible range.
             new_grasp_config.joint_angles.data = torch.clamp(
                 new_grasp_config.joint_angles,
@@ -283,9 +290,7 @@ class RandomSamplingOptimizer(Optimizer):
 
             # Eval new
             new_losses = (
-                self.grasp_metric.get_failure_probability(
-                    new_grasp_config.to(device=self.device)
-                )
+                self.grasp_metric.get_failure_probability(new_grasp_config)
                 .detach()
                 .cpu()
                 .numpy()

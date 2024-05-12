@@ -48,7 +48,7 @@ def train_nerf(
     config.pipeline.datamanager.data = args.nerfdata_folder
     config.max_num_iterations = args.max_num_iterations
     config.output_dir = args.nerfcheckpoints_folder
-    config.vis = "wandb"
+    config.vis = "none"  # "wandb"
 
     config.pipeline.model.disable_scene_contraction = True
     config.pipeline.datamanager.dataparser.auto_scale_poses = False

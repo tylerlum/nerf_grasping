@@ -4,6 +4,7 @@
 """
 
 # %%
+import pathlib
 from typing import Tuple
 import torch.nn as nn
 import time
@@ -46,6 +47,7 @@ class TrainingConfig:
     n_epochs: int = 10000
     print_freq: int = 100
     snapshot_freq: int = 5000
+    log_path: pathlib.Path = pathlib.Path("logs")
 
 
 @dataclass
@@ -400,13 +402,13 @@ class Diffusion(object):
                     if self.config.model.ema:
                         states.append(ema_helper.state_dict())
 
-                    log_path = os.path.join("exp", "logs", "tyler_test")
-                    os.makedirs(log_path, exist_ok=True)
+                    log_path = config.log_path
+                    log_path.mkdir(parents=True, exist_ok=True)
                     torch.save(
                         states,
-                        os.path.join(log_path, "ckpt_{}.pth".format(step)),
+                        log_path / "ckpt_{}.pth".format(step),
                     )
-                    torch.save(states, os.path.join(log_path, "ckpt.pth"))
+                    torch.save(states, log_path / "ckpt.pth")
 
                 data_start = time.time()
 

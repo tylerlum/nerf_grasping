@@ -4,6 +4,7 @@
 """
 
 # %%
+from typing import Tuple
 import tqdm
 import torchvision.transforms as transforms
 import math
@@ -18,7 +19,10 @@ import torch.optim as optim
 import torch.utils.data as data
 import os
 import torchvision.utils as tvu
+from nerf_grasping.dexdiffuser.dex_sampler import DexSampler
 
+N_PTS = 4096
+GRASP_DIM = 3 + 6 + 16
 
 # %%
 def dict2namespace(config):
@@ -151,35 +155,42 @@ def get_optimizer(config, parameters):
 def noise_estimation_loss(
     model,
     x0: torch.Tensor,
+    cond: torch.Tensor,
     t: torch.LongTensor,
     e: torch.Tensor,
     b: torch.Tensor,
     keepdim=False,
 ):
-    a = (1 - b).cumprod(dim=0).index_select(0, t).view(-1, 1, 1, 1)
+    a = (1 - b).cumprod(dim=0).index_select(0, t).view(-1, 1)
     x = x0 * a.sqrt() + e * (1.0 - a).sqrt()
-    output = model(x, t.float())
+
+    output = model(f_O=cond, g_t=x, t=t.float().view(-1, 1))
     if keepdim:
-        return (e - output).square().sum(dim=(1, 2, 3))
+        return (e - output).square().sum(dim=1)
     else:
-        return (e - output).square().sum(dim=(1, 2, 3)).mean(dim=0)
+        return (e - output).square().sum(dim=1).mean(dim=0)
+
+
+class GraspBPSDataset(data.Dataset):
+    def __init__(self, grasps: torch.Tensor, bpss: torch.Tensor) -> None:
+        self.grasps = grasps
+        self.bpss = bpss
+
+    def __len__(self) -> int:
+        return len(self.grasps)
+
+    def __getitem__(self, idx) -> Tuple[torch.Tensor, torch.Tensor]:
+        return self.grasps[idx], self.bpss[idx]
 
 
 def get_dataset(config):
-    train_transform = test_transform = transforms.Compose(
-        [transforms.Resize(config.data.image_size), transforms.ToTensor()]
+    dataset = GraspBPSDataset(
+        grasps=torch.randn(1000, GRASP_DIM),
+        bpss=torch.randn(1000, N_PTS),
     )
-    dataset = CIFAR10(
-        os.path.join("datasets", "cifar10"),
-        train=True,
-        download=True,
-        transform=train_transform,
-    )
-    test_dataset = CIFAR10(
-        os.path.join("datasets", "cifar10_test"),
-        train=False,
-        download=True,
-        transform=test_transform,
+    test_dataset = GraspBPSDataset(
+        grasps=torch.randn(100, GRASP_DIM),
+        bpss=torch.randn(100, N_PTS),
     )
     return dataset, test_dataset
 
@@ -674,8 +685,8 @@ class Diffusion(object):
         elif self.model_var_type == "fixedsmall":
             self.logvar = posterior_variance.clamp(min=1e-20).log()
 
-        self.model = Model(config).to(self.device)
-        self.model = torch.nn.DataParallel(self.model)
+        # self.model = Model(config).to(self.device)
+        self.model = DexSampler(n_pts=N_PTS, grasp_dim=GRASP_DIM, d_model=128, virtual_seq_len=4).to(self.device)
 
     def train(self):
         config = self.config
@@ -700,14 +711,15 @@ class Diffusion(object):
         for epoch in range(start_epoch, self.config.training.n_epochs):
             data_start = time.time()
             data_time = 0
-            for i, (x, y) in enumerate(train_loader):
-                n = x.size(0)
+            for i, (grasps, bpss) in enumerate(train_loader):
+                n = grasps.size(0)
                 data_time += time.time() - data_start
                 self.model.train()
                 step += 1
 
-                x = x.to(self.device)
-                e = torch.randn_like(x)
+                grasps = grasps.to(self.device)
+                bpss = bpss.to(self.device)
+                e = torch.randn_like(grasps)
                 b = self.betas
 
                 # antithetic sampling
@@ -715,7 +727,7 @@ class Diffusion(object):
                     low=0, high=self.num_timesteps, size=(n // 2 + 1,)
                 ).to(self.device)
                 t = torch.cat([t, self.num_timesteps - t - 1], dim=0)[:n]
-                loss = noise_estimation_loss(self.model, x, t, e, b)
+                loss = noise_estimation_loss(model=self.model, x0=grasps, cond=bpss, t=t, e=e, b=b)
 
                 print(
                     f"step: {step}, loss: {loss.item()}, data time: {data_time / (i+1)}"

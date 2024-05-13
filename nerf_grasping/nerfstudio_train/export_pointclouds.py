@@ -11,6 +11,7 @@ from nerf_grasping.grasp_utils import get_nerf_configs
 @dataclass
 class Args:
     experiment_name: str
+    nerf_is_z_up: bool
     nerfcheckpoints_name: str = "nerfcheckpoints"
     output_pointclouds_name: str = "pointclouds"
     nerf_grasping_data_path: pathlib.Path = (
@@ -18,6 +19,21 @@ class Args:
     )
     randomize_order_seed: Optional[int] = None
     timeout: float = 120.0
+    num_points: int = 5000
+
+    @property
+    def bounding_box_min(self) -> str:
+        if self.nerf_is_z_up:
+            return "-0.2 -0.2 0.0"
+        else:
+            return "-0.2 0.0 -0.2"
+
+    @property
+    def bounding_box_max(self) -> str:
+        if self.nerf_is_z_up:
+            return "0.2 0.2 0.3"
+        else:
+            return "0.2 0.3 0.2"
 
 
 def export_pointclouds(args: Args) -> pathlib.Path:
@@ -62,9 +78,9 @@ def export_pointclouds(args: Args) -> pathlib.Path:
                 f"--load-config {str(nerf_config)}",
                 f"--output-dir {str(output_path_to_be_created)}",
                 "--normal-method open3d",
-                "--bounding-box-min -0.2 -0.2 0.0",
-                "--bounding-box-max 0.2 0.2 0.3",
-                "--num-points 5000",
+                f"--bounding-box-min {args.bounding_box_min}",
+                f"--bounding-box-max {args.bounding_box_max}",
+                f"--num-points {args.num_points}",
             ]
         )
 

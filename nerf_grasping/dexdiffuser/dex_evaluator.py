@@ -13,9 +13,11 @@ class FCResBlock(nn.Module):
         self.in_features = in_features
         self.out_features = out_features
 
+        # Path 1
         self.fc_path1 = nn.Linear(in_features, out_features)
         self.bn_path1 = nn.BatchNorm1d(out_features)
 
+        # Path 2
         self.fc_path2_1 = nn.Linear(in_features, out_features)
         self.fc_path2_2 = nn.Linear(out_features, out_features)
         self.bn_path2 = nn.BatchNorm1d(out_features)
@@ -27,9 +29,11 @@ class FCResBlock(nn.Module):
             self.in_features,
         ), f"Expected shape ({B}, {self.in_features}), got {x.shape}"
 
+        # Path 1
         x1 = self.fc_path1(x)
         x1 = self.bn_path1(x1)
 
+        # Path 2
         x2 = self.fc_path2_1(x)
         x2 = self.fc_path2_2(x2)
         x2 = self.bn_path2(x2)
@@ -43,7 +47,10 @@ class FCResBlock(nn.Module):
 
 
 class DexEvaluator(nn.Module):
-    """FFHNet: https://ieeexplore.ieee.org/document/9811666:
+    """DexDiffuser: https://arxiv.org/pdf/2402.02989
+    The architecture of DexEvaluator is adopted from [20] (FFHNet)
+
+    FFHNet: https://ieeexplore.ieee.org/document/9811666:
     three FC Resblocks for the FFHEvaluator achieved the best performance
     The inputs of the encoder (xb,θ,R,t) and the conditional input xb are also pre-processed by BN.
     The output of the FFHEvaluator's final layer is fed through a sigmoid activation function.
@@ -63,7 +70,7 @@ class DexEvaluator(nn.Module):
         )
         self.fc_resblock_2 = FCResBlock(in_features=n_hidden, out_features=n_hidden)
         self.fc_resblock_3 = FCResBlock(in_features=n_hidden, out_features=n_hidden)
-        self.fc = nn.Linear(n_hidden, 1)
+        self.fc_out = nn.Linear(n_hidden, 1)
 
     def forward(self, f_O: torch.Tensor, g_0: torch.Tensor) -> torch.Tensor:
         B = f_O.shape[0]
@@ -76,12 +83,17 @@ class DexEvaluator(nn.Module):
             self.grasp_dim,
         ), f"Expected shape ({B}, {self.grasp_dim}), got {g_0.shape}"
 
+        # Concat and batch norm
         x = torch.cat([f_O, g_0], dim=1)
         x = self.bn(x)
+
+        # Resblocks
         x = self.fc_resblock_1(x) + x
         x = self.fc_resblock_2(x) + x
         x = self.fc_resblock_3(x) + x
-        x = self.fc(x)
+
+        # Output
+        x = self.fc_out(x)
         x = torch.sigmoid(x)
         assert x.shape == (B, 1), f"Expected shape ({B}, 1), got {x.shape}"
         return x
@@ -101,7 +113,10 @@ def main() -> None:
 
     output = dex_evaluator(f_O=f_O, g_0=g_0)
 
-    assert output.shape == (batch_size, 1), f"Expected shape ({batch_size}, 1), got {output.shape}"
+    assert output.shape == (
+        batch_size,
+        1,
+    ), f"Expected shape ({batch_size}, 1), got {output.shape}"
     print(f"Output shape: {output.shape}")
     print(f"Output: {output}")
 

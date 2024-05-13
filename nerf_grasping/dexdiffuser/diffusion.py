@@ -329,7 +329,7 @@ class Diffusion(object):
             n_pts=N_PTS, grasp_dim=GRASP_DIM, d_model=128, virtual_seq_len=4
         ).to(self.device)
 
-    def train(self):
+    def train(self) -> None:
         config = self.config
         dataset, test_dataset = get_dataset(config)
         train_loader = data.DataLoader(

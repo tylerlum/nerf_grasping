@@ -110,7 +110,7 @@ def get_beta_schedule(beta_schedule, *, beta_start, beta_end, num_diffusion_time
     return betas
 
 
-def get_optimizer(config, parameters):
+def get_optimizer(config: Config, parameters):
     if config.optim.optimizer == "Adam":
         return optim.Adam(
             parameters,
@@ -163,7 +163,7 @@ class GraspBPSDataset(data.Dataset):
         return self.grasps[idx], self.bpss[idx]
 
 
-def get_dataset(config):
+def get_dataset(config: Config):
     dataset = GraspBPSDataset(
         grasps=torch.randn(1000, GRASP_DIM),
         bpss=torch.randn(1000, N_PTS),
@@ -292,7 +292,7 @@ def ddpm_steps(x, cond, seq, model, b):
 
 # %%
 class Diffusion(object):
-    def __init__(self, config, device=None):
+    def __init__(self, config: Config, device=None):
         self.config = config
         if device is None:
             device = (

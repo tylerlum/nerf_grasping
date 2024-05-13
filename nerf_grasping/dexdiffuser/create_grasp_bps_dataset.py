@@ -29,6 +29,7 @@ for path in tqdm(all_paths, desc="Finding data paths"):
     data_paths = sorted(list(path.rglob("*.ply")))
     all_data_paths.extend(data_paths)
 
+all_data_paths = sorted(all_data_paths)
 print(f"Found {len(all_data_paths)} data paths")
 
 # %%
@@ -62,11 +63,12 @@ print(f"Shape of all_points: {all_points.shape}")
 
 # %%
 N_BASIS_PTS = 4096
+BASIS_RADIUS = 0.3
 
 # %%
 basis_points = bps.generate_random_basis(
-    n_points=N_BASIS_PTS, radius=0.3, random_seed=13
-)
+    n_points=N_BASIS_PTS, radius=BASIS_RADIUS, random_seed=13
+) + np.array([0.0, BASIS_RADIUS/2, 0.0])  # Shift up to get less under the table
 assert basis_points.shape == (
     N_BASIS_PTS,
     3,
@@ -77,6 +79,7 @@ x_bps = bps.encode(
     bps_arrangement="custom",
     bps_cell_type="dists",
     custom_basis=basis_points,
+    verbose=0,
 )
 assert x_bps.shape == (
     n_point_clouds,
@@ -95,7 +98,7 @@ fig.add_trace(
         z=basis_points[:, 2],
         mode="markers",
         marker=dict(
-            size=2,
+            size=1,
             color=x_bps[POINT_CLOUD_IDX, :],
             colorscale="rainbow",
             colorbar=dict(title="Basis points", orientation="h"),
@@ -111,7 +114,7 @@ fig.add_trace(
         y=points_to_plot[:, 1],
         z=points_to_plot[:, 2],
         mode="markers",
-        marker=dict(size=2, color=points_to_plot[:, 1], colorscale="Viridis"),
+        marker=dict(size=5, color=points_to_plot[:, 1], colorscale="Viridis"),
         name="Point cloud",
     )
 )

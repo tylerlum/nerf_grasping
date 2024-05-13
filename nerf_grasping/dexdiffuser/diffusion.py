@@ -4,6 +4,7 @@
 """
 
 # %%
+from torchvision.datasets import CIFAR10
 import time
 import torch
 import numpy as np
@@ -158,6 +159,20 @@ def noise_estimation_loss(
     else:
         return (e - output).square().sum(dim=(1, 2, 3)).mean(dim=0)
 
+def get_dataset(config):
+    dataset = CIFAR10(
+        os.path.join("datasets", "cifar10"),
+        train=True,
+        download=True,
+    )
+    test_dataset = CIFAR10(
+        os.path.join("datasets", "cifar10_test"),
+        train=False,
+        download=True,
+    )
+    return dataset, test_dataset
+
+
 
 # %%
 class Diffusion(object):
@@ -199,7 +214,7 @@ class Diffusion(object):
     def train(self):
         config = self.config
         tb_logger = self.config.tb_logger
-        dataset, test_dataset = get_dataset(args, config)
+        dataset, test_dataset = get_dataset(config)
         train_loader = data.DataLoader(
             dataset,
             batch_size=config.training.batch_size,

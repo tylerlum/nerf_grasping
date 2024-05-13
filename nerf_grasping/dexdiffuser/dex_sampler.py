@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 
-from nerf_grasping.dexdiffuser.dex_evaluator import FCResBlock
+from nerf_grasping.dexdiffuser.fc_resblock import FCResBlock
 from torch.nn.modules.activation import MultiheadAttention
 
 

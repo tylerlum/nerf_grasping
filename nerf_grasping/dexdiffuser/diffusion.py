@@ -246,11 +246,11 @@ class EMAHelper(object):
 
 def compute_alpha(beta, t):
     beta = torch.cat([torch.zeros(1).to(beta.device), beta], dim=0)
-    a = (1 - beta).cumprod(dim=0).index_select(0, t + 1).view(-1, 1, 1, 1)
+    a = (1 - beta).cumprod(dim=0).index_select(0, t + 1).view(-1, 1)
     return a
 
 
-def generalized_steps(x, seq, model, b, **kwargs):
+def generalized_steps(x, cond, seq, model, b, eta):
     with torch.no_grad():
         n = x.size(0)
         seq_next = [-1] + list(seq[:-1])
@@ -262,11 +262,11 @@ def generalized_steps(x, seq, model, b, **kwargs):
             at = compute_alpha(b, t.long())
             at_next = compute_alpha(b, next_t.long())
             xt = xs[-1].to('cuda')
-            et = model(xt, t)
+            et = model(g_t=xt, f_O=cond, t=t.float().view(-1, 1))
             x0_t = (xt - et * (1 - at).sqrt()) / at.sqrt()
             x0_preds.append(x0_t.to('cpu'))
             c1 = (
-                kwargs.get("eta", 0) * ((1 - at / at_next) * (1 - at_next) / (1 - at)).sqrt()
+                eta * ((1 - at / at_next) * (1 - at_next) / (1 - at)).sqrt()
             )
             c2 = ((1 - at_next) - c1 ** 2).sqrt()
             xt_next = at_next.sqrt() * x0_t + c1 * torch.randn_like(x) + c2 * et
@@ -275,7 +275,7 @@ def generalized_steps(x, seq, model, b, **kwargs):
     return xs, x0_preds
 
 
-def ddpm_steps(x, seq, model, b, **kwargs):
+def ddpm_steps(x, cond, seq, model, b):
     with torch.no_grad():
         n = x.size(0)
         seq_next = [-1] + list(seq[:-1])
@@ -290,7 +290,7 @@ def ddpm_steps(x, seq, model, b, **kwargs):
             beta_t = 1 - at / atm1
             x = xs[-1].to('cuda')
 
-            output = model(x, t.float())
+            output = model(g_t=x, f_O=cond, t=t.float().view(-1, 1))
             e = output
 
             x0_from_e = (1.0 / at).sqrt() * x - (1.0 / at - 1).sqrt() * e
@@ -712,6 +712,7 @@ class Diffusion(object):
             data_start = time.time()
             data_time = 0
             for i, (grasps, bpss) in enumerate(train_loader):
+                time.sleep(0.1)  # Yield control so it can be interrupted
                 n = grasps.size(0)
                 data_time += time.time() - data_start
                 self.model.train()
@@ -775,18 +776,22 @@ class Diffusion(object):
             n = config.sampling.batch_size
             x = torch.randn(
                 n,
-                config.data.channels,
-                config.data.image_size,
-                config.data.image_size,
+                GRASP_DIM,
+                device=self.device,
+            )
+            cond = torch.randn(
+                n,
+                N_PTS,
                 device=self.device,
             )
 
-            x = self.sample_image(x, self.model)
+            x = self.sample_image(x, cond, self.model)
             return x
 
     def sample_image(
         self,
         x,
+        cond,
         model,
         last=True,
         sample_type="generalized",
@@ -805,10 +810,10 @@ class Diffusion(object):
             raise NotImplementedError
 
         if sample_type == "generalized":
-            xs = generalized_steps(x, seq, model, self.betas, eta=eta)
+            xs = generalized_steps(x, cond, seq, model, self.betas, eta=eta)
             x = xs
         elif sample_type == "ddpm_noisy":
-            x = ddpm_steps(x, seq, model, self.betas)
+            x = ddpm_steps(x, cond, seq, model, self.betas)
         else:
             raise NotImplementedError
         if last:
@@ -825,11 +830,4 @@ x = runner.sample()
 print(f"Sampled image shape: {x.shape}")
 
 # %%
-import matplotlib.pyplot as plt
-
-plt.imshow(x[1].permute(1, 2, 0).cpu().numpy())
-
-# %%
 x.min(), x.max()
-
-# %%

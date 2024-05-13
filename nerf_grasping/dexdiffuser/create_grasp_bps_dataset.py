@@ -64,7 +64,9 @@ print(f"Shape of all_points: {all_points.shape}")
 N_BASIS_PTS = 4096
 
 # %%
-basis_points = bps.generate_random_basis(n_points=N_BASIS_PTS, radius=0.3, random_seed=13)
+basis_points = bps.generate_random_basis(
+    n_points=N_BASIS_PTS, radius=0.3, random_seed=13
+)
 assert basis_points.shape == (
     N_BASIS_PTS,
     3,
@@ -76,7 +78,10 @@ x_bps = bps.encode(
     bps_cell_type="dists",
     custom_basis=basis_points,
 )
-assert x_bps.shape == (n_point_clouds, N_BASIS_PTS), f"Expected shape ({n_point_clouds}, {N_BASIS_PTS}), got {x_bps.shape}"
+assert x_bps.shape == (
+    n_point_clouds,
+    N_BASIS_PTS,
+), f"Expected shape ({n_point_clouds}, {N_BASIS_PTS}), got {x_bps.shape}"
 
 # %%
 POINT_CLOUD_IDX = -1
@@ -89,7 +94,12 @@ fig.add_trace(
         y=basis_points[:, 1],
         z=basis_points[:, 2],
         mode="markers",
-        marker=dict(size=2, color=x_bps[POINT_CLOUD_IDX, :], colorscale="Viridis"),
+        marker=dict(
+            size=2,
+            color=x_bps[POINT_CLOUD_IDX, :],
+            colorscale="rainbow",
+            colorbar=dict(title="Basis points", orientation="h"),
+        ),
         name="Basis points",
     )
 )
@@ -101,7 +111,7 @@ fig.add_trace(
         y=points_to_plot[:, 1],
         z=points_to_plot[:, 2],
         mode="markers",
-        marker=dict(size=2, color="red"),
+        marker=dict(size=2, color=points_to_plot[:, 1], colorscale="Viridis"),
         name="Point cloud",
     )
 )

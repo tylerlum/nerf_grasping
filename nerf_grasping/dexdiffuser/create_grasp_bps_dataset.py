@@ -6,6 +6,10 @@ import plotly.graph_objects as go
 from bps import bps
 import pathlib
 
+from nerf_grasping.dataset.DexGraspNet_NeRF_Grasps_utils import (
+    parse_object_code_and_scale,
+)
+
 # %%
 path_str = "/juno/u/tylerlum/github_repos/nerf_grasping/data/2024-05-06_rotated_stable_grasps_0/pointclouds_250imgs_400iters_5k/"
 path_bigger_str = "/juno/u/tylerlum/github_repos/nerf_grasping/data/2024-05-06_rotated_stable_grasps_bigger_0/pointclouds_250imgs_400iters_5k/"
@@ -33,58 +37,13 @@ all_data_paths = sorted(all_data_paths)
 print(f"Found {len(all_data_paths)} data paths")
 
 # %%
-point_clouds = []
-for data_path in tqdm(all_data_paths, desc="Loading point clouds"):
-    point_cloud = o3d.io.read_point_cloud(str(data_path))
-    point_clouds.append(point_cloud)
-
-print(f"Found {len(point_clouds)} point clouds")
-
-# %%
-all_points = []
-for point_cloud in tqdm(point_clouds, desc="Extracting points"):
-    point_cloud, _ = point_cloud.remove_statistical_outlier(
-        nb_neighbors=20, std_ratio=2.0
-    )
-    point_cloud, _ = point_cloud.remove_radius_outlier(nb_points=16, radius=0.05)
-    points = np.asarray(point_cloud.points)
-    all_points.append(points)
-
-# %%
-min_n_pts = min([x.shape[0] for x in all_points])
-print(f"Minimum number of points: {min_n_pts}")
-
-# %%
-all_points = np.stack([x[:min_n_pts] for x in all_points])
-
-# %%
-n_point_clouds, n_point_cloud_pts = all_points.shape[:2]
-print(f"Shape of all_points: {all_points.shape}")
-
-# %%
-N_BASIS_PTS = 4096
-BASIS_RADIUS = 0.3
-
-# %%
-basis_points = bps.generate_random_basis(
-    n_points=N_BASIS_PTS, radius=BASIS_RADIUS, random_seed=13
-) + np.array([0.0, BASIS_RADIUS/2, 0.0])  # Shift up to get less under the table
-assert basis_points.shape == (
-    N_BASIS_PTS,
-    3,
-), f"Expected shape ({N_BASIS_PTS}, 3), got {basis_points.shape}"
-
-x_bps = bps.encode(
-    all_points,
-    bps_arrangement="custom",
-    bps_cell_type="dists",
-    custom_basis=basis_points,
-    verbose=0,
+all_grasp_data_paths = list(
+    pathlib.Path(
+        "/juno/u/tylerlum/github_repos/DexGraspNet/data/2024-05-09_rotated_stable_grasps_noisy_TUNED/SHAKE_raw_evaled_grasp_config_dicts/"
+    ).glob("*.npy")
 )
-assert x_bps.shape == (
-    n_point_clouds,
-    N_BASIS_PTS,
-), f"Expected shape ({n_point_clouds}, {N_BASIS_PTS}), got {x_bps.shape}"
+assert len(all_grasp_data_paths) > 0, "No grasp data paths found"
+print(f"Found {len(all_grasp_data_paths)} grasp data paths")
 
 # %%
 POINT_CLOUD_IDX = -1
@@ -122,6 +81,200 @@ fig.update_layout(title=str(title))
 fig.show()
 
 # %%
+OUTPUT_FILEPATH = pathlib.Path(
+    "/juno/u/tylerlum/github_repos/nerf_grasping/data/2024-05-12_rotated_stable_grasps_bps/data.h5"
+)
+MAX_NUM_POINT_CLOUDS = 4000
+MAX_NUM_GRASPS = 10000
+N_FINGERS = 4
+GRASP_DIM = 3 + 6 + 16 + N_FINGERS * 3
+N_BASIS_PTS = 4096
+BASIS_RADIUS = 0.3
 
+
+basis_points = bps.generate_random_basis(
+    n_points=N_BASIS_PTS, radius=BASIS_RADIUS, random_seed=13
+) + np.array(
+    [0.0, BASIS_RADIUS / 2, 0.0]
+)  # Shift up to get less under the table
+assert basis_points.shape == (
+    N_BASIS_PTS,
+    3,
+), f"Expected shape ({N_BASIS_PTS}, 3), got {basis_points.shape}"
 
 # %%
+import h5py
+
+OUTPUT_FILEPATH.parent.mkdir(exist_ok=True, parents=True)
+
+with h5py.File(OUTPUT_FILEPATH, "w") as hdf5_file:
+    # Per object
+    bpss_dataset = hdf5_file.create_dataset(
+        "/bpss",
+        shape=(
+            MAX_NUM_POINT_CLOUDS,
+            N_BASIS_PTS,
+        ),
+        dtype="f",
+    )
+    point_cloud_filepath_dataset = hdf5_file.create_dataset(
+        "/point_cloud_filepath",
+        shape=(MAX_NUM_POINT_CLOUDS,),
+        dtype=h5py.string_dtype(),
+    )
+    object_code_dataset = hdf5_file.create_dataset(
+        "/object_code", shape=(MAX_NUM_POINT_CLOUDS,), dtype=h5py.string_dtype()
+    )
+    object_scale_dataset = hdf5_file.create_dataset(
+        "/object_scale", shape=(MAX_NUM_POINT_CLOUDS,), dtype="f"
+    )
+
+    # Per grasp
+    grasps_dataset = hdf5_file.create_dataset(
+        "/grasps", shape=(MAX_NUM_GRASPS, GRASP_DIM), dtype="f"
+    )
+    grasp_bps_idx_dataset = hdf5_file.create_dataset(
+        "/grasp_bps_idx", shape=(MAX_NUM_GRASPS,), dtype="i"
+    )
+    passed_eval_dataset = hdf5_file.create_dataset(
+        "/passed_eval",
+        shape=(MAX_NUM_GRASPS,),
+        dtype="f",
+    )
+    passed_simulation_dataset = hdf5_file.create_dataset(
+        "/passed_simulation",
+        shape=(MAX_NUM_GRASPS,),
+        dtype="f",
+    )
+    passed_penetration_threshold_dataset = hdf5_file.create_dataset(
+        "/passed_penetration_threshold",
+        shape=(MAX_NUM_GRASPS,),
+        dtype="f",
+    )
+    object_state_dataset = hdf5_file.create_dataset(
+        "/object_state",
+        shape=(
+            MAX_NUM_GRASPS,
+            13,
+        ),
+        dtype="f",
+    )
+    grasp_idx_dataset = hdf5_file.create_dataset(
+        "/grasp_idx", shape=(MAX_NUM_GRASPS,), dtype="i"
+    )
+
+    # Per object
+    all_points = []
+    for i, data_path in tqdm(
+        enumerate(all_data_paths), desc="Writing data", total=len(all_data_paths)
+    ):
+        point_cloud = o3d.io.read_point_cloud(str(data_path))
+        point_cloud, _ = point_cloud.remove_statistical_outlier(
+            nb_neighbors=20, std_ratio=2.0
+        )
+        point_cloud, _ = point_cloud.remove_radius_outlier(nb_points=16, radius=0.05)
+        points = np.asarray(point_cloud.points)
+        all_points.append(points)
+
+    min_n_pts = min([x.shape[0] for x in all_points])
+    all_points = np.stack([x[:min_n_pts] for x in all_points])
+    n_point_clouds, n_point_cloud_pts = all_points.shape[:2]
+
+    x_bps = bps.encode(
+        all_points,
+        bps_arrangement="custom",
+        bps_cell_type="dists",
+        custom_basis=basis_points,
+        verbose=0,
+    )
+    assert x_bps.shape == (
+        n_point_clouds,
+        N_BASIS_PTS,
+    ), f"Expected shape ({n_point_clouds}, {N_BASIS_PTS}), got {x_bps.shape}"
+    bpss_dataset[:n_point_clouds] = x_bps
+    point_cloud_filepath_dataset[:n_point_clouds] = [str(x) for x in all_data_paths]
+
+    object_code_and_scale_strs = [x.parents[2].name for x in all_data_paths]
+    object_codes, object_scales = [], []
+    for object_code_and_scale_str in object_code_and_scale_strs:
+        object_code, object_scale = parse_object_code_and_scale(
+            object_code_and_scale_str
+        )
+        object_codes.append(object_code)
+        object_scales.append(object_scale)
+    object_code_dataset[:n_point_clouds] = object_codes
+    object_scale_dataset[:n_point_clouds] = object_scales
+
+    object_code_and_scale_str_to_idx = {
+        object_code_and_scale_str: i
+        for i, object_code_and_scale_str in enumerate(object_code_and_scale_strs)
+    }
+
+    # Per grasp
+    current_idx = 0
+    for i, grasp_data_path in tqdm(
+        enumerate(all_grasp_data_paths),
+        desc="Writing grasp data",
+        total=len(all_grasp_data_paths),
+    ):
+        grasp_config_dict = np.load(grasp_data_path, allow_pickle=True).item()
+        object_code_and_scale_str = grasp_data_path.stem
+
+        trans = grasp_config_dict["trans"]
+        rot = grasp_config_dict["rot"]
+        joint_angles = grasp_config_dict["joint_angles"]
+        grasp_orientations = grasp_config_dict["grasp_orientations"]
+        B = trans.shape[0]
+        assert trans.shape == (B, 3), f"Expected shape ({B}, 3), got {trans.shape}"
+        assert rot.shape == (B, 3, 3), f"Expected shape ({B}, 3, 3), got {rot.shape}"
+        assert joint_angles.shape == (
+            B,
+            16,
+        ), f"Expected shape ({B}, 16), got {joint_angles.shape}"
+        assert grasp_orientations.shape == (
+            B,
+            N_FINGERS,
+            3,
+            3,
+        ), f"Expected shape ({B}, 3, 3), got {grasp_orientations.shape}"
+        grasp_dirs = grasp_orientations[..., 2]
+        grasps = np.concatenate(
+            [
+                trans,
+                rot[..., :2].reshape(B, -1),
+                joint_angles,
+                grasp_dirs.reshape(B, -1),
+            ],
+            axis=1,
+        )
+
+        passed_evals = grasp_config_dict["passed_eval"]
+        passed_simulations = grasp_config_dict["passed_simulation"]
+        passed_penetration_thresholds = grasp_config_dict["passed_new_penetration_test"]
+        object_state = grasp_config_dict["object_states"]
+        assert passed_evals.shape == (
+            B,
+        ), f"Expected shape ({B},), got {passed_evals.shape}"
+        assert passed_simulations.shape == (
+            B,
+        ), f"Expected shape ({B},), got {passed_simulations.shape}"
+        assert passed_penetration_thresholds.shape == (
+            B,
+        ), f"Expected shape ({B},), got {passed_penetration_thresholds.shape}"
+        assert object_state.shape == (
+            B,
+            13,
+        ), f"Expected shape ({B}, 13), got {object_state.shape}"
+
+        grasps_dataset[current_idx : current_idx + B] = grasps
+        grasp_bps_idx_dataset[current_idx : current_idx + B] = np.repeat(
+            object_code_and_scale_str_to_idx[object_code_and_scale_str], B
+        )
+        passed_eval_dataset[current_idx : current_idx + B] = passed_evals
+        passed_simulation_dataset[current_idx : current_idx + B] = passed_simulations
+        passed_penetration_threshold_dataset[current_idx : current_idx + B] = (
+            passed_penetration_thresholds
+        )
+        object_state_dataset[current_idx : current_idx + B] = object_state
+
+        current_idx += B

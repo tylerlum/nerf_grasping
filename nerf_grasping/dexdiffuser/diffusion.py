@@ -4,6 +4,7 @@
 """
 
 # %%
+import time
 import torch
 import numpy as np
 import yaml
@@ -11,6 +12,7 @@ import argparse
 import torch.optim as optim
 import torch.utils.data as data
 import os
+
 
 # %%
 def dict2namespace(config):
@@ -24,8 +26,9 @@ def dict2namespace(config):
     return namespace
 
 
-config = dict2namespace(yaml.safe_load(
-"""data:
+config = dict2namespace(
+    yaml.safe_load(
+        """data:
     dataset: "CIFAR10"
     image_size: 32
     channels: 3
@@ -76,10 +79,12 @@ optim:
     eps: 0.00000001
     grad_clip: 1.0
 """
-))
+    )
+)
 
 # %%
 config
+
 
 # %%
 def get_beta_schedule(beta_schedule, *, beta_start, beta_end, num_diffusion_timesteps):
@@ -89,8 +94,8 @@ def get_beta_schedule(beta_schedule, *, beta_start, beta_end, num_diffusion_time
     if beta_schedule == "quad":
         betas = (
             np.linspace(
-                beta_start ** 0.5,
-                beta_end ** 0.5,
+                beta_start**0.5,
+                beta_end**0.5,
                 num_diffusion_timesteps,
                 dtype=np.float64,
             )
@@ -116,30 +121,43 @@ def get_beta_schedule(beta_schedule, *, beta_start, beta_end, num_diffusion_time
 
 
 def get_optimizer(config, parameters):
-    if config.optim.optimizer == 'Adam':
-        return optim.Adam(parameters, lr=config.optim.lr, weight_decay=config.optim.weight_decay,
-                          betas=(config.optim.beta1, 0.999), amsgrad=config.optim.amsgrad,
-                          eps=config.optim.eps)
-    elif config.optim.optimizer == 'RMSProp':
-        return optim.RMSprop(parameters, lr=config.optim.lr, weight_decay=config.optim.weight_decay)
-    elif config.optim.optimizer == 'SGD':
+    if config.optim.optimizer == "Adam":
+        return optim.Adam(
+            parameters,
+            lr=config.optim.lr,
+            weight_decay=config.optim.weight_decay,
+            betas=(config.optim.beta1, 0.999),
+            amsgrad=config.optim.amsgrad,
+            eps=config.optim.eps,
+        )
+    elif config.optim.optimizer == "RMSProp":
+        return optim.RMSprop(
+            parameters, lr=config.optim.lr, weight_decay=config.optim.weight_decay
+        )
+    elif config.optim.optimizer == "SGD":
         return optim.SGD(parameters, lr=config.optim.lr, momentum=0.9)
     else:
         raise NotImplementedError(
-            'Optimizer {} not understood.'.format(config.optim.optimizer))
+            "Optimizer {} not understood.".format(config.optim.optimizer)
+        )
 
-def noise_estimation_loss(model,
-                          x0: torch.Tensor,
-                          t: torch.LongTensor,
-                          e: torch.Tensor,
-                          b: torch.Tensor, keepdim=False):
-    a = (1-b).cumprod(dim=0).index_select(0, t).view(-1, 1, 1, 1)
+
+def noise_estimation_loss(
+    model,
+    x0: torch.Tensor,
+    t: torch.LongTensor,
+    e: torch.Tensor,
+    b: torch.Tensor,
+    keepdim=False,
+):
+    a = (1 - b).cumprod(dim=0).index_select(0, t).view(-1, 1, 1, 1)
     x = x0 * a.sqrt() + e * (1.0 - a).sqrt()
     output = model(x, t.float())
     if keepdim:
         return (e - output).square().sum(dim=(1, 2, 3))
     else:
         return (e - output).square().sum(dim=(1, 2, 3)).mean(dim=0)
+
 
 # %%
 class Diffusion(object):
@@ -213,7 +231,6 @@ class Diffusion(object):
                 step += 1
 
                 x = x.to(self.device)
-                x = data_transform(self.config, x)
                 e = torch.randn_like(x)
                 b = self.betas
 
@@ -226,7 +243,7 @@ class Diffusion(object):
 
                 tb_logger.add_scalar("loss", loss, global_step=step)
 
-                logging.info(
+                print(
                     f"step: {step}, loss: {loss.item()}, data time: {data_time / (i+1)}"
                 )
 

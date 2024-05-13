@@ -11,6 +11,7 @@ import torch.optim as optim
 import torch.utils.data as data
 from nerf_grasping.dexdiffuser.dex_sampler import DexSampler
 from nerf_grasping.dexdiffuser.diffusion_config import Config
+from nerf_grasping.dexdiffuser.grasp_bps_dataset import GraspBPSDataset
 
 
 def get_beta_schedule(beta_schedule, *, beta_start, beta_end, num_diffusion_timesteps):
@@ -200,18 +201,6 @@ def ddpm_steps(x, cond, seq, model, b):
             sample = mean + mask * torch.exp(0.5 * logvar) * noise
             xs.append(sample.to("cpu"))
     return xs, x0_preds
-
-
-class GraspBPSDataset(data.Dataset):
-    def __init__(self, grasps: torch.Tensor, bpss: torch.Tensor) -> None:
-        self.grasps = grasps
-        self.bpss = bpss
-
-    def __len__(self) -> int:
-        return len(self.grasps)
-
-    def __getitem__(self, idx) -> Tuple[torch.Tensor, torch.Tensor]:
-        return self.grasps[idx], self.bpss[idx]
 
 
 def get_dataset(config: Config):

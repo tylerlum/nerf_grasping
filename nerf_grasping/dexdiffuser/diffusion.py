@@ -4,6 +4,7 @@
 """
 
 # %%
+import tqdm
 import torchvision.transforms as transforms
 import math
 from torchvision.datasets import CIFAR10
@@ -16,6 +17,7 @@ import argparse
 import torch.optim as optim
 import torch.utils.data as data
 import os
+import torchvision.utils as tvu
 
 
 # %%
@@ -165,8 +167,8 @@ def noise_estimation_loss(
 
 def get_dataset(config):
     train_transform = test_transform = transforms.Compose(
-            [transforms.Resize(config.data.image_size), transforms.ToTensor()]
-        )
+        [transforms.Resize(config.data.image_size), transforms.ToTensor()]
+    )
     dataset = CIFAR10(
         os.path.join("datasets", "cifar10"),
         train=True,
@@ -231,6 +233,70 @@ class EMAHelper(object):
     def load_state_dict(self, state_dict):
         self.shadow = state_dict
 
+def compute_alpha(beta, t):
+    beta = torch.cat([torch.zeros(1).to(beta.device), beta], dim=0)
+    a = (1 - beta).cumprod(dim=0).index_select(0, t + 1).view(-1, 1, 1, 1)
+    return a
+
+
+def generalized_steps(x, seq, model, b, **kwargs):
+    with torch.no_grad():
+        n = x.size(0)
+        seq_next = [-1] + list(seq[:-1])
+        x0_preds = []
+        xs = [x]
+        for i, j in zip(reversed(seq), reversed(seq_next)):
+            t = (torch.ones(n) * i).to(x.device)
+            next_t = (torch.ones(n) * j).to(x.device)
+            at = compute_alpha(b, t.long())
+            at_next = compute_alpha(b, next_t.long())
+            xt = xs[-1].to('cuda')
+            et = model(xt, t)
+            x0_t = (xt - et * (1 - at).sqrt()) / at.sqrt()
+            x0_preds.append(x0_t.to('cpu'))
+            c1 = (
+                kwargs.get("eta", 0) * ((1 - at / at_next) * (1 - at_next) / (1 - at)).sqrt()
+            )
+            c2 = ((1 - at_next) - c1 ** 2).sqrt()
+            xt_next = at_next.sqrt() * x0_t + c1 * torch.randn_like(x) + c2 * et
+            xs.append(xt_next.to('cpu'))
+
+    return xs, x0_preds
+
+
+def ddpm_steps(x, seq, model, b, **kwargs):
+    with torch.no_grad():
+        n = x.size(0)
+        seq_next = [-1] + list(seq[:-1])
+        xs = [x]
+        x0_preds = []
+        betas = b
+        for i, j in zip(reversed(seq), reversed(seq_next)):
+            t = (torch.ones(n) * i).to(x.device)
+            next_t = (torch.ones(n) * j).to(x.device)
+            at = compute_alpha(betas, t.long())
+            atm1 = compute_alpha(betas, next_t.long())
+            beta_t = 1 - at / atm1
+            x = xs[-1].to('cuda')
+
+            output = model(x, t.float())
+            e = output
+
+            x0_from_e = (1.0 / at).sqrt() * x - (1.0 / at - 1).sqrt() * e
+            x0_from_e = torch.clamp(x0_from_e, -1, 1)
+            x0_preds.append(x0_from_e.to('cpu'))
+            mean_eps = (
+                (atm1.sqrt() * beta_t) * x0_from_e + ((1 - beta_t).sqrt() * (1 - atm1)) * x
+            ) / (1.0 - at)
+
+            mean = mean_eps
+            noise = torch.randn_like(x)
+            mask = 1 - (t == 0).float()
+            mask = mask.view(-1, 1, 1, 1)
+            logvar = beta_t.log()
+            sample = mean + mask * torch.exp(0.5 * logvar) * noise
+            xs.append(sample.to('cpu'))
+    return xs, x0_preds
 
 # %%
 def get_timestep_embedding(timesteps, embedding_dim):
@@ -608,6 +674,9 @@ class Diffusion(object):
         elif self.model_var_type == "fixedsmall":
             self.logvar = posterior_variance.clamp(min=1e-20).log()
 
+        self.model = Model(config).to(self.device)
+        self.model = torch.nn.DataParallel(self.model)
+
     def train(self):
         config = self.config
         dataset, test_dataset = get_dataset(config)
@@ -617,16 +686,12 @@ class Diffusion(object):
             shuffle=True,
             num_workers=config.data.num_workers,
         )
-        model = Model(config)
 
-        model = model.to(self.device)
-        model = torch.nn.DataParallel(model)
-
-        optimizer = get_optimizer(self.config, model.parameters())
+        optimizer = get_optimizer(self.config, self.model.parameters())
 
         if self.config.model.ema:
             ema_helper = EMAHelper(mu=self.config.model.ema_rate)
-            ema_helper.register(model)
+            ema_helper.register(self.model)
         else:
             ema_helper = None
 
@@ -638,7 +703,7 @@ class Diffusion(object):
             for i, (x, y) in enumerate(train_loader):
                 n = x.size(0)
                 data_time += time.time() - data_start
-                model.train()
+                self.model.train()
                 step += 1
 
                 x = x.to(self.device)
@@ -650,7 +715,7 @@ class Diffusion(object):
                     low=0, high=self.num_timesteps, size=(n // 2 + 1,)
                 ).to(self.device)
                 t = torch.cat([t, self.num_timesteps - t - 1], dim=0)[:n]
-                loss = noise_estimation_loss(model, x, t, e, b)
+                loss = noise_estimation_loss(self.model, x, t, e, b)
 
                 print(
                     f"step: {step}, loss: {loss.item()}, data time: {data_time / (i+1)}"
@@ -661,18 +726,18 @@ class Diffusion(object):
 
                 try:
                     torch.nn.utils.clip_grad_norm_(
-                        model.parameters(), config.optim.grad_clip
+                        self.model.parameters(), config.optim.grad_clip
                     )
                 except Exception:
                     pass
                 optimizer.step()
 
                 if self.config.model.ema:
-                    ema_helper.update(model)
+                    ema_helper.update(self.model)
 
                 if step % self.config.training.snapshot_freq == 0 or step == 1:
                     states = [
-                        model.state_dict(),
+                        self.model.state_dict(),
                         optimizer.state_dict(),
                         epoch,
                         step,
@@ -690,7 +755,69 @@ class Diffusion(object):
 
                 data_start = time.time()
 
+    def sample(self):
+        self.model.eval()
+
+        config = self.config
+        with torch.no_grad():
+            n = config.sampling.batch_size
+            x = torch.randn(
+                n,
+                config.data.channels,
+                config.data.image_size,
+                config.data.image_size,
+                device=self.device,
+            )
+
+            x = self.sample_image(x, self.model)
+            return x
+
+    def sample_image(
+        self,
+        x,
+        model,
+        last=True,
+        sample_type="generalized",
+        skip_type="uniform",
+        skip=1,
+        timesteps=1000,
+        eta=0.0,
+    ):
+        if skip_type == "uniform":
+            skip = self.num_timesteps // timesteps
+            seq = range(0, self.num_timesteps, skip)
+        elif skip_type == "quad":
+            seq = np.linspace(0, np.sqrt(self.num_timesteps * 0.8), timesteps) ** 2
+            seq = [int(s) for s in list(seq)]
+        else:
+            raise NotImplementedError
+
+        if sample_type == "generalized":
+            xs = generalized_steps(x, seq, model, self.betas, eta=eta)
+            x = xs
+        elif sample_type == "ddpm_noisy":
+            x = ddpm_steps(x, seq, model, self.betas)
+        else:
+            raise NotImplementedError
+        if last:
+            x = x[0][-1]
+        return x
+
+
 # %%
 runner = Diffusion(config)
 runner.train()
+
+# %%
+x = runner.sample()
+print(f"Sampled image shape: {x.shape}")
+
+# %%
+import matplotlib.pyplot as plt
+
+plt.imshow(x[1].permute(1, 2, 0).cpu().numpy())
+
+# %%
+x.min(), x.max()
+
 # %%

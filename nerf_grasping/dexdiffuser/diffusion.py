@@ -1,10 +1,7 @@
-# %%
 """The goal of this file to implement the diffusion process for the DexDiffuser.
    Implementation based on: https://github.com/ermongroup/ddim/blob/main/runners/diffusion.py
 """
 
-# %%
-import pathlib
 from typing import Tuple
 import torch.nn as nn
 import time
@@ -12,71 +9,10 @@ import torch
 import numpy as np
 import torch.optim as optim
 import torch.utils.data as data
-import os
 from nerf_grasping.dexdiffuser.dex_sampler import DexSampler
-from dataclasses import dataclass, field
-
-N_PTS = 4096
-GRASP_DIM = 3 + 6 + 16
+from nerf_grasping.dexdiffuser.diffusion_config import Config
 
 
-# %%
-@dataclass
-class DataConfig:
-    num_workers: int = 4
-
-
-@dataclass
-class ModelConfig:
-    var_type: str = "fixedlarge"
-    ema_rate: float = 0.9999
-    ema: bool = True
-
-
-@dataclass
-class DiffusionConfig:
-    beta_schedule: str = "linear"
-    beta_start: float = 0.0001
-    beta_end: float = 0.02
-    num_diffusion_timesteps: int = 1000
-
-
-@dataclass
-class TrainingConfig:
-    batch_size: int = 128
-    n_epochs: int = 10000
-    print_freq: int = 100
-    snapshot_freq: int = 5000
-    log_path: pathlib.Path = pathlib.Path("logs")
-
-
-@dataclass
-class OptimConfig:
-    weight_decay: float = 0.000
-    optimizer: str = "Adam"
-    lr: float = 0.0002
-    beta1: float = 0.9
-    amsgrad: bool = False
-    eps: float = 0.00000001
-    grad_clip: float = 1.0
-
-
-@dataclass
-class Config:
-    data: DataConfig = field(default_factory=DataConfig)
-    model: ModelConfig = field(default_factory=ModelConfig)
-    diffusion: DiffusionConfig = field(default_factory=DiffusionConfig)
-    training: TrainingConfig = field(default_factory=TrainingConfig)
-    optim: OptimConfig = field(default_factory=OptimConfig)
-
-
-config = Config()
-
-# %%
-config
-
-
-# %%
 def get_beta_schedule(beta_schedule, *, beta_start, beta_end, num_diffusion_timesteps):
     def sigmoid(x):
         return 1 / (np.exp(-x) + 1)
@@ -149,30 +85,6 @@ def noise_estimation_loss(
         return (e - output).square().sum(dim=1)
     else:
         return (e - output).square().sum(dim=1).mean(dim=0)
-
-
-class GraspBPSDataset(data.Dataset):
-    def __init__(self, grasps: torch.Tensor, bpss: torch.Tensor) -> None:
-        self.grasps = grasps
-        self.bpss = bpss
-
-    def __len__(self) -> int:
-        return len(self.grasps)
-
-    def __getitem__(self, idx) -> Tuple[torch.Tensor, torch.Tensor]:
-        return self.grasps[idx], self.bpss[idx]
-
-
-def get_dataset(config: Config):
-    dataset = GraspBPSDataset(
-        grasps=torch.randn(1000, GRASP_DIM),
-        bpss=torch.randn(1000, N_PTS),
-    )
-    test_dataset = GraspBPSDataset(
-        grasps=torch.randn(100, GRASP_DIM),
-        bpss=torch.randn(100, N_PTS),
-    )
-    return dataset, test_dataset
 
 
 class EMAHelper(object):
@@ -290,7 +202,30 @@ def ddpm_steps(x, cond, seq, model, b):
     return xs, x0_preds
 
 
-# %%
+class GraspBPSDataset(data.Dataset):
+    def __init__(self, grasps: torch.Tensor, bpss: torch.Tensor) -> None:
+        self.grasps = grasps
+        self.bpss = bpss
+
+    def __len__(self) -> int:
+        return len(self.grasps)
+
+    def __getitem__(self, idx) -> Tuple[torch.Tensor, torch.Tensor]:
+        return self.grasps[idx], self.bpss[idx]
+
+
+def get_dataset(config: Config):
+    dataset = GraspBPSDataset(
+        grasps=torch.randn(1000, config.data.grasp_dim),
+        bpss=torch.randn(1000, config.data.n_pts),
+    )
+    test_dataset = GraspBPSDataset(
+        grasps=torch.randn(100, config.data.grasp_dim),
+        bpss=torch.randn(100, config.data.n_pts),
+    )
+    return dataset, test_dataset
+
+
 class Diffusion(object):
     def __init__(self, config: Config, device=None):
         self.config = config
@@ -326,7 +261,10 @@ class Diffusion(object):
             self.logvar = posterior_variance.clamp(min=1e-20).log()
 
         self.model = DexSampler(
-            n_pts=N_PTS, grasp_dim=GRASP_DIM, d_model=128, virtual_seq_len=4
+            n_pts=config.data.n_pts,
+            grasp_dim=config.data.grasp_dim,
+            d_model=128,
+            virtual_seq_len=4,
         ).to(self.device)
 
     def train(self) -> None:
@@ -402,7 +340,7 @@ class Diffusion(object):
                     if self.config.model.ema:
                         states.append(ema_helper.state_dict())
 
-                    log_path = config.log_path
+                    log_path = config.training.log_path
                     log_path.mkdir(parents=True, exist_ok=True)
                     torch.save(
                         states,
@@ -452,18 +390,20 @@ class Diffusion(object):
         return x
 
 
-# %%
-runner = Diffusion(config)
-runner.train()
+def main() -> None:
+    config = Config()
+    config.training.n_epochs = 2
 
-# %%
-batch_size = 2
-xT = torch.randn(batch_size, GRASP_DIM, device=runner.device)
-bpss = torch.randn(batch_size, N_PTS, device=runner.device)
-x = runner.sample(xT=xT, cond=bpss)
-print(f"Sampled image shape: {x.shape}")
+    runner = Diffusion(config)
+    runner.train()
 
-# %%
-x.min(), x.max()
+    batch_size = 2
+    xT = torch.randn(batch_size, config.data.grasp_dim, device=runner.device)
+    bpss = torch.randn(batch_size, config.data.n_pts, device=runner.device)
+    x = runner.sample(xT=xT, cond=bpss)
 
-# %%
+    print(f"Sampled image shape: {x.shape}")
+
+
+if __name__ == "__main__":
+    main()

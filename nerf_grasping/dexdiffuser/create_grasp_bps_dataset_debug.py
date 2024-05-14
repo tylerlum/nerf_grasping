@@ -89,7 +89,7 @@ assert x_bps.shape == (
 ), f"Expected shape ({n_point_clouds}, {N_BASIS_PTS}), got {x_bps.shape}"
 
 # %%
-POINT_CLOUD_IDX = -1
+POINT_CLOUD_IDX = 4
 
 title = all_data_paths[POINT_CLOUD_IDX].parents[0].name
 fig = go.Figure()
@@ -122,3 +122,5 @@ fig.add_trace(
 )
 fig.update_layout(title=str(title))
 fig.show()
+
+# %%

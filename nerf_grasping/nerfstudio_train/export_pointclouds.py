@@ -18,7 +18,7 @@ class Args:
         pathlib.Path(nerf_grasping.get_repo_root()).resolve() / "data"
     )
     randomize_order_seed: Optional[int] = None
-    timeout: float = 120.0
+    timeout: float = 60.0
     num_points: int = 5000
 
     @property

@@ -254,20 +254,20 @@ class RandomSamplingOptimizer(Optimizer):
             new_grasp_config = AllegroGraspConfig.from_grasp_config_dict(
                 self.grasp_config.as_dict(),
                 check=False,  # Check causing issues, probably just numerical issues
-            )
+            ).to(device=self.device)
 
             wrist_pose_perturbations = (
                 pp.randn_se3(new_grasp_config.wrist_pose.lshape)
                 * self.optimizer_config.wrist_pose_noise
-            ).Exp()
+            ).Exp().to(device=self.device)
             joint_angle_perturbations = (
                 torch.randn_like(new_grasp_config.joint_angles)
                 * self.optimizer_config.joint_angle_noise
-            )
+            ).to(device=self.device)
             grasp_orientation_perturbations = (
                 pp.randn_so3(new_grasp_config.grasp_orientations.lshape)
                 * self.optimizer_config.grasp_orientation_noise
-            ).Exp()
+            ).Exp().to(device=self.device)
 
             new_grasp_config.hand_config.set_wrist_pose(
                 wrist_pose_perturbations @ new_grasp_config.hand_config.wrist_pose
@@ -278,8 +278,6 @@ class RandomSamplingOptimizer(Optimizer):
             new_grasp_config.set_grasp_orientations(
                 grasp_orientation_perturbations @ new_grasp_config.grasp_orientations
             )
-
-            new_grasp_config = new_grasp_config.to(device=self.device)
 
             # Clip joint angles to feasible range.
             new_grasp_config.joint_angles.data = torch.clamp(

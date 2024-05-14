@@ -608,31 +608,6 @@ def run_curobo(
     ik_success_idxs = ik_result.success.flatten().nonzero().flatten().tolist()
     ik_success_idxs2 = ik_result2.success.flatten().nonzero().flatten().tolist()
 
-    qs, qds, dts = get_trajectories_from_result(
-        result=motion_gen_result,
-        desired_trajectory_time=APPROACH_TIME,
-    )
-
-    # Fix issue with going over limit
-    over_limit_factors_qds = compute_over_limit_factors(qds=qds, dts=dts)
-    qds = [
-        qd / over_limit_factor
-        for qd, over_limit_factor in zip(qds, over_limit_factors_qds)
-    ]
-    dts = [
-        dt * over_limit_factor
-        for dt, over_limit_factor in zip(dts, over_limit_factors_qds)
-    ]
-
-    nonzero_q_idxs = [i for i, q in enumerate(qs) if np.absolute(q).sum() > 1e-2]
-    overall_success_idxs = sorted(
-        list(
-            set(motion_gen_success_idxs)
-            .intersection(set(ik_success_idxs).intersection(set(ik_success_idxs2)))
-            .intersection(set(nonzero_q_idxs))
-        )
-    )  # All must be successful or else it may be successful for the wrong trajectory
-
     print("\n" + "=" * 80)
     print(
         "Motion generation without trajectory optimization complete, printing results"
@@ -647,12 +622,37 @@ def run_curobo(
     print(
         f"ik_success_idxs2: {ik_success_idxs2} ({len(ik_success_idxs2)} / {n_grasps} = {len(ik_success_idxs2) / n_grasps * 100:.2f}%)"
     )
+
+    qs, qds, dts = get_trajectories_from_result(
+        result=motion_gen_result,
+        desired_trajectory_time=APPROACH_TIME,
+    )
+    nonzero_q_idxs = [i for i, q in enumerate(qs) if np.absolute(q).sum() > 1e-2]
+    overall_success_idxs = sorted(
+        list(
+            set(motion_gen_success_idxs)
+            .intersection(set(ik_success_idxs).intersection(set(ik_success_idxs2)))
+            .intersection(set(nonzero_q_idxs))
+        )
+    )  # All must be successful or else it may be successful for the wrong trajectory
+
     print(
         f"nonzero_q_idxs: {nonzero_q_idxs} ({len(nonzero_q_idxs)} / {n_grasps} = {len(nonzero_q_idxs) / n_grasps * 100:.2f}%)"
     )
     print(
         f"overall_success_idxs: {overall_success_idxs} ({len(overall_success_idxs)} / {n_grasps} = {len(overall_success_idxs) / n_grasps * 100:.2f}%)"
     )
+
+    # Fix issue with going over limit
+    over_limit_factors_qds = compute_over_limit_factors(qds=qds, dts=dts)
+    qds = [
+        qd / over_limit_factor
+        for qd, over_limit_factor in zip(qds, over_limit_factors_qds)
+    ]
+    dts = [
+        dt * over_limit_factor
+        for dt, over_limit_factor in zip(dts, over_limit_factors_qds)
+    ]
 
     print("\n" + "=" * 80)
     print("Step 10: Add closing motion")

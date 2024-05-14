@@ -1,4 +1,3 @@
-# %%
 from typing import Tuple
 import torch
 from torch.utils import data
@@ -90,109 +89,109 @@ class GraspBPSDataset(data.Dataset):
         return self.object_states[grasp_idx]
 
 
-# %%
-dataset = GraspBPSDataset(
-    input_hdf5_filepath="/juno/u/tylerlum/github_repos/nerf_grasping/data/2024-05-14_rotated_stable_grasps_bps/data.h5"
-)
-
-# %%
-print(f"len(dataset): {len(dataset)}")
-
-# %%
-IDX = 77930
-grasp, bps = dataset[IDX]
-basis_points = dataset.get_basis_points()
-
-# %%
-print(f"grasp.shape: {grasp.shape}")
-print(f"bps.shape: {bps.shape}")
-print(f"basis_points.shape: {basis_points.shape}")
-
-# %%
-object_code = dataset.get_object_code(IDX)
-object_scale = dataset.get_object_scale(IDX)
-object_state = dataset.get_object_state(IDX)
-import trimesh
-import pathlib
-
-path = pathlib.Path(
-    f"/juno/u/tylerlum/github_repos/DexGraspNet/data/rotated_meshdata_stable/{object_code}/coacd/decomposed.obj"
-)
-assert path.exists(), f"{path} does not exist"
-mesh = trimesh.load(path)
-import transforms3d
-
-xyz, quat_xyzw = object_state[:3], object_state[3:7]
-quat_wxyz = quat_xyzw[[3, 0, 1, 2]]
-import numpy as np
-
-transform = np.eye(4)
-transform[:3, :3] = transforms3d.quaternions.quat2mat(quat_wxyz)
-transform[:3, 3] = xyz
-mesh.apply_scale(object_scale)
-mesh.apply_transform(transform)
-
-import open3d as o3d
-
-point_cloud_filepath = dataset.get_point_cloud_filepath(IDX)
-point_cloud = o3d.io.read_point_cloud(point_cloud_filepath)
-point_cloud, _ = point_cloud.remove_statistical_outlier(nb_neighbors=20, std_ratio=2.0)
-point_cloud, _ = point_cloud.remove_radius_outlier(nb_points=16, radius=0.05)
-points = np.asarray(point_cloud.points)
-
-# %%
-import plotly.graph_objects as go
-
-fig = go.Figure()
-fig.add_trace(
-    go.Scatter3d(
-        x=basis_points[:, 0],
-        y=basis_points[:, 1],
-        z=basis_points[:, 2],
-        mode="markers",
-        marker=dict(
-            size=1,
-            color=bps,
-            colorscale="rainbow",
-            colorbar=dict(title="Basis points", orientation="h"),
-        ),
-        name="Basis points",
-    )
-)
-fig.add_trace(
-    go.Mesh3d(
-        x=mesh.vertices[:, 0],
-        y=mesh.vertices[:, 1],
-        z=mesh.vertices[:, 2],
-        i=mesh.faces[:, 0],
-        j=mesh.faces[:, 1],
-        k=mesh.faces[:, 2],
-        name="Object",
-    )
-)
-fig.add_trace(
-    go.Scatter3d(
-        x=points[:, 0],
-        y=points[:, 1],
-        z=points[:, 2],
-        mode="markers",
-        marker=dict(size=2, color="black"),
-        name="Point cloud",
-    )
-)
-fig.show()
-
-
-# %%
-
-
 def main() -> None:
-    dataset = GraspBPSDataset(
-        input_hdf5_filepath="/juno/u/tylerlum/github_repos/nerf_grasping/data/2024-05-14_rotated_stable_grasps_bps/data.h5"
+    import numpy as np
+    import trimesh
+    import pathlib
+    import transforms3d
+    import open3d as o3d
+    import plotly.graph_objects as go
+
+    INPUT_HDF5_FILEPATH = "/juno/u/tylerlum/github_repos/nerf_grasping/data/2024-05-14_rotated_stable_grasps_bps/data.h5"
+    GRASP_IDX = 77930
+    MESHDATA_ROOT = (
+        "/juno/u/tylerlum/github_repos/DexGraspNet/data/rotated_meshdata_stable"
     )
+
+    print("\n" + "=" * 79)
+    print(f"Reading dataset from {INPUT_HDF5_FILEPATH}")
+    dataset = GraspBPSDataset(input_hdf5_filepath=INPUT_HDF5_FILEPATH)
+    print("=" * 79)
+    print(f"len(dataset): {len(dataset)}")
+
+    print("\n" + "=" * 79)
+    print(f"Getting grasp and bps for grasp_idx {GRASP_IDX}")
+    print("=" * 79)
+    grasp, bps = dataset[GRASP_IDX]
+    print(f"grasp.shape: {grasp.shape}")
+    print(f"bps.shape: {bps.shape}")
+
+    print("\n" + "=" * 79)
+    print("Getting debugging extras")
+    print("=" * 79)
+    basis_points = dataset.get_basis_points()
+    object_code = dataset.get_object_code(GRASP_IDX)
+    object_scale = dataset.get_object_scale(GRASP_IDX)
+    object_state = dataset.get_object_state(GRASP_IDX)
+    print(f"basis_points.shape: {basis_points.shape}")
+
+    # Mesh
+    mesh_path = pathlib.Path(f"{MESHDATA_ROOT}/{object_code}/coacd/decomposed.obj")
+    assert mesh_path.exists(), f"{mesh_path} does not exist"
+    print(f"Reading mesh from {mesh_path}")
+    mesh = trimesh.load(mesh_path)
+
+    xyz, quat_xyzw = object_state[:3], object_state[3:7]
+    quat_wxyz = quat_xyzw[[3, 0, 1, 2]]
+    transform = np.eye(4)
+    transform[:3, :3] = transforms3d.quaternions.quat2mat(quat_wxyz)
+    transform[:3, 3] = xyz
+    mesh.apply_scale(object_scale)
+    mesh.apply_transform(transform)
+
+    # Point cloud
+    point_cloud_filepath = dataset.get_point_cloud_filepath(GRASP_IDX)
+    print(f"Reading point cloud from {point_cloud_filepath}")
+    point_cloud = o3d.io.read_point_cloud(point_cloud_filepath)
+    point_cloud, _ = point_cloud.remove_statistical_outlier(
+        nb_neighbors=20, std_ratio=2.0
+    )
+    point_cloud, _ = point_cloud.remove_radius_outlier(nb_points=16, radius=0.05)
+    point_cloud_points = np.asarray(point_cloud.points)
+    print(f"point_cloud_points.shape: {point_cloud_points.shape}")
+
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter3d(
+            x=basis_points[:, 0],
+            y=basis_points[:, 1],
+            z=basis_points[:, 2],
+            mode="markers",
+            marker=dict(
+                size=1,
+                color=bps,
+                colorscale="rainbow",
+                colorbar=dict(title="Basis points", orientation="h"),
+            ),
+            name="Basis points",
+        )
+    )
+    fig.add_trace(
+        go.Mesh3d(
+            x=mesh.vertices[:, 0],
+            y=mesh.vertices[:, 1],
+            z=mesh.vertices[:, 2],
+            i=mesh.faces[:, 0],
+            j=mesh.faces[:, 1],
+            k=mesh.faces[:, 2],
+            name="Object",
+        )
+    )
+    fig.add_trace(
+        go.Scatter3d(
+            x=point_cloud_points[:, 0],
+            y=point_cloud_points[:, 1],
+            z=point_cloud_points[:, 2],
+            mode="markers",
+            marker=dict(size=1.5, color="black"),
+            name="Point cloud",
+        )
+    )
+    fig.update_layout(
+        title=dict(text=f"Grasp idx: {GRASP_IDX}, Object: {object_code}"),
+    )
+    fig.show()
 
 
 if __name__ == "__main__":
     main()
-
-# %%

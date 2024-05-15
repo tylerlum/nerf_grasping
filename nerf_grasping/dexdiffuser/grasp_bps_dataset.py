@@ -96,6 +96,16 @@ def main() -> None:
     import transforms3d
     import open3d as o3d
     import plotly.graph_objects as go
+    from nerf_grasping.dexgraspnet_utils.hand_model import HandModel
+    from nerf_grasping.dexgraspnet_utils.hand_model_type import (
+        HandModelType,
+    )
+    from nerf_grasping.dexgraspnet_utils.pose_conversion import (
+        hand_config_to_pose,
+    )
+    from nerf_grasping.dexgraspnet_utils.joint_angle_targets import (
+        compute_optimized_joint_angle_targets_given_grasp_orientations,
+    )
 
     INPUT_HDF5_FILEPATH = "/juno/u/tylerlum/github_repos/nerf_grasping/data/2024-05-14_rotated_stable_grasps_bps/data.h5"
     GRASP_IDX = 77930
@@ -150,6 +160,42 @@ def main() -> None:
     point_cloud_points = np.asarray(point_cloud.points)
     print(f"point_cloud_points.shape: {point_cloud_points.shape}")
 
+    # Grasp
+    assert grasp.shape == (3 + 6 + 16 + 4 * 3,), f"Expected shape (3 + 6 + 16 + 4 * 3), got {grasp.shape}"
+    grasp = grasp.detach().cpu().numpy()
+    grasp_trans, grasp_rot6d, grasp_joints, grasp_dirs = (
+        grasp[:3],
+        grasp[3:9],
+        grasp[9:25],
+        grasp[25:].reshape(4, 3),
+    )
+    grasp_rot = np.zeros((3, 3))
+    grasp_rot[:3, :2] = grasp_rot6d.reshape(3, 2)
+    assert np.dot(grasp_rot[:3, 0], grasp_rot[:3, 1]) < 1e-3, f"Expected dot product < 1e-3, got {np.dot(grasp_rot[:3, 0], grasp_rot[:3, 1])}"
+    grasp_rot[:3, 2] = np.cross(grasp_rot[:3, 0], grasp_rot[:3, 1])
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    hand_pose = hand_config_to_pose(grasp_trans[None], grasp_rot[None], grasp_joints[None]).to(device)
+    hand_model_type = HandModelType.ALLEGRO_HAND
+    grasp_orientations = np.zeros((4, 3, 3))
+    grasp_orientations[:, :, 2] = grasp_dirs  # Leave the x-axis and y-axis as zeros, hacky but works
+    hand_model = HandModel(hand_model_type=hand_model_type, device=device)
+    hand_model.set_parameters(hand_pose)
+    hand_plotly = hand_model.get_plotly_data(i=0)
+
+    (
+        optimized_joint_angle_targets,
+        _,
+    ) = compute_optimized_joint_angle_targets_given_grasp_orientations(
+        joint_angles_start=hand_model.hand_pose[:, 9:],
+        hand_model=hand_model,
+        grasp_orientations=torch.from_numpy(grasp_orientations[None]).to(device),
+    )
+    new_hand_pose = hand_config_to_pose(grasp_trans[None], grasp_rot[None], optimized_joint_angle_targets.detach().cpu().numpy()).to(device)
+    hand_model.set_parameters(new_hand_pose)
+    hand_plotly_optimized = hand_model.get_plotly_data(i=0, opacity=0.5)
+
+
+
     fig = go.Figure()
     fig.add_trace(
         go.Scatter3d(
@@ -190,6 +236,10 @@ def main() -> None:
     fig.update_layout(
         title=dict(text=f"Grasp idx: {GRASP_IDX}, Object: {object_code}"),
     )
+    for trace in hand_plotly:
+        fig.add_trace(trace)
+    for trace in hand_plotly_optimized:
+        fig.add_trace(trace)
     fig.show()
 
 

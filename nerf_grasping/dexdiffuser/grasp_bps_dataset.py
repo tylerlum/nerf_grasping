@@ -27,6 +27,14 @@ class GraspBPSDataset(data.Dataset):
             self.grasps = torch.from_numpy(hdf5_file["/grasps"][()]).float()
             self.bpss = torch.from_numpy(hdf5_file["/bpss"][()]).float()
             self.grasp_bps_idxs = torch.from_numpy(hdf5_file["/grasp_bps_idx"][()])
+            self.passed_eval = torch.from_numpy(hdf5_file["/passed_eval"][()]).float()
+            self.passed_simulations = torch.from_numpy(
+                hdf5_file["/passed_simulation"][()]
+            ).float()
+            self.passed_penetration_thresholds = torch.from_numpy(
+                hdf5_file["/passed_penetration_threshold"][()]
+            ).float()
+
             self.length = hdf5_file.attrs["num_grasps"]
 
             assert (
@@ -35,6 +43,15 @@ class GraspBPSDataset(data.Dataset):
             assert (
                 self.grasp_bps_idxs.shape[0] == self.length
             ), f"Expected {self.length} grasp_bps_idxs, got {self.grasp_bps_idxs.shape[0]}"
+            assert (
+                self.passed_eval.shape[0] == self.length
+            ), f"Expected {self.length} passed_eval, got {self.passed_eval.shape[0]}"
+            assert (
+                self.passed_simulations.shape[0] == self.length
+            ), f"Expected {self.length} passed_simulations, got {self.passed_simulations.shape[0]}"
+            assert (
+                self.passed_penetration_thresholds.shape[0] == self.length
+            ), f"Expected {self.length} passed_penetration_thresholds, got {self.passed_penetration_thresholds.shape[0]}"
 
             # Extras
             self.basis_points = torch.from_numpy(hdf5_file["/basis_points"][()]).float()
@@ -65,11 +82,11 @@ class GraspBPSDataset(data.Dataset):
     def __len__(self) -> int:
         return self.length
 
-    ###### Extras ######
     def __getitem__(self, grasp_idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
         bps_idx = self.grasp_bps_idxs[grasp_idx]
         return self.grasps[grasp_idx], self.bpss[bps_idx]
 
+    ###### Extras ######
     def get_basis_points(self) -> torch.Tensor:
         return self.basis_points.clone()
 
@@ -108,7 +125,7 @@ def main() -> None:
     )
 
     INPUT_HDF5_FILEPATH = "/juno/u/tylerlum/github_repos/nerf_grasping/data/2024-05-14_rotated_stable_grasps_bps/data.h5"
-    GRASP_IDX = 77930
+    GRASP_IDX = 120000
     MESHDATA_ROOT = (
         "/juno/u/tylerlum/github_repos/DexGraspNet/data/rotated_meshdata_stable"
     )
@@ -143,7 +160,7 @@ def main() -> None:
 
     xyz, quat_xyzw = object_state[:3], object_state[3:7]
     quat_wxyz = quat_xyzw[[3, 0, 1, 2]]
-    transform = np.eye(4)
+    transform = np.eye(4)  # X_W_Oy
     transform[:3, :3] = transforms3d.quaternions.quat2mat(quat_wxyz)
     transform[:3, 3] = xyz
     mesh.apply_scale(object_scale)
@@ -161,7 +178,9 @@ def main() -> None:
     print(f"point_cloud_points.shape: {point_cloud_points.shape}")
 
     # Grasp
-    assert grasp.shape == (3 + 6 + 16 + 4 * 3,), f"Expected shape (3 + 6 + 16 + 4 * 3), got {grasp.shape}"
+    assert grasp.shape == (
+        3 + 6 + 16 + 4 * 3,
+    ), f"Expected shape (3 + 6 + 16 + 4 * 3), got {grasp.shape}"
     grasp = grasp.detach().cpu().numpy()
     grasp_trans, grasp_rot6d, grasp_joints, grasp_dirs = (
         grasp[:3],
@@ -171,16 +190,31 @@ def main() -> None:
     )
     grasp_rot = np.zeros((3, 3))
     grasp_rot[:3, :2] = grasp_rot6d.reshape(3, 2)
-    assert np.dot(grasp_rot[:3, 0], grasp_rot[:3, 1]) < 1e-3, f"Expected dot product < 1e-3, got {np.dot(grasp_rot[:3, 0], grasp_rot[:3, 1])}"
+    assert (
+        np.dot(grasp_rot[:3, 0], grasp_rot[:3, 1]) < 1e-3
+    ), f"Expected dot product < 1e-3, got {np.dot(grasp_rot[:3, 0], grasp_rot[:3, 1])}"
     grasp_rot[:3, 2] = np.cross(grasp_rot[:3, 0], grasp_rot[:3, 1])
+    grasp_transform = np.eye(4)  # X_Oy_H
+    grasp_transform[:3, :3] = grasp_rot
+    grasp_transform[:3, 3] = grasp_trans
+    grasp_transform = transform @ grasp_transform  # X_W_H = X_W_Oy @ X_Oy_H
+    grasp_trans = grasp_transform[:3, 3]
+    grasp_rot = grasp_transform[:3, :3]
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    hand_pose = hand_config_to_pose(grasp_trans[None], grasp_rot[None], grasp_joints[None]).to(device)
+    hand_pose = hand_config_to_pose(
+        grasp_trans[None], grasp_rot[None], grasp_joints[None]
+    ).to(device)
     hand_model_type = HandModelType.ALLEGRO_HAND
-    grasp_orientations = np.zeros((4, 3, 3))
-    grasp_orientations[:, :, 2] = grasp_dirs  # Leave the x-axis and y-axis as zeros, hacky but works
+    grasp_orientations = np.zeros(
+        (4, 3, 3)
+    )  # NOTE: should have applied transform with this, but didn't because we only have z-dir, hopefully transforms[:3, :3] ~= np.eye(3)
+    grasp_orientations[:, :, 2] = (
+        grasp_dirs  # Leave the x-axis and y-axis as zeros, hacky but works
+    )
     hand_model = HandModel(hand_model_type=hand_model_type, device=device)
     hand_model.set_parameters(hand_pose)
-    hand_plotly = hand_model.get_plotly_data(i=0)
+    hand_plotly = hand_model.get_plotly_data(i=0, opacity=0.8)
 
     (
         optimized_joint_angle_targets,
@@ -190,11 +224,15 @@ def main() -> None:
         hand_model=hand_model,
         grasp_orientations=torch.from_numpy(grasp_orientations[None]).to(device),
     )
-    new_hand_pose = hand_config_to_pose(grasp_trans[None], grasp_rot[None], optimized_joint_angle_targets.detach().cpu().numpy()).to(device)
+    new_hand_pose = hand_config_to_pose(
+        grasp_trans[None],
+        grasp_rot[None],
+        optimized_joint_angle_targets.detach().cpu().numpy(),
+    ).to(device)
     hand_model.set_parameters(new_hand_pose)
-    hand_plotly_optimized = hand_model.get_plotly_data(i=0, opacity=0.5)
-
-
+    hand_plotly_optimized = hand_model.get_plotly_data(
+        i=0, opacity=0.3, color="lightgreen"
+    )
 
     fig = go.Figure()
     fig.add_trace(

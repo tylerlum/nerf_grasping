@@ -16,7 +16,7 @@ class NaiveGraspBPSDataset(data.Dataset):
         return self.grasps[idx], self.bpss[idx]
 
 
-class GraspBPSDataset(data.Dataset):
+class GraspBPSEvalDataset(data.Dataset):
     def __init__(
         self,
         input_hdf5_filepath: str,
@@ -82,9 +82,9 @@ class GraspBPSDataset(data.Dataset):
     def __len__(self) -> int:
         return self.length
 
-    def __getitem__(self, grasp_idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
+    def __getitem__(self, grasp_idx: int) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         bps_idx = self.grasp_bps_idxs[grasp_idx]
-        return self.grasps[grasp_idx], self.bpss[bps_idx]
+        return self.grasps[grasp_idx], self.bpss[bps_idx], self.passed_eval[grasp_idx]
 
     ###### Extras ######
     def get_basis_points(self) -> torch.Tensor:
@@ -132,16 +132,17 @@ def main() -> None:
 
     print("\n" + "=" * 79)
     print(f"Reading dataset from {INPUT_HDF5_FILEPATH}")
-    dataset = GraspBPSDataset(input_hdf5_filepath=INPUT_HDF5_FILEPATH)
+    dataset = GraspBPSEvalDataset(input_hdf5_filepath=INPUT_HDF5_FILEPATH)
     print("=" * 79)
     print(f"len(dataset): {len(dataset)}")
 
     print("\n" + "=" * 79)
     print(f"Getting grasp and bps for grasp_idx {GRASP_IDX}")
     print("=" * 79)
-    grasp, bps = dataset[GRASP_IDX]
+    grasp, bps, passed_eval = dataset[GRASP_IDX]
     print(f"grasp.shape: {grasp.shape}")
     print(f"bps.shape: {bps.shape}")
+    print(f"passed_eval.shape: {passed_eval.shape}")
 
     print("\n" + "=" * 79)
     print("Getting debugging extras")
@@ -272,7 +273,7 @@ def main() -> None:
         )
     )
     fig.update_layout(
-        title=dict(text=f"Grasp idx: {GRASP_IDX}, Object: {object_code}"),
+        title=dict(text=f"Grasp idx: {GRASP_IDX}, Object: {object_code}, Passed Eval: {passed_eval}"),
     )
     for trace in hand_plotly:
         fig.add_trace(trace)

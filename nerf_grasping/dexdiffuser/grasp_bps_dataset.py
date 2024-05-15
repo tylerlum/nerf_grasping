@@ -16,7 +16,7 @@ class NaiveGraspBPSDataset(data.Dataset):
         return self.grasps[idx], self.bpss[idx]
 
 
-class GraspBPSEvalDataset(data.Dataset):
+class GraspBPSDataset(data.Dataset):
     def __init__(
         self,
         input_hdf5_filepath: str,
@@ -35,23 +35,23 @@ class GraspBPSEvalDataset(data.Dataset):
                 hdf5_file["/passed_penetration_threshold"][()]
             ).float()
 
-            self.length = hdf5_file.attrs["num_grasps"]
+            self.num_grasps = hdf5_file.attrs["num_grasps"]
 
             assert (
-                self.grasps.shape[0] == self.length
-            ), f"Expected {self.length} grasps, got {self.grasps.shape[0]}"
+                self.grasps.shape[0] == self.num_grasps
+            ), f"Expected {self.num_grasps} grasps, got {self.grasps.shape[0]}"
             assert (
-                self.grasp_bps_idxs.shape[0] == self.length
-            ), f"Expected {self.length} grasp_bps_idxs, got {self.grasp_bps_idxs.shape[0]}"
+                self.grasp_bps_idxs.shape[0] == self.num_grasps
+            ), f"Expected {self.num_grasps} grasp_bps_idxs, got {self.grasp_bps_idxs.shape[0]}"
             assert (
-                self.passed_eval.shape[0] == self.length
-            ), f"Expected {self.length} passed_eval, got {self.passed_eval.shape[0]}"
+                self.passed_eval.shape[0] == self.num_grasps
+            ), f"Expected {self.num_grasps} passed_eval, got {self.passed_eval.shape[0]}"
             assert (
-                self.passed_simulations.shape[0] == self.length
-            ), f"Expected {self.length} passed_simulations, got {self.passed_simulations.shape[0]}"
+                self.passed_simulations.shape[0] == self.num_grasps
+            ), f"Expected {self.num_grasps} passed_simulations, got {self.passed_simulations.shape[0]}"
             assert (
-                self.passed_penetration_thresholds.shape[0] == self.length
-            ), f"Expected {self.length} passed_penetration_thresholds, got {self.passed_penetration_thresholds.shape[0]}"
+                self.passed_penetration_thresholds.shape[0] == self.num_grasps
+            ), f"Expected {self.num_grasps} passed_penetration_thresholds, got {self.passed_penetration_thresholds.shape[0]}"
 
             # Extras
             self.basis_points = torch.from_numpy(hdf5_file["/basis_points"][()]).float()
@@ -76,20 +76,37 @@ class GraspBPSEvalDataset(data.Dataset):
                 self.object_scales.shape[0] == self.bpss.shape[0]
             ), f"Expected {self.bpss.shape[0]} object_scales, got {self.object_scales.shape[0]}"
             assert (
-                self.object_states.shape[0] == self.length
-            ), f"Expected {self.length} object_states, got {self.object_states.shape[0]}"
+                self.object_states.shape[0] == self.num_grasps
+            ), f"Expected {self.num_grasps} object_states, got {self.object_states.shape[0]}"
 
     def __len__(self) -> int:
-        return self.length
+        raise NotImplementedError
 
-    def __getitem__(self, grasp_idx: int) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        bps_idx = self.grasp_bps_idxs[grasp_idx]
-        return self.grasps[grasp_idx], self.bpss[bps_idx], self.passed_eval[grasp_idx]
+    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        raise NotImplementedError
 
     ###### Extras ######
     def get_basis_points(self) -> torch.Tensor:
         return self.basis_points.clone()
 
+
+class GraspBPSEvalDataset(GraspBPSDataset):
+    def __init__(
+        self,
+        input_hdf5_filepath: str,
+    ) -> None:
+        super().__init__(input_hdf5_filepath=input_hdf5_filepath)
+
+    def __len__(self) -> int:
+        return self.num_grasps
+
+    def __getitem__(
+        self, grasp_idx: int
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        bps_idx = self.grasp_bps_idxs[grasp_idx]
+        return self.grasps[grasp_idx], self.bpss[bps_idx], self.passed_eval[grasp_idx]
+
+    ###### Extras ######
     def get_point_cloud_filepath(self, grasp_idx: int) -> str:
         bpss_idx = self.grasp_bps_idxs[grasp_idx]
         return self.point_cloud_filepaths[bpss_idx].decode("utf-8")
@@ -103,6 +120,47 @@ class GraspBPSEvalDataset(data.Dataset):
         return self.object_scales[bpss_idx]
 
     def get_object_state(self, grasp_idx: int) -> torch.Tensor:
+        return self.object_states[grasp_idx]
+
+
+class GraspBPSSampleDataset(GraspBPSDataset):
+    def __init__(
+        self,
+        input_hdf5_filepath: str,
+    ) -> None:
+        super().__init__(input_hdf5_filepath=input_hdf5_filepath)
+
+        self.successful_grasp_idxs = torch.where(self.passed_eval >= 0.9)[0]
+        self.num_successful_grasps = len(self.successful_grasp_idxs)
+
+    def __len__(self) -> int:
+        return self.num_successful_grasps
+
+    def __getitem__(
+        self, successful_grasp_idx: int
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        grasp_idx = self.successful_grasp_idxs[successful_grasp_idx]
+        bps_idx = self.grasp_bps_idxs[grasp_idx]
+        return self.grasps[grasp_idx], self.bpss[bps_idx], self.passed_eval[grasp_idx]
+
+    ###### Extras ######
+    def get_point_cloud_filepath(self, successful_grasp_idx: int) -> str:
+        grasp_idx = self.successful_grasp_idxs[successful_grasp_idx]
+        bpss_idx = self.grasp_bps_idxs[grasp_idx]
+        return self.point_cloud_filepaths[bpss_idx].decode("utf-8")
+
+    def get_object_code(self, successful_grasp_idx: int) -> str:
+        grasp_idx = self.successful_grasp_idxs[successful_grasp_idx]
+        bpss_idx = self.grasp_bps_idxs[grasp_idx]
+        return self.object_codes[bpss_idx].decode("utf-8")
+
+    def get_object_scale(self, successful_grasp_idx: int) -> float:
+        grasp_idx = self.successful_grasp_idxs[successful_grasp_idx]
+        bpss_idx = self.grasp_bps_idxs[grasp_idx]
+        return self.object_scales[bpss_idx]
+
+    def get_object_state(self, successful_grasp_idx: int) -> torch.Tensor:
+        grasp_idx = self.successful_grasp_idxs[successful_grasp_idx]
         return self.object_states[grasp_idx]
 
 
@@ -125,14 +183,18 @@ def main() -> None:
     )
 
     INPUT_HDF5_FILEPATH = "/juno/u/tylerlum/github_repos/nerf_grasping/data/2024-05-14_rotated_stable_grasps_bps/data.h5"
-    GRASP_IDX = 120000
+    GRASP_IDX = 12000
     MESHDATA_ROOT = (
         "/juno/u/tylerlum/github_repos/DexGraspNet/data/rotated_meshdata_stable"
     )
+    USE_EVAL_DATASET = False
 
     print("\n" + "=" * 79)
     print(f"Reading dataset from {INPUT_HDF5_FILEPATH}")
-    dataset = GraspBPSEvalDataset(input_hdf5_filepath=INPUT_HDF5_FILEPATH)
+    if USE_EVAL_DATASET:
+        dataset = GraspBPSEvalDataset(input_hdf5_filepath=INPUT_HDF5_FILEPATH)
+    else:
+        dataset = GraspBPSSampleDataset(input_hdf5_filepath=INPUT_HDF5_FILEPATH)
     print("=" * 79)
     print(f"len(dataset): {len(dataset)}")
 
@@ -273,7 +335,9 @@ def main() -> None:
         )
     )
     fig.update_layout(
-        title=dict(text=f"Grasp idx: {GRASP_IDX}, Object: {object_code}, Passed Eval: {passed_eval}"),
+        title=dict(
+            text=f"Grasp idx: {GRASP_IDX}, Object: {object_code}, Passed Eval: {passed_eval}"
+        ),
     )
     for trace in hand_plotly:
         fig.add_trace(trace)

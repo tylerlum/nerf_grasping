@@ -289,13 +289,16 @@ class Diffusion(object):
 
         start_epoch, step = 0, 0
 
-        print(f"len(train_loader) = {len(train_loader)}")
         for epoch in tqdm(
             range(start_epoch, self.config.training.n_epochs), desc="Training Epochs"
         ):
             data_start = time.time()
             data_time = 0
-            for i, (grasps, bpss, _) in enumerate(train_loader):
+            for i, (grasps, bpss, _) in tqdm(
+                enumerate(train_loader),
+                desc="Training Batches",
+                total=len(train_loader),
+            ):
                 time.sleep(0.1)  # Yield control so it can be interrupted
                 n = grasps.size(0)
                 data_time += time.time() - data_start

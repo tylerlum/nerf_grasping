@@ -506,6 +506,7 @@ def main() -> None:
         grasp_transform = np.eye(4)  # X_Oy_H
         grasp_transform[:3, :3] = grasp_rot
         grasp_transform[:3, 3] = grasp_trans
+        print(f"grasp_transform:\n{grasp_transform}")
         grasp_transform = transform @ grasp_transform  # X_W_H = X_W_Oy @ X_Oy_H
         grasp_trans = grasp_transform[:3, 3]
         grasp_rot = grasp_transform[:3, :3]

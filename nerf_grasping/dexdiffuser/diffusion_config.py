@@ -6,7 +6,7 @@ import pathlib
 class DataConfig:
     num_workers: int = 4
     n_pts: int = 4096  # Number of points in bps (from DexDiffuser)
-    grasp_dim: int = 3 + 6 + 16  # Grasp xyz + rot6d + joint angles
+    grasp_dim: int = 3 + 6 + 16 + 4 * 3 # Grasp xyz + rot6d + joint angles + grasp directions
 
 
 @dataclass
@@ -27,7 +27,8 @@ class DiffusionConfig:
 @dataclass
 class TrainingConfig:
     batch_size: int = 128
-    n_epochs: int = 10000
+    # n_epochs: int = 10000
+    n_epochs: int = 1
     print_freq: int = 100
     snapshot_freq: int = 5000
     log_path: pathlib.Path = pathlib.Path("logs")

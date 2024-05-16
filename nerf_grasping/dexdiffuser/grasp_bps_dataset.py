@@ -27,7 +27,7 @@ class GraspBPSDataset(data.Dataset):
             self.grasps = torch.from_numpy(hdf5_file["/grasps"][()]).float()
             self.bpss = torch.from_numpy(hdf5_file["/bpss"][()]).float()
             self.grasp_bps_idxs = torch.from_numpy(hdf5_file["/grasp_bps_idx"][()])
-            self.passed_eval = torch.from_numpy(hdf5_file["/passed_eval"][()]).float()
+            self.passed_evals = torch.from_numpy(hdf5_file["/passed_eval"][()]).float()
             self.passed_simulations = torch.from_numpy(
                 hdf5_file["/passed_simulation"][()]
             ).float()
@@ -44,8 +44,8 @@ class GraspBPSDataset(data.Dataset):
                 self.grasp_bps_idxs.shape[0] == self.num_grasps
             ), f"Expected {self.num_grasps} grasp_bps_idxs, got {self.grasp_bps_idxs.shape[0]}"
             assert (
-                self.passed_eval.shape[0] == self.num_grasps
-            ), f"Expected {self.num_grasps} passed_eval, got {self.passed_eval.shape[0]}"
+                self.passed_evals.shape[0] == self.num_grasps
+            ), f"Expected {self.num_grasps} passed_evals, got {self.passed_evals.shape[0]}"
             assert (
                 self.passed_simulations.shape[0] == self.num_grasps
             ), f"Expected {self.num_grasps} passed_simulations, got {self.passed_simulations.shape[0]}"
@@ -104,7 +104,7 @@ class GraspBPSEvalDataset(GraspBPSDataset):
         self, grasp_idx: int
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         bps_idx = self.grasp_bps_idxs[grasp_idx]
-        return self.grasps[grasp_idx], self.bpss[bps_idx], self.passed_eval[grasp_idx]
+        return self.grasps[grasp_idx], self.bpss[bps_idx], self.passed_evals[grasp_idx]
 
     ###### Extras ######
     def get_point_cloud_filepath(self, grasp_idx: int) -> str:
@@ -130,7 +130,7 @@ class GraspBPSSampleDataset(GraspBPSDataset):
     ) -> None:
         super().__init__(input_hdf5_filepath=input_hdf5_filepath)
 
-        self.successful_grasp_idxs = torch.where(self.passed_eval >= 0.9)[0]
+        self.successful_grasp_idxs = torch.where(self.passed_evals >= 0.9)[0]
         self.num_successful_grasps = len(self.successful_grasp_idxs)
 
     def __len__(self) -> int:
@@ -141,7 +141,7 @@ class GraspBPSSampleDataset(GraspBPSDataset):
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         grasp_idx = self.successful_grasp_idxs[successful_grasp_idx]
         bps_idx = self.grasp_bps_idxs[grasp_idx]
-        return self.grasps[grasp_idx], self.bpss[bps_idx], self.passed_eval[grasp_idx]
+        return self.grasps[grasp_idx], self.bpss[bps_idx], self.passed_evals[grasp_idx]
 
     ###### Extras ######
     def get_point_cloud_filepath(self, successful_grasp_idx: int) -> str:
@@ -183,11 +183,11 @@ def main() -> None:
     )
 
     INPUT_HDF5_FILEPATH = "/juno/u/tylerlum/github_repos/nerf_grasping/data/2024-05-14_rotated_stable_grasps_bps/data.h5"
-    GRASP_IDX = 12000
+    GRASP_IDX = 190000
     MESHDATA_ROOT = (
         "/juno/u/tylerlum/github_repos/DexGraspNet/data/rotated_meshdata_stable"
     )
-    USE_EVAL_DATASET = False
+    USE_EVAL_DATASET = True
 
     print("\n" + "=" * 79)
     print(f"Reading dataset from {INPUT_HDF5_FILEPATH}")

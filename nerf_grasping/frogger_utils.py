@@ -8,8 +8,8 @@ import torch
 
 from frogger import ROOT
 from frogger.objects import MeshObjectConfig, MeshObject
-from frogger.robots.robots import FR3AlgrZed2iModelConfig
-from frogger.sampling import HeuristicFR3AlgrICSampler
+from frogger.robots.robots import AlgrModelConfig, FR3AlgrZed2iModelConfig
+from frogger.sampling import HeuristicAlgrICSampler, HeuristicFR3AlgrICSampler
 from frogger.solvers import FroggerConfig
 from frogger.robots.robot_core import RobotModel
 import plotly.graph_objects as go
@@ -89,14 +89,25 @@ def create_frogger_mesh_object(
 
 
 def create_model(mesh_object: MeshObject, viz: bool = False) -> RobotModel:
-    return FR3AlgrZed2iModelConfig(
-        obj=mesh_object,
-        ns=4,
-        mu=0.7,
-        d_min=0.001,
-        d_pen=0.005,
-        viz=viz,
-    ).create()
+    USE_FLOATING_HAND = True
+    if USE_FLOATING_HAND:
+        return AlgrModelConfig(
+            obj=mesh_object,
+            ns=4,
+            mu=0.7,
+            d_min=0.001,
+            d_pen=0.005,
+            viz=viz,
+        ).create()
+    else:
+        return FR3AlgrZed2iModelConfig(
+            obj=mesh_object,
+            ns=4,
+            mu=0.7,
+            d_min=0.001,
+            d_pen=0.005,
+            viz=viz,
+        ).create()
 
 
 def zup_mesh_to_q_array(
@@ -105,10 +116,16 @@ def zup_mesh_to_q_array(
     # loading model
     model = create_model(mesh_object=mesh_object, viz=False)
 
+    USE_FLOATING_HAND = True
+    if USE_FLOATING_HAND:
+        sampler = HeuristicAlgrICSampler(model, table=True, z_axis_fwd=True),
+    else:
+        sampler = HeuristicFR3AlgrICSampler(model, z_axis_fwd=True)
+
     # creating solver and generating grasp
     frogger = FroggerConfig(
         model=model,
-        sampler=HeuristicFR3AlgrICSampler(model, z_axis_fwd=True),
+        sampler=sampler,
         tol_surf=1e-3,
         tol_joint=1e-2,
         tol_col=1e-3,
@@ -232,6 +249,7 @@ def q_array_to_grasp_config_dict(
     q_array: np.ndarray,
     chain: pk.Chain,
     X_Oy_W: np.ndarray,
+    X_Oy_O: np.ndarray,
     wrist_body_name: str,
     R_O_cf_array: np.ndarray,
     l_array: np.ndarray,
@@ -246,6 +264,7 @@ def q_array_to_grasp_config_dict(
     B = q_array.shape[0]
     assert q_array.shape == (B, 23)
     assert X_Oy_W.shape == (4, 4)
+    assert X_Oy_O.shape == (4, 4)
     assert R_O_cf_array.shape == (B, 4, 3, 3)
     assert l_array.shape == (B,)
 
@@ -270,7 +289,11 @@ def q_array_to_grasp_config_dict(
         X_Oy_H_array.append(X_Oy_H)
     X_Oy_H_array = np.array(X_Oy_H_array)
 
-    grasp_orientations_array = np.copy(R_O_cf_array)
+    # grasp_orientations should be in Oy frame
+    R_Oy_O = X_Oy_O[:3, :3]
+
+    grasp_orientations_array = R_Oy_O @ R_O_cf_array
+    assert grasp_orientations_array.shape == (B, 4, 3, 3)
 
     return {
         "trans": X_Oy_H_array[:, :3, 3],
@@ -340,6 +363,7 @@ def frogger_to_grasp_config_dict(
         q_array=q_array,
         chain=chain,
         X_Oy_W=X_Oy_W,
+        X_Oy_O=X_Oy_O,
         wrist_body_name=rc.wrist_body_name,
         R_O_cf_array=R_O_cf_array,
         l_array=l_array,

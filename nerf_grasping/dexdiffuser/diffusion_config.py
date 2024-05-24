@@ -26,11 +26,11 @@ class DiffusionConfig:
 
 @dataclass
 class TrainingConfig:
-    batch_size: int = 128
+    batch_size: int = 512
     n_epochs: int = 10000
     print_freq: int = 100
     snapshot_freq: int = 5000
-    log_path: pathlib.Path = pathlib.Path("logs")
+    log_path: pathlib.Path = pathlib.Path("logs_2024-05-17")
 
 
 @dataclass

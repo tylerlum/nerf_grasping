@@ -217,7 +217,7 @@ def get_dataset(config: Config) -> tuple:
         [train_size, test_size],
         generator=torch.Generator().manual_seed(42),
     )
-    return train_dataset, test_dataset
+    return train_dataset, test_dataset, full_dataset
 
 
 class Diffusion(object):
@@ -266,14 +266,14 @@ class Diffusion(object):
             config.training.log_path / "ckpt.pth",
             map_location=self.device,
         )
-        model_state_dict, _, _, _ = states
+        model_state_dict = states[0]
         self.model.load_state_dict(model_state_dict)
 
     def train(self) -> None:
         config = self.config
-        dataset, test_dataset = get_dataset(config)
+        train_dataset, test_dataset, _ = get_dataset(config)
         train_loader = data.DataLoader(
-            dataset,
+            train_dataset,
             batch_size=config.training.batch_size,
             shuffle=True,
             num_workers=config.data.num_workers,
@@ -402,15 +402,15 @@ def main() -> None:
     config = Config()
     runner = Diffusion(config)
 
-    TRAIN_MODE = True
+    TRAIN_MODE = False
     if TRAIN_MODE:
         runner.train()
     else:
         runner.load_checkpoint(config)
 
-        dataset, _ = get_dataset(config)
-        GRASP_IDX = 1521
-        _, bps, _ = dataset[GRASP_IDX]
+        _, _, full_dataset = get_dataset(config)
+        GRASP_IDX = 13021
+        _, bps, _ = full_dataset[GRASP_IDX]
         xT = torch.randn(1, config.data.grasp_dim, device=runner.device)
         x = runner.sample(xT=xT, cond=bps[None].to(runner.device)).squeeze().cpu()
         print(f"Sampled grasp shape: {x.shape}")
@@ -436,14 +436,14 @@ def main() -> None:
             "/juno/u/tylerlum/github_repos/DexGraspNet/data/rotated_meshdata_stable"
         )
         print("=" * 79)
-        print(f"len(dataset): {len(dataset)}")
+        print(f"len(full_dataset): {len(full_dataset)}")
 
         print("\n" + "=" * 79)
         print(f"Getting grasp and bps for grasp_idx {GRASP_IDX}")
         print("=" * 79)
         grasp = x
         passed_eval = np.array(1)
-        # grasp, bps, passed_eval = dataset[GRASP_IDX]
+        # grasp, bps, passed_eval = full_dataset[GRASP_IDX]
         print(f"grasp.shape: {grasp.shape}")
         print(f"bps.shape: {bps.shape}")
         print(f"passed_eval.shape: {passed_eval.shape}")
@@ -451,10 +451,10 @@ def main() -> None:
         print("\n" + "=" * 79)
         print("Getting debugging extras")
         print("=" * 79)
-        basis_points = dataset.get_basis_points()
-        object_code = dataset.get_object_code(GRASP_IDX)
-        object_scale = dataset.get_object_scale(GRASP_IDX)
-        object_state = dataset.get_object_state(GRASP_IDX)
+        basis_points = full_dataset.get_basis_points()
+        object_code = full_dataset.get_object_code(GRASP_IDX)
+        object_scale = full_dataset.get_object_scale(GRASP_IDX)
+        object_state = full_dataset.get_object_state(GRASP_IDX)
         print(f"basis_points.shape: {basis_points.shape}")
 
         # Mesh
@@ -472,7 +472,7 @@ def main() -> None:
         mesh.apply_transform(transform)
 
         # Point cloud
-        point_cloud_filepath = dataset.get_point_cloud_filepath(GRASP_IDX)
+        point_cloud_filepath = full_dataset.get_point_cloud_filepath(GRASP_IDX)
         print(f"Reading point cloud from {point_cloud_filepath}")
         point_cloud = o3d.io.read_point_cloud(point_cloud_filepath)
         point_cloud, _ = point_cloud.remove_statistical_outlier(
@@ -589,7 +589,7 @@ def main() -> None:
                 text=f"Grasp idx: {GRASP_IDX}, Object: {object_code}, Passed Eval: {passed_eval}"
             ),
         )
-        VISUALIZE_HAND = False
+        VISUALIZE_HAND = True
         if VISUALIZE_HAND:
             for trace in hand_plotly:
                 fig.add_trace(trace)

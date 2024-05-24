@@ -118,7 +118,7 @@ def zup_mesh_to_q_array(
 
     USE_FLOATING_HAND = True
     if USE_FLOATING_HAND:
-        sampler = HeuristicAlgrICSampler(model, table=True, z_axis_fwd=True),
+        sampler = HeuristicAlgrICSampler(model, table=True, z_axis_fwd=True)
     else:
         sampler = HeuristicFR3AlgrICSampler(model, z_axis_fwd=True)
 

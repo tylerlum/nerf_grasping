@@ -258,7 +258,7 @@ def compute_frogger_grasps(
         num_grasps=cfg.num_grasps,
         output_grasp_config_dicts_folder=cfg.output_folder / "grasp_config_dicts",
         visualize=cfg.visualize,
-        grasp_idx_to_visualize=cfg.grasp_idx_to_visualize,
+        grasp_idx_to_visualize=0,
     )
     optimized_grasp_config_dict = frogger_utils.frogger_to_grasp_config_dict(
         args=frogger_args,

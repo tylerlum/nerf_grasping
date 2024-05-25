@@ -703,8 +703,7 @@ def run_curobo(
     assert q_start_lifts.shape == (n_grasps, 23)
 
     X_W_H_lifts = X_W_Hs.copy()
-    LIFT_AMOUNT = 0.2  # Lift up 20 cm
-    X_W_H_lifts[:, 2, 3] += LIFT_AMOUNT
+    X_W_H_lifts[:, :3, 3] = np.array([0.440870285, 0.0, 0.563780367])
 
     # HACK: If motion_gen above fails, then it leaves q as all 0s, which causes next step to fail
     #       So we populate those with another valid one

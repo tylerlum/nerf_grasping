@@ -513,7 +513,7 @@ class AllegroGraspConfig(torch.nn.Module):
         ).unsqueeze(0).unsqueeze(0)
 
     def target_joint_angles(
-        self, dist_move_fingers: Optional[float] = None
+        self, dist_move_finger: Optional[float] = None
     ) -> torch.Tensor:
         device = self.wrist_pose.device
         target_joint_angles = compute_joint_angle_targets(
@@ -522,12 +522,12 @@ class AllegroGraspConfig(torch.nn.Module):
             joint_angles=self.joint_angles.detach().cpu().numpy(),
             grasp_orientations=self.grasp_orientations.matrix(),
             device=device,
-            dist_move_finger=dist_move_fingers,
+            dist_move_finger=dist_move_finger,
         )
         return torch.from_numpy(target_joint_angles).to(device)
 
     def pre_joint_angles(
-        self, dist_move_fingers_backward: Optional[float] = None
+        self, dist_move_finger_backward: Optional[float] = None
     ) -> torch.Tensor:
         device = self.wrist_pose.device
         pre_joint_angles = compute_joint_angle_pre(
@@ -536,7 +536,7 @@ class AllegroGraspConfig(torch.nn.Module):
             joint_angles=self.joint_angles.detach().cpu().numpy(),
             grasp_orientations=self.grasp_orientations.matrix(),
             device=device,
-            dist_move_finger_backwards=dist_move_fingers_backward,
+            dist_move_finger_backwards=dist_move_finger_backward,
         )
         return torch.from_numpy(pre_joint_angles).to(device)
 
@@ -1297,8 +1297,8 @@ def batch_cov(x: torch.Tensor, dim: int = 0, keepdim=False):
 
 def get_sorted_grasps_from_file(
     optimized_grasp_config_dict_filepath: pathlib.Path,
-    dist_move_fingers: Optional[float] = None,
-    dist_move_fingers_backward: Optional[float] = None,
+    dist_move_finger: Optional[float] = None,
+    dist_move_finger_backward: Optional[float] = None,
     error_if_no_loss: bool = True,
     check: bool = True,
     print_best: bool = True,
@@ -1310,8 +1310,8 @@ def get_sorted_grasps_from_file(
 
     Parameters:
     optimized_grasp_config_dict_filepath (pathlib.Path): The file path to the optimized grasp .npy file. This file should contain wrist poses, joint angles, grasp orientations, and loss from grasp metric.
-    dist_move_fingers (Optional[float]): The distance to move fingers for target joint angles. Defaults to None, which means default distance.
-    dist_move_fingers_backward (Optional[float]): The distance to move fingers backwards for pre joint angles. Defaults to None, which means default distance.
+    dist_move_finger (Optional[float]): The distance to move fingers for target joint angles. Defaults to None, which means default distance.
+    dist_move_finger_backward (Optional[float]): The distance to move fingers backwards for pre joint angles. Defaults to None, which means default distance.
     error_if_no_loss (bool): Whether to raise an error if the loss is not found in the grasp config dict. Defaults to True.
     check (bool): Whether to check the validity of the grasp configurations (sometimes sensitive or off manifold from optimization?). Defaults to True.
     print_best (bool): Whether to print the best grasp configurations. Defaults to True.
@@ -1339,8 +1339,8 @@ def get_sorted_grasps_from_file(
     ).item()
     return get_sorted_grasps_from_dict(
         grasp_config_dict,
-        dist_move_fingers=dist_move_fingers,
-        dist_move_fingers_backward=dist_move_fingers_backward,
+        dist_move_finger=dist_move_finger,
+        dist_move_finger_backward=dist_move_finger_backward,
         error_if_no_loss=error_if_no_loss,
         check=check,
         print_best=print_best,
@@ -1349,8 +1349,8 @@ def get_sorted_grasps_from_file(
 
 def get_sorted_grasps_from_dict(
     optimized_grasp_config_dict: Dict[str, np.ndarray],
-    dist_move_fingers: Optional[float] = None,
-    dist_move_fingers_backward: Optional[float] = None,
+    dist_move_finger: Optional[float] = None,
+    dist_move_finger_backward: Optional[float] = None,
     error_if_no_loss: bool = True,
     check: bool = True,
     print_best: bool = True,
@@ -1405,14 +1405,14 @@ def get_sorted_grasps_from_dict(
     )
     joint_angles_array = sorted_grasp_configs.joint_angles.detach().cpu().numpy()
     target_joint_angles_array = (
-        sorted_grasp_configs.target_joint_angles(dist_move_fingers=dist_move_fingers)
+        sorted_grasp_configs.target_joint_angles(dist_move_finger=dist_move_finger)
         .detach()
         .cpu()
         .numpy()
     )
     pre_joint_angles_array = (
         sorted_grasp_configs.pre_joint_angles(
-            dist_move_fingers_backward=dist_move_fingers_backward
+            dist_move_finger_backward=dist_move_finger_backward
         )
         .detach()
         .cpu()

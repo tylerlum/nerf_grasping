@@ -1,5 +1,5 @@
 import time
-from typing import Optional, Tuple, List, Literal
+from typing import Optional, Tuple, List, Literal, Callable
 from nerfstudio.models.base_model import Model
 from nerf_grasping.run_pipeline import (
     run_curobo,
@@ -66,12 +66,16 @@ from curobo.wrap.reacher.motion_gen import (
     MotionGenConfig,
 )
 
+from frogger.robots.robot_core import RobotModel
+
 import sys
 
 
 def compute_frogger_grasps(
     nerf_model: Model,
     cfg: PipelineConfig,
+    custom_coll_callback: Optional[Callable[[RobotModel, str, str], float]] = None,
+    max_time: float = 60.0,
 ) -> Tuple[
     np.ndarray,
     np.ndarray,
@@ -250,6 +254,7 @@ def compute_frogger_grasps(
     mesh_O.apply_transform(X_O_W)
 
     from nerf_grasping import frogger_utils
+
     frogger_args = frogger_utils.FroggerArgs(
         obj_filepath=nerf_to_mesh_folder / "decomposed.obj",
         obj_scale=cfg.object_scale,
@@ -264,6 +269,8 @@ def compute_frogger_grasps(
         args=frogger_args,
         mesh=mesh_O,
         X_W_O=X_W_O,
+        custom_coll_callback=custom_coll_callback,
+        max_time=max_time,
     )
 
     print("\n" + "=" * 80)
@@ -272,6 +279,10 @@ def compute_frogger_grasps(
     X_Oy_Hs, q_algr_pres, q_algr_posts, q_algr_extra_open, sorted_losses = (
         get_sorted_grasps_from_dict(
             optimized_grasp_config_dict=optimized_grasp_config_dict,
+            dist_move_finger=0.05
+            - 0.015,  # Adjust default by 0.015 to account for frogger being on surface
+            dist_move_finger_backward=-0.03
+            - 0.015,  # Adjust default by 0.015 to account for frogger being on surface
             error_if_no_loss=True,
             check=False,
             print_best=False,
@@ -334,6 +345,8 @@ def run_frogger_pipeline(
     cfg: PipelineConfig,
     q_fr3: np.ndarray,
     q_algr: np.ndarray,
+    custom_coll_callback: Optional[Callable[[RobotModel, str, str], float]] = None,
+    max_time: float = 60.0,
     robot_cfg: Optional[RobotConfig] = None,
     ik_solver: Optional[IKSolver] = None,
     ik_solver2: Optional[IKSolver] = None,
@@ -360,7 +373,7 @@ def run_frogger_pipeline(
         mesh_W,
         X_N_Oy,
         sorted_losses,
-    ) = compute_frogger_grasps(nerf_model=nerf_model, cfg=cfg)
+    ) = compute_frogger_grasps(nerf_model=nerf_model, cfg=cfg, custom_coll_callback=custom_coll_callback, max_time=max_time)
     compute_grasps_time = time.time()
     print("@" * 80)
     print(f"Time to compute_grasps: {compute_grasps_time - start_time:.2f}s")
@@ -468,6 +481,22 @@ def main() -> None:
             collision_sphere_buffer=0.01,
         )
     )
+    (
+        lift_robot_cfg,
+        lift_ik_solver,
+        lift_ik_solver2,
+        lift_motion_gen,
+        lift_motion_gen_config,
+    ) = prepare_trajopt_batch(
+        n_grasps=args.num_grasps,
+        collision_check_object=True,
+        obj_filepath=pathlib.Path("/tmp/DUMMY.obj"),
+        obj_xyz=FAR_AWAY_OBJ_XYZ,
+        obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+        collision_check_table=True,
+        use_cuda_graph=True,
+        collision_sphere_buffer=0.01,
+    )
     end_prepare_trajopt_batch = time.time()
     print("@" * 80)
     print(
@@ -485,6 +514,11 @@ def main() -> None:
         ik_solver2=ik_solver2,
         motion_gen=motion_gen,
         motion_gen_config=motion_gen_config,
+        lift_robot_cfg=lift_robot_cfg,
+        lift_ik_solver=lift_ik_solver,
+        lift_ik_solver2=lift_ik_solver2,
+        lift_motion_gen=lift_motion_gen,
+        lift_motion_gen_config=lift_motion_gen_config,
     )
 
     print("Testing save_to_file and load_from_file")

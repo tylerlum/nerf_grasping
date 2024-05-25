@@ -1,5 +1,5 @@
 import numpy as np
-from typing import Tuple, List, Optional
+from typing import Tuple, List, Optional, Callable
 import trimesh
 from pydrake.math import RigidTransform, RotationMatrix
 from tqdm import tqdm
@@ -16,6 +16,10 @@ import plotly.graph_objects as go
 import pathlib
 from dataclasses import dataclass, field
 import tyro
+
+from frogger.utils import timeout
+from concurrent.futures import TimeoutError
+import time
 
 
 @dataclass
@@ -88,15 +92,20 @@ def create_frogger_mesh_object(
     ).create()
 
 
-def create_model(mesh_object: MeshObject, viz: bool = False) -> RobotModel:
+def create_model(
+    mesh_object: MeshObject,
+    custom_coll_callback: Optional[Callable[[RobotModel, str, str], float]] = None,
+    viz: bool = False,
+) -> RobotModel:
     USE_FLOATING_HAND = False
     if USE_FLOATING_HAND:
         return AlgrModelConfig(
             obj=mesh_object,
             ns=4,
             mu=0.7,
-            d_min=0.001,
+            d_min=0.005,
             d_pen=0.005,
+            custom_coll_callback=custom_coll_callback,
             viz=viz,
         ).create()
     else:
@@ -104,17 +113,23 @@ def create_model(mesh_object: MeshObject, viz: bool = False) -> RobotModel:
             obj=mesh_object,
             ns=4,
             mu=0.7,
-            d_min=0.001,
+            d_min=0.005,
             d_pen=0.005,
+            custom_coll_callback=custom_coll_callback,
             viz=viz,
         ).create()
 
 
 def zup_mesh_to_q_array(
-    mesh_object: MeshObject, num_grasps: int
+    mesh_object: MeshObject,
+    num_grasps: int,
+    custom_coll_callback: Optional[Callable[[RobotModel, str, str], float]] = None,
+    max_time: float = 60.0,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     # loading model
-    model = create_model(mesh_object=mesh_object, viz=False)
+    model = create_model(
+        mesh_object=mesh_object, custom_coll_callback=custom_coll_callback, viz=False
+    )
 
     USE_FLOATING_HAND = False
     if USE_FLOATING_HAND:
@@ -136,17 +151,43 @@ def zup_mesh_to_q_array(
         maxtime=60.0,
     ).create()
 
+    # We want to ensure the total time of doing this takes at most MAX_TIME
+    remaining_time = max_time
     q_array = []
     R_O_cf_array = []
     l_array = []
-    for _ in tqdm(range(num_grasps)):
-        q_star = frogger.generate_grasp()
-        assert q_star is not None
-        assert q_star.shape == (23,)
-        q_array.append(q_star)
-        assert model.R_O_cf is not None
-        R_O_cf_array.append(np.copy(model.R_O_cf))
-        l_array.append(model.l)
+    for i in tqdm(range(num_grasps)):
+        start_time = time.time()
+        try:
+            q_star = timeout(remaining_time)(frogger.generate_grasp)()
+
+            assert q_star is not None
+            assert q_star.shape == (23,)
+
+            q_array.append(q_star)
+            assert model.R_O_cf is not None
+            R_O_cf_array.append(np.copy(model.R_O_cf))
+            normalized_l = model.l * model.ns * model.nc  # TODO: Confirm this calc
+            assert normalized_l < 1.0 + 1e-2
+            l_array.append(normalized_l)
+        except TimeoutError:
+            print("&" * 80)
+            print(f"Timeout at grasp {i}")
+            print("&" * 80)
+            # HACK: When timeout, we populate with a bad q that will fail downstream motion planning
+            # This assumes q is for full robot arm and hand, careful that it is not pose of wrist
+            BAD_Q = np.zeros(23)
+            BAD_Q[:7] = np.array([0, 1.5, 0.0, -2.3562, 0.0, 1.5708, 0.7854])
+            q_star = BAD_Q
+
+            # Be careful, these might be bad values
+            q_array.append(q_star)
+            R_O_cf_array.append(np.eye(3).reshape(1, 3, 3).repeat(4, axis=0))
+            l_array.append(-1e6)
+
+        remaining_time = np.clip(
+            remaining_time - (time.time() - start_time), a_min=1e-6, a_max=None,
+        )  # Can't have 0 or negative time or timeout may do weird things
 
     q_array = np.array(q_array)
     R_O_cf_array = np.array(R_O_cf_array)
@@ -308,6 +349,8 @@ def frogger_to_grasp_config_dict(
     args: FroggerArgs,
     X_W_O: Optional[np.ndarray] = None,
     mesh: Optional[trimesh.Trimesh] = None,
+    custom_coll_callback: Optional[Callable[[RobotModel, str, str], float]] = None,
+    max_time: float = 60.0,
 ) -> dict:
     rc = RobotConstants()
 
@@ -327,7 +370,10 @@ def frogger_to_grasp_config_dict(
 
     # Compute grasps
     q_array, R_O_cf_array, l_array = zup_mesh_to_q_array(
-        mesh_object=mesh_object, num_grasps=args.num_grasps
+        mesh_object=mesh_object,
+        num_grasps=args.num_grasps,
+        custom_coll_callback=custom_coll_callback,
+        max_time=max_time,
     )
 
     # Prepare kinematic chain

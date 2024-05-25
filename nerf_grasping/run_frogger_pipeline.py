@@ -362,7 +362,7 @@ def run_frogger_pipeline(
     print("@" * 80 + "\n")
 
     start_run_curobo = time.time()
-    qs, qds, T_trajs, success_idxs, DEBUG_TUPLE, log_dict = run_curobo(
+    q_trajs, qd_trajs, T_trajs, success_idxs, DEBUG_TUPLE, log_dict = run_curobo(
         cfg=cfg,
         X_W_Hs=X_W_Hs,
         q_algr_pres=q_algr_pres,
@@ -392,14 +392,14 @@ def run_frogger_pipeline(
         "mesh_W": mesh_W,
         "X_N_Oy": X_N_Oy,
         "sorted_losses": sorted_losses,
-        "qs": qs,
-        "qds": qds,
+        "q_trajs": q_trajs,
+        "qd_trajs": qd_trajs,
         "T_trajs": T_trajs,
         "success_idxs": success_idxs,
         **log_dict,
     }
 
-    return qs, qds, T_trajs, success_idxs, DEBUG_TUPLE, pipeline_log_dict
+    return q_trajs, qd_trajs, T_trajs, success_idxs, DEBUG_TUPLE, pipeline_log_dict
 
 
 def main() -> None:

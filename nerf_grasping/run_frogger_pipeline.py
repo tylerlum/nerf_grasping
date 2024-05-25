@@ -468,6 +468,18 @@ def main() -> None:
             collision_sphere_buffer=0.01,
         )
     )
+    lift_robot_cfg, lift_ik_solver, lift_ik_solver2, lift_motion_gen, lift_motion_gen_config = (
+        prepare_trajopt_batch(
+            n_grasps=args.num_grasps,
+            collision_check_object=True,
+            obj_filepath=pathlib.Path("/tmp/DUMMY.obj"),
+            obj_xyz=FAR_AWAY_OBJ_XYZ,
+            obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+            collision_check_table=True,
+            use_cuda_graph=True,
+            collision_sphere_buffer=0.01,
+        )
+    )
     end_prepare_trajopt_batch = time.time()
     print("@" * 80)
     print(
@@ -485,6 +497,11 @@ def main() -> None:
         ik_solver2=ik_solver2,
         motion_gen=motion_gen,
         motion_gen_config=motion_gen_config,
+        lift_robot_cfg=lift_robot_cfg,
+        lift_ik_solver=lift_ik_solver,
+        lift_ik_solver2=lift_ik_solver2,
+        lift_motion_gen=lift_motion_gen,
+        lift_motion_gen_config=lift_motion_gen_config,
     )
 
     print("Testing save_to_file and load_from_file")

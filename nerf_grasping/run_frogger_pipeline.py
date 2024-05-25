@@ -339,6 +339,11 @@ def run_frogger_pipeline(
     ik_solver2: Optional[IKSolver] = None,
     motion_gen: Optional[MotionGen] = None,
     motion_gen_config: Optional[MotionGenConfig] = None,
+    lift_robot_cfg: Optional[RobotConfig] = None,
+    lift_ik_solver: Optional[IKSolver] = None,
+    lift_ik_solver2: Optional[IKSolver] = None,
+    lift_motion_gen: Optional[MotionGen] = None,
+    lift_motion_gen_config: Optional[MotionGenConfig] = None,
 ) -> Tuple[List[np.ndarray], List[np.ndarray], List[float], List[int], tuple, dict]:
 
     print(f"Creating a new experiment folder at {cfg.output_folder}")
@@ -375,6 +380,11 @@ def run_frogger_pipeline(
         ik_solver2=ik_solver2,
         motion_gen=motion_gen,
         motion_gen_config=motion_gen_config,
+        lift_robot_cfg=robot_cfg,
+        lift_ik_solver=ik_solver,
+        lift_ik_solver2=ik_solver2,
+        lift_motion_gen=motion_gen,
+        lift_motion_gen_config=motion_gen_config,
     )
     curobo_time = time.time()
     print("@" * 80)

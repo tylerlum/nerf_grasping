@@ -89,7 +89,7 @@ def create_frogger_mesh_object(
 
 
 def create_model(mesh_object: MeshObject, viz: bool = False) -> RobotModel:
-    USE_FLOATING_HAND = True
+    USE_FLOATING_HAND = False
     if USE_FLOATING_HAND:
         return AlgrModelConfig(
             obj=mesh_object,
@@ -116,7 +116,7 @@ def zup_mesh_to_q_array(
     # loading model
     model = create_model(mesh_object=mesh_object, viz=False)
 
-    USE_FLOATING_HAND = True
+    USE_FLOATING_HAND = False
     if USE_FLOATING_HAND:
         sampler = HeuristicAlgrICSampler(model, table=True, z_axis_fwd=True)
     else:

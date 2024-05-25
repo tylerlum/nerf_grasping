@@ -148,7 +148,6 @@ def zup_mesh_to_q_array(
         xtol_rel=1e-6,
         xtol_abs=1e-6,
         maxeval=1000,
-        maxtime=60.0,
     ).create()
 
     # We want to ensure the total time of doing this takes at most MAX_TIME

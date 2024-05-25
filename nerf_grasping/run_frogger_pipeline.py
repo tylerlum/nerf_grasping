@@ -380,11 +380,11 @@ def run_frogger_pipeline(
         ik_solver2=ik_solver2,
         motion_gen=motion_gen,
         motion_gen_config=motion_gen_config,
-        lift_robot_cfg=robot_cfg,
-        lift_ik_solver=ik_solver,
-        lift_ik_solver2=ik_solver2,
-        lift_motion_gen=motion_gen,
-        lift_motion_gen_config=motion_gen_config,
+        lift_robot_cfg=lift_robot_cfg,
+        lift_ik_solver=lift_ik_solver,
+        lift_ik_solver2=lift_ik_solver2,
+        lift_motion_gen=lift_motion_gen,
+        lift_motion_gen_config=lift_motion_gen_config,
     )
     curobo_time = time.time()
     print("@" * 80)

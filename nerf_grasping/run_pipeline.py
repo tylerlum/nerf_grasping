@@ -623,11 +623,11 @@ def run_curobo(
         f"ik_success_idxs2: {ik_success_idxs2} ({len(ik_success_idxs2)} / {n_grasps} = {len(ik_success_idxs2) / n_grasps * 100:.2f}%)"
     )
 
-    qs, qds, dts = get_trajectories_from_result(
+    approach_qs, approach_qds, dts = get_trajectories_from_result(
         result=motion_gen_result,
         desired_trajectory_time=APPROACH_TIME,
     )
-    nonzero_q_idxs = [i for i, q in enumerate(qs) if np.absolute(q).sum() > 1e-2]
+    nonzero_q_idxs = [i for i, approach_q in enumerate(approach_qs) if np.absolute(approach_q).sum() > 1e-2]
     overall_success_idxs = sorted(
         list(
             set(motion_gen_success_idxs)
@@ -644,23 +644,23 @@ def run_curobo(
     )
 
     # Fix issue with going over limit
-    over_limit_factors_qds = compute_over_limit_factors(qds=qds, dts=dts)
-    qds = [
-        qd / over_limit_factor
-        for qd, over_limit_factor in zip(qds, over_limit_factors_qds)
+    over_limit_factors_approach_qds = compute_over_limit_factors(qds=approach_qds, dts=dts)
+    approach_qds = [
+        approach_qd / over_limit_factor
+        for approach_qd, over_limit_factor in zip(approach_qds, over_limit_factors_approach_qds)
     ]
     dts = [
         dt * over_limit_factor
-        for dt, over_limit_factor in zip(dts, over_limit_factors_qds)
+        for dt, over_limit_factor in zip(dts, over_limit_factors_approach_qds)
     ]
 
     print("\n" + "=" * 80)
     print("Step 10: Add closing motion")
     print("=" * 80 + "\n")
     closing_qs, closing_qds = [], []
-    for i, (q, qd, dt) in enumerate(zip(qs, qds, dts)):
+    for i, (approach_q, approach_qd, dt) in enumerate(zip(approach_qs, approach_qds, dts)):
         # Keep arm joints same, change hand joints
-        open_q = q[-1]
+        open_q = approach_q[-1]
         close_q = np.concatenate([open_q[:7], q_algr_posts[i]])
 
         # Stay open
@@ -697,9 +697,9 @@ def run_curobo(
     print("\n" + "=" * 80)
     print("Step 11: Add lifting motion")
     print("=" * 80 + "\n")
-    # Using same qs found from motion gen to ensure they are not starting in collision
+    # Using same approach_qs found from motion gen to ensure they are not starting in collision
     # Not using closing_qs because they potentially could have issues?
-    q_start_lifts = np.array([q[-1] for q in qs])
+    q_start_lifts = np.array([approach_q[-1] for approach_q in approach_qs])
     assert q_start_lifts.shape == (n_grasps, 23)
 
     X_W_H_lifts = X_W_Hs.copy()
@@ -899,11 +899,12 @@ def run_curobo(
     print("Step 12: Aggregate qs and qds")
     print("=" * 80 + "\n")
     q_trajs, qd_trajs = [], []
-    for q, qd, closing_q, closing_qd, lift_q, lift_qd in zip(
-        qs, qds, closing_qs, closing_qds, adjusted_lift_qs, adjusted_lift_qds
+    for approach_q, approach_qd, closing_q, closing_qd, lift_q, lift_qd, dt in zip(
+        approach_qs, approach_qds, closing_qs, closing_qds, adjusted_lift_qs, adjusted_lift_qds, dts
     ):
-        q_traj = np.concatenate([q, closing_q, lift_q], axis=0)
-        qd_traj = np.concatenate([qd, closing_qd, lift_qd], axis=0)
+        q_traj = np.concatenate([approach_q, closing_q, lift_q], axis=0)
+        qd_traj = np.diff(q_traj, axis=0) / dt
+        qd_traj = np.concatenate([qd_traj, qd_traj[-1:]], axis=0)
         q_trajs.append(q_traj)
         qd_trajs.append(qd_traj)
 
@@ -911,9 +912,21 @@ def run_curobo(
     print("Step 13: Compute T_trajs")
     print("=" * 80 + "\n")
     T_trajs = []
-    for q, dt in zip(q_trajs, dts):
-        n_timesteps = q.shape[0]
+    for q_traj, dt in zip(q_trajs, dts):
+        n_timesteps = q_traj.shape[0]
         T_trajs.append(n_timesteps * dt)
+
+    over_limit_factors_qd_trajs = compute_over_limit_factors(
+        qds=qd_trajs, dts=raw_lift_dts
+    )
+    no_crazy_jumps_idxs = [
+        i for i, over_limit_factor in enumerate(over_limit_factors_qd_trajs) if over_limit_factor <= 1.0
+    ]
+    print(f"no_crazy_jumps_idxs: {no_crazy_jumps_idxs} ({len(no_crazy_jumps_idxs)} / {n_grasps} = {len(no_crazy_jumps_idxs) / n_grasps * 100:.2f}%)")
+    real_final_success_idxs = sorted(
+        list(set(final_success_idxs).intersection(set(no_crazy_jumps_idxs)))
+    )
+    print(f"real_final_success_idxs: {real_final_success_idxs} ({len(real_final_success_idxs)} / {n_grasps} = {len(real_final_success_idxs) / n_grasps * 100:.2f}%)")
 
     DEBUG_TUPLE = (
         motion_gen_result,
@@ -925,8 +938,8 @@ def run_curobo(
     )
 
     log_dict = {
-        "qs": qs,
-        "qds": qds,
+        "approach_qs": approach_qs,
+        "approach_qds": approach_qds,
         "dts": dts,
         "closing_qs": closing_qs,
         "closing_qds": closing_qds,
@@ -943,11 +956,14 @@ def run_curobo(
         "lift_ik_success_idxs2": lift_ik_success_idxs2,
         "lift_overall_success_idxs": lift_overall_success_idxs,
         "final_success_idxs": final_success_idxs,
-        "over_limit_factors_qds": over_limit_factors_qds,
+        "no_crazy_jumps_idxs": no_crazy_jumps_idxs,
+        "real_final_success_idxs": real_final_success_idxs,
+        "over_limit_factors_qd_trajs": over_limit_factors_qd_trajs,
+        "over_limit_factors_approach_qds": over_limit_factors_approach_qds,
         "over_limit_factors_raw_lift_qds": over_limit_factors_raw_lift_qds,
         "q_start_lifts": q_start_lifts,
     }
-    return q_trajs, qd_trajs, T_trajs, final_success_idxs, DEBUG_TUPLE, log_dict
+    return q_trajs, qd_trajs, T_trajs, real_final_success_idxs, DEBUG_TUPLE, log_dict
 
 
 def run_pipeline(

@@ -75,6 +75,7 @@ def compute_frogger_grasps(
     nerf_model: Model,
     cfg: PipelineConfig,
     custom_coll_callback: Optional[Callable[[RobotModel, str, str], float]] = None,
+    max_time: float = 60.0,
 ) -> Tuple[
     np.ndarray,
     np.ndarray,
@@ -269,6 +270,7 @@ def compute_frogger_grasps(
         mesh=mesh_O,
         X_W_O=X_W_O,
         custom_coll_callback=custom_coll_callback,
+        max_time=max_time,
     )
 
     print("\n" + "=" * 80)
@@ -344,6 +346,7 @@ def run_frogger_pipeline(
     q_fr3: np.ndarray,
     q_algr: np.ndarray,
     custom_coll_callback: Optional[Callable[[RobotModel, str, str], float]] = None,
+    max_time: float = 60.0,
     robot_cfg: Optional[RobotConfig] = None,
     ik_solver: Optional[IKSolver] = None,
     ik_solver2: Optional[IKSolver] = None,
@@ -370,7 +373,7 @@ def run_frogger_pipeline(
         mesh_W,
         X_N_Oy,
         sorted_losses,
-    ) = compute_frogger_grasps(nerf_model=nerf_model, cfg=cfg, custom_coll_callback=custom_coll_callback)
+    ) = compute_frogger_grasps(nerf_model=nerf_model, cfg=cfg, custom_coll_callback=custom_coll_callback, max_time=max_time)
     compute_grasps_time = time.time()
     print("@" * 80)
     print(f"Time to compute_grasps: {compute_grasps_time - start_time:.2f}s")

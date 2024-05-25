@@ -587,36 +587,30 @@ def run_curobo(
         or lift_motion_gen_config is None
     ):
         print("\n" + "=" * 80)
-        print(
-            f"lift_robot_cfg is None: {lift_robot_cfg is None}"
-        )
-        print(
-            f"lift_ik_solver is None: {lift_ik_solver is None}"
-        )
-        print(
-            f"lift_ik_solver2 is None: {lift_ik_solver2 is None}"
-        )
-        print(
-            f"lift_motion_gen is None: {lift_motion_gen is None}"
-        )
-        print(
-            f"lift_motion_gen_config is None: {lift_motion_gen_config is None}"
-        )
+        print(f"lift_robot_cfg is None: {lift_robot_cfg is None}")
+        print(f"lift_ik_solver is None: {lift_ik_solver is None}")
+        print(f"lift_ik_solver2 is None: {lift_ik_solver2 is None}")
+        print(f"lift_motion_gen is None: {lift_motion_gen is None}")
+        print(f"lift_motion_gen_config is None: {lift_motion_gen_config is None}")
         print("=" * 80 + "\n")
         print(
             "Creating new lift_robot, lift_ik_solver, lift_ik_solver2, lift_motion_gen, lift_motion_gen_config"
         )
-        lift_robot_cfg, lift_ik_solver, lift_ik_solver2, lift_motion_gen, lift_motion_gen_config = (
-            prepare_trajopt_batch(
-                n_grasps=n_grasps,
-                collision_check_object=True,
-                obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
-                obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
-                obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
-                collision_check_table=True,
-                use_cuda_graph=True,
-                collision_sphere_buffer=0.01,
-            )
+        (
+            lift_robot_cfg,
+            lift_ik_solver,
+            lift_ik_solver2,
+            lift_motion_gen,
+            lift_motion_gen_config,
+        ) = prepare_trajopt_batch(
+            n_grasps=n_grasps,
+            collision_check_object=True,
+            obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
+            obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
+            obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+            collision_check_table=True,
+            use_cuda_graph=True,
+            collision_sphere_buffer=0.01,
         )
 
     print("\n" + "=" * 80)
@@ -673,7 +667,11 @@ def run_curobo(
         result=motion_gen_result,
         desired_trajectory_time=APPROACH_TIME,
     )
-    nonzero_q_idxs = [i for i, approach_q in enumerate(approach_qs) if np.absolute(approach_q).sum() > 1e-2]
+    nonzero_q_idxs = [
+        i
+        for i, approach_q in enumerate(approach_qs)
+        if np.absolute(approach_q).sum() > 1e-2
+    ]
     overall_success_idxs = sorted(
         list(
             set(motion_gen_success_idxs)
@@ -690,10 +688,14 @@ def run_curobo(
     )
 
     # Fix issue with going over limit
-    over_limit_factors_approach_qds = compute_over_limit_factors(qds=approach_qds, dts=dts)
+    over_limit_factors_approach_qds = compute_over_limit_factors(
+        qds=approach_qds, dts=dts
+    )
     approach_qds = [
         approach_qd / over_limit_factor
-        for approach_qd, over_limit_factor in zip(approach_qds, over_limit_factors_approach_qds)
+        for approach_qd, over_limit_factor in zip(
+            approach_qds, over_limit_factors_approach_qds
+        )
     ]
     dts = [
         dt * over_limit_factor
@@ -704,7 +706,9 @@ def run_curobo(
     print("Step 10: Add closing motion")
     print("=" * 80 + "\n")
     closing_qs, closing_qds = [], []
-    for i, (approach_q, approach_qd, dt) in enumerate(zip(approach_qs, approach_qds, dts)):
+    for i, (approach_q, approach_qd, dt) in enumerate(
+        zip(approach_qs, approach_qds, dts)
+    ):
         # Keep arm joints same, change hand joints
         open_q = approach_q[-1]
         close_q = np.concatenate([open_q[:7], q_algr_posts[i]])
@@ -810,7 +814,11 @@ def run_curobo(
     raw_lift_qs, raw_lift_qds, raw_lift_dts = get_trajectories_from_result(
         result=lift_motion_gen_result, desired_trajectory_time=LIFT_TIME
     )
-    lift_nonzero_q_idxs = [i for i, raw_lift_q in enumerate(raw_lift_qs) if np.absolute(raw_lift_q).sum() > 1e-2]
+    lift_nonzero_q_idxs = [
+        i
+        for i, raw_lift_q in enumerate(raw_lift_qs)
+        if np.absolute(raw_lift_q).sum() > 1e-2
+    ]
     lift_overall_success_idxs = sorted(
         list(
             set(lift_motion_gen_success_idxs)
@@ -820,7 +828,9 @@ def run_curobo(
             .intersection(set(lift_nonzero_q_idxs))
         )
     )  # All must be successful or else it may be successful for the wrong trajectory
-    print(f"lift_nonzero_q_idxs: {lift_nonzero_q_idxs} ({len(lift_nonzero_q_idxs)} / {n_grasps} = {len(lift_nonzero_q_idxs) / n_grasps * 100:.2f}%")
+    print(
+        f"lift_nonzero_q_idxs: {lift_nonzero_q_idxs} ({len(lift_nonzero_q_idxs)} / {n_grasps} = {len(lift_nonzero_q_idxs) / n_grasps * 100:.2f}%"
+    )
     print(
         f"lift_overall_success_idxs: {lift_overall_success_idxs} ({len(lift_overall_success_idxs)} / {n_grasps} = {len(lift_overall_success_idxs) / n_grasps * 100:.2f}%)"
     )
@@ -946,7 +956,13 @@ def run_curobo(
     print("=" * 80 + "\n")
     q_trajs, qd_trajs = [], []
     for approach_q, approach_qd, closing_q, closing_qd, lift_q, lift_qd, dt in zip(
-        approach_qs, approach_qds, closing_qs, closing_qds, adjusted_lift_qs, adjusted_lift_qds, dts
+        approach_qs,
+        approach_qds,
+        closing_qs,
+        closing_qds,
+        adjusted_lift_qs,
+        adjusted_lift_qds,
+        dts,
     ):
         q_traj = np.concatenate([approach_q, closing_q, lift_q], axis=0)
         qd_traj = np.diff(q_traj, axis=0) / dt
@@ -966,13 +982,20 @@ def run_curobo(
         qds=qd_trajs, dts=raw_lift_dts
     )
     no_crazy_jumps_idxs = [
-        i for i, over_limit_factor in enumerate(over_limit_factors_qd_trajs) if over_limit_factor <= 2.0  # Actually just 1.0, but higher to be safe against numerical errors and other weirdness
+        i
+        for i, over_limit_factor in enumerate(over_limit_factors_qd_trajs)
+        if over_limit_factor
+        <= 2.0  # Actually just 1.0, but higher to be safe against numerical errors and other weirdness
     ]
-    print(f"no_crazy_jumps_idxs: {no_crazy_jumps_idxs} ({len(no_crazy_jumps_idxs)} / {n_grasps} = {len(no_crazy_jumps_idxs) / n_grasps * 100:.2f}%)")
+    print(
+        f"no_crazy_jumps_idxs: {no_crazy_jumps_idxs} ({len(no_crazy_jumps_idxs)} / {n_grasps} = {len(no_crazy_jumps_idxs) / n_grasps * 100:.2f}%)"
+    )
     real_final_success_idxs = sorted(
         list(set(final_success_idxs).intersection(set(no_crazy_jumps_idxs)))
     )
-    print(f"real_final_success_idxs: {real_final_success_idxs} ({len(real_final_success_idxs)} / {n_grasps} = {len(real_final_success_idxs) / n_grasps * 100:.2f}%)")
+    print(
+        f"real_final_success_idxs: {real_final_success_idxs} ({len(real_final_success_idxs)} / {n_grasps} = {len(real_final_success_idxs) / n_grasps * 100:.2f}%)"
+    )
 
     DEBUG_TUPLE = (
         motion_gen_result,
@@ -1342,17 +1365,21 @@ def main() -> None:
             collision_sphere_buffer=0.01,
         )
     )
-    lift_robot_cfg, lift_ik_solver, lift_ik_solver2, lift_motion_gen, lift_motion_gen_config = (
-        prepare_trajopt_batch(
-            n_grasps=args.num_grasps,
-            collision_check_object=True,
-            obj_filepath=pathlib.Path("/tmp/DUMMY.obj"),
-            obj_xyz=FAR_AWAY_OBJ_XYZ,
-            obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
-            collision_check_table=True,
-            use_cuda_graph=True,
-            collision_sphere_buffer=0.01,
-        )
+    (
+        lift_robot_cfg,
+        lift_ik_solver,
+        lift_ik_solver2,
+        lift_motion_gen,
+        lift_motion_gen_config,
+    ) = prepare_trajopt_batch(
+        n_grasps=args.num_grasps,
+        collision_check_object=True,
+        obj_filepath=pathlib.Path("/tmp/DUMMY.obj"),
+        obj_xyz=FAR_AWAY_OBJ_XYZ,
+        obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+        collision_check_table=True,
+        use_cuda_graph=True,
+        collision_sphere_buffer=0.01,
     )
     end_prepare_trajopt_batch = time.time()
     print("@" * 80)

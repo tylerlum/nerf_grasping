@@ -250,6 +250,7 @@ def compute_frogger_grasps(
     mesh_O.apply_transform(X_O_W)
 
     from nerf_grasping import frogger_utils
+
     frogger_args = frogger_utils.FroggerArgs(
         obj_filepath=nerf_to_mesh_folder / "decomposed.obj",
         obj_scale=cfg.object_scale,
@@ -272,8 +273,10 @@ def compute_frogger_grasps(
     X_Oy_Hs, q_algr_pres, q_algr_posts, q_algr_extra_open, sorted_losses = (
         get_sorted_grasps_from_dict(
             optimized_grasp_config_dict=optimized_grasp_config_dict,
-            dist_move_finger=0.05 - 0.015,  # Adjust default by 0.015 to account for frogger being on surface
-            dist_move_finger_backward=-0.03 - 0.015,  # Adjust default by 0.015 to account for frogger being on surface
+            dist_move_finger=0.05
+            - 0.015,  # Adjust default by 0.015 to account for frogger being on surface
+            dist_move_finger_backward=-0.03
+            - 0.015,  # Adjust default by 0.015 to account for frogger being on surface
             error_if_no_loss=True,
             check=False,
             print_best=False,
@@ -470,17 +473,21 @@ def main() -> None:
             collision_sphere_buffer=0.01,
         )
     )
-    lift_robot_cfg, lift_ik_solver, lift_ik_solver2, lift_motion_gen, lift_motion_gen_config = (
-        prepare_trajopt_batch(
-            n_grasps=args.num_grasps,
-            collision_check_object=True,
-            obj_filepath=pathlib.Path("/tmp/DUMMY.obj"),
-            obj_xyz=FAR_AWAY_OBJ_XYZ,
-            obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
-            collision_check_table=True,
-            use_cuda_graph=True,
-            collision_sphere_buffer=0.01,
-        )
+    (
+        lift_robot_cfg,
+        lift_ik_solver,
+        lift_ik_solver2,
+        lift_motion_gen,
+        lift_motion_gen_config,
+    ) = prepare_trajopt_batch(
+        n_grasps=args.num_grasps,
+        collision_check_object=True,
+        obj_filepath=pathlib.Path("/tmp/DUMMY.obj"),
+        obj_xyz=FAR_AWAY_OBJ_XYZ,
+        obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+        collision_check_table=True,
+        use_cuda_graph=True,
+        collision_sphere_buffer=0.01,
     )
     end_prepare_trajopt_batch = time.time()
     print("@" * 80)

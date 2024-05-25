@@ -528,6 +528,11 @@ def run_curobo(
     ik_solver2: Optional[IKSolver] = None,
     motion_gen: Optional[MotionGen] = None,
     motion_gen_config: Optional[MotionGenConfig] = None,
+    lift_robot_cfg: Optional[RobotConfig] = None,
+    lift_ik_solver: Optional[IKSolver] = None,
+    lift_ik_solver2: Optional[IKSolver] = None,
+    lift_motion_gen: Optional[MotionGen] = None,
+    lift_motion_gen_config: Optional[MotionGenConfig] = None,
     sorted_losses: Optional[np.ndarray] = None,
 ) -> Tuple[List[np.ndarray], List[np.ndarray], List[float], List[int], tuple, dict]:
     # Timing
@@ -561,6 +566,45 @@ def run_curobo(
             "Creating new robot, ik_solver, ik_solver2, motion_gen, motion_gen_config"
         )
         robot_cfg, ik_solver, ik_solver2, motion_gen, motion_gen_config = (
+            prepare_trajopt_batch(
+                n_grasps=n_grasps,
+                collision_check_object=True,
+                obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
+                obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
+                obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+                collision_check_table=True,
+                use_cuda_graph=True,
+                collision_sphere_buffer=0.01,
+            )
+        )
+    if (
+        lift_robot_cfg is None
+        or lift_ik_solver is None
+        or lift_ik_solver2 is None
+        or lift_motion_gen is None
+        or lift_motion_gen_config is None
+    ):
+        print("\n" + "=" * 80)
+        print(
+            f"lift_robot_cfg is None: {lift_robot_cfg is None}"
+        )
+        print(
+            f"lift_ik_solver is None: {lift_ik_solver is None}"
+        )
+        print(
+            f"lift_ik_solver2 is None: {lift_ik_solver2 is None}"
+        )
+        print(
+            f"lift_motion_gen is None: {lift_motion_gen is None}"
+        )
+        print(
+            f"lift_motion_gen_config is None: {lift_motion_gen_config is None}"
+        )
+        print("=" * 80 + "\n")
+        print(
+            "Creating new lift_robot, lift_ik_solver, lift_ik_solver2, lift_motion_gen, lift_motion_gen_config"
+        )
+        lift_robot_cfg, lift_ik_solver, lift_ik_solver2, lift_motion_gen, lift_motion_gen_config = (
             prepare_trajopt_batch(
                 n_grasps=n_grasps,
                 collision_check_object=True,
@@ -731,11 +775,11 @@ def run_curobo(
         solve_prepared_trajopt_batch(
             X_W_Hs=X_W_H_lifts,
             q_algrs=q_algr_pres,
-            robot_cfg=robot_cfg,
-            ik_solver=ik_solver,
-            ik_solver2=ik_solver2,
-            motion_gen=motion_gen,
-            motion_gen_config=motion_gen_config,
+            robot_cfg=lift_robot_cfg,
+            ik_solver=lift_ik_solver,
+            ik_solver2=lift_ik_solver2,
+            motion_gen=lift_motion_gen,
+            motion_gen_config=lift_motion_gen_config,
             q_fr3_starts=q_start_lifts[:, :7],
             q_algr_starts=q_start_lifts[:, 7:],
             enable_graph=True,
@@ -976,6 +1020,11 @@ def run_pipeline(
     ik_solver2: Optional[IKSolver] = None,
     motion_gen: Optional[MotionGen] = None,
     motion_gen_config: Optional[MotionGenConfig] = None,
+    lift_robot_cfg: Optional[RobotConfig] = None,
+    lift_ik_solver: Optional[IKSolver] = None,
+    lift_ik_solver2: Optional[IKSolver] = None,
+    lift_motion_gen: Optional[MotionGen] = None,
+    lift_motion_gen_config: Optional[MotionGenConfig] = None,
 ) -> Tuple[List[np.ndarray], List[np.ndarray], List[float], List[int], tuple, dict]:
 
     print(f"Creating a new experiment folder at {cfg.output_folder}")
@@ -1012,6 +1061,11 @@ def run_pipeline(
         ik_solver2=ik_solver2,
         motion_gen=motion_gen,
         motion_gen_config=motion_gen_config,
+        lift_robot_cfg=lift_robot_cfg,
+        lift_ik_solver=lift_ik_solver,
+        lift_ik_solver2=lift_ik_solver2,
+        lift_motion_gen=lift_motion_gen,
+        lift_motion_gen_config=lift_motion_gen_config,
     )
     curobo_time = time.time()
     print("@" * 80)

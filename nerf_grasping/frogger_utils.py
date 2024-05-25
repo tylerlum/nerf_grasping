@@ -95,7 +95,7 @@ def create_model(mesh_object: MeshObject, viz: bool = False) -> RobotModel:
             obj=mesh_object,
             ns=4,
             mu=0.7,
-            d_min=0.001,
+            d_min=0.005,
             d_pen=0.005,
             viz=viz,
         ).create()
@@ -104,7 +104,7 @@ def create_model(mesh_object: MeshObject, viz: bool = False) -> RobotModel:
             obj=mesh_object,
             ns=4,
             mu=0.7,
-            d_min=0.001,
+            d_min=0.005,
             d_pen=0.005,
             viz=viz,
         ).create()

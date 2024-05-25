@@ -34,7 +34,7 @@ class OptimizationConfig:
     )
     use_rich: bool = False
     """Whether to use rich for logging (rich is nice but makes breakpoint() not work)."""
-    eval_batch_size: int = 64
+    eval_batch_size: int = 32
     """Batch size for evaluating grasp metric on dataset of grasps before optimization."""
     print_freq: int = 5
     save_grasps_freq: int = 5

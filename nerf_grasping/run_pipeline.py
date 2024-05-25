@@ -106,7 +106,7 @@ class PipelineConfig:
     num_steps: int = 0
     random_seed: Optional[int] = None
     n_random_rotations_per_grasp: int = 5
-    eval_batch_size: int = 64
+    eval_batch_size: int = 32
     object_scale: float = 0.9999
     nerf_config: Optional[pathlib.Path] = None
 

@@ -1,5 +1,5 @@
 import time
-from typing import Optional, Tuple, List, Literal
+from typing import Optional, Tuple, List, Literal, Callable
 from nerfstudio.models.base_model import Model
 from nerf_grasping.run_pipeline import (
     run_curobo,
@@ -66,12 +66,15 @@ from curobo.wrap.reacher.motion_gen import (
     MotionGenConfig,
 )
 
+from frogger.robots.robot_core import RobotModel
+
 import sys
 
 
 def compute_frogger_grasps(
     nerf_model: Model,
     cfg: PipelineConfig,
+    custom_coll_callback: Optional[Callable[[RobotModel, str, str], float]] = None,
 ) -> Tuple[
     np.ndarray,
     np.ndarray,
@@ -265,6 +268,7 @@ def compute_frogger_grasps(
         args=frogger_args,
         mesh=mesh_O,
         X_W_O=X_W_O,
+        custom_coll_callback=custom_coll_callback,
     )
 
     print("\n" + "=" * 80)
@@ -339,6 +343,7 @@ def run_frogger_pipeline(
     cfg: PipelineConfig,
     q_fr3: np.ndarray,
     q_algr: np.ndarray,
+    custom_coll_callback: Optional[Callable[[RobotModel, str, str], float]] = None,
     robot_cfg: Optional[RobotConfig] = None,
     ik_solver: Optional[IKSolver] = None,
     ik_solver2: Optional[IKSolver] = None,
@@ -365,7 +370,7 @@ def run_frogger_pipeline(
         mesh_W,
         X_N_Oy,
         sorted_losses,
-    ) = compute_frogger_grasps(nerf_model=nerf_model, cfg=cfg)
+    ) = compute_frogger_grasps(nerf_model=nerf_model, cfg=cfg, custom_coll_callback=custom_coll_callback)
     compute_grasps_time = time.time()
     print("@" * 80)
     print(f"Time to compute_grasps: {compute_grasps_time - start_time:.2f}s")

@@ -1,5 +1,5 @@
 import numpy as np
-from typing import Tuple, List, Optional
+from typing import Tuple, List, Optional, Callable
 import trimesh
 from pydrake.math import RigidTransform, RotationMatrix
 from tqdm import tqdm
@@ -88,7 +88,11 @@ def create_frogger_mesh_object(
     ).create()
 
 
-def create_model(mesh_object: MeshObject, viz: bool = False) -> RobotModel:
+def create_model(
+    mesh_object: MeshObject,
+    custom_coll_callback: Optional[Callable[[RobotModel, str, str], float]] = None,
+    viz: bool = False,
+) -> RobotModel:
     USE_FLOATING_HAND = False
     if USE_FLOATING_HAND:
         return AlgrModelConfig(
@@ -97,6 +101,7 @@ def create_model(mesh_object: MeshObject, viz: bool = False) -> RobotModel:
             mu=0.7,
             d_min=0.005,
             d_pen=0.005,
+            custom_coll_callback=custom_coll_callback,
             viz=viz,
         ).create()
     else:
@@ -106,15 +111,20 @@ def create_model(mesh_object: MeshObject, viz: bool = False) -> RobotModel:
             mu=0.7,
             d_min=0.005,
             d_pen=0.005,
+            custom_coll_callback=custom_coll_callback,
             viz=viz,
         ).create()
 
 
 def zup_mesh_to_q_array(
-    mesh_object: MeshObject, num_grasps: int
+    mesh_object: MeshObject,
+    num_grasps: int,
+    custom_coll_callback: Optional[Callable[[RobotModel, str, str], float]] = None,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     # loading model
-    model = create_model(mesh_object=mesh_object, viz=False)
+    model = create_model(
+        mesh_object=mesh_object, custom_coll_callback=custom_coll_callback, viz=False
+    )
 
     USE_FLOATING_HAND = False
     if USE_FLOATING_HAND:
@@ -308,6 +318,7 @@ def frogger_to_grasp_config_dict(
     args: FroggerArgs,
     X_W_O: Optional[np.ndarray] = None,
     mesh: Optional[trimesh.Trimesh] = None,
+    custom_coll_callback: Optional[Callable[[RobotModel, str, str], float]] = None,
 ) -> dict:
     rc = RobotConstants()
 
@@ -327,7 +338,7 @@ def frogger_to_grasp_config_dict(
 
     # Compute grasps
     q_array, R_O_cf_array, l_array = zup_mesh_to_q_array(
-        mesh_object=mesh_object, num_grasps=args.num_grasps
+        mesh_object=mesh_object, num_grasps=args.num_grasps, custom_coll_callback=custom_coll_callback,
     )
 
     # Prepare kinematic chain

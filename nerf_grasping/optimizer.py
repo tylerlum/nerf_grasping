@@ -607,7 +607,7 @@ def get_optimized_grasps(
     if cfg.random_seed is not None:
         torch.manual_seed(cfg.random_seed)
 
-    BATCH_SIZE = 64
+    BATCH_SIZE = cfg.eval_batch_size
     all_success_preds = []
     all_predicted_in_collision_obj = []
     all_predicted_in_collision_table = []

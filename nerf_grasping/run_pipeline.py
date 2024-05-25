@@ -106,6 +106,7 @@ class PipelineConfig:
     num_steps: int = 0
     random_seed: Optional[int] = None
     n_random_rotations_per_grasp: int = 5
+    eval_batch_size: int = 64
     object_scale: float = 0.9999
     nerf_config: Optional[pathlib.Path] = None
 
@@ -448,6 +449,7 @@ def compute_grasps(
             ),
             random_seed=cfg.random_seed,
             n_random_rotations_per_grasp=cfg.n_random_rotations_per_grasp,
+            eval_batch_size=cfg.eval_batch_size,
             wandb=None,
         ),
         grasp_metric=grasp_metric,

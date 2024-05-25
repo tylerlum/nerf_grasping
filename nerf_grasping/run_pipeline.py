@@ -702,14 +702,8 @@ def run_curobo(
     q_start_lifts = np.array([q[-1] for q in qs])
     assert q_start_lifts.shape == (n_grasps, 23)
 
-    X_W_H_lifts = np.array(
-        [
-            [-3.57627869e-07, 1.63269874e-06, 9.99999940e-01, 0.440870285],
-            [-1.52516009e-08, 1.00000000e00, -1.63269874e-06, 0.0],
-            [-9.99999940e-01, -1.52521125e-08, -3.57627869e-07, 0.563780367],
-            [0.00000000e00, 0.00000000e00, 0.00000000e00, 1.00000000e00],
-        ]
-    )[None, ...].repeat(n_grasps, axis=0)
+    X_W_H_lifts = X_W_Hs.copy()
+    X_W_H_lifts[:, :, 3] = np.array([0.440870285, 0.0, 0.563780367])
 
     # HACK: If motion_gen above fails, then it leaves q as all 0s, which causes next step to fail
     #       So we populate those with another valid one
@@ -770,11 +764,7 @@ def run_curobo(
     raw_lift_qs, raw_lift_qds, raw_lift_dts = get_trajectories_from_result(
         result=lift_motion_gen_result, desired_trajectory_time=LIFT_TIME
     )
-    lift_nonzero_q_idxs = [
-        i
-        for i, raw_lift_q in enumerate(raw_lift_qs)
-        if np.absolute(raw_lift_q).sum() > 1e-2
-    ]
+    lift_nonzero_q_idxs = [i for i, raw_lift_q in enumerate(raw_lift_qs) if np.absolute(raw_lift_q).sum() > 1e-2]
     lift_overall_success_idxs = sorted(
         list(
             set(lift_motion_gen_success_idxs)
@@ -784,9 +774,7 @@ def run_curobo(
             .intersection(set(lift_nonzero_q_idxs))
         )
     )  # All must be successful or else it may be successful for the wrong trajectory
-    print(
-        f"lift_nonzero_q_idxs: {lift_nonzero_q_idxs} ({len(lift_nonzero_q_idxs)} / {n_grasps} = {len(lift_nonzero_q_idxs) / n_grasps * 100:.2f}%"
-    )
+    print(f"lift_nonzero_q_idxs: {lift_nonzero_q_idxs} ({len(lift_nonzero_q_idxs)} / {n_grasps} = {len(lift_nonzero_q_idxs) / n_grasps * 100:.2f}%")
     print(
         f"lift_overall_success_idxs: {lift_overall_success_idxs} ({len(lift_overall_success_idxs)} / {n_grasps} = {len(lift_overall_success_idxs) / n_grasps * 100:.2f}%)"
     )

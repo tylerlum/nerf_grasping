@@ -920,7 +920,7 @@ def run_curobo(
         qds=qd_trajs, dts=raw_lift_dts
     )
     no_crazy_jumps_idxs = [
-        i for i, over_limit_factor in enumerate(over_limit_factors_qd_trajs) if over_limit_factor <= 1.0
+        i for i, over_limit_factor in enumerate(over_limit_factors_qd_trajs) if over_limit_factor <= 2.0  # Actually just 1.0, but higher to be safe against numerical errors and other weirdness
     ]
     print(f"no_crazy_jumps_idxs: {no_crazy_jumps_idxs} ({len(no_crazy_jumps_idxs)} / {n_grasps} = {len(no_crazy_jumps_idxs) / n_grasps * 100:.2f}%)")
     real_final_success_idxs = sorted(

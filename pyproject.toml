@@ -26,7 +26,7 @@ dependencies = [
     "pypose",
     "pytorch_kinematics",
     "rich",
-    "torch==2.1.2",
+    "torch==2.1.2+cu118",
     "torchinfo",
     "torchvision==0.16.2",
     "transforms3d",

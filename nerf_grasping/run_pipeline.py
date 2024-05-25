@@ -752,13 +752,6 @@ def run_curobo(
     lift_ik_success_idxs2 = (
         lift_ik_result2.success.flatten().nonzero().flatten().tolist()
     )
-    lift_overall_success_idxs = sorted(
-        list(
-            set(lift_motion_gen_success_idxs).intersection(
-                set(lift_ik_success_idxs).intersection(set(lift_ik_success_idxs2))
-            )
-        )
-    )  # All must be successful or else it may be successful for the wrong trajectory
     print(
         f"lift_motion_gen_success_idxs: {lift_motion_gen_success_idxs} ({len(lift_motion_gen_success_idxs)} / {n_grasps} = {len(lift_motion_gen_success_idxs) / n_grasps * 100:.2f}%)"
     )
@@ -768,12 +761,23 @@ def run_curobo(
     print(
         f"lift_ik_success_idxs2: {lift_ik_success_idxs2} ({len(lift_ik_success_idxs2)} / {n_grasps} = {len(lift_ik_success_idxs2) / n_grasps * 100:.2f}%)"
     )
-    print(
-        f"lift_overall_success_idxs: {lift_overall_success_idxs} ({len(lift_overall_success_idxs)} / {n_grasps} = {len(lift_overall_success_idxs) / n_grasps * 100:.2f}%)"
-    )
 
     raw_lift_qs, raw_lift_qds, raw_lift_dts = get_trajectories_from_result(
         result=lift_motion_gen_result, desired_trajectory_time=LIFT_TIME
+    )
+    lift_nonzero_q_idxs = [i for i, raw_lift_q in enumerate(raw_lift_qs) if np.absolute(raw_lift_q).sum() > 1e-2]
+    lift_overall_success_idxs = sorted(
+        list(
+            set(lift_motion_gen_success_idxs)
+            .intersection(
+                set(lift_ik_success_idxs).intersection(set(lift_ik_success_idxs2))
+            )
+            .intersection(set(lift_nonzero_q_idxs))
+        )
+    )  # All must be successful or else it may be successful for the wrong trajectory
+    print(f"lift_nonzero_q_idxs: {lift_nonzero_q_idxs} ({len(lift_nonzero_q_idxs)} / {n_grasps} = {len(lift_nonzero_q_idxs) / n_grasps * 100:.2f}%")
+    print(
+        f"lift_overall_success_idxs: {lift_overall_success_idxs} ({len(lift_overall_success_idxs)} / {n_grasps} = {len(lift_overall_success_idxs) / n_grasps * 100:.2f}%)"
     )
 
     # Need to adjust raw_lift_qs, raw_lift_qds, raw_lift_dts to match dts from trajopt

@@ -151,6 +151,8 @@ def get_sorted_grasps_from_file(
 
     Parameters:
     optimized_grasp_config_dict_filepath (pathlib.Path): The file path to the optimized grasp .npy file. This file should contain wrist poses, joint angles, grasp orientations, and loss from grasp metric.
+    dist_move_fingers (Optional[float]): The distance to move fingers for target joint angles. Defaults to None, which means default distance.
+    dist_move_fingers_backward (Optional[float]): The distance to move fingers backwards for pre joint angles. Defaults to None, which means default distance.
     error_if_no_loss (bool): Whether to raise an error if the loss is not found in the grasp config dict. Defaults to True.
     check (bool): Whether to check the validity of the grasp configurations (sometimes sensitive or off manifold from optimization?). Defaults to True.
     print_best (bool): Whether to print the best grasp configurations. Defaults to True.

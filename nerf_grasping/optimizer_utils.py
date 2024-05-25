@@ -138,7 +138,9 @@ class AllegroHandConfig(torch.nn.Module):
             joint_lower_limits
         ).float().to(self.wrist_pose.device), torch.from_numpy(
             joint_upper_limits
-        ).float().to(self.wrist_pose.device)
+        ).float().to(
+            self.wrist_pose.device
+        )
 
         assert self.joint_lower_limits.shape == (16,)
         assert self.joint_upper_limits.shape == (16,)
@@ -148,7 +150,6 @@ class AllegroHandConfig(torch.nn.Module):
             min=self.joint_lower_limits,
             max=self.joint_upper_limits,
         )
-
 
     def get_fingertip_transforms(self) -> pp.LieTensor:
         # Pretty hacky -- need to cast chain to the same device as the wrist pose.
@@ -511,8 +512,9 @@ class AllegroGraspConfig(torch.nn.Module):
             device=self.grasp_orientations.device, dtype=self.grasp_orientations.dtype
         ).unsqueeze(0).unsqueeze(0)
 
-    @property
-    def target_joint_angles(self) -> torch.Tensor:
+    def target_joint_angles(
+        self, dist_move_fingers: Optional[float] = None
+    ) -> torch.Tensor:
         device = self.wrist_pose.device
         target_joint_angles = compute_joint_angle_targets(
             trans=self.wrist_pose.translation().detach().cpu().numpy(),
@@ -520,11 +522,13 @@ class AllegroGraspConfig(torch.nn.Module):
             joint_angles=self.joint_angles.detach().cpu().numpy(),
             grasp_orientations=self.grasp_orientations.matrix(),
             device=device,
+            dist_move_finger=dist_move_fingers,
         )
         return torch.from_numpy(target_joint_angles).to(device)
 
-    @property
-    def pre_joint_angles(self) -> torch.Tensor:
+    def pre_joint_angles(
+        self, dist_move_fingers_backward: Optional[float] = None
+    ) -> torch.Tensor:
         device = self.wrist_pose.device
         pre_joint_angles = compute_joint_angle_pre(
             trans=self.wrist_pose.translation().detach().cpu().numpy(),
@@ -532,6 +536,7 @@ class AllegroGraspConfig(torch.nn.Module):
             joint_angles=self.joint_angles.detach().cpu().numpy(),
             grasp_orientations=self.grasp_orientations.matrix(),
             device=device,
+            dist_move_finger_backwards=dist_move_fingers_backward,
         )
         return torch.from_numpy(pre_joint_angles).to(device)
 
@@ -559,6 +564,7 @@ def compute_joint_angle_targets(
     joint_angles: np.ndarray,
     grasp_orientations: torch.Tensor,
     device: torch.device,
+    dist_move_finger: Optional[float] = None,
 ) -> np.ndarray:
     # Put messy imports of dexgraspnet copied files here
     from nerf_grasping.dexgraspnet_utils.hand_model import HandModel
@@ -589,6 +595,7 @@ def compute_joint_angle_targets(
         joint_angles_start=hand_model.hand_pose[:, 9:],
         hand_model=hand_model,
         grasp_orientations=grasp_orientations,
+        dist_move_finger=dist_move_finger,
     )
 
     num_joints = len(handmodeltype_to_joint_names[hand_model_type])
@@ -603,6 +610,7 @@ def compute_joint_angle_pre(
     joint_angles: np.ndarray,
     grasp_orientations: torch.Tensor,
     device: torch.device,
+    dist_move_finger_backwards: Optional[float] = None,
 ) -> np.ndarray:
     # Put messy imports of dexgraspnet copied files here
     from nerf_grasping.dexgraspnet_utils.hand_model import HandModel
@@ -633,6 +641,7 @@ def compute_joint_angle_pre(
         joint_angles_start=hand_model.hand_pose[:, 9:],
         hand_model=hand_model,
         grasp_orientations=grasp_orientations,
+        dist_move_finger_backwards=dist_move_finger_backwards,
     )
 
     num_joints = len(handmodeltype_to_joint_names[hand_model_type])
@@ -1288,6 +1297,8 @@ def batch_cov(x: torch.Tensor, dim: int = 0, keepdim=False):
 
 def get_sorted_grasps_from_file(
     optimized_grasp_config_dict_filepath: pathlib.Path,
+    dist_move_fingers: Optional[float] = None,
+    dist_move_fingers_backward: Optional[float] = None,
     error_if_no_loss: bool = True,
     check: bool = True,
     print_best: bool = True,
@@ -1299,6 +1310,8 @@ def get_sorted_grasps_from_file(
 
     Parameters:
     optimized_grasp_config_dict_filepath (pathlib.Path): The file path to the optimized grasp .npy file. This file should contain wrist poses, joint angles, grasp orientations, and loss from grasp metric.
+    dist_move_fingers (Optional[float]): The distance to move fingers for target joint angles. Defaults to None, which means default distance.
+    dist_move_fingers_backward (Optional[float]): The distance to move fingers backwards for pre joint angles. Defaults to None, which means default distance.
     error_if_no_loss (bool): Whether to raise an error if the loss is not found in the grasp config dict. Defaults to True.
     check (bool): Whether to check the validity of the grasp configurations (sometimes sensitive or off manifold from optimization?). Defaults to True.
     print_best (bool): Whether to print the best grasp configurations. Defaults to True.
@@ -1326,6 +1339,8 @@ def get_sorted_grasps_from_file(
     ).item()
     return get_sorted_grasps_from_dict(
         grasp_config_dict,
+        dist_move_fingers=dist_move_fingers,
+        dist_move_fingers_backward=dist_move_fingers_backward,
         error_if_no_loss=error_if_no_loss,
         check=check,
         print_best=print_best,
@@ -1334,6 +1349,8 @@ def get_sorted_grasps_from_file(
 
 def get_sorted_grasps_from_dict(
     optimized_grasp_config_dict: Dict[str, np.ndarray],
+    dist_move_fingers: Optional[float] = None,
+    dist_move_fingers_backward: Optional[float] = None,
     error_if_no_loss: bool = True,
     check: bool = True,
     print_best: bool = True,
@@ -1388,10 +1405,18 @@ def get_sorted_grasps_from_dict(
     )
     joint_angles_array = sorted_grasp_configs.joint_angles.detach().cpu().numpy()
     target_joint_angles_array = (
-        sorted_grasp_configs.target_joint_angles.detach().cpu().numpy()
+        sorted_grasp_configs.target_joint_angles(dist_move_fingers=dist_move_fingers)
+        .detach()
+        .cpu()
+        .numpy()
     )
     pre_joint_angles_array = (
-        sorted_grasp_configs.pre_joint_angles.detach().cpu().numpy()
+        sorted_grasp_configs.pre_joint_angles(
+            dist_move_fingers_backward=dist_move_fingers_backward
+        )
+        .detach()
+        .cpu()
+        .numpy()
     )
 
     assert wrist_trans_array.shape == (B, 3)

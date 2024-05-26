@@ -10,6 +10,7 @@ conda activate nerf_grasping_env
 
 # Install nerf-studio https://docs.nerf.studio/quickstart/installation.html
 python -m pip install --upgrade pip
+pip install setuptools==69.5.1  # Might need this https://github.com/aws-neuron/aws-neuron-sdk/issues/893 if you get ImportError: cannot import name 'packaging' from 'pkg_resources' 
 pip install torch==2.1.2+cu118 torchvision==0.16.2+cu118 --extra-index-url https://download.pytorch.org/whl/cu118
 conda install -c "nvidia/label/cuda-11.8.0" cuda-toolkit
 pip install git+https://github.com/NVlabs/tiny-cuda-nn/#subdirectory=bindings/torch
@@ -21,10 +22,12 @@ cd nerfstudio
 pip install --upgrade pip setuptools
 pip install -e .
 ns-install-cli
+cd ..
 
 # Install pytorch3d
 git clone https://github.com/facebookresearch/pytorch3d.git
 cd pytorch3d && pip install -e .
+cd ..
 
 # Install drake
 pip install drake
@@ -36,6 +39,8 @@ cd curobo
 git lfs pull  # Maybe need to add this (https://github.com/NVlabs/curobo/issues/10)
 pip install -e . --no-build-isolation  # ~20 min
 python3 -m pytest .  # To verify
+cd ..
+cd ..
 
 # Install nerf_grasping
 pip install git+https://github.com/tylerlum/nerf_grasping.git

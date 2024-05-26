@@ -43,7 +43,13 @@ cd ..
 cd ..
 
 # Install nerf_grasping
-pip install git+https://github.com/tylerlum/nerf_grasping.git
+pip install -e .
+
+# Install other dependencies
+pip install pypose numpy tyro wandb rich pytorch_kinematics mujoco transforms3d torchinfo urdf_parser_py
+
+# Other dependencies for fancy things we haven't used much like transformers and learning rate scheduling
+pip install positional_encodings diffusers
 ```
 
 # How to run at inference time (Albert) (~May 2024)

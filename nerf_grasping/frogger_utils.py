@@ -17,8 +17,6 @@ import pathlib
 from dataclasses import dataclass, field
 import tyro
 
-from frogger.utils import timeout
-from concurrent.futures import TimeoutError
 import time
 import sys
 
@@ -160,19 +158,9 @@ def zup_mesh_to_q_array(
     for i in tqdm(range(num_grasps)):
         print(f"Grasp {i}: remaining_time={remaining_time}", file=sys.stderr)
         start_time = time.time()
-        try:
-            q_star = timeout(remaining_time)(frogger.generate_grasp)()
+        q_star = frogger.generate_grasp(max_time=remaining_time)
 
-            assert q_star is not None
-            assert q_star.shape == (23,)
-
-            q_array.append(q_star)
-            assert model.R_O_cf is not None
-            R_O_cf_array.append(np.copy(model.R_O_cf))
-            normalized_l = model.l * model.ns * model.nc
-            assert normalized_l < 1.0 + 1e-2
-            l_array.append(normalized_l)
-        except TimeoutError:
+        if q_star is None:
             print("&" * 80, file=sys.stderr)
             print(f"Timeout at grasp {i}", file=sys.stderr)
             print("&" * 80, file=sys.stderr)
@@ -186,6 +174,16 @@ def zup_mesh_to_q_array(
             q_array.append(q_star)
             R_O_cf_array.append(np.eye(3).reshape(1, 3, 3).repeat(4, axis=0))
             l_array.append(-1e6)
+        else:
+            assert q_star is not None
+            assert q_star.shape == (23,)
+
+            q_array.append(q_star)
+            assert model.R_O_cf is not None
+            R_O_cf_array.append(np.copy(model.R_O_cf))
+            normalized_l = model.l * model.ns * model.nc
+            assert normalized_l < 1.0 + 1e-2
+            l_array.append(normalized_l)
 
         remaining_time = np.clip(
             remaining_time - (time.time() - start_time), a_min=1e-6, a_max=None,

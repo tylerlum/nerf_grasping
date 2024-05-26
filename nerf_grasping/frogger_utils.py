@@ -169,7 +169,7 @@ def zup_mesh_to_q_array(
             q_array.append(q_star)
             assert model.R_O_cf is not None
             R_O_cf_array.append(np.copy(model.R_O_cf))
-            normalized_l = model.l * model.ns * model.nc  # TODO: Confirm this calc
+            normalized_l = model.l * model.ns * model.nc
             assert normalized_l < 1.0 + 1e-2
             l_array.append(normalized_l)
         except TimeoutError:
@@ -305,6 +305,7 @@ def q_array_to_grasp_config_dict(
     # H = hand/frame z along finger, x away from palm
     # Assumes q in W frame
     # Assumes grasp_config_dict in Oy frame
+    print(f"q_array_to_grasp_config_dict 1", file=sys.stderr)
 
     B = q_array.shape[0]
     assert q_array.shape == (B, 23)
@@ -315,6 +316,7 @@ def q_array_to_grasp_config_dict(
 
     X_W_H_array, joint_angles_array = [], []
     for i in range(B):
+        print(f"Iter {i}", file=sys.stderr)
         X_W_H, joint_angles = q_to_T_W_H_and_joint_angles(
             q=q_array[i], chain=chain, wrist_body_name=wrist_body_name
         )

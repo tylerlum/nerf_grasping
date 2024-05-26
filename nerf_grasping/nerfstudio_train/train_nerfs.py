@@ -10,7 +10,7 @@ from typing import Optional
 @dataclass
 class Args:
     experiment_name: str
-    max_num_iterations: int = 200
+    max_num_iterations: int = 400
     nerfdata_name: str = "nerfdata"
     output_nerfcheckpoints_name: str = "nerfcheckpoints"
     nerf_grasping_data_path: pathlib.Path = (

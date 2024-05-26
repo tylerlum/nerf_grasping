@@ -22,7 +22,7 @@ class Args:
     nerfdata_folder: pathlib.Path
     nerfcheckpoints_folder: pathlib.Path
     num_images: int
-    max_num_iterations: int = 200
+    max_num_iterations: int = 400
 
 
 # True to enable amortizing nerfstudio start time, set to False to use normal behavior without any modification

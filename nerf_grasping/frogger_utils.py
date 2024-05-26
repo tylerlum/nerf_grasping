@@ -142,7 +142,7 @@ def zup_mesh_to_q_array(
         sampler=sampler,
         tol_surf=1e-3,
         tol_joint=1e-2,
-        tol_col=1e-3,
+        tol_col=5e-3,
         tol_fclosure=1e-5,
         xtol_rel=1e-6,
         xtol_abs=1e-6,

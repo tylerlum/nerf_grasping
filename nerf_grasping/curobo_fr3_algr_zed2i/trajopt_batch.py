@@ -268,6 +268,8 @@ def solve_prepared_trajopt_batch(
         ).any():
             print("#" * 80)
             print("q_starts out of joint limits!")
+            print(f"joint_lower_limits = {joint_lower_limits}")
+            print(f"joint_upper_limits = {joint_upper_limits}")
             print("#" * 80)
 
             # HACK: Check if out of joint limits due to small numerical issues
@@ -278,15 +280,11 @@ def solve_prepared_trajopt_batch(
                 print(
                     f"q_starts is close to joint limits within {eps}, so clamping to limits with some margin"
                 )
-                print(f"joint_lower_limits = {joint_lower_limits}")
-                print(f"joint_upper_limits = {joint_upper_limits}")
-                print(f"Before clamping: q_starts = {q_starts}")
                 q_starts = torch.clamp(
                     q_starts,
                     joint_lower_limits[None] + eps,
                     joint_upper_limits[None] - eps,
                 )
-                print(f"After clamping: q_starts = {q_starts}")
             else:
                 FAIL_IF_OUT_OF_JOINT_LIMITS = False
                 if FAIL_IF_OUT_OF_JOINT_LIMITS:

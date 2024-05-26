@@ -188,7 +188,6 @@ def zup_mesh_to_q_array(
         remaining_time = np.clip(
             remaining_time - (time.time() - start_time), a_min=1e-6, a_max=None,
         )  # Can't have 0 or negative time or timeout may do weird things
-    print(f"END OF LOOP", file=sys.stderr)
 
     q_array = np.array(q_array)
     R_O_cf_array = np.array(R_O_cf_array)
@@ -196,7 +195,6 @@ def zup_mesh_to_q_array(
     assert q_array.shape == (num_grasps, 23)
     assert R_O_cf_array.shape == (num_grasps, 4, 3, 3)
     assert l_array.shape == (num_grasps,)
-    print(f"END OF LOOP 2", file=sys.stderr)
     return q_array, R_O_cf_array, l_array
 
 
@@ -303,7 +301,6 @@ def q_array_to_grasp_config_dict(
     # H = hand/frame z along finger, x away from palm
     # Assumes q in W frame
     # Assumes grasp_config_dict in Oy frame
-    print(f"q_array_to_grasp_config_dict 1", file=sys.stderr)
 
     B = q_array.shape[0]
     assert q_array.shape == (B, 23)
@@ -314,7 +311,6 @@ def q_array_to_grasp_config_dict(
 
     X_W_H_array, joint_angles_array = [], []
     for i in range(B):
-        print(f"Iter {i}", file=sys.stderr)
         X_W_H, joint_angles = q_to_T_W_H_and_joint_angles(
             q=q_array[i], chain=chain, wrist_body_name=wrist_body_name
         )
@@ -379,42 +375,35 @@ def frogger_to_grasp_config_dict(
         custom_coll_callback=custom_coll_callback,
         max_time=max_time,
     )
-    print(f"END OF LOOP 3", file=sys.stderr)
 
     # Prepare kinematic chain
     chain = get_kinematic_chain(model_path=rc.robot_model_path)
 
-    print(f"END OF LOOP 4", file=sys.stderr)
     # Wrist
     X_W_Wrist, _ = q_to_T_W_H_and_joint_angles(
         q=q_array[args.grasp_idx_to_visualize],
         chain=chain,
         wrist_body_name=rc.wrist_body_name,
     )
-    print(f"END OF LOOP 5", file=sys.stderr)
 
     # Fingers
     link_poses_hand_frame = chain.forward_kinematics(
         q_array[args.grasp_idx_to_visualize]
     )
-    print(f"END OF LOOP 6", file=sys.stderr)
     X_W_fingertip_list = [
         link_poses_hand_frame[ln].get_matrix().squeeze(dim=0).cpu().numpy()
         for ln in rc.fingertip_body_names
     ]
-    print(f"END OF LOOP 7", file=sys.stderr)
 
     # Frames
     if args.obj_is_yup:
         X_O_Oy = np.eye(4)
     else:
         X_O_Oy = trimesh.transformations.rotation_matrix(np.pi / 2, [1, 0, 0])
-    print(f"END OF LOOP 8", file=sys.stderr)
     X_Oy_O = np.linalg.inv(X_O_Oy)
     X_O_W = np.linalg.inv(X_W_O)
     X_Oy_W = X_Oy_O @ X_O_W
 
-    print(f"END OF LOOP 9", file=sys.stderr)
     # Create and save grasp_config_dict
     grasp_config_dict = q_array_to_grasp_config_dict(
         q_array=q_array,
@@ -425,9 +414,7 @@ def frogger_to_grasp_config_dict(
         R_O_cf_array=R_O_cf_array,
         l_array=l_array,
     )
-    print(f"END OF LOOP 10", file=sys.stderr)
     args.output_grasp_config_dicts_folder.mkdir(exist_ok=True)
-    print(f"END OF LOOP 11", file=sys.stderr)
     np.save(
         # eg. Convert 0.0915 to 0_0915 (always 4 decimal places)
         args.output_grasp_config_dicts_folder
@@ -435,7 +422,6 @@ def frogger_to_grasp_config_dict(
         grasp_config_dict,
         allow_pickle=True,
     )
-    print(f"END OF LOOP 12", file=sys.stderr)
 
     # Visualize
     if args.visualize:
@@ -491,7 +477,6 @@ def frogger_to_grasp_config_dict(
         visualize_q_with_pydrake_blocking(
             mesh_object=mesh_object, q=q_array[args.grasp_idx_to_visualize]
         )
-    print(f"END OF LOOP 13", file=sys.stderr)
     return grasp_config_dict
 
 

@@ -106,6 +106,7 @@ class PipelineConfig:
     num_steps: int = 0
     random_seed: Optional[int] = None
     n_random_rotations_per_grasp: int = 5
+    eval_batch_size: int = 32
     object_scale: float = 0.9999
     nerf_config: Optional[pathlib.Path] = None
 
@@ -448,6 +449,7 @@ def compute_grasps(
             ),
             random_seed=cfg.random_seed,
             n_random_rotations_per_grasp=cfg.n_random_rotations_per_grasp,
+            eval_batch_size=cfg.eval_batch_size,
             wandb=None,
         ),
         grasp_metric=grasp_metric,
@@ -459,6 +461,8 @@ def compute_grasps(
     X_Oy_Hs, q_algr_pres, q_algr_posts, q_algr_extra_open, sorted_losses = (
         get_sorted_grasps_from_dict(
             optimized_grasp_config_dict=optimized_grasp_config_dict,
+            dist_move_finger=0.05,
+            dist_move_finger_backward=-0.03,
             error_if_no_loss=True,
             check=False,
             print_best=False,
@@ -528,6 +532,11 @@ def run_curobo(
     ik_solver2: Optional[IKSolver] = None,
     motion_gen: Optional[MotionGen] = None,
     motion_gen_config: Optional[MotionGenConfig] = None,
+    lift_robot_cfg: Optional[RobotConfig] = None,
+    lift_ik_solver: Optional[IKSolver] = None,
+    lift_ik_solver2: Optional[IKSolver] = None,
+    lift_motion_gen: Optional[MotionGen] = None,
+    lift_motion_gen_config: Optional[MotionGenConfig] = None,
     sorted_losses: Optional[np.ndarray] = None,
 ) -> Tuple[List[np.ndarray], List[np.ndarray], List[float], List[int], tuple, dict]:
     # Timing
@@ -571,6 +580,39 @@ def run_curobo(
                 use_cuda_graph=True,
                 collision_sphere_buffer=0.01,
             )
+        )
+    if (
+        lift_robot_cfg is None
+        or lift_ik_solver is None
+        or lift_ik_solver2 is None
+        or lift_motion_gen is None
+        or lift_motion_gen_config is None
+    ):
+        print("\n" + "=" * 80)
+        print(f"lift_robot_cfg is None: {lift_robot_cfg is None}")
+        print(f"lift_ik_solver is None: {lift_ik_solver is None}")
+        print(f"lift_ik_solver2 is None: {lift_ik_solver2 is None}")
+        print(f"lift_motion_gen is None: {lift_motion_gen is None}")
+        print(f"lift_motion_gen_config is None: {lift_motion_gen_config is None}")
+        print("=" * 80 + "\n")
+        print(
+            "Creating new lift_robot, lift_ik_solver, lift_ik_solver2, lift_motion_gen, lift_motion_gen_config"
+        )
+        (
+            lift_robot_cfg,
+            lift_ik_solver,
+            lift_ik_solver2,
+            lift_motion_gen,
+            lift_motion_gen_config,
+        ) = prepare_trajopt_batch(
+            n_grasps=n_grasps,
+            collision_check_object=True,
+            obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
+            obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
+            obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+            collision_check_table=True,
+            use_cuda_graph=True,
+            collision_sphere_buffer=0.01,
         )
 
     print("\n" + "=" * 80)
@@ -623,11 +665,15 @@ def run_curobo(
         f"ik_success_idxs2: {ik_success_idxs2} ({len(ik_success_idxs2)} / {n_grasps} = {len(ik_success_idxs2) / n_grasps * 100:.2f}%)"
     )
 
-    qs, qds, dts = get_trajectories_from_result(
+    approach_qs, approach_qds, dts = get_trajectories_from_result(
         result=motion_gen_result,
         desired_trajectory_time=APPROACH_TIME,
     )
-    nonzero_q_idxs = [i for i, q in enumerate(qs) if np.absolute(q).sum() > 1e-2]
+    nonzero_q_idxs = [
+        i
+        for i, approach_q in enumerate(approach_qs)
+        if np.absolute(approach_q).sum() > 1e-2
+    ]
     overall_success_idxs = sorted(
         list(
             set(motion_gen_success_idxs)
@@ -644,23 +690,29 @@ def run_curobo(
     )
 
     # Fix issue with going over limit
-    over_limit_factors_qds = compute_over_limit_factors(qds=qds, dts=dts)
-    qds = [
-        qd / over_limit_factor
-        for qd, over_limit_factor in zip(qds, over_limit_factors_qds)
+    over_limit_factors_approach_qds = compute_over_limit_factors(
+        qds=approach_qds, dts=dts
+    )
+    approach_qds = [
+        approach_qd / over_limit_factor
+        for approach_qd, over_limit_factor in zip(
+            approach_qds, over_limit_factors_approach_qds
+        )
     ]
     dts = [
         dt * over_limit_factor
-        for dt, over_limit_factor in zip(dts, over_limit_factors_qds)
+        for dt, over_limit_factor in zip(dts, over_limit_factors_approach_qds)
     ]
 
     print("\n" + "=" * 80)
     print("Step 10: Add closing motion")
     print("=" * 80 + "\n")
     closing_qs, closing_qds = [], []
-    for i, (q, qd, dt) in enumerate(zip(qs, qds, dts)):
+    for i, (approach_q, approach_qd, dt) in enumerate(
+        zip(approach_qs, approach_qds, dts)
+    ):
         # Keep arm joints same, change hand joints
-        open_q = q[-1]
+        open_q = approach_q[-1]
         close_q = np.concatenate([open_q[:7], q_algr_posts[i]])
 
         # Stay open
@@ -697,14 +749,13 @@ def run_curobo(
     print("\n" + "=" * 80)
     print("Step 11: Add lifting motion")
     print("=" * 80 + "\n")
-    # Using same qs found from motion gen to ensure they are not starting in collision
+    # Using same approach_qs found from motion gen to ensure they are not starting in collision
     # Not using closing_qs because they potentially could have issues?
-    q_start_lifts = np.array([q[-1] for q in qs])
+    q_start_lifts = np.array([approach_q[-1] for approach_q in approach_qs])
     assert q_start_lifts.shape == (n_grasps, 23)
 
     X_W_H_lifts = X_W_Hs.copy()
-    LIFT_AMOUNT = 0.2  # Lift up 20 cm
-    X_W_H_lifts[:, 2, 3] += LIFT_AMOUNT
+    X_W_H_lifts[:, :3, 3] = np.array([0.440870285, 0.0, 0.563780367])
 
     # HACK: If motion_gen above fails, then it leaves q as all 0s, which causes next step to fail
     #       So we populate those with another valid one
@@ -725,18 +776,18 @@ def run_curobo(
         collision_check_table=True,
         obj_name="NO_OBJECT",  # HACK: MUST BE DIFFERENT FROM EXISTING OBJECT NAME "object" OR ELSE COLLISION DETECTION WILL FAIL
     )
-    ik_solver.update_world(no_object_world_cfg)
-    ik_solver2.update_world(no_object_world_cfg)
-    motion_gen.update_world(no_object_world_cfg)
+    lift_ik_solver.update_world(no_object_world_cfg)
+    lift_ik_solver2.update_world(no_object_world_cfg)
+    lift_motion_gen.update_world(no_object_world_cfg)
     lift_motion_gen_result, lift_ik_result, lift_ik_result2 = (
         solve_prepared_trajopt_batch(
             X_W_Hs=X_W_H_lifts,
             q_algrs=q_algr_pres,
-            robot_cfg=robot_cfg,
-            ik_solver=ik_solver,
-            ik_solver2=ik_solver2,
-            motion_gen=motion_gen,
-            motion_gen_config=motion_gen_config,
+            robot_cfg=lift_robot_cfg,
+            ik_solver=lift_ik_solver,
+            ik_solver2=lift_ik_solver2,
+            motion_gen=lift_motion_gen,
+            motion_gen_config=lift_motion_gen_config,
             q_fr3_starts=q_start_lifts[:, :7],
             q_algr_starts=q_start_lifts[:, 7:],
             enable_graph=True,
@@ -752,13 +803,6 @@ def run_curobo(
     lift_ik_success_idxs2 = (
         lift_ik_result2.success.flatten().nonzero().flatten().tolist()
     )
-    lift_overall_success_idxs = sorted(
-        list(
-            set(lift_motion_gen_success_idxs).intersection(
-                set(lift_ik_success_idxs).intersection(set(lift_ik_success_idxs2))
-            )
-        )
-    )  # All must be successful or else it may be successful for the wrong trajectory
     print(
         f"lift_motion_gen_success_idxs: {lift_motion_gen_success_idxs} ({len(lift_motion_gen_success_idxs)} / {n_grasps} = {len(lift_motion_gen_success_idxs) / n_grasps * 100:.2f}%)"
     )
@@ -768,12 +812,29 @@ def run_curobo(
     print(
         f"lift_ik_success_idxs2: {lift_ik_success_idxs2} ({len(lift_ik_success_idxs2)} / {n_grasps} = {len(lift_ik_success_idxs2) / n_grasps * 100:.2f}%)"
     )
-    print(
-        f"lift_overall_success_idxs: {lift_overall_success_idxs} ({len(lift_overall_success_idxs)} / {n_grasps} = {len(lift_overall_success_idxs) / n_grasps * 100:.2f}%)"
-    )
 
     raw_lift_qs, raw_lift_qds, raw_lift_dts = get_trajectories_from_result(
         result=lift_motion_gen_result, desired_trajectory_time=LIFT_TIME
+    )
+    lift_nonzero_q_idxs = [
+        i
+        for i, raw_lift_q in enumerate(raw_lift_qs)
+        if np.absolute(raw_lift_q).sum() > 1e-2
+    ]
+    lift_overall_success_idxs = sorted(
+        list(
+            set(lift_motion_gen_success_idxs)
+            .intersection(
+                set(lift_ik_success_idxs).intersection(set(lift_ik_success_idxs2))
+            )
+            .intersection(set(lift_nonzero_q_idxs))
+        )
+    )  # All must be successful or else it may be successful for the wrong trajectory
+    print(
+        f"lift_nonzero_q_idxs: {lift_nonzero_q_idxs} ({len(lift_nonzero_q_idxs)} / {n_grasps} = {len(lift_nonzero_q_idxs) / n_grasps * 100:.2f}%"
+    )
+    print(
+        f"lift_overall_success_idxs: {lift_overall_success_idxs} ({len(lift_overall_success_idxs)} / {n_grasps} = {len(lift_overall_success_idxs) / n_grasps * 100:.2f}%)"
     )
 
     # Need to adjust raw_lift_qs, raw_lift_qds, raw_lift_dts to match dts from trajopt
@@ -896,11 +957,18 @@ def run_curobo(
     print("Step 12: Aggregate qs and qds")
     print("=" * 80 + "\n")
     q_trajs, qd_trajs = [], []
-    for q, qd, closing_q, closing_qd, lift_q, lift_qd in zip(
-        qs, qds, closing_qs, closing_qds, adjusted_lift_qs, adjusted_lift_qds
+    for approach_q, approach_qd, closing_q, closing_qd, lift_q, lift_qd, dt in zip(
+        approach_qs,
+        approach_qds,
+        closing_qs,
+        closing_qds,
+        adjusted_lift_qs,
+        adjusted_lift_qds,
+        dts,
     ):
-        q_traj = np.concatenate([q, closing_q, lift_q], axis=0)
-        qd_traj = np.concatenate([qd, closing_qd, lift_qd], axis=0)
+        q_traj = np.concatenate([approach_q, closing_q, lift_q], axis=0)
+        qd_traj = np.diff(q_traj, axis=0) / dt
+        qd_traj = np.concatenate([qd_traj, qd_traj[-1:]], axis=0)
         q_trajs.append(q_traj)
         qd_trajs.append(qd_traj)
 
@@ -908,9 +976,28 @@ def run_curobo(
     print("Step 13: Compute T_trajs")
     print("=" * 80 + "\n")
     T_trajs = []
-    for q, dt in zip(q_trajs, dts):
-        n_timesteps = q.shape[0]
+    for q_traj, dt in zip(q_trajs, dts):
+        n_timesteps = q_traj.shape[0]
         T_trajs.append(n_timesteps * dt)
+
+    over_limit_factors_qd_trajs = compute_over_limit_factors(
+        qds=qd_trajs, dts=raw_lift_dts
+    )
+    no_crazy_jumps_idxs = [
+        i
+        for i, over_limit_factor in enumerate(over_limit_factors_qd_trajs)
+        if over_limit_factor
+        <= 2.0  # Actually just 1.0, but higher to be safe against numerical errors and other weirdness
+    ]
+    print(
+        f"no_crazy_jumps_idxs: {no_crazy_jumps_idxs} ({len(no_crazy_jumps_idxs)} / {n_grasps} = {len(no_crazy_jumps_idxs) / n_grasps * 100:.2f}%)"
+    )
+    real_final_success_idxs = sorted(
+        list(set(final_success_idxs).intersection(set(no_crazy_jumps_idxs)))
+    )
+    print(
+        f"real_final_success_idxs: {real_final_success_idxs} ({len(real_final_success_idxs)} / {n_grasps} = {len(real_final_success_idxs) / n_grasps * 100:.2f}%)"
+    )
 
     DEBUG_TUPLE = (
         motion_gen_result,
@@ -922,8 +1009,8 @@ def run_curobo(
     )
 
     log_dict = {
-        "qs": qs,
-        "qds": qds,
+        "approach_qs": approach_qs,
+        "approach_qds": approach_qds,
         "dts": dts,
         "closing_qs": closing_qs,
         "closing_qds": closing_qds,
@@ -940,10 +1027,14 @@ def run_curobo(
         "lift_ik_success_idxs2": lift_ik_success_idxs2,
         "lift_overall_success_idxs": lift_overall_success_idxs,
         "final_success_idxs": final_success_idxs,
-        "over_limit_factors_qds": over_limit_factors_qds,
+        "no_crazy_jumps_idxs": no_crazy_jumps_idxs,
+        "real_final_success_idxs": real_final_success_idxs,
+        "over_limit_factors_qd_trajs": over_limit_factors_qd_trajs,
+        "over_limit_factors_approach_qds": over_limit_factors_approach_qds,
         "over_limit_factors_raw_lift_qds": over_limit_factors_raw_lift_qds,
+        "q_start_lifts": q_start_lifts,
     }
-    return q_trajs, qd_trajs, T_trajs, final_success_idxs, DEBUG_TUPLE, log_dict
+    return q_trajs, qd_trajs, T_trajs, real_final_success_idxs, DEBUG_TUPLE, log_dict
 
 
 def run_pipeline(
@@ -956,6 +1047,11 @@ def run_pipeline(
     ik_solver2: Optional[IKSolver] = None,
     motion_gen: Optional[MotionGen] = None,
     motion_gen_config: Optional[MotionGenConfig] = None,
+    lift_robot_cfg: Optional[RobotConfig] = None,
+    lift_ik_solver: Optional[IKSolver] = None,
+    lift_ik_solver2: Optional[IKSolver] = None,
+    lift_motion_gen: Optional[MotionGen] = None,
+    lift_motion_gen_config: Optional[MotionGenConfig] = None,
 ) -> Tuple[List[np.ndarray], List[np.ndarray], List[float], List[int], tuple, dict]:
 
     print(f"Creating a new experiment folder at {cfg.output_folder}")
@@ -979,7 +1075,7 @@ def run_pipeline(
     print("@" * 80 + "\n")
 
     start_run_curobo = time.time()
-    qs, qds, T_trajs, success_idxs, DEBUG_TUPLE, log_dict = run_curobo(
+    q_trajs, qd_trajs, T_trajs, success_idxs, DEBUG_TUPLE, log_dict = run_curobo(
         cfg=cfg,
         X_W_Hs=X_W_Hs,
         q_algr_pres=q_algr_pres,
@@ -992,6 +1088,11 @@ def run_pipeline(
         ik_solver2=ik_solver2,
         motion_gen=motion_gen,
         motion_gen_config=motion_gen_config,
+        lift_robot_cfg=lift_robot_cfg,
+        lift_ik_solver=lift_ik_solver,
+        lift_ik_solver2=lift_ik_solver2,
+        lift_motion_gen=lift_motion_gen,
+        lift_motion_gen_config=lift_motion_gen_config,
     )
     curobo_time = time.time()
     print("@" * 80)
@@ -1009,14 +1110,14 @@ def run_pipeline(
         "mesh_W": mesh_W,
         "X_N_Oy": X_N_Oy,
         "sorted_losses": sorted_losses,
-        "qs": qs,
-        "qds": qds,
+        "q_trajs": q_trajs,
+        "qd_trajs": qd_trajs,
         "T_trajs": T_trajs,
         "success_idxs": success_idxs,
         **log_dict,
     }
 
-    return qs, qds, T_trajs, success_idxs, DEBUG_TUPLE, pipeline_log_dict
+    return q_trajs, qd_trajs, T_trajs, success_idxs, DEBUG_TUPLE, pipeline_log_dict
 
 
 def visualize(
@@ -1266,6 +1367,22 @@ def main() -> None:
             collision_sphere_buffer=0.01,
         )
     )
+    (
+        lift_robot_cfg,
+        lift_ik_solver,
+        lift_ik_solver2,
+        lift_motion_gen,
+        lift_motion_gen_config,
+    ) = prepare_trajopt_batch(
+        n_grasps=args.num_grasps,
+        collision_check_object=True,
+        obj_filepath=pathlib.Path("/tmp/DUMMY.obj"),
+        obj_xyz=FAR_AWAY_OBJ_XYZ,
+        obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+        collision_check_table=True,
+        use_cuda_graph=True,
+        collision_sphere_buffer=0.01,
+    )
     end_prepare_trajopt_batch = time.time()
     print("@" * 80)
     print(
@@ -1283,6 +1400,11 @@ def main() -> None:
         ik_solver2=ik_solver2,
         motion_gen=motion_gen,
         motion_gen_config=motion_gen_config,
+        lift_robot_cfg=lift_robot_cfg,
+        lift_ik_solver=lift_ik_solver,
+        lift_ik_solver2=lift_ik_solver2,
+        lift_motion_gen=lift_motion_gen,
+        lift_motion_gen_config=lift_motion_gen_config,
     )
 
     print("Testing save_to_file and load_from_file")

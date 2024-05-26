@@ -138,6 +138,8 @@ def animate_robot(robot, qs: np.ndarray, dt: float) -> None:
         time_since_last_update = time.time() - last_update_time
         if time_since_last_update <= dt:
             time.sleep(dt - time_since_last_update)
+        else:
+            print(f"WARNING: Time since last update {time_since_last_update} > dt {dt}")
         last_update_time = time.time()
 
 

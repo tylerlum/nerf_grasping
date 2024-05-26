@@ -13,12 +13,26 @@ from typing import Tuple
 @dataclass
 class Args:
     nerfcheckpoint_filepath: pathlib.Path
-    bounding_cube_half_length: float = 0.25
+    nerf_is_z_up: bool
     density_of_0_level_set: float = 15.0
     n_pts_each_dim_marching_cubes: int = 31
     rescale: bool = True
     min_num_edges: Optional[int] = 100
     output_dir_path: pathlib.Path = pathlib.Path(__file__).parent / "nerf_meshdata"
+
+    @property
+    def lb(self) -> np.ndarray:
+        if self.nerf_is_z_up:
+            return np.array([-0.2, -0.2, 0.0])
+        else:
+            return np.array([-0.2, 0.0, -0.2])
+
+    @property
+    def ub(self) -> np.ndarray:
+        if self.nerf_is_z_up:
+            return np.array([0.2, 0.2, 0.3])
+        else:
+            return np.array([0.2, 0.3, 0.2])
 
 
 def print_and_run(cmd: str) -> None:
@@ -104,8 +118,8 @@ def main() -> None:
     object_code, object_scale = parse_object_code_and_scale(object_code_and_scale)
 
     nerf_field = load_nerf_field(args.nerfcheckpoint_filepath)
-    lb = -args.bounding_cube_half_length * np.ones(3)
-    ub = args.bounding_cube_half_length * np.ones(3)
+    lb = args.lb
+    ub = args.ub
 
     # Should match existing meshdata folder structure
     # <output_dir_path>

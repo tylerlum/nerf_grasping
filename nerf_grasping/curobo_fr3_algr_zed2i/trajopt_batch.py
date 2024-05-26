@@ -108,6 +108,10 @@ def prepare_trajopt_batch(
     use_cuda_graph: bool = True,
     collision_sphere_buffer: Optional[float] = None,
     warmup: bool = True,  # warmup=True helps amortize downstream calls, but makes it slower overall
+    rotation_threshold: float = 0.01,
+    position_threshold: float = 0.001,
+    rotation_threshold2: float = 0.05,
+    position_threshold2: float = 0.005,
 ) -> Tuple[RobotConfig, IKSolver, IKSolver, MotionGen, MotionGenConfig]:
     """Sets up the necessary objects for solving trajopt_batch and runs warmup on motion_gen"""
     # robot_cfg
@@ -133,8 +137,8 @@ def prepare_trajopt_batch(
     ik_config = IKSolverConfig.load_from_robot_config(
         robot_cfg,
         world_cfg,
-        rotation_threshold=0.01,
-        position_threshold=0.001,
+        rotation_threshold=rotation_threshold,
+        position_threshold=position_threshold,
         num_seeds=20,
         self_collision_check=True,
         self_collision_opt=True,
@@ -147,8 +151,8 @@ def prepare_trajopt_batch(
     ik_config2 = IKSolverConfig.load_from_robot_config(
         robot_cfg,
         world_cfg,
-        rotation_threshold=0.05,
-        position_threshold=0.005,
+        rotation_threshold=rotation_threshold2,
+        position_threshold=position_threshold2,
         num_seeds=20,
         self_collision_check=True,
         self_collision_opt=True,
@@ -164,13 +168,6 @@ def prepare_trajopt_batch(
         tensor_args,
         collision_checker_type=CollisionCheckerType.MESH,
         use_cuda_graph=use_cuda_graph,
-        # num_ik_seeds=1,  # Reduced to save time? Actually doesn't make a noticeable difference
-        # num_graph_seeds=1,  # Reduced to save time? Actually doesn't make a noticeable difference
-        # num_trajopt_seeds=1,  # Reduced to save time? Actually doesn't make a noticeable difference
-        # num_batch_ik_seeds=1,  # Reduced to save time? Actually doesn't make a noticeable difference
-        # num_batch_trajopt_seeds=1,  # Reduced to save time? Actually doesn't make a noticeable difference
-        # num_trajopt_noisy_seeds=1,  # Reduced to save time? Actually doesn't make a noticeable difference
-        # collision_cache={"obb": 2, "mesh": 2},  # Actually don't think this is needed how we are using it
     )
     motion_gen = MotionGen(motion_gen_config)
 
@@ -271,6 +268,8 @@ def solve_prepared_trajopt_batch(
         ).any():
             print("#" * 80)
             print("q_starts out of joint limits!")
+            print(f"joint_lower_limits = {joint_lower_limits}")
+            print(f"joint_upper_limits = {joint_upper_limits}")
             print("#" * 80)
 
             # HACK: Check if out of joint limits due to small numerical issues

@@ -20,6 +20,7 @@ import tyro
 from frogger.utils import timeout
 from concurrent.futures import TimeoutError
 import time
+import sys
 
 
 @dataclass
@@ -155,7 +156,9 @@ def zup_mesh_to_q_array(
     q_array = []
     R_O_cf_array = []
     l_array = []
+    print(f"max_time={max_time}", file=sys.stderr)
     for i in tqdm(range(num_grasps)):
+        print(f"Grasp {i}: remaining_time={remaining_time}", file=sys.stderr)
         start_time = time.time()
         try:
             q_star = timeout(remaining_time)(frogger.generate_grasp)()
@@ -170,9 +173,9 @@ def zup_mesh_to_q_array(
             assert normalized_l < 1.0 + 1e-2
             l_array.append(normalized_l)
         except TimeoutError:
-            print("&" * 80)
-            print(f"Timeout at grasp {i}")
-            print("&" * 80)
+            print("&" * 80, file=sys.stderr)
+            print(f"Timeout at grasp {i}", file=sys.stderr)
+            print("&" * 80, file=sys.stderr)
             # HACK: When timeout, we populate with a bad q that will fail downstream motion planning
             # This assumes q is for full robot arm and hand, careful that it is not pose of wrist
             BAD_Q = np.zeros(23)

@@ -448,12 +448,16 @@ def get_trajectories_from_result(
 
 
 def compute_over_limit_factors(
-    qds: List[np.ndarray], dts: List[float], safety_buffer: float = 0.5
+    qds: List[np.ndarray], dts: List[float], safety_limit_rescaling: float = 0.25
 ) -> List[float]:
+    """Computes factors to rescale qd to stay within limits for each trajectory
+       Lower safety_limit_rescaling is more conservative and further from limits
+    """
     n_trajs = len(qds)
     assert len(dts) == n_trajs
     for qd in qds:
         assert qd.shape[1] == 23 and len(qd.shape) == 2
+    assert 0 < safety_limit_rescaling <= 1, f"safety_limit_rescaling: {safety_limit_rescaling}"
 
     robot_file = "fr3_algr_zed2i.yml"
     robot_cfg = RobotConfig.from_dict(
@@ -473,6 +477,11 @@ def compute_over_limit_factors(
     qddd_limits = (
         robot_cfg.kinematics.kinematics_config.joint_limits.jerk.detach().cpu().numpy()
     )
+
+    # Rescale limits by safety_limit_rescaling to be conservative
+    qd_limits *= safety_limit_rescaling
+    qdd_limits *= safety_limit_rescaling
+    qddd_limits *= safety_limit_rescaling
 
     qd_limits_min, qd_limits_max = qd_limits[0], qd_limits[1]
     qdd_limits_min, qdd_limits_max = qdd_limits[0], qdd_limits[1]
@@ -496,12 +505,12 @@ def compute_over_limit_factors(
         qdd = np.diff(qd, axis=0) / dt
         qddd = np.diff(qdd, axis=0) / dt
 
-        qd_min = qd.min(axis=0) * (1 + safety_buffer)
-        qd_max = qd.max(axis=0) * (1 + safety_buffer)
-        qdd_min = qdd.min(axis=0) * (1 + safety_buffer)
-        qdd_max = qdd.max(axis=0) * (1 + safety_buffer)
-        qddd_min = qddd.min(axis=0) * (1 + safety_buffer)
-        qddd_max = qddd.max(axis=0) * (1 + safety_buffer)
+        qd_min = qd.min(axis=0)
+        qd_max = qd.max(axis=0)
+        qdd_min = qdd.min(axis=0)
+        qdd_max = qdd.max(axis=0)
+        qddd_min = qddd.min(axis=0)
+        qddd_max = qddd.max(axis=0)
 
         qd_min_under_scale = np.where(
             qd_min < qd_limits_min,

@@ -633,9 +633,7 @@ def get_nerf_densities(
     ray_origins_finger_frame: torch.Tensor,
     nerf_config: pathlib.Path,
     X_N_Oy: np.ndarray,
-    compute_query_points: bool = True,
-    compute_global_density: bool = True,
-) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor], Optional[torch.Tensor]]:
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     assert cfg.fingertip_config is not None
 
     # Shape check grasp_frame_transforms
@@ -734,43 +732,38 @@ def get_nerf_densities(
             nerf_densities[curr_ind:next_ind] = curr_nerf_densities
 
     with loop_timer.add_section_timer("frustums.get_positions"):
-        if compute_query_points:
-            query_points_N = ray_samples.frustums.get_positions().reshape(
-                batch_size,
-                cfg.fingertip_config.n_fingers,
-                cfg.fingertip_config.num_pts_x,
-                cfg.fingertip_config.num_pts_y,
-                cfg.fingertip_config.num_pts_z,
-                3,
-            )
-        else:
-            query_points_N = None
+        query_points_N = ray_samples.frustums.get_positions().reshape(
+            batch_size,
+            cfg.fingertip_config.n_fingers,
+            cfg.fingertip_config.num_pts_x,
+            cfg.fingertip_config.num_pts_y,
+            cfg.fingertip_config.num_pts_z,
+            3,
+        )
 
     with loop_timer.add_section_timer("get_densities_in_grid"):
-        if compute_global_density:
-            lb_Oy = np.array([-0.2, -0.2, -0.2])
-            ub_Oy = np.array([0.2, 0.2, 0.2])
-            lb_N = lb_Oy + X_N_Oy[:3, 3]
-            ub_N = ub_Oy + X_N_Oy[:3, 3]
-            nerf_densities_global, query_points_global_N = get_densities_in_grid(
-                field=nerf_pipeline.model.field,
-                lb=lb_N,
-                ub=ub_N,
-                num_pts_x=NERF_DENSITIES_GLOBAL_NUM_X,
-                num_pts_y=NERF_DENSITIES_GLOBAL_NUM_Y,
-                num_pts_z=NERF_DENSITIES_GLOBAL_NUM_Z,
-            )
-            assert nerf_densities_global.shape == (NERF_DENSITIES_GLOBAL_NUM_X, NERF_DENSITIES_GLOBAL_NUM_Y, NERF_DENSITIES_GLOBAL_NUM_Z)
-            assert query_points_global_N.shape == (NERF_DENSITIES_GLOBAL_NUM_X, NERF_DENSITIES_GLOBAL_NUM_Y, NERF_DENSITIES_GLOBAL_NUM_Z, 3)
-            nerf_densities_global = nerf_densities_global[None, ...].repeat(
-                batch_size, axis=0
-            )
-            query_points_global_N = query_points_global_N[None, ...].repeat(
-                batch_size, axis=0
-            )
-        else:
-            nerf_densities_global = None
-            query_points_global_N = None
+        lb_Oy = np.array([-0.2, -0.2, -0.2])
+        ub_Oy = np.array([0.2, 0.2, 0.2])
+        lb_N = lb_Oy + X_N_Oy[:3, 3]
+        ub_N = ub_Oy + X_N_Oy[:3, 3]
+        nerf_densities_global, query_points_global_N = get_densities_in_grid(
+            field=nerf_pipeline.model.field,
+            lb=lb_N,
+            ub=ub_N,
+            num_pts_x=NERF_DENSITIES_GLOBAL_NUM_X,
+            num_pts_y=NERF_DENSITIES_GLOBAL_NUM_Y,
+            num_pts_z=NERF_DENSITIES_GLOBAL_NUM_Z,
+        )
+        assert nerf_densities_global.shape == (NERF_DENSITIES_GLOBAL_NUM_X, NERF_DENSITIES_GLOBAL_NUM_Y, NERF_DENSITIES_GLOBAL_NUM_Z)
+        assert query_points_global_N.shape == (NERF_DENSITIES_GLOBAL_NUM_X, NERF_DENSITIES_GLOBAL_NUM_Y, NERF_DENSITIES_GLOBAL_NUM_Z, 3)
+        nerf_densities_global = nerf_densities_global[None, ...].repeat(
+            batch_size, axis=0
+        )
+        query_points_global_N = query_points_global_N[None, ...].repeat(
+            batch_size, axis=0
+        )
+        nerf_densities_global = torch.from_numpy(nerf_densities_global).float().to("cpu")
+        query_points_global_N = torch.from_numpy(query_points_global_N).float().to("cpu")
 
     return nerf_densities, query_points_N, nerf_densities_global, query_points_global_N
 
@@ -975,8 +968,6 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                     ray_origins_finger_frame=ray_origins_finger_frame,
                     nerf_config=nerf_config,
                     X_N_Oy=X_N_Oy,
-                    compute_query_points=cfg.plot_only_one,
-                    compute_global_density=True,
                 )
                 if nerf_densities.isnan().any():
                     print("\n" + "-" * 80)
@@ -1122,10 +1113,10 @@ fig2 = plot_mesh_and_transforms(
 fig2.show()
 
 if cfg.plot_all_high_density_points:
-    nerf_alphas_global = 1 - np.exp(-delta * nerf_densities_global)
+    nerf_alphas_global = 1 - np.exp(-delta * nerf_densities_global.detach().cpu().numpy())
 
     X_Oy_N = np.linalg.inv(X_N_Oy)
-    query_points_global_Oy = query_points_global_N + X_Oy_N[:3, 3].reshape(1, 1, 1, 3)
+    query_points_global_Oy = query_points_global_N.detach().cpu().numpy() + X_Oy_N[:3, 3].reshape(1, 1, 1, 3)
     fig3 = plot_mesh_and_high_density_points(
         mesh=mesh_Oy,
         query_points=query_points_global_Oy.reshape(-1, 3),

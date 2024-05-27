@@ -679,7 +679,8 @@ def get_nerf_densities(
     ray_origins_finger_frame: torch.Tensor,
     nerf_config: pathlib.Path,
     X_N_Oy: np.ndarray,
-) -> Tuple[torch.Tensor, torch.Tensor, np.ndarray, np.ndarray]:
+    compute_query_points: bool = True,  # Set to False for maximum performance
+) -> Tuple[torch.Tensor, Optional[torch.Tensor], np.ndarray, np.ndarray]:
     assert cfg.fingertip_config is not None
 
     # Shape check grasp_frame_transforms
@@ -776,14 +777,17 @@ def get_nerf_densities(
             nerf_densities[curr_ind:next_ind] = curr_nerf_densities
 
     with loop_timer.add_section_timer("frustums.get_positions"):
-        query_points_N = ray_samples.frustums.get_positions().reshape(
-            batch_size,
-            cfg.fingertip_config.n_fingers,
-            cfg.fingertip_config.num_pts_x,
-            cfg.fingertip_config.num_pts_y,
-            cfg.fingertip_config.num_pts_z,
-            3,
-        )
+        if compute_query_points:
+            query_points_N = ray_samples.frustums.get_positions().reshape(
+                batch_size,
+                cfg.fingertip_config.n_fingers,
+                cfg.fingertip_config.num_pts_x,
+                cfg.fingertip_config.num_pts_y,
+                cfg.fingertip_config.num_pts_z,
+                3,
+            )
+        else:
+            query_points_N = None
 
     with loop_timer.add_section_timer("get_densities_in_grid"):
         lb_Oy = np.array([-0.2, -0.2, -0.2])
@@ -1037,6 +1041,7 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                     ray_origins_finger_frame=ray_origins_finger_frame,
                     nerf_config=nerf_config,
                     X_N_Oy=X_N_Oy,
+                    compute_query_points=cfg.plot_only_one,  # Turn off if not plotting to maximize perf
                 )
                 if nerf_densities.isnan().any():
                     print("\n" + "-" * 80)

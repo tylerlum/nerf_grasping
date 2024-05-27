@@ -214,13 +214,13 @@ def plot_mesh_and_query_points(
     fig.update_layout(
         legend_orientation="h",
         scene=dict(
-            xaxis=dict(nticks=4, range=[-0.2, 0.2]),
-            yaxis=dict(nticks=4, range=[-0.2, 0.2]),
-            zaxis=dict(nticks=4, range=[-0.2, 0.2]),
+            # xaxis=dict(nticks=4, range=[-0.3, 0.3]),
+            # yaxis=dict(nticks=4, range=[-0.3, 0.3]),
+            # zaxis=dict(nticks=4, range=[-0.3, 0.3]),
         ),
         title_text=title,
     )  # Avoid overlapping legend
-    fig.update_layout(scene_aspectmode="cube")
+    fig.update_layout(scene_aspectmode="data")
     return fig
 
 

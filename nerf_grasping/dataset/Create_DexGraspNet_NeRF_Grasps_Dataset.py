@@ -735,7 +735,7 @@ def get_nerf_densities(
 
     with loop_timer.add_section_timer("frustums.get_positions"):
         if compute_query_points:
-            query_points = ray_samples.frustums.get_positions().reshape(
+            query_points_N = ray_samples.frustums.get_positions().reshape(
                 batch_size,
                 cfg.fingertip_config.n_fingers,
                 cfg.fingertip_config.num_pts_x,
@@ -744,11 +744,11 @@ def get_nerf_densities(
                 3,
             )
         else:
-            query_points = None
+            query_points_N = None
 
     with loop_timer.add_section_timer("get_densities_in_grid"):
         if compute_global_density:
-            nerf_densities_global, query_point_global = get_densities_in_grid(
+            nerf_densities_global, query_points_global_N = get_densities_in_grid(
                 field=nerf_pipeline.model.field,
                 lb=np.array([-0.1, 0.0, -0.1]),
                 ub=np.array([0.1, 0.3, 0.1]),
@@ -757,18 +757,18 @@ def get_nerf_densities(
                 num_pts_z=NERF_DENSITIES_GLOBAL_NUM_Z,
             )
             assert nerf_densities_global.shape == (NERF_DENSITIES_GLOBAL_NUM_X, NERF_DENSITIES_GLOBAL_NUM_Y, NERF_DENSITIES_GLOBAL_NUM_Z)
-            assert query_point_global.shape == (NERF_DENSITIES_GLOBAL_NUM_X, NERF_DENSITIES_GLOBAL_NUM_Y, NERF_DENSITIES_GLOBAL_NUM_Z, 3)
+            assert query_points_global_N.shape == (NERF_DENSITIES_GLOBAL_NUM_X, NERF_DENSITIES_GLOBAL_NUM_Y, NERF_DENSITIES_GLOBAL_NUM_Z, 3)
             nerf_densities_global = nerf_densities_global[None, ...].repeat(
                 batch_size, axis=0
             )
-            query_point_global = query_point_global[None, ...].repeat(
+            query_points_global_N = query_points_global_N[None, ...].repeat(
                 batch_size, axis=0
             )
         else:
             nerf_densities_global = None
-            query_point_global = None
+            query_points_global_N = None
 
-    return nerf_densities, query_points, nerf_densities_global, query_point_global
+    return nerf_densities, query_points_N, nerf_densities_global, query_points_global_N
 
 
 with h5py.File(cfg.output_filepath, "w") as hdf5_file:
@@ -963,7 +963,7 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                 mesh_N.apply_transform(X_N_Oy)
 
                 # Process batch of grasp data.
-                nerf_densities, query_points, nerf_densities_global, query_points_global = get_nerf_densities(
+                nerf_densities, query_points_N, nerf_densities_global, query_points_global_N = get_nerf_densities(
                     loop_timer=loop_timer,
                     cfg=cfg,
                     grasp_frame_transforms=grasp_frame_transforms,
@@ -1098,7 +1098,7 @@ if "nerf_densities" in globals():
     fig = plot_mesh_and_query_points(
         mesh=mesh_N,
         query_points_list=[
-            qq.reshape(-1, 3) for qq in query_points[cfg.grasp_visualize_index]
+            qq.reshape(-1, 3) for qq in query_points_N[cfg.grasp_visualize_index]
         ],
         query_points_colors_list=[x.reshape(-1) for x in nerf_alphas],
         num_fingers=cfg.fingertip_config.n_fingers,
@@ -1107,7 +1107,7 @@ if "nerf_densities" in globals():
     fig.show()
 
 fig2 = plot_mesh_and_transforms(
-    mesh=mesh_N,
+    mesh=mesh_Oy,
     transforms=[
         grasp_frame_transforms[i] for i in range(cfg.fingertip_config.n_fingers)
     ],
@@ -1121,7 +1121,7 @@ if cfg.plot_all_high_density_points:
 
     fig3 = plot_mesh_and_high_density_points(
         mesh=mesh_N,
-        query_points=query_points_global[0].reshape(-1, 3),
+        query_points=query_points_global_N[0].reshape(-1, 3),
         query_points_colors=nerf_alphas_global[0].reshape(-1),
         density_threshold=0.01,
     )

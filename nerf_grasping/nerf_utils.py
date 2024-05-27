@@ -215,30 +215,20 @@ def get_densities_in_grid(
 ) -> Tuple[np.ndarray, np.ndarray]:
     x_min, y_min, z_min = lb
     x_max, y_max, z_max = ub
-    ray_samples_in_region = get_ray_samples_in_region(
-        x_min=x_min,
-        x_max=x_max,
-        y_min=y_min,
-        y_max=y_max,
-        z_min=z_min,
-        z_max=z_max,
-        num_pts_x=num_pts_x,
-        num_pts_y=num_pts_y,
-        num_pts_z=num_pts_z,
-    )
-    query_points_in_region = np.copy(
-        ray_samples_in_region.frustums.get_positions()
-        .cpu()
-        .numpy()
-        .reshape(
-            num_pts_x,
-            num_pts_y,
-            num_pts_z,
-            3,
-        )
-    )
+    x_coords = np.linspace(x_min, x_max, num_pts_x)
+    y_coords = np.linspace(y_min, y_max, num_pts_y)
+    z_coords = np.linspace(z_min, z_max, num_pts_z)
+
+    xx, yy, zz = np.meshgrid(x_coords, y_coords, z_coords, indexing="ij")
+    query_points_in_region = np.stack([xx, yy, zz], axis=-1)
+    assert query_points_in_region.shape == (num_pts_x, num_pts_y, num_pts_z, 3)
+
     nerf_densities_in_region = (
-        field.get_density(ray_samples_in_region.to("cuda"))[0]
+        get_density(
+            field=field,
+            positions=torch.from_numpy(query_points_in_region).cuda(),
+        )[0]
+        .squeeze(dim=-1)
         .detach()
         .cpu()
         .numpy()

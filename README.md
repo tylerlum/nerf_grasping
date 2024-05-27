@@ -2,7 +2,7 @@
 
 This project focuses on performing precision grasp synthesis using Neural Radiance Fields (NeRFs).
 
-# Rough Installation Instructions (2024-03-20)
+# Rough Installation Instructions (2024-05-26)
 
 ```
 conda create -n nerf_grasping_env python=3.10
@@ -46,7 +46,7 @@ cd ..
 pip install -e .
 
 # Install other dependencies
-pip install pypose numpy tyro wandb rich pytorch_kinematics mujoco transforms3d torchinfo urdf_parser_py
+pip install pypose numpy tyro wandb rich pytorch_kinematics mujoco transforms3d torchinfo urdf_parser_py pybullet
 
 # Other dependencies for fancy things we haven't used much like transformers and learning rate scheduling
 pip install positional_encodings diffusers

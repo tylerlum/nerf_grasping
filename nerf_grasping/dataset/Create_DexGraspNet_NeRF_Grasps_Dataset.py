@@ -50,6 +50,7 @@ from nerf_grasping.grasp_utils import (
 )
 from nerf_grasping.nerf_utils import (
     get_cameras,
+    get_densities_in_grid,
     render,
 )
 from nerf_grasping.config.base import CONFIG_DATETIME_STR
@@ -96,6 +97,7 @@ tqdm = partial(std_tqdm, dynamic_ncols=True)
 
 
 # %%
+NERF_DENSITIES_GLOBAL_NUM_X, NERF_DENSITIES_GLOBAL_NUM_Y, NERF_DENSITIES_GLOBAL_NUM_Z = 20, 15, 20
 @localscope.mfc
 def nerf_config_to_object_code_and_scale_str(nerf_config: pathlib.Path) -> str:
     # Input: PosixPath('2023-08-25_nerfcheckpoints/sem-Gun-4745991e7c0c7966a93f1ea6ebdeec6f_0_10/nerfacto/2023-08-25_132225/config.yml')
@@ -345,6 +347,23 @@ def create_grid_dataset(
             cfg.fingertip_config.num_pts_z,
         ),
     )
+    nerf_densities_global_dataset = hdf5_file.create_dataset(
+        "/nerf_densities_global",
+        shape=(
+            max_num_datapoints,
+            NERF_DENSITIES_GLOBAL_NUM_X,
+            NERF_DENSITIES_GLOBAL_NUM_Y,
+            NERF_DENSITIES_GLOBAL_NUM_Z,
+        ),
+        dtype="f",
+        chunks=(
+            1,
+            NERF_DENSITIES_GLOBAL_NUM_X,
+            NERF_DENSITIES_GLOBAL_NUM_Y,
+            NERF_DENSITIES_GLOBAL_NUM_Z,
+        ),
+    )
+
     passed_eval_dataset = hdf5_file.create_dataset(
         "/passed_eval", shape=(max_num_datapoints,), dtype="f"
     )
@@ -390,6 +409,7 @@ def create_grid_dataset(
 
     return (
         nerf_densities_dataset,
+        nerf_densities_global_dataset,
         passed_eval_dataset,
         passed_simulation_dataset,
         passed_penetration_threshold_dataset,
@@ -590,7 +610,8 @@ def get_nerf_densities(
     nerf_config: pathlib.Path,
     mesh: trimesh.Trimesh,
     compute_query_points: bool = True,
-) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
+    compute_global_density: bool = True,
+) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor], Optional[torch.Tensor]]:
     assert cfg.fingertip_config is not None
 
     # Shape check grasp_frame_transforms
@@ -715,7 +736,29 @@ def get_nerf_densities(
         else:
             query_points = None
 
-    return nerf_densities, query_points
+    with loop_timer.add_section_timer("get_densities_in_grid")
+        if compute_global_density:
+            nerf_densities_global, query_point_global = get_densities_in_grid(
+                field=nerf_pipeline.model.field,
+                lb=np.array([-0.2, 0.0, -0.2]),
+                ub=np.array([0.2, 0.3, 0.2]),
+                num_pts_x=NERF_DENSITIES_GLOBAL_NUM_X,
+                num_pts_y=NERF_DENSITIES_GLOBAL_NUM_Y,
+                num_pts_z=NERF_DENSITIES_GLOBAL_NUM_Z,
+            )
+            assert nerf_densities_global.shape == (NERF_DENSITIES_GLOBAL_NUM_X, NERF_DENSITIES_GLOBAL_NUM_Y, NERF_DENSITIES_GLOBAL_NUM_Z)
+            assert query_point_global.shape == (NERF_DENSITIES_GLOBAL_NUM_X, NERF_DENSITIES_GLOBAL_NUM_Y, NERF_DENSITIES_GLOBAL_NUM_Z, 3)
+            nerf_densities_global = nerf_densities_global[None, ...].repeat(
+                batch_size, axis=0
+            )
+            query_point_global = query_point_global[None, ...].repeat(
+                batch_size, axis=0
+            )
+        else:
+            nerf_densities_global = None
+            query_point_global = None
+
+    return nerf_densities, query_points, nerf_densities_global, query_point_global
 
 
 with h5py.File(cfg.output_filepath, "w") as hdf5_file:
@@ -724,6 +767,7 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
     if isinstance(cfg, GridNerfDataConfig):
         (
             nerf_densities_dataset,
+            nerf_densities_global_dataset,
             passed_eval_dataset,
             passed_simulation_dataset,
             passed_penetration_threshold_dataset,
@@ -893,7 +937,7 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
 
             if isinstance(cfg, GridNerfDataConfig):
                 # Process batch of grasp data.
-                nerf_densities, query_points = get_nerf_densities(
+                nerf_densities, query_points, nerf_densities_global, query_points_global = get_nerf_densities(
                     loop_timer=loop_timer,
                     cfg=cfg,
                     grasp_frame_transforms=grasp_frame_transforms,
@@ -901,6 +945,7 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                     nerf_config=nerf_config,
                     mesh=mesh,
                     compute_query_points=cfg.plot_only_one,
+                    compute_global_density=cfg.compute_global_density,
                 )
                 if nerf_densities.isnan().any():
                     print("\n" + "-" * 80)
@@ -972,6 +1017,10 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                         nerf_densities.detach().cpu().numpy()
                     )
                     del nerf_densities
+                    nerf_densities_global_dataset[prev_idx:current_idx] = (
+                        nerf_densities_global.detach().cpu().numpy()
+                    )  # TODO: Consider storing less, redundant storage because it's same for the same nerf
+                    del nerf_densities_global
 
                 if isinstance(cfg, DepthImageNerfDataConfig):
                     depth_images_dataset[prev_idx:current_idx] = (

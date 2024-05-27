@@ -205,18 +205,14 @@ def _render_depth_and_uncertainty_for_single_ray_bundle(
     return depth, depth_variance
 
 
-def compute_centroid_from_nerf(
+def get_densities_in_grid(
     field: Field,
     lb: np.ndarray,
     ub: np.ndarray,
-    level: float,
     num_pts_x: int,
     num_pts_y: int,
     num_pts_z: int,
-) -> np.ndarray:
-    """
-    Compute the centroid of the field.
-    """
+) -> Tuple[np.ndarray, np.ndarray]:
     x_min, y_min, z_min = lb
     x_max, y_max, z_max = ub
     ray_samples_in_region = get_ray_samples_in_region(
@@ -252,9 +248,32 @@ def compute_centroid_from_nerf(
             num_pts_z,
         )
     )
+    return nerf_densities_in_region, query_points_in_region
+
+
+def compute_centroid_from_nerf(
+    field: Field,
+    lb: np.ndarray,
+    ub: np.ndarray,
+    level: float,
+    num_pts_x: int,
+    num_pts_y: int,
+    num_pts_z: int,
+) -> np.ndarray:
+    """
+    Compute the centroid of the field.
+    """
+    nerf_densities_in_region, query_points_in_region = get_densities_in_grid(
+        field=field,
+        lb=lb,
+        ub=ub,
+        num_pts_x=num_pts_x,
+        num_pts_y=num_pts_y,
+        num_pts_z=num_pts_z,
+    )
 
     points_to_keep_with_nans = np.where(
-        (nerf_densities_in_region > 15)[..., None].repeat(3, axis=-1),
+        (nerf_densities_in_region > level)[..., None].repeat(3, axis=-1),
         query_points_in_region,
         np.nan,
     )

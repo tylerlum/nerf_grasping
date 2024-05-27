@@ -588,6 +588,7 @@ def get_nerf_densities(
     grasp_frame_transforms: pp.LieTensor,
     ray_origins_finger_frame: torch.Tensor,
     nerf_config: pathlib.Path,
+    mesh: trimesh.Trimesh,
     compute_query_points: bool = True,
 ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
     assert cfg.fingertip_config is not None
@@ -612,11 +613,53 @@ def get_nerf_densities(
     #       whereas loading nerf_model or nerf_field directly causes GPU memory leak
     nerf_pipeline = load_nerf_pipeline(nerf_config)
 
+    # Prepare transforms
+    # grasp_frame_transforms are in Oy frame
+    # Need to convert to NeRF frame N
+    T_Oy_Fi = grasp_frame_transforms
+    assert T_Oy_Fi.lshape == (batch_size, cfg.fingertip_config.n_fingers)
+
+    N_FRAME_ORIGIN = "table"
+    if N_FRAME_ORIGIN == "table":
+        # N frame has origin at surface of table. Object is dropped onto table with x=0, y>0, z=0
+        # It settles on the table, assume x=z=0, y>0. Can use the object's bound and scale to compute X_N_Oy
+        bounds = mesh.bounds
+        assert bounds.shape == (2, 3)
+        min_y = bounds[0, 1]  # min_y is bottom of the object in Oy
+        X_N_Oy = np.eye(4)
+        X_N_Oy[1, 3] = -min_y  # Eg. min_y=-0.1, then this means that the object is 0.1m above the table
+    elif N_FRAME_ORIGIN == "object":
+        X_N_Oy = np.eye(4)
+    else:
+        raise ValueError(f"Unknown N_FRAME_ORIGIN {N_FRAME_ORIGIN}")
+
+    assert X_N_Oy.shape == (
+        4,
+        4,
+    )
+    X_N_Oy_repeated = (
+        torch.from_numpy(X_N_Oy)
+        .float()
+        .unsqueeze(dim=0)
+        .repeat_interleave(
+            batch_size * cfg.fingertip_config.n_fingers, dim=0
+        )
+        .reshape(batch_size, cfg.fingertip_config.n_fingers, 4, 4)
+    )
+
+    T_N_Oy = pp.from_matrix(
+        X_N_Oy_repeated,
+        pp.SE3_type,
+    ).to(T_Oy_Fi.device)
+
+    # Transform grasp_frame_transforms to nerf frame
+    T_N_Fi = T_N_Oy @ T_Oy_Fi
+
     # Transform query points
     with loop_timer.add_section_timer("get_ray_samples"):
         ray_samples = get_ray_samples(
             ray_origins_finger_frame,
-            grasp_frame_transforms,
+            T_N_Fi,
             cfg.fingertip_config,
         )
 
@@ -757,6 +800,12 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                     evaled_grasp_config_dict_filepath, allow_pickle=True
                 ).item()
 
+            with loop_timer.add_section_timer("load mesh"):
+                mesh_path = pathlib.Path("/juno/u/tylerlum/github_repos/DexGraspNet/rotated_meshdata_v2") / object_code / "coacd" / "decomposed.obj"
+                assert mesh_path.exists(), f"mesh_path {mesh_path} does not exist"
+                mesh = trimesh.load(mesh_path, force="mesh")
+                mesh.apply_transform(trimesh.transformations.scale_matrix(object_scale))
+
             # Extract useful parts of grasp data
             grasp_configs = AllegroGraspConfig.from_grasp_config_dict(
                 evaled_grasp_config_dict
@@ -850,6 +899,7 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                     grasp_frame_transforms=grasp_frame_transforms,
                     ray_origins_finger_frame=ray_origins_finger_frame,
                     nerf_config=nerf_config,
+                    mesh=mesh,
                     compute_query_points=cfg.plot_only_one,
                 )
                 if nerf_densities.isnan().any():

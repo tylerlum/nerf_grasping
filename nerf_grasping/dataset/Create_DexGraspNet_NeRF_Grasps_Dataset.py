@@ -254,14 +254,35 @@ if cfg.output_filepath.exists():
 
 
 # %%
-assert cfg.nerf_checkpoints_path.exists(), f"{cfg.nerf_checkpoints_path} does not exist"
-nerf_configs = get_nerf_configs(
-    nerf_checkpoints_path=str(cfg.nerf_checkpoints_path),
-)
-assert (
-    len(nerf_configs) > 0
-), f"Did not find any nerf configs in {cfg.nerf_checkpoints_path}"
+print("IGNORING cfg.nerf_checkpoints_path")
+
+nerf_configs = []
+nerfcheckpoints_0_folder = pathlib.Path("data/2024-05-06_rotated_stable_grasps_0/NEW_nerfcheckpoints_100imgs_400iters")
+for i in tqdm(range(7), desc="finding configs"):
+    nerfcheckpoints_folder = pathlib.Path(str(nerfcheckpoints_0_folder).replace("_0", f"_{i}"))
+    nerf_configs += get_nerf_configs(
+        nerf_checkpoints_path=str(nerfcheckpoints_folder),
+    )
+for i in tqdm(range(7), desc="finding bigger configs"):
+    nerfcheckpoints_folder = pathlib.Path(str(nerfcheckpoints_0_folder).replace("_0", f"_bigger_{i}"))
+    nerf_configs += get_nerf_configs(
+        nerf_checkpoints_path=str(nerfcheckpoints_folder),
+    )
+for i in tqdm(range(7), desc="finding smaller configs"):
+    nerfcheckpoints_folder = pathlib.Path(str(nerfcheckpoints_0_folder).replace("_0", f"_smaller_{i}"))
+    nerf_configs += get_nerf_configs(
+        nerf_checkpoints_path=str(nerfcheckpoints_folder),
+    )
 print(f"Found {len(nerf_configs)} nerf configs")
+
+# assert cfg.nerf_checkpoints_path.exists(), f"{cfg.nerf_checkpoints_path} does not exist"
+# nerf_configs = get_nerf_configs(
+#     nerf_checkpoints_path=str(cfg.nerf_checkpoints_path),
+# )
+# assert (
+#     len(nerf_configs) > 0
+# ), f"Did not find any nerf configs in {cfg.nerf_checkpoints_path}"
+# print(f"Found {len(nerf_configs)} nerf configs")
 
 # %%
 assert (
@@ -323,7 +344,7 @@ print(cfg)
 # ## Define dataset creation functions and run.
 
 
-@localscope.mfc
+@localscope.mfc(allowed=["NERF_DENSITIES_GLOBAL_NUM_X", "NERF_DENSITIES_GLOBAL_NUM_Y", "NERF_DENSITIES_GLOBAL_NUM_Z"])
 def create_grid_dataset(
     cfg: GridNerfDataConfig, hdf5_file: h5py.File, max_num_datapoints: int
 ) -> Tuple[h5py.Dataset, ...]:
@@ -601,7 +622,7 @@ def get_depth_and_uncertainty_images(
 
 
 @torch.no_grad()
-@localscope.mfc(allowed=["tqdm"])
+@localscope.mfc(allowed=["tqdm", "NERF_DENSITIES_GLOBAL_NUM_X", "NERF_DENSITIES_GLOBAL_NUM_Y", "NERF_DENSITIES_GLOBAL_NUM_Z"])
 def get_nerf_densities(
     loop_timer: LoopTimer,
     cfg: BaseNerfDataConfig,
@@ -736,7 +757,7 @@ def get_nerf_densities(
         else:
             query_points = None
 
-    with loop_timer.add_section_timer("get_densities_in_grid")
+    with loop_timer.add_section_timer("get_densities_in_grid"):
         if compute_global_density:
             nerf_densities_global, query_point_global = get_densities_in_grid(
                 field=nerf_pipeline.model.field,
@@ -818,7 +839,7 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
         torch.cuda.empty_cache()
 
         # HACK: debugging memory leaks
-        print(torch.cuda.memory_summary())
+        # print(torch.cuda.memory_summary())
 
         pbar.set_description(f"Processing {evaled_grasp_config_dict_filepath}")
         try:
@@ -845,7 +866,7 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                 ).item()
 
             with loop_timer.add_section_timer("load mesh"):
-                mesh_path = pathlib.Path("/juno/u/tylerlum/github_repos/DexGraspNet/rotated_meshdata_v2") / object_code / "coacd" / "decomposed.obj"
+                mesh_path = pathlib.Path("/juno/u/tylerlum/github_repos/DexGraspNet/data/rotated_meshdata_v2") / object_code / "coacd" / "decomposed.obj"
                 assert mesh_path.exists(), f"mesh_path {mesh_path} does not exist"
                 mesh = trimesh.load(mesh_path, force="mesh")
                 mesh.apply_transform(trimesh.transformations.scale_matrix(object_scale))
@@ -945,7 +966,7 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                     nerf_config=nerf_config,
                     mesh=mesh,
                     compute_query_points=cfg.plot_only_one,
-                    compute_global_density=cfg.compute_global_density,
+                    compute_global_density=True,
                 )
                 if nerf_densities.isnan().any():
                     print("\n" + "-" * 80)
@@ -1038,7 +1059,7 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
 
             # HACK: debugging memory leaks
             print("End of loop")
-            print(torch.cuda.memory_summary())
+            # print(torch.cuda.memory_summary())
         except Exception as e:
             print("\n" + "-" * 80)
             print(f"WARNING: Failed to process {evaled_grasp_config_dict_filepath}")
@@ -1096,42 +1117,12 @@ fig2 = plot_mesh_and_transforms(
 fig2.show()
 
 if cfg.plot_all_high_density_points:
-    PLOT_NUM_PTS_X, PLOT_NUM_PTS_Y, PLOT_NUM_PTS_Z = 100, 100, 100
-    ray_samples_in_mesh_region = get_ray_samples_in_mesh_region(
-        mesh=mesh,
-        num_pts_x=PLOT_NUM_PTS_X,
-        num_pts_y=PLOT_NUM_PTS_Y,
-        num_pts_z=PLOT_NUM_PTS_Z,
-    )
-    query_points_in_mesh_region_isaac_frame = np.copy(
-        ray_samples_in_mesh_region.frustums.get_positions()
-        .cpu()
-        .numpy()
-        .reshape(
-            PLOT_NUM_PTS_X,
-            PLOT_NUM_PTS_Y,
-            PLOT_NUM_PTS_Z,
-            3,
-        )
-    )
-    nerf_densities_in_mesh_region = (
-        nerf_pipeline.model.field.get_density(ray_samples_in_mesh_region.to("cuda"))[0]
-        .detach()
-        .cpu()
-        .numpy()
-        .reshape(
-            PLOT_NUM_PTS_X,
-            PLOT_NUM_PTS_Y,
-            PLOT_NUM_PTS_Z,
-        )
-    )
-
-    nerf_alphas_in_mesh_region = 1 - np.exp(-delta * nerf_densities_in_mesh_region)
+    nerf_alphas_global = 1 - np.exp(-delta * nerf_densities_global)
 
     fig3 = plot_mesh_and_high_density_points(
         mesh=mesh,
-        query_points=query_points_in_mesh_region_isaac_frame.reshape(-1, 3),
-        query_points_colors=nerf_alphas_in_mesh_region.reshape(-1),
+        query_points=query_points_global[0].reshape(-1, 3),
+        query_points_colors=nerf_alphas_global[0].reshape(-1),
         density_threshold=0.01,
     )
     fig3.show()

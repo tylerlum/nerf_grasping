@@ -97,7 +97,7 @@ tqdm = partial(std_tqdm, dynamic_ncols=True)
 
 
 # %%
-NERF_DENSITIES_GLOBAL_NUM_X, NERF_DENSITIES_GLOBAL_NUM_Y, NERF_DENSITIES_GLOBAL_NUM_Z = 40, 60, 40
+NERF_DENSITIES_GLOBAL_NUM_X, NERF_DENSITIES_GLOBAL_NUM_Y, NERF_DENSITIES_GLOBAL_NUM_Z = 40, 40, 40
 @localscope.mfc
 def nerf_config_to_object_code_and_scale_str(nerf_config: pathlib.Path) -> str:
     # Input: PosixPath('2023-08-25_nerfcheckpoints/sem-Gun-4745991e7c0c7966a93f1ea6ebdeec6f_0_10/nerfacto/2023-08-25_132225/config.yml')
@@ -748,10 +748,14 @@ def get_nerf_densities(
 
     with loop_timer.add_section_timer("get_densities_in_grid"):
         if compute_global_density:
+            lb_Oy = np.array([-0.2, -0.2, -0.2])
+            ub_Oy = np.array([0.2, 0.2, 0.2])
+            lb_N = lb_Oy + X_N_Oy[:3, 3]
+            ub_N = ub_Oy + X_N_Oy[:3, 3]
             nerf_densities_global, query_points_global_N = get_densities_in_grid(
                 field=nerf_pipeline.model.field,
-                lb=np.array([-0.1, 0.0, -0.1]),
-                ub=np.array([0.1, 0.3, 0.1]),
+                lb=lb_N,
+                ub=ub_N,
                 num_pts_x=NERF_DENSITIES_GLOBAL_NUM_X,
                 num_pts_y=NERF_DENSITIES_GLOBAL_NUM_Y,
                 num_pts_z=NERF_DENSITIES_GLOBAL_NUM_Z,
@@ -959,6 +963,7 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                     X_N_Oy = np.eye(4)
                 else:
                     raise ValueError(f"Unknown N_FRAME_ORIGIN {N_FRAME_ORIGIN}")
+                assert np.allclose(X_N_Oy[:3, :3], np.eye(3)), f"X_N_Oy = {X_N_Oy}"
                 mesh_N = mesh_Oy.copy()
                 mesh_N.apply_transform(X_N_Oy)
 
@@ -1119,10 +1124,12 @@ fig2.show()
 if cfg.plot_all_high_density_points:
     nerf_alphas_global = 1 - np.exp(-delta * nerf_densities_global)
 
+    X_Oy_N = np.linalg.inv(X_N_Oy)
+    query_points_global_Oy = query_points_global_N + X_Oy_N[:3, 3].reshape(1, 1, 1, 3)
     fig3 = plot_mesh_and_high_density_points(
-        mesh=mesh_N,
-        query_points=query_points_global_N[0].reshape(-1, 3),
-        query_points_colors=nerf_alphas_global[0].reshape(-1),
+        mesh=mesh_Oy,
+        query_points=query_points_global_Oy.reshape(-1, 3),
+        query_points_colors=nerf_alphas_global[cfg.grasp_visualize_index].reshape(-1),
         density_threshold=0.01,
     )
     fig3.show()

@@ -97,7 +97,7 @@ tqdm = partial(std_tqdm, dynamic_ncols=True)
 
 
 # %%
-NERF_DENSITIES_GLOBAL_NUM_X, NERF_DENSITIES_GLOBAL_NUM_Y, NERF_DENSITIES_GLOBAL_NUM_Z = 20, 15, 20
+NERF_DENSITIES_GLOBAL_NUM_X, NERF_DENSITIES_GLOBAL_NUM_Y, NERF_DENSITIES_GLOBAL_NUM_Z = 40, 60, 40
 @localscope.mfc
 def nerf_config_to_object_code_and_scale_str(nerf_config: pathlib.Path) -> str:
     # Input: PosixPath('2023-08-25_nerfcheckpoints/sem-Gun-4745991e7c0c7966a93f1ea6ebdeec6f_0_10/nerfacto/2023-08-25_132225/config.yml')
@@ -144,6 +144,9 @@ def get_closest_matching_nerf_config(
             )
         return exact_matches[0]
 
+    raise ValueError(
+        f"No exact matches found for {target_object_code_and_scale_str}"
+    )
     print(
         f"No exact matches found for {target_object_code_and_scale_str}. Searching for closest matches..."
     )
@@ -187,7 +190,7 @@ def get_closest_matching_nerf_config(
 def count_total_num_grasps(
     evaled_grasp_config_dict_filepaths: List[pathlib.Path],
 ) -> int:
-    ACTUALLY_COUNT_ALL = False
+    ACTUALLY_COUNT_ALL = True
     total_num_grasps = 0
 
     for evaled_grasp_config_dict_filepath in tqdm(
@@ -629,7 +632,7 @@ def get_nerf_densities(
     grasp_frame_transforms: pp.LieTensor,
     ray_origins_finger_frame: torch.Tensor,
     nerf_config: pathlib.Path,
-    mesh: trimesh.Trimesh,
+    X_N_Oy: np.ndarray,
     compute_query_points: bool = True,
     compute_global_density: bool = True,
 ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor], Optional[torch.Tensor]]:
@@ -660,20 +663,6 @@ def get_nerf_densities(
     # Need to convert to NeRF frame N
     T_Oy_Fi = grasp_frame_transforms
     assert T_Oy_Fi.lshape == (batch_size, cfg.fingertip_config.n_fingers)
-
-    N_FRAME_ORIGIN = "table"
-    if N_FRAME_ORIGIN == "table":
-        # N frame has origin at surface of table. Object is dropped onto table with x=0, y>0, z=0
-        # It settles on the table, assume x=z=0, y>0. Can use the object's bound and scale to compute X_N_Oy
-        bounds = mesh.bounds
-        assert bounds.shape == (2, 3)
-        min_y = bounds[0, 1]  # min_y is bottom of the object in Oy
-        X_N_Oy = np.eye(4)
-        X_N_Oy[1, 3] = -min_y  # Eg. min_y=-0.1, then this means that the object is 0.1m above the table
-    elif N_FRAME_ORIGIN == "object":
-        X_N_Oy = np.eye(4)
-    else:
-        raise ValueError(f"Unknown N_FRAME_ORIGIN {N_FRAME_ORIGIN}")
 
     assert X_N_Oy.shape == (
         4,
@@ -761,8 +750,8 @@ def get_nerf_densities(
         if compute_global_density:
             nerf_densities_global, query_point_global = get_densities_in_grid(
                 field=nerf_pipeline.model.field,
-                lb=np.array([-0.2, 0.0, -0.2]),
-                ub=np.array([0.2, 0.3, 0.2]),
+                lb=np.array([-0.1, 0.0, -0.1]),
+                ub=np.array([0.1, 0.3, 0.1]),
                 num_pts_x=NERF_DENSITIES_GLOBAL_NUM_X,
                 num_pts_y=NERF_DENSITIES_GLOBAL_NUM_Y,
                 num_pts_z=NERF_DENSITIES_GLOBAL_NUM_Z,
@@ -868,8 +857,8 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
             with loop_timer.add_section_timer("load mesh"):
                 mesh_path = pathlib.Path("/juno/u/tylerlum/github_repos/DexGraspNet/data/rotated_meshdata_v2") / object_code / "coacd" / "decomposed.obj"
                 assert mesh_path.exists(), f"mesh_path {mesh_path} does not exist"
-                mesh = trimesh.load(mesh_path, force="mesh")
-                mesh.apply_transform(trimesh.transformations.scale_matrix(object_scale))
+                mesh_Oy = trimesh.load(mesh_path, force="mesh")
+                mesh_Oy.apply_transform(trimesh.transformations.scale_matrix(object_scale))
 
             # Extract useful parts of grasp data
             grasp_configs = AllegroGraspConfig.from_grasp_config_dict(
@@ -957,6 +946,22 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
             object_state = object_state[:, 0]
 
             if isinstance(cfg, GridNerfDataConfig):
+                N_FRAME_ORIGIN = "table"
+                if N_FRAME_ORIGIN == "table":
+                    # N frame has origin at surface of table. Object is dropped onto table with x=0, y>0, z=0
+                    # It settles on the table, assume x=z=0, y>0. Can use the object's bound and scale to compute X_N_Oy
+                    bounds = mesh_Oy.bounds
+                    assert bounds.shape == (2, 3)
+                    min_y = bounds[0, 1]  # min_y is bottom of the object in Oy
+                    X_N_Oy = np.eye(4)
+                    X_N_Oy[1, 3] = -min_y  # Eg. min_y=-0.1, then this means that the object is 0.1m above the table
+                elif N_FRAME_ORIGIN == "object":
+                    X_N_Oy = np.eye(4)
+                else:
+                    raise ValueError(f"Unknown N_FRAME_ORIGIN {N_FRAME_ORIGIN}")
+                mesh_N = mesh_Oy.copy()
+                mesh_N.apply_transform(X_N_Oy)
+
                 # Process batch of grasp data.
                 nerf_densities, query_points, nerf_densities_global, query_points_global = get_nerf_densities(
                     loop_timer=loop_timer,
@@ -964,7 +969,7 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                     grasp_frame_transforms=grasp_frame_transforms,
                     ray_origins_finger_frame=ray_origins_finger_frame,
                     nerf_config=nerf_config,
-                    mesh=mesh,
+                    X_N_Oy=X_N_Oy,
                     compute_query_points=cfg.plot_only_one,
                     compute_global_density=True,
                 )
@@ -1085,18 +1090,13 @@ delta = (
     cfg.fingertip_config.grasp_depth_mm / 1000 / (cfg.fingertip_config.num_pts_z - 1)
 )
 
-mesh_path = cfg.dexgraspnet_meshdata_root / object_code / "coacd" / "decomposed.obj"
-assert mesh_path.exists(), f"mesh_path {mesh_path} does not exist"
-mesh = trimesh.load(mesh_path, force="mesh")
-mesh.apply_transform(trimesh.transformations.scale_matrix(object_scale))
-
 if "nerf_densities" in globals():
     nerf_alphas = [
         1 - np.exp(-delta * dd)
         for dd in nerf_densities[cfg.grasp_visualize_index].detach().cpu().numpy()
     ]
     fig = plot_mesh_and_query_points(
-        mesh=mesh,
+        mesh=mesh_N,
         query_points_list=[
             qq.reshape(-1, 3) for qq in query_points[cfg.grasp_visualize_index]
         ],
@@ -1107,7 +1107,7 @@ if "nerf_densities" in globals():
     fig.show()
 
 fig2 = plot_mesh_and_transforms(
-    mesh=mesh,
+    mesh=mesh_N,
     transforms=[
         grasp_frame_transforms[i] for i in range(cfg.fingertip_config.n_fingers)
     ],
@@ -1120,7 +1120,7 @@ if cfg.plot_all_high_density_points:
     nerf_alphas_global = 1 - np.exp(-delta * nerf_densities_global)
 
     fig3 = plot_mesh_and_high_density_points(
-        mesh=mesh,
+        mesh=mesh_N,
         query_points=query_points_global[0].reshape(-1, 3),
         query_points_colors=nerf_alphas_global[0].reshape(-1),
         density_threshold=0.01,

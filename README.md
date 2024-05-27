@@ -29,8 +29,11 @@ git clone https://github.com/facebookresearch/pytorch3d.git
 cd pytorch3d && pip install -e .
 cd ..
 
-# Install drake
-pip install drake
+# Install frogger
+git clone https://github.com/tylerlum/frogger.git
+cd frogger
+git checkout 2024-04-05_Tyler_Frogger_to_DGN
+pip install -e .
 
 # Install curobo (Library Installation step in https://curobo.org/get_started/1_install_instructions.html#library-installation, but with custom fork)
 sudo apt install git-lfs
@@ -47,6 +50,9 @@ pip install -e .
 
 # Install other dependencies
 pip install pypose numpy tyro wandb rich pytorch_kinematics mujoco transforms3d torchinfo urdf_parser_py pybullet
+
+# Install drake
+pip install drake
 
 # Other dependencies for fancy things we haven't used much like transformers and learning rate scheduling
 pip install positional_encodings diffusers

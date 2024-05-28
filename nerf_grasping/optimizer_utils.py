@@ -34,7 +34,7 @@ from nerf_grasping.config.fingertip_config import UnionFingertipConfig
 from nerf_grasping.config.camera_config import CameraConfig
 from nerf_grasping.config.classifier_config import ClassifierConfig
 from nerf_grasping.config.nerfdata_config import DepthImageNerfDataConfig
-from nerf_grasping.dataset.nerf_densities_global import (
+from nerf_grasping.dataset.nerf_densities_global_config import (
     NERF_DENSITIES_GLOBAL_NUM_X,
     NERF_DENSITIES_GLOBAL_NUM_Y,
     NERF_DENSITIES_GLOBAL_NUM_Z,
@@ -705,7 +705,9 @@ class GraspMetric(torch.nn.Module):
 
         # Query NeRF in grid
         # BRITTLE: Require that the classifier_model has the word "Global" in it if needed
-        need_to_query_global = "global" in self.classifier_model.__class__.__name__.lower()
+        need_to_query_global = (
+            "global" in self.classifier_model.__class__.__name__.lower()
+        )
         if need_to_query_global:
             lb_N = transform_point(T=self.X_N_Oy, p=lb_Oy)
             ub_N = transform_point(T=self.X_N_Oy, p=ub_Oy)
@@ -728,7 +730,9 @@ class GraspMetric(torch.nn.Module):
             grasp_transforms=grasp_config.grasp_frame_transforms,
             fingertip_config=self.fingertip_config,
             grasp_configs=grasp_config.as_tensor(),
-            nerf_densities_global=nerf_densities_global if nerf_densities_global is not None else None,
+            nerf_densities_global=(
+                nerf_densities_global if nerf_densities_global is not None else None
+            ),
             object_y_wrt_table=None,  # ? NEED TO PASS THIS IN?
         ).to(grasp_config.hand_config.wrist_pose.device)
 

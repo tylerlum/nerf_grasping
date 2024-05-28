@@ -232,8 +232,8 @@ class CNN_3D_CNN_3D_Model(nn.Module):
         all_logits = all_logits.reshape(batch_size, self.n_tasks, self.n_classes)
         return all_logits
 
-    def get_all_logits(self, x: torch.Tensor) -> torch.Tensor:
-        return self(x)
+    def get_all_logits(self, x: torch.Tensor, global_x: torch.Tensor) -> torch.Tensor:
+        return self(x, global_x)
 
 
 class CNN_3D_MLP_Model(nn.Module):
@@ -350,8 +350,8 @@ class CNN_3D_MLP_Model(nn.Module):
         all_logits = all_logits.reshape(batch_size, self.n_tasks, self.n_classes)
         return all_logits
 
-    def get_all_logits(self, x: torch.Tensor) -> torch.Tensor:
-        return self(x)
+    def get_all_logits(self, x: torch.Tensor, global_x: torch.Tensor) -> torch.Tensor:
+        return self(x, global_x)
 
 
 class CNN_2D_1D_Model(nn.Module):

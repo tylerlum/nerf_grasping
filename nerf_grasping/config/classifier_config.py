@@ -279,7 +279,7 @@ class ClassifierModelConfig:
 
 @dataclass(frozen=True)
 class CNN_3D_XYZY_ModelConfig(ClassifierModelConfig):
-    """"Parameters for the CNN_3D_XYZY_Classifier."""
+    """Parameters for the CNN_3D_XYZY_Classifier."""
 
     conv_channels: List[int]
     """List of channels for each convolutional layer. Length specifies number of layers."""
@@ -301,7 +301,9 @@ class CNN_3D_XYZY_ModelConfig(ClassifierModelConfig):
             fingertip_config.num_pts_z,
         ]
 
-    def get_classifier_from_fingertip_config(self, fingertip_config: UnionFingertipConfig, n_tasks: int) -> Classifier:
+    def get_classifier_from_fingertip_config(
+        self, fingertip_config: UnionFingertipConfig, n_tasks: int
+    ) -> Classifier:
         """Helper method to return the correct classifier from config."""
 
         input_shape = self.input_shape_from_fingertip_config(fingertip_config)
@@ -316,7 +318,7 @@ class CNN_3D_XYZY_ModelConfig(ClassifierModelConfig):
 
 @dataclass(frozen=True)
 class CNN_3D_XYZXYZY_ModelConfig(ClassifierModelConfig):
-    """"Parameters for the CNN_3D_XYZXYZY_Classifier."""
+    """Parameters for the CNN_3D_XYZXYZY_Classifier."""
 
     conv_channels: List[int]
     """List of channels for each convolutional layer. Length specifies number of layers."""
@@ -338,7 +340,9 @@ class CNN_3D_XYZXYZY_ModelConfig(ClassifierModelConfig):
             fingertip_config.num_pts_z,
         ]
 
-    def get_classifier_from_fingertip_config(self, fingertip_config: UnionFingertipConfig, n_tasks: int) -> Classifier:
+    def get_classifier_from_fingertip_config(
+        self, fingertip_config: UnionFingertipConfig, n_tasks: int
+    ) -> Classifier:
         """Helper method to return the correct classifier from config."""
 
         input_shape = self.input_shape_from_fingertip_config(fingertip_config)
@@ -353,7 +357,7 @@ class CNN_3D_XYZXYZY_ModelConfig(ClassifierModelConfig):
 
 @dataclass(frozen=True)
 class CNN_3D_XYZXYZ_ModelConfig(ClassifierModelConfig):
-    """"Parameters for the CNN_3D_XYZXYZ_Classifier."""
+    """Parameters for the CNN_3D_XYZXYZ_Classifier."""
 
     conv_channels: List[int]
     """List of channels for each convolutional layer. Length specifies number of layers."""
@@ -374,7 +378,9 @@ class CNN_3D_XYZXYZ_ModelConfig(ClassifierModelConfig):
             fingertip_config.num_pts_z,
         ]
 
-    def get_classifier_from_fingertip_config(self, fingertip_config: UnionFingertipConfig, n_tasks: int) -> Classifier:
+    def get_classifier_from_fingertip_config(
+        self, fingertip_config: UnionFingertipConfig, n_tasks: int
+    ) -> Classifier:
         """Helper method to return the correct classifier from config."""
 
         input_shape = self.input_shape_from_fingertip_config(fingertip_config)
@@ -426,6 +432,7 @@ class CNN_3D_XYZ_ModelConfig(ClassifierModelConfig):
             mlp_hidden_layers=self.mlp_hidden_layers,
         )
 
+
 @dataclass(frozen=True)
 class CNN_3D_XYZ_Global_CNN_ModelConfig(ClassifierModelConfig):
     """Parameters for the CNN_3D_XYZ_Global_CNN_Classifier."""
@@ -466,9 +473,14 @@ class CNN_3D_XYZ_Global_CNN_ModelConfig(ClassifierModelConfig):
             n_tasks=n_tasks,
             conv_channels=self.conv_channels,
             mlp_hidden_layers=self.mlp_hidden_layers,
-            global_input_shape=(NERF_DENSITIES_GLOBAL_NUM_X, NERF_DENSITIES_GLOBAL_NUM_Y, NERF_DENSITIES_GLOBAL_NUM_Z),
+            global_input_shape=(
+                NERF_DENSITIES_GLOBAL_NUM_X,
+                NERF_DENSITIES_GLOBAL_NUM_Y,
+                NERF_DENSITIES_GLOBAL_NUM_Z,
+            ),
             global_conv_channels=self.global_conv_channels,
         )
+
 
 @dataclass(frozen=True)
 class CNN_3D_XYZ_Global_MLP_ModelConfig(ClassifierModelConfig):
@@ -510,7 +522,11 @@ class CNN_3D_XYZ_Global_MLP_ModelConfig(ClassifierModelConfig):
             n_tasks=n_tasks,
             conv_channels=self.conv_channels,
             mlp_hidden_layers=self.mlp_hidden_layers,
-            global_input_shape=(NERF_DENSITIES_GLOBAL_NUM_X*NERF_DENSITIES_GLOBAL_NUM_Y*NERF_DENSITIES_GLOBAL_NUM_Z,),
+            global_input_shape=(
+                NERF_DENSITIES_GLOBAL_NUM_X
+                * NERF_DENSITIES_GLOBAL_NUM_Y
+                * NERF_DENSITIES_GLOBAL_NUM_Z,
+            ),
             global_mlp_hidden_layers=self.global_mlp_hidden_layers,
         )
 
@@ -818,15 +834,17 @@ DEFAULTS_DICT = {
     ),
     "cnn-3d-xyz-global-cnn": ClassifierConfig(
         model_config=CNN_3D_XYZ_Global_CNN_ModelConfig(
-            conv_channels=[32, 64, 128], mlp_hidden_layers=[256, 256],
-            global_conv_channels=[32, 64, 128], global_mlp_hidden_layers=[256, 256]
+            conv_channels=[32, 64, 128],
+            mlp_hidden_layers=[256, 256],
+            global_conv_channels=[32, 64, 128],
         ),
         nerfdata_config=GridNerfDataConfig(),
     ),
     "cnn-3d-xyz-global-mlp": ClassifierConfig(
         model_config=CNN_3D_XYZ_Global_MLP_ModelConfig(
-            conv_channels=[32, 64, 128], mlp_hidden_layers=[256, 256],
-            global_mlp_hidden_layers=[256, 256]
+            conv_channels=[32, 64, 128],
+            mlp_hidden_layers=[256, 256],
+            global_mlp_hidden_layers=[256, 256],
         ),
         nerfdata_config=GridNerfDataConfig(),
     ),

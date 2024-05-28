@@ -49,7 +49,7 @@ cd ..
 pip install -e .
 
 # Install other dependencies
-pip install pypose numpy tyro wandb rich pytorch_kinematics mujoco transforms3d torchinfo urdf_parser_py pybullet localscope
+pip install pypose numpy tyro wandb rich pytorch_kinematics mujoco transforms3d torchinfo urdf_parser_py pybullet localscope torchviz
 
 # Install drake
 pip install drake

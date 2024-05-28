@@ -284,8 +284,10 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
         assert_equals(object_scale.shape, ())
         assert_equals(object_state.shape, (13,))
 
-        # TODO: Populate this better using X_N_Oy
-        object_y_wrt_table = -2
+        # BRITTLE: Assumes that object_state is given in a frame such that y=0 is the table surface
+        object_y = object_state[1]
+        object_y_wrt_table = object_y
+        assert object_y_wrt_table >= 0
 
         return (
             nerf_densities,

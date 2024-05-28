@@ -709,8 +709,8 @@ class GraspMetric(torch.nn.Module):
             "global" in self.classifier_model.__class__.__name__.lower()
         )
         if need_to_query_global:
-            lb_N = transform_point(T=self.X_N_Oy, p=lb_Oy)
-            ub_N = transform_point(T=self.X_N_Oy, p=ub_Oy)
+            lb_N = transform_point(T=self.X_N_Oy, point=lb_Oy)
+            ub_N = transform_point(T=self.X_N_Oy, point=ub_Oy)
             nerf_densities_global, query_points_global_N = get_densities_in_grid(
                 field=self.nerf_field,
                 lb=lb_N,
@@ -719,7 +719,11 @@ class GraspMetric(torch.nn.Module):
                 num_pts_y=NERF_DENSITIES_GLOBAL_NUM_Y,
                 num_pts_z=NERF_DENSITIES_GLOBAL_NUM_Z,
             )
-            nerf_densities_global = torch.from_numpy(nerf_densities_global).float()
+            nerf_densities_global = (
+                torch.from_numpy(nerf_densities_global)
+                .float()[None, ...]
+                .repeat_interleave(grasp_config.batch_size, dim=0)
+            )
         else:
             nerf_densities_global = None
 

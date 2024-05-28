@@ -138,9 +138,9 @@ class BatchDataInput:
         points = get_points_in_grid(
             lb=lb_Oy,
             ub=ub_Oy,
-            num_x=NERF_DENSITIES_GLOBAL_NUM_X,
-            num_y=NERF_DENSITIES_GLOBAL_NUM_Y,
-            num_z=NERF_DENSITIES_GLOBAL_NUM_Z,
+            num_pts_x=NERF_DENSITIES_GLOBAL_NUM_X,
+            num_pts_y=NERF_DENSITIES_GLOBAL_NUM_Y,
+            num_pts_z=NERF_DENSITIES_GLOBAL_NUM_Z,
         )
 
         assert points.shape == (
@@ -149,6 +149,7 @@ class BatchDataInput:
             NERF_DENSITIES_GLOBAL_NUM_Z,
             NUM_XYZ,
         )
+        points = torch.from_numpy(points).to(device=self.device, dtype=self.nerf_densities.dtype)
         points = points.permute(3, 0, 1, 2)
         points = points[None, ...].repeat_interleave(self.batch_size, dim=0)
         assert points.shape == (
@@ -162,15 +163,30 @@ class BatchDataInput:
 
     @property
     def augmented_coords_global(self) -> torch.Tensor:
+        coords_global = self.coords_global
         if self.random_rotate_transform is None:
-            return self.coords_global
+            return coords_global
+
+        assert coords_global.shape == (
+            self.batch_size,
+            NUM_XYZ,
+            NERF_DENSITIES_GLOBAL_NUM_X,
+            NERF_DENSITIES_GLOBAL_NUM_Y,
+            NERF_DENSITIES_GLOBAL_NUM_Z,
+        )
 
         # Unsqueeze because we're applying the same (single) random rotation to all fingers.
         return_value = (
-            self.random_rotate_transform.rotation().unsqueeze(dim=1)
-            @ self.coords_global
+            self.random_rotate_transform.unsqueeze(dim=1)
+            @ coords_global.permute(0, 2, 3, 4, 1).reshape(self.batch_size, -1, NUM_XYZ)  # Must put the NUM_XYZ dimension last for matrix multiplication.
+        ).permute(0, 2, 1).reshape(
+            self.batch_size,
+            NUM_XYZ,
+            NERF_DENSITIES_GLOBAL_NUM_X,
+            NERF_DENSITIES_GLOBAL_NUM_Y,
+            NERF_DENSITIES_GLOBAL_NUM_Z,
         )
-        assert return_value.shape == self.coords_global.shape
+        assert return_value.shape == coords_global.shape
         return return_value
 
     @property

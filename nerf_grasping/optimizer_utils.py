@@ -21,15 +21,26 @@ from nerf_grasping.learned_metric.DexGraspNet_batch_data import (
     BatchDataInput,
     DepthImageBatchDataInput,
 )
+from nerf_grasping.dataset.DexGraspNet_NeRF_Grasps_utils import (
+    transform_point,
+)
 from nerf_grasping.nerf_utils import (
     get_cameras,
     render,
+    get_densities_in_grid,
 )
 from nerf_grasping.config.grasp_metric_config import GraspMetricConfig
 from nerf_grasping.config.fingertip_config import UnionFingertipConfig
 from nerf_grasping.config.camera_config import CameraConfig
 from nerf_grasping.config.classifier_config import ClassifierConfig
 from nerf_grasping.config.nerfdata_config import DepthImageNerfDataConfig
+from nerf_grasping.dataset.nerf_densities_global import (
+    NERF_DENSITIES_GLOBAL_NUM_X,
+    NERF_DENSITIES_GLOBAL_NUM_Y,
+    NERF_DENSITIES_GLOBAL_NUM_Z,
+    lb_Oy,
+    ub_Oy,
+)
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 from contextlib import nullcontext
@@ -684,13 +695,25 @@ class GraspMetric(torch.nn.Module):
         densities = self.compute_nerf_densities(
             ray_samples,
         )
-
         assert densities.shape == (
             grasp_config.batch_size,
             4,
             self.fingertip_config.num_pts_x,
             self.fingertip_config.num_pts_y,
             self.fingertip_config.num_pts_z,
+        )
+
+        # Query NeRF in grid
+        # TODO: Make it check if it's needed to save time
+        lb_N = transform_point(T=self.X_N_Oy, p=lb_Oy)
+        ub_N = transform_point(T=self.X_N_Oy, p=ub_Oy)
+        nerf_densities_global, query_points_global_N = get_densities_in_grid(
+            field=self.nerf_field,
+            lb=lb_N,
+            ub=ub_N,
+            num_pts_x=NERF_DENSITIES_GLOBAL_NUM_X,
+            num_pts_y=NERF_DENSITIES_GLOBAL_NUM_Y,
+            num_pts_z=NERF_DENSITIES_GLOBAL_NUM_Z,
         )
 
         # HACK: NOT SURE HOW TO FILL THIS
@@ -700,7 +723,7 @@ class GraspMetric(torch.nn.Module):
             grasp_transforms=grasp_config.grasp_frame_transforms,
             fingertip_config=self.fingertip_config,
             grasp_configs=grasp_config.as_tensor(),
-            nerf_densities_global=None,  # ? NEED TO PASS THIS IN?
+            nerf_densities_global=nerf_densities_global,  # ? NEED TO PASS THIS IN?
             object_y_wrt_table=None,  # ? NEED TO PASS THIS IN?
         ).to(grasp_config.hand_config.wrist_pose.device)
 

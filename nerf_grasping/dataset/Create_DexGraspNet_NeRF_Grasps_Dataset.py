@@ -39,6 +39,8 @@ from nerf_grasping.dataset.DexGraspNet_NeRF_Grasps_utils import (
     plot_mesh_and_high_density_points,
     get_ray_samples_in_mesh_region,
     parse_object_code_and_scale,
+    transform_point,
+    transform_points,
 )
 from nerf_grasping.dataset.timers import LoopTimer
 from nerf_grasping.optimizer_utils import AllegroGraspConfig
@@ -790,8 +792,8 @@ def get_nerf_densities(
             query_points_N = None
 
     with loop_timer.add_section_timer("get_densities_in_grid"):
-        lb_N = lb_Oy + X_N_Oy[:3, 3]
-        ub_N = ub_Oy + X_N_Oy[:3, 3]
+        lb_N = transform_point(T=X_N_Oy, p=lb_Oy)
+        ub_N = transform_point(T=X_N_Oy, p=ub_Oy)
         nerf_densities_global, query_points_global_N = get_densities_in_grid(
             field=nerf_pipeline.model.field,
             lb=lb_N,
@@ -1189,7 +1191,9 @@ if cfg.plot_all_high_density_points:
     )
 
     X_Oy_N = np.linalg.inv(X_N_Oy)
-    query_points_global_Oy = query_points_global_N + X_Oy_N[:3, 3].reshape(1, 1, 1, 3)
+    query_points_global_Oy = transform_points(
+        T=X_Oy_N, points=query_points_global_N.reshape(-1, 3)
+    ).reshape(*query_points_global_N.shape)
     fig3 = plot_mesh_and_high_density_points(
         mesh=mesh_Oy,
         query_points=query_points_global_Oy.reshape(-1, 3),

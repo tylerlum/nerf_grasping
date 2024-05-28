@@ -205,14 +205,13 @@ def _render_depth_and_uncertainty_for_single_ray_bundle(
     return depth, depth_variance
 
 
-def get_densities_in_grid(
-    field: Field,
+def get_points_in_grid(
     lb: np.ndarray,
     ub: np.ndarray,
     num_pts_x: int,
     num_pts_y: int,
     num_pts_z: int,
-) -> Tuple[np.ndarray, np.ndarray]:
+) -> np.ndarray:
     x_min, y_min, z_min = lb
     x_max, y_max, z_max = ub
     x_coords = np.linspace(x_min, x_max, num_pts_x)
@@ -221,6 +220,25 @@ def get_densities_in_grid(
 
     xx, yy, zz = np.meshgrid(x_coords, y_coords, z_coords, indexing="ij")
     query_points_in_region = np.stack([xx, yy, zz], axis=-1)
+    assert query_points_in_region.shape == (num_pts_x, num_pts_y, num_pts_z, 3)
+    return query_points_in_region
+
+
+def get_densities_in_grid(
+    field: Field,
+    lb: np.ndarray,
+    ub: np.ndarray,
+    num_pts_x: int,
+    num_pts_y: int,
+    num_pts_z: int,
+) -> Tuple[np.ndarray, np.ndarray]:
+    query_points_in_region = get_points_in_grid(
+        lb=lb,
+        ub=ub,
+        num_pts_x=num_pts_x,
+        num_pts_y=num_pts_y,
+        num_pts_z=num_pts_z,
+    )
     assert query_points_in_region.shape == (num_pts_x, num_pts_y, num_pts_z, 3)
 
     nerf_densities_in_region = (

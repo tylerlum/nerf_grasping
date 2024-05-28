@@ -224,7 +224,7 @@ class CNN_3D_XYZ_Global_CNN_Classifier(Classifier):
         # Run model
         all_logits = self.model.get_all_logits(
             batch_data_input.nerf_alphas_with_augmented_coords,
-            batch_data_input.global_nerf_alphas_with_augmented_coords,
+            batch_data_input.nerf_alphas_global_with_augmented_coords,
         )
         return all_logits
 
@@ -255,7 +255,7 @@ class CNN_3D_XYZ_Global_MLP_Classifier(Classifier):
         # Run model
         all_logits = self.model.get_all_logits(
             batch_data_input.nerf_alphas_with_augmented_coords,
-            batch_data_input.global_nerf_alphas.reshape(
+            batch_data_input.nerf_alphas_global.reshape(
                 batch_data_input.batch_size, -1
             ),
         )

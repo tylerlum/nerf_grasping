@@ -57,6 +57,8 @@ from nerf_grasping.dataset.nerf_densities_global_config import (
     NERF_DENSITIES_GLOBAL_NUM_X,
     NERF_DENSITIES_GLOBAL_NUM_Y,
     NERF_DENSITIES_GLOBAL_NUM_Z,
+    lb_Oy,
+    ub_Oy,
 )
 from nerf_grasping.config.base import CONFIG_DATETIME_STR
 from functools import partial
@@ -788,8 +790,6 @@ def get_nerf_densities(
             query_points_N = None
 
     with loop_timer.add_section_timer("get_densities_in_grid"):
-        lb_Oy = np.array([-0.2, -0.2, -0.2])
-        ub_Oy = np.array([0.2, 0.2, 0.2])
         lb_N = lb_Oy + X_N_Oy[:3, 3]
         ub_N = ub_Oy + X_N_Oy[:3, 3]
         nerf_densities_global, query_points_global_N = get_densities_in_grid(

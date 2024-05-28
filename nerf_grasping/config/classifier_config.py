@@ -459,6 +459,16 @@ class CNN_3D_XYZ_Global_CNN_ModelConfig(ClassifierModelConfig):
             fingertip_config.num_pts_z,
         ]
 
+    def global_input_shape(self):
+        n_density_channels = 1
+        n_xyz_channels = 3
+        return (
+            n_density_channels + n_xyz_channels,
+            NERF_DENSITIES_GLOBAL_NUM_X,
+            NERF_DENSITIES_GLOBAL_NUM_Y,
+            NERF_DENSITIES_GLOBAL_NUM_Z,
+        )
+
     def get_classifier_from_fingertip_config(
         self,
         fingertip_config: UnionFingertipConfig,
@@ -467,17 +477,14 @@ class CNN_3D_XYZ_Global_CNN_ModelConfig(ClassifierModelConfig):
         """Helper method to return the correct classifier from config."""
 
         input_shape = self.input_shape_from_fingertip_config(fingertip_config)
+        global_input_shape = self.global_input_shape()
         return CNN_3D_XYZ_Global_CNN_Classifier(
             input_shape=input_shape,
             n_fingers=fingertip_config.n_fingers,
             n_tasks=n_tasks,
             conv_channels=self.conv_channels,
             mlp_hidden_layers=self.mlp_hidden_layers,
-            global_input_shape=(
-                NERF_DENSITIES_GLOBAL_NUM_X,
-                NERF_DENSITIES_GLOBAL_NUM_Y,
-                NERF_DENSITIES_GLOBAL_NUM_Z,
-            ),
+            global_input_shape=global_input_shape,
             global_conv_channels=self.global_conv_channels,
         )
 
@@ -508,6 +515,9 @@ class CNN_3D_XYZ_Global_MLP_ModelConfig(ClassifierModelConfig):
             fingertip_config.num_pts_z,
         ]
 
+    def global_input_shape(self):
+        return (NERF_DENSITIES_GLOBAL_NUM_X * NERF_DENSITIES_GLOBAL_NUM_Y * NERF_DENSITIES_GLOBAL_NUM_Z,)
+
     def get_classifier_from_fingertip_config(
         self,
         fingertip_config: UnionFingertipConfig,
@@ -516,17 +526,14 @@ class CNN_3D_XYZ_Global_MLP_ModelConfig(ClassifierModelConfig):
         """Helper method to return the correct classifier from config."""
 
         input_shape = self.input_shape_from_fingertip_config(fingertip_config)
+        global_input_shape = self.global_input_shape()
         return CNN_3D_XYZ_Global_MLP_Classifier(
             input_shape=input_shape,
             n_fingers=fingertip_config.n_fingers,
             n_tasks=n_tasks,
             conv_channels=self.conv_channels,
             mlp_hidden_layers=self.mlp_hidden_layers,
-            global_input_shape=(
-                NERF_DENSITIES_GLOBAL_NUM_X
-                * NERF_DENSITIES_GLOBAL_NUM_Y
-                * NERF_DENSITIES_GLOBAL_NUM_Z,
-            ),
+            global_input_shape=global_input_shape,
             global_mlp_hidden_layers=self.global_mlp_hidden_layers,
         )
 

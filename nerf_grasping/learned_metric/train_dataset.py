@@ -25,6 +25,7 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
         max_num_data_points: Optional[int] = None,
         load_nerf_densities_in_ram: bool = False,
         load_nerf_densities_global_in_ram: bool = False,
+        load_nerf_densities_global_idx_in_ram: bool = False,
         load_grasp_labels_in_ram: bool = True,
         load_grasp_transforms_in_ram: bool = True,
         load_nerf_configs_in_ram: bool = True,
@@ -77,6 +78,12 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
                 torch.from_numpy(hdf5_file["/nerf_densities_global"][()]).float()
                 if load_nerf_densities_global_in_ram
                 and "nerf_densities_global" in hdf5_file
+                else None
+            )
+            self.nerf_densities_global_idx = (
+                torch.from_numpy(hdf5_file["/nerf_densities_global_idx"][()]).long()
+                if load_nerf_densities_global_idx_in_ram
+                and "nerf_densities_global_idx" in hdf5_file
                 else None
             )
 
@@ -170,13 +177,25 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
             if self.nerf_densities is None
             else self.nerf_densities[idx]
         )
+        nerf_densities_global_idx = (
+            torch.from_numpy(self.hdf5_file["/nerf_densities_global_idx"][idx]).long()
+            if self.nerf_densities_global_idx is None
+            and "nerf_densities_global_idx" in self.hdf5_file
+            else (
+                self.nerf_densities_global_idx[idx]
+                if self.nerf_densities_global_idx is not None
+                else None
+            )
+        )
         nerf_densities_global = (
-            torch.from_numpy(self.hdf5_file["/nerf_densities_global"][idx]).float()
+            torch.from_numpy(self.hdf5_file["/nerf_densities_global"][nerf_densities_global_idx]).float()
             if self.nerf_densities_global is None
             and "nerf_densities_global" in self.hdf5_file
+            and nerf_densities_global_idx is not None
             else (
-                self.nerf_densities_global[idx]
+                self.nerf_densities_global[nerf_densities_global_idx]
                 if self.nerf_densities_global is not None
+                and nerf_densities_global_idx is not None
                 else None
             )
         )

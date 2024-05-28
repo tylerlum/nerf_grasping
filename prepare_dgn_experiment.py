@@ -25,6 +25,7 @@ class Args:
     nerf_grasping_data_path: pathlib.Path = (
         pathlib.Path(nerf_grasping.get_repo_root()).resolve() / "data"
     )
+    evaled_grasp_config_dicts_foldername: str = "evaled_grasp_config_dicts"
 
 
 def print_and_run(cmd: str) -> None:
@@ -74,7 +75,7 @@ def main() -> None:
         print_and_run(f"ln -sr {experiment_path} {new_experiment_path}")
 
     # Create train/val/test split
-    evaled_grasp_config_dicts_path = new_experiment_path / "evaled_grasp_config_dicts"
+    evaled_grasp_config_dicts_path = new_experiment_path / args.evaled_grasp_config_dicts_foldername
     assert (
         evaled_grasp_config_dicts_path.exists()
     ), f"{evaled_grasp_config_dicts_path} does not exist"
@@ -98,14 +99,23 @@ def main() -> None:
     test_filenames = filenames[n_train + n_val :]
 
     # Create symlinks to train/val/test split
+    evaled_grasp_config_dicts_train_foldername = (
+        f"{args.evaled_grasp_config_dicts_foldername}_train"
+    )
+    evaled_grasp_config_dicts_val_foldername = (
+        f"{args.evaled_grasp_config_dicts_foldername}_val"
+    )
+    evaled_grasp_config_dicts_test_foldername = (
+        f"{args.evaled_grasp_config_dicts_foldername}_test"
+    )
     evaled_grasp_config_dicts_train_path = (
-        new_experiment_path / "evaled_grasp_config_dicts_train"
+        new_experiment_path / evaled_grasp_config_dicts_train_foldername
     )
     evaled_grasp_config_dicts_val_path = (
-        new_experiment_path / "evaled_grasp_config_dicts_val"
+        new_experiment_path / evaled_grasp_config_dicts_val_foldername
     )
     evaled_grasp_config_dicts_test_path = (
-        new_experiment_path / "evaled_grasp_config_dicts_test"
+        new_experiment_path / evaled_grasp_config_dicts_test_foldername
     )
 
     for new_path, filenames in [
@@ -131,21 +141,21 @@ def main() -> None:
     if args.create_grid_dataset:
         print_and_run(
             f"python nerf_grasping/dataset/Create_DexGraspNet_NeRF_Grasps_Dataset.py grid"
-            + f" --evaled-grasp-config-dicts-path {new_experiment_path / 'evaled_grasp_config_dicts_train'}"
+            + f" --evaled-grasp-config-dicts-path {new_experiment_path / evaled_grasp_config_dicts_train_foldername}"
             + f" --nerf-checkpoints-path {new_experiment_path / 'nerfcheckpoints'}"
             + f" --output-filepath {new_experiment_path / 'grid_dataset' / 'train_dataset.h5'}"
         )
         if n_val > 0:
             print_and_run(
                 f"python nerf_grasping/dataset/Create_DexGraspNet_NeRF_Grasps_Dataset.py grid"
-                + f" --evaled-grasp-config-dicts-path {new_experiment_path / 'evaled_grasp_config_dicts_val'}"
+                + f" --evaled-grasp-config-dicts-path {new_experiment_path / evaled_grasp_config_dicts_val_foldername}"
                 + f" --nerf-checkpoints-path {new_experiment_path / 'nerfcheckpoints'}"
                 + f" --output-filepath {new_experiment_path / 'grid_dataset' / 'val_dataset.h5'}"
             )
         if n_test > 0:
             print_and_run(
                 f"python nerf_grasping/dataset/Create_DexGraspNet_NeRF_Grasps_Dataset.py grid"
-                + f" --evaled-grasp-config-dicts-path {new_experiment_path / 'evaled_grasp_config_dicts_test'}"
+                + f" --evaled-grasp-config-dicts-path {new_experiment_path / evaled_grasp_config_dicts_test_foldername}"
                 + f" --nerf-checkpoints-path {new_experiment_path / 'nerfcheckpoints'}"
                 + f" --output-filepath {new_experiment_path / 'grid_dataset' / 'test_dataset.h5'}"
             )
@@ -154,21 +164,21 @@ def main() -> None:
     if args.create_depth_image_dataset:
         print_and_run(
             f"python nerf_grasping/dataset/Create_DexGraspNet_NeRF_Grasps_Dataset.py depth-image"
-            + f" --evaled-grasp-config-dicts-path {new_experiment_path / 'evaled_grasp_config_dicts_train'}"
+            + f" --evaled-grasp-config-dicts-path {new_experiment_path / evaled_grasp_config_dicts_train_foldername}"
             + f" --nerf-checkpoints-path {new_experiment_path / 'nerfcheckpoints'}"
             + f" --output-filepath {new_experiment_path / 'depth_image_dataset' / 'train_dataset.h5'}"
         )
         if n_val > 0:
             print_and_run(
                 f"python nerf_grasping/dataset/Create_DexGraspNet_NeRF_Grasps_Dataset.py depth-image"
-                + f" --evaled-grasp-config-dicts-path {new_experiment_path / 'evaled_grasp_config_dicts_val'}"
+                + f" --evaled-grasp-config-dicts-path {new_experiment_path / evaled_grasp_config_dicts_val_foldername}"
                 + f" --nerf-checkpoints-path {new_experiment_path / 'nerfcheckpoints'}"
                 + f" --output-filepath {new_experiment_path / 'depth_image_dataset' / 'val_dataset.h5'}"
             )
         if n_test > 0:
             print_and_run(
                 f"python nerf_grasping/dataset/Create_DexGraspNet_NeRF_Grasps_Dataset.py depth-image"
-                + f" --evaled-grasp-config-dicts-path {new_experiment_path / 'evaled_grasp_config_dicts_test'}"
+                + f" --evaled-grasp-config-dicts-path {new_experiment_path / evaled_grasp_config_dicts_test_foldername}"
                 + f" --nerf-checkpoints-path {new_experiment_path / 'nerfcheckpoints'}"
                 + f" --output-filepath {new_experiment_path / 'depth_image_dataset' / 'test_dataset.h5'}"
             )

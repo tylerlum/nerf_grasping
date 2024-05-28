@@ -6,6 +6,11 @@ import h5py
 import pypose as pp
 from nerf_grasping.config.fingertip_config import BaseFingertipConfig
 from nerf_grasping.config.camera_config import CameraConfig
+from nerf_grasping.dataset.nerf_densities_global_config import (
+    NERF_DENSITIES_GLOBAL_NUM_X,
+    NERF_DENSITIES_GLOBAL_NUM_Y,
+    NERF_DENSITIES_GLOBAL_NUM_Z,
+)
 
 
 # Make atol and rtol larger than default to avoid errors due to floating point precision.
@@ -24,6 +29,8 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
         fingertip_config: BaseFingertipConfig,
         max_num_data_points: Optional[int] = None,
         load_nerf_densities_in_ram: bool = False,
+        load_nerf_densities_global_in_ram: bool = False,
+        load_nerf_densities_global_idx_in_ram: bool = False,
         load_grasp_labels_in_ram: bool = True,
         load_grasp_transforms_in_ram: bool = True,
         load_nerf_configs_in_ram: bool = True,
@@ -70,6 +77,18 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
             self.nerf_densities = (
                 torch.from_numpy(hdf5_file["/nerf_densities"][()]).float()
                 if load_nerf_densities_in_ram
+                else None
+            )
+            self.nerf_densities_global = (
+                torch.from_numpy(hdf5_file["/nerf_densities_global"][()]).float()
+                if load_nerf_densities_global_in_ram
+                and "nerf_densities_global" in hdf5_file
+                else None
+            )
+            self.nerf_densities_global_idx = (
+                torch.from_numpy(hdf5_file["/nerf_densities_global_idx"][()]).long()
+                if load_nerf_densities_global_idx_in_ram
+                and "nerf_densities_global_idx" in hdf5_file
                 else None
             )
 
@@ -163,6 +182,28 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
             if self.nerf_densities is None
             else self.nerf_densities[idx]
         )
+        nerf_densities_global_idx = (
+            self.hdf5_file["/nerf_densities_global_idx"][idx]
+            if self.nerf_densities_global_idx is None
+            and "nerf_densities_global_idx" in self.hdf5_file
+            else (
+                self.nerf_densities_global_idx[idx]
+                if self.nerf_densities_global_idx is not None
+                else None
+            )
+        )
+        nerf_densities_global = (
+            torch.from_numpy(self.hdf5_file["/nerf_densities_global"][nerf_densities_global_idx]).float()
+            if self.nerf_densities_global is None
+            and "nerf_densities_global" in self.hdf5_file
+            and nerf_densities_global_idx is not None
+            else (
+                self.nerf_densities_global[nerf_densities_global_idx]
+                if self.nerf_densities_global is not None
+                and nerf_densities_global_idx is not None
+                else None
+            )
+        )
 
         passed_simulation = (
             torch.from_numpy(
@@ -215,9 +256,9 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
             else self.grasp_configs[idx]
         )
         object_scale = (
-            torch.from_numpy(self.hdf5_file["/object_scale"][idx:idx+1]).float()
+            torch.from_numpy(self.hdf5_file["/object_scale"][idx : idx + 1]).float()
             if self.object_scale is None
-            else self.object_scale[idx:idx+1]
+            else self.object_scale[idx : idx + 1]
         )[0]
         object_state = (
             torch.from_numpy(self.hdf5_file["/object_state"][idx]).float()
@@ -229,6 +270,11 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
             nerf_densities.shape,
             (self.NUM_FINGERS, self.NUM_PTS_X, self.NUM_PTS_Y, self.NUM_PTS_Z),
         )
+        if nerf_densities_global is not None:
+            assert_equals(
+                nerf_densities_global.shape,
+                (NERF_DENSITIES_GLOBAL_NUM_X, NERF_DENSITIES_GLOBAL_NUM_Y, NERF_DENSITIES_GLOBAL_NUM_Z),
+            )
         NUM_CLASSES = 2
         assert_equals(passed_simulation.shape, (NUM_CLASSES,))
         assert_equals(passed_penetration_threshold.shape, (NUM_CLASSES,))
@@ -238,16 +284,14 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
         assert_equals(object_scale.shape, ())
         assert_equals(object_state.shape, (13,))
 
-        # BRITTLE: hardcoding buffer, exclude table thickness, so this is wrt table surface
-        BUFFER = 1.2
-        OBJ_MAX_EXTENT_FROM_ORIGIN = 1.0 * object_scale * BUFFER
-        y_offset = OBJ_MAX_EXTENT_FROM_ORIGIN
+        # BRITTLE: Assumes that object_state is given in a frame such that y=0 is the table surface
         object_y = object_state[1]
-        object_y_wrt_table = y_offset - object_y
+        object_y_wrt_table = object_y
         assert object_y_wrt_table >= 0
 
         return (
             nerf_densities,
+            nerf_densities_global,
             passed_simulation,
             passed_penetration_threshold,
             passed_eval,
@@ -496,9 +540,9 @@ class DepthImage_To_GraspSuccess_HDF5_Dataset(Dataset):
             else self.grasp_configs[idx]
         )
         object_scale = (
-            torch.from_numpy(self.hdf5_file["/object_scale"][idx:idx+1]).float()
+            torch.from_numpy(self.hdf5_file["/object_scale"][idx : idx + 1]).float()
             if self.object_scale is None
-            else self.object_scale[idx:idx+1]
+            else self.object_scale[idx : idx + 1]
         )[0]
         object_state = (
             torch.from_numpy(self.hdf5_file["/object_state"][idx]).float()

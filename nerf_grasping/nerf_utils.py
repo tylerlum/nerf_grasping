@@ -205,6 +205,60 @@ def _render_depth_and_uncertainty_for_single_ray_bundle(
     return depth, depth_variance
 
 
+def get_points_in_grid(
+    lb: np.ndarray,
+    ub: np.ndarray,
+    num_pts_x: int,
+    num_pts_y: int,
+    num_pts_z: int,
+) -> np.ndarray:
+    x_min, y_min, z_min = lb
+    x_max, y_max, z_max = ub
+    x_coords = np.linspace(x_min, x_max, num_pts_x)
+    y_coords = np.linspace(y_min, y_max, num_pts_y)
+    z_coords = np.linspace(z_min, z_max, num_pts_z)
+
+    xx, yy, zz = np.meshgrid(x_coords, y_coords, z_coords, indexing="ij")
+    query_points_in_region = np.stack([xx, yy, zz], axis=-1)
+    assert query_points_in_region.shape == (num_pts_x, num_pts_y, num_pts_z, 3)
+    return query_points_in_region
+
+
+def get_densities_in_grid(
+    field: Field,
+    lb: np.ndarray,
+    ub: np.ndarray,
+    num_pts_x: int,
+    num_pts_y: int,
+    num_pts_z: int,
+) -> Tuple[np.ndarray, np.ndarray]:
+    query_points_in_region = get_points_in_grid(
+        lb=lb,
+        ub=ub,
+        num_pts_x=num_pts_x,
+        num_pts_y=num_pts_y,
+        num_pts_z=num_pts_z,
+    )
+    assert query_points_in_region.shape == (num_pts_x, num_pts_y, num_pts_z, 3)
+
+    nerf_densities_in_region = (
+        get_density(
+            field=field,
+            positions=torch.from_numpy(query_points_in_region).cuda(),
+        )[0]
+        .squeeze(dim=-1)
+        .detach()
+        .cpu()
+        .numpy()
+        .reshape(
+            num_pts_x,
+            num_pts_y,
+            num_pts_z,
+        )
+    )
+    return nerf_densities_in_region, query_points_in_region
+
+
 def compute_centroid_from_nerf(
     field: Field,
     lb: np.ndarray,
@@ -217,44 +271,17 @@ def compute_centroid_from_nerf(
     """
     Compute the centroid of the field.
     """
-    x_min, y_min, z_min = lb
-    x_max, y_max, z_max = ub
-    ray_samples_in_region = get_ray_samples_in_region(
-        x_min=x_min,
-        x_max=x_max,
-        y_min=y_min,
-        y_max=y_max,
-        z_min=z_min,
-        z_max=z_max,
+    nerf_densities_in_region, query_points_in_region = get_densities_in_grid(
+        field=field,
+        lb=lb,
+        ub=ub,
         num_pts_x=num_pts_x,
         num_pts_y=num_pts_y,
         num_pts_z=num_pts_z,
     )
-    query_points_in_region = np.copy(
-        ray_samples_in_region.frustums.get_positions()
-        .cpu()
-        .numpy()
-        .reshape(
-            num_pts_x,
-            num_pts_y,
-            num_pts_z,
-            3,
-        )
-    )
-    nerf_densities_in_region = (
-        field.get_density(ray_samples_in_region.to("cuda"))[0]
-        .detach()
-        .cpu()
-        .numpy()
-        .reshape(
-            num_pts_x,
-            num_pts_y,
-            num_pts_z,
-        )
-    )
 
     points_to_keep_with_nans = np.where(
-        (nerf_densities_in_region > 15)[..., None].repeat(3, axis=-1),
+        (nerf_densities_in_region > level)[..., None].repeat(3, axis=-1),
         query_points_in_region,
         np.nan,
     )

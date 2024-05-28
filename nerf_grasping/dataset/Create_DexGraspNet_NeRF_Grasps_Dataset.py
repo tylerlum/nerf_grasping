@@ -39,6 +39,8 @@ from nerf_grasping.dataset.DexGraspNet_NeRF_Grasps_utils import (
     plot_mesh_and_high_density_points,
     get_ray_samples_in_mesh_region,
     parse_object_code_and_scale,
+    transform_point,
+    transform_points,
 )
 from nerf_grasping.dataset.timers import LoopTimer
 from nerf_grasping.optimizer_utils import AllegroGraspConfig
@@ -50,7 +52,15 @@ from nerf_grasping.grasp_utils import (
 )
 from nerf_grasping.nerf_utils import (
     get_cameras,
+    get_densities_in_grid,
     render,
+)
+from nerf_grasping.dataset.nerf_densities_global_config import (
+    NERF_DENSITIES_GLOBAL_NUM_X,
+    NERF_DENSITIES_GLOBAL_NUM_Y,
+    NERF_DENSITIES_GLOBAL_NUM_Z,
+    lb_Oy,
+    ub_Oy,
 )
 from nerf_grasping.config.base import CONFIG_DATETIME_STR
 from functools import partial
@@ -142,6 +152,7 @@ def get_closest_matching_nerf_config(
             )
         return exact_matches[0]
 
+    raise ValueError(f"No exact matches found for {target_object_code_and_scale_str}")
     print(
         f"No exact matches found for {target_object_code_and_scale_str}. Searching for closest matches..."
     )
@@ -185,7 +196,7 @@ def get_closest_matching_nerf_config(
 def count_total_num_grasps(
     evaled_grasp_config_dict_filepaths: List[pathlib.Path],
 ) -> int:
-    ACTUALLY_COUNT_ALL = False
+    ACTUALLY_COUNT_ALL = True
     total_num_grasps = 0
 
     for evaled_grasp_config_dict_filepath in tqdm(
@@ -252,22 +263,51 @@ if cfg.output_filepath.exists():
 
 
 # %%
-assert cfg.nerf_checkpoints_path.exists(), f"{cfg.nerf_checkpoints_path} does not exist"
-nerf_configs = get_nerf_configs(
-    nerf_checkpoints_path=str(cfg.nerf_checkpoints_path),
+print("IGNORING cfg.nerf_checkpoints_path")
+
+nerf_configs = []
+nerfcheckpoints_0_folder = pathlib.Path(
+    "data/2024-05-06_rotated_stable_grasps_0/NEW_nerfcheckpoints_100imgs_400iters"
 )
-assert (
-    len(nerf_configs) > 0
-), f"Did not find any nerf configs in {cfg.nerf_checkpoints_path}"
+for i in tqdm(range(7), desc="finding configs"):
+    nerfcheckpoints_folder = pathlib.Path(
+        str(nerfcheckpoints_0_folder).replace("_0", f"_{i}")
+    )
+    nerf_configs += get_nerf_configs(
+        nerf_checkpoints_path=str(nerfcheckpoints_folder),
+    )
+for i in tqdm(range(7), desc="finding bigger configs"):
+    nerfcheckpoints_folder = pathlib.Path(
+        str(nerfcheckpoints_0_folder).replace("_0", f"_bigger_{i}")
+    )
+    nerf_configs += get_nerf_configs(
+        nerf_checkpoints_path=str(nerfcheckpoints_folder),
+    )
+for i in tqdm(range(7), desc="finding smaller configs"):
+    nerfcheckpoints_folder = pathlib.Path(
+        str(nerfcheckpoints_0_folder).replace("_0", f"_smaller_{i}")
+    )
+    nerf_configs += get_nerf_configs(
+        nerf_checkpoints_path=str(nerfcheckpoints_folder),
+    )
 print(f"Found {len(nerf_configs)} nerf configs")
+
+# assert cfg.nerf_checkpoints_path.exists(), f"{cfg.nerf_checkpoints_path} does not exist"
+# nerf_configs = get_nerf_configs(
+#     nerf_checkpoints_path=str(cfg.nerf_checkpoints_path),
+# )
+# assert (
+#     len(nerf_configs) > 0
+# ), f"Did not find any nerf configs in {cfg.nerf_checkpoints_path}"
+# print(f"Found {len(nerf_configs)} nerf configs")
 
 # %%
 assert (
     cfg.evaled_grasp_config_dicts_path.exists()
 ), f"{cfg.evaled_grasp_config_dicts_path} does not exist"
-evaled_grasp_config_dict_filepaths = sorted(list(
-    cfg.evaled_grasp_config_dicts_path.glob("*.npy")
-))
+evaled_grasp_config_dict_filepaths = sorted(
+    list(cfg.evaled_grasp_config_dicts_path.glob("*.npy"))
+)
 
 # from glob import glob
 # evaled_grasp_config_dict_filepaths = [
@@ -321,9 +361,18 @@ print(cfg)
 # ## Define dataset creation functions and run.
 
 
-@localscope.mfc
+@localscope.mfc(
+    allowed=[
+        "NERF_DENSITIES_GLOBAL_NUM_X",
+        "NERF_DENSITIES_GLOBAL_NUM_Y",
+        "NERF_DENSITIES_GLOBAL_NUM_Z",
+    ]
+)
 def create_grid_dataset(
-    cfg: GridNerfDataConfig, hdf5_file: h5py.File, max_num_datapoints: int
+    cfg: GridNerfDataConfig,
+    hdf5_file: h5py.File,
+    max_num_datapoints: int,
+    num_objects: int,
 ) -> Tuple[h5py.Dataset, ...]:
     assert cfg.fingertip_config is not None
 
@@ -345,6 +394,30 @@ def create_grid_dataset(
             cfg.fingertip_config.num_pts_z,
         ),
     )
+    # Only need one global density field per object, not per grasp
+    nerf_densities_global_dataset = hdf5_file.create_dataset(
+        "/nerf_densities_global",
+        shape=(
+            num_objects,
+            NERF_DENSITIES_GLOBAL_NUM_X,
+            NERF_DENSITIES_GLOBAL_NUM_Y,
+            NERF_DENSITIES_GLOBAL_NUM_Z,
+        ),
+        dtype="f",
+        chunks=(
+            1,
+            NERF_DENSITIES_GLOBAL_NUM_X,
+            NERF_DENSITIES_GLOBAL_NUM_Y,
+            NERF_DENSITIES_GLOBAL_NUM_Z,
+        ),
+    )
+    # Map from grasp idx to global density idx
+    nerf_densities_global_idx_dataset = hdf5_file.create_dataset(
+        "/nerf_densities_global_idx",
+        shape=(max_num_datapoints,),
+        dtype="i",
+    )
+
     passed_eval_dataset = hdf5_file.create_dataset(
         "/passed_eval", shape=(max_num_datapoints,), dtype="f"
     )
@@ -368,7 +441,12 @@ def create_grid_dataset(
         "/object_scale", shape=(max_num_datapoints,), dtype="f"
     )
     object_state_dataset = hdf5_file.create_dataset(
-        "/object_state", shape=(max_num_datapoints, 13,), dtype="f"
+        "/object_state",
+        shape=(
+            max_num_datapoints,
+            13,
+        ),
+        dtype="f",
     )
     grasp_idx_dataset = hdf5_file.create_dataset(
         "/grasp_idx", shape=(max_num_datapoints,), dtype="i"
@@ -390,6 +468,8 @@ def create_grid_dataset(
 
     return (
         nerf_densities_dataset,
+        nerf_densities_global_dataset,
+        nerf_densities_global_idx_dataset,
         passed_eval_dataset,
         passed_simulation_dataset,
         passed_penetration_threshold_dataset,
@@ -464,7 +544,12 @@ def create_depth_image_dataset(
         "/object_scale", shape=(max_num_datapoints,), dtype="f"
     )
     object_state_dataset = hdf5_file.create_dataset(
-        "/object_state", shape=(max_num_datapoints, 13,), dtype="f"
+        "/object_state",
+        shape=(
+            max_num_datapoints,
+            13,
+        ),
+        dtype="f",
     )
     grasp_idx_dataset = hdf5_file.create_dataset(
         "/grasp_idx", shape=(max_num_datapoints,), dtype="i"
@@ -581,15 +666,23 @@ def get_depth_and_uncertainty_images(
 
 
 @torch.no_grad()
-@localscope.mfc(allowed=["tqdm"])
+@localscope.mfc(
+    allowed=[
+        "tqdm",
+        "NERF_DENSITIES_GLOBAL_NUM_X",
+        "NERF_DENSITIES_GLOBAL_NUM_Y",
+        "NERF_DENSITIES_GLOBAL_NUM_Z",
+    ]
+)
 def get_nerf_densities(
     loop_timer: LoopTimer,
     cfg: BaseNerfDataConfig,
     grasp_frame_transforms: pp.LieTensor,
     ray_origins_finger_frame: torch.Tensor,
     nerf_config: pathlib.Path,
-    compute_query_points: bool = True,
-) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
+    X_N_Oy: np.ndarray,
+    compute_query_points: bool = True,  # Set to False for maximum performance
+) -> Tuple[torch.Tensor, Optional[torch.Tensor], np.ndarray, np.ndarray]:
     assert cfg.fingertip_config is not None
 
     # Shape check grasp_frame_transforms
@@ -612,11 +705,37 @@ def get_nerf_densities(
     #       whereas loading nerf_model or nerf_field directly causes GPU memory leak
     nerf_pipeline = load_nerf_pipeline(nerf_config)
 
+    # Prepare transforms
+    # grasp_frame_transforms are in Oy frame
+    # Need to convert to NeRF frame N
+    T_Oy_Fi = grasp_frame_transforms
+    assert T_Oy_Fi.lshape == (batch_size, cfg.fingertip_config.n_fingers)
+
+    assert X_N_Oy.shape == (
+        4,
+        4,
+    )
+    X_N_Oy_repeated = (
+        torch.from_numpy(X_N_Oy)
+        .float()
+        .unsqueeze(dim=0)
+        .repeat_interleave(batch_size * cfg.fingertip_config.n_fingers, dim=0)
+        .reshape(batch_size, cfg.fingertip_config.n_fingers, 4, 4)
+    )
+
+    T_N_Oy = pp.from_matrix(
+        X_N_Oy_repeated,
+        pp.SE3_type,
+    ).to(T_Oy_Fi.device)
+
+    # Transform grasp_frame_transforms to nerf frame
+    T_N_Fi = T_N_Oy @ T_Oy_Fi
+
     # Transform query points
     with loop_timer.add_section_timer("get_ray_samples"):
         ray_samples = get_ray_samples(
             ray_origins_finger_frame,
-            grasp_frame_transforms,
+            T_N_Fi,
             cfg.fingertip_config,
         )
 
@@ -661,7 +780,7 @@ def get_nerf_densities(
 
     with loop_timer.add_section_timer("frustums.get_positions"):
         if compute_query_points:
-            query_points = ray_samples.frustums.get_positions().reshape(
+            query_points_N = ray_samples.frustums.get_positions().reshape(
                 batch_size,
                 cfg.fingertip_config.n_fingers,
                 cfg.fingertip_config.num_pts_x,
@@ -670,9 +789,32 @@ def get_nerf_densities(
                 3,
             )
         else:
-            query_points = None
+            query_points_N = None
 
-    return nerf_densities, query_points
+    with loop_timer.add_section_timer("get_densities_in_grid"):
+        lb_N = transform_point(T=X_N_Oy, p=lb_Oy)
+        ub_N = transform_point(T=X_N_Oy, p=ub_Oy)
+        nerf_densities_global, query_points_global_N = get_densities_in_grid(
+            field=nerf_pipeline.model.field,
+            lb=lb_N,
+            ub=ub_N,
+            num_pts_x=NERF_DENSITIES_GLOBAL_NUM_X,
+            num_pts_y=NERF_DENSITIES_GLOBAL_NUM_Y,
+            num_pts_z=NERF_DENSITIES_GLOBAL_NUM_Z,
+        )
+        assert nerf_densities_global.shape == (
+            NERF_DENSITIES_GLOBAL_NUM_X,
+            NERF_DENSITIES_GLOBAL_NUM_Y,
+            NERF_DENSITIES_GLOBAL_NUM_Z,
+        )
+        assert query_points_global_N.shape == (
+            NERF_DENSITIES_GLOBAL_NUM_X,
+            NERF_DENSITIES_GLOBAL_NUM_Y,
+            NERF_DENSITIES_GLOBAL_NUM_Z,
+            3,
+        )
+
+    return nerf_densities, query_points_N, nerf_densities_global, query_points_global_N
 
 
 with h5py.File(cfg.output_filepath, "w") as hdf5_file:
@@ -681,6 +823,8 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
     if isinstance(cfg, GridNerfDataConfig):
         (
             nerf_densities_dataset,
+            nerf_densities_global_dataset,
+            nerf_densities_global_idx_dataset,
             passed_eval_dataset,
             passed_simulation_dataset,
             passed_penetration_threshold_dataset,
@@ -691,7 +835,9 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
             grasp_idx_dataset,
             grasp_transforms_dataset,
             grasp_configs_dataset,
-        ) = create_grid_dataset(cfg, hdf5_file, max_num_datapoints)
+        ) = create_grid_dataset(
+            cfg, hdf5_file, max_num_datapoints, len(evaled_grasp_config_dict_filepaths)
+        )
     elif isinstance(cfg, DepthImageNerfDataConfig):
         (
             depth_images_dataset,
@@ -723,15 +869,16 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
     # Iterate through all
     loop_timer = LoopTimer()
     pbar = tqdm(
-        evaled_grasp_config_dict_filepaths,
+        enumerate(evaled_grasp_config_dict_filepaths),
         dynamic_ncols=True,
+        total=len(evaled_grasp_config_dict_filepaths),
     )
-    for evaled_grasp_config_dict_filepath in pbar:
+    for object_i, evaled_grasp_config_dict_filepath in pbar:
         # HACK: weird fragmentation issues slightly resolved by emptying cache
         torch.cuda.empty_cache()
 
         # HACK: debugging memory leaks
-        print(torch.cuda.memory_summary())
+        # print(torch.cuda.memory_summary())
 
         pbar.set_description(f"Processing {evaled_grasp_config_dict_filepath}")
         try:
@@ -756,6 +903,21 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                 evaled_grasp_config_dict: Dict[str, Any] = np.load(
                     evaled_grasp_config_dict_filepath, allow_pickle=True
                 ).item()
+
+            with loop_timer.add_section_timer("load mesh"):
+                mesh_path = (
+                    pathlib.Path(
+                        "/juno/u/tylerlum/github_repos/DexGraspNet/data/rotated_meshdata_v2"
+                    )
+                    / object_code
+                    / "coacd"
+                    / "decomposed.obj"
+                )
+                assert mesh_path.exists(), f"mesh_path {mesh_path} does not exist"
+                mesh_Oy = trimesh.load(mesh_path, force="mesh")
+                mesh_Oy.apply_transform(
+                    trimesh.transformations.scale_matrix(object_scale)
+                )
 
             # Extract useful parts of grasp data
             grasp_configs = AllegroGraspConfig.from_grasp_config_dict(
@@ -804,21 +966,25 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                     f"batch_size = {grasp_configs.batch_size}, cfg.max_num_data_points_per_file = {cfg.max_num_data_points_per_file}"
                 )
 
-                grasp_configs = grasp_configs[:cfg.max_num_data_points_per_file]
+                grasp_configs = grasp_configs[: cfg.max_num_data_points_per_file]
 
-                passed_evals = passed_evals[:cfg.max_num_data_points_per_file]
-                passed_simulations = passed_simulations[:cfg.max_num_data_points_per_file]
-                passed_penetration_thresholds = passed_penetration_thresholds[
-                    :cfg.max_num_data_points_per_file
+                passed_evals = passed_evals[: cfg.max_num_data_points_per_file]
+                passed_simulations = passed_simulations[
+                    : cfg.max_num_data_points_per_file
                 ]
-                object_state = object_state[:cfg.max_num_data_points_per_file]
+                passed_penetration_thresholds = passed_penetration_thresholds[
+                    : cfg.max_num_data_points_per_file
+                ]
+                object_state = object_state[: cfg.max_num_data_points_per_file]
 
             grasp_frame_transforms = grasp_configs.grasp_frame_transforms
             grasp_config_tensors = grasp_configs.as_tensor().detach().cpu().numpy()
 
             assert_equals(passed_evals.shape, (grasp_configs.batch_size,))
             assert_equals(passed_simulations.shape, (grasp_configs.batch_size,))
-            assert_equals(passed_penetration_thresholds.shape, (grasp_configs.batch_size,))
+            assert_equals(
+                passed_penetration_thresholds.shape, (grasp_configs.batch_size,)
+            )
             assert_equals(
                 grasp_frame_transforms.lshape,
                 (
@@ -843,14 +1009,39 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
             object_state = object_state[:, 0]
 
             if isinstance(cfg, GridNerfDataConfig):
+                N_FRAME_ORIGIN = "table"
+                if N_FRAME_ORIGIN == "table":
+                    # N frame has origin at surface of table. Object is dropped onto table with x=0, y>0, z=0
+                    # It settles on the table, assume x=z=0, y>0. Can use the object's bound and scale to compute X_N_Oy
+                    bounds = mesh_Oy.bounds
+                    assert bounds.shape == (2, 3)
+                    min_y = bounds[0, 1]  # min_y is bottom of the object in Oy
+                    X_N_Oy = np.eye(4)
+                    X_N_Oy[1, 3] = (
+                        -min_y
+                    )  # Eg. min_y=-0.1, then this means that the object is 0.1m above the table
+                elif N_FRAME_ORIGIN == "object":
+                    X_N_Oy = np.eye(4)
+                else:
+                    raise ValueError(f"Unknown N_FRAME_ORIGIN {N_FRAME_ORIGIN}")
+                assert np.allclose(X_N_Oy[:3, :3], np.eye(3)), f"X_N_Oy = {X_N_Oy}"
+                mesh_N = mesh_Oy.copy()
+                mesh_N.apply_transform(X_N_Oy)
+
                 # Process batch of grasp data.
-                nerf_densities, query_points = get_nerf_densities(
+                (
+                    nerf_densities,
+                    query_points_N,
+                    nerf_densities_global,
+                    query_points_global_N,
+                ) = get_nerf_densities(
                     loop_timer=loop_timer,
                     cfg=cfg,
                     grasp_frame_transforms=grasp_frame_transforms,
                     ray_origins_finger_frame=ray_origins_finger_frame,
                     nerf_config=nerf_config,
-                    compute_query_points=cfg.plot_only_one,
+                    X_N_Oy=X_N_Oy,
+                    compute_query_points=cfg.plot_only_one,  # Turn off if not plotting to maximize perf
                 )
                 if nerf_densities.isnan().any():
                     print("\n" + "-" * 80)
@@ -899,9 +1090,9 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                 current_idx += grasp_configs.batch_size
                 passed_eval_dataset[prev_idx:current_idx] = passed_evals
                 passed_simulation_dataset[prev_idx:current_idx] = passed_simulations
-                passed_penetration_threshold_dataset[
-                    prev_idx:current_idx
-                ] = passed_penetration_thresholds
+                passed_penetration_threshold_dataset[prev_idx:current_idx] = (
+                    passed_penetration_thresholds
+                )
                 nerf_config_dataset[prev_idx:current_idx] = [str(nerf_config)] * (
                     current_idx - prev_idx
                 )
@@ -922,6 +1113,9 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
                         nerf_densities.detach().cpu().numpy()
                     )
                     del nerf_densities
+                    nerf_densities_global_dataset[object_i] = nerf_densities_global
+                    del nerf_densities_global
+                    nerf_densities_global_idx_dataset[prev_idx:current_idx] = object_i
 
                 if isinstance(cfg, DepthImageNerfDataConfig):
                     depth_images_dataset[prev_idx:current_idx] = (
@@ -939,7 +1133,7 @@ with h5py.File(cfg.output_filepath, "w") as hdf5_file:
 
             # HACK: debugging memory leaks
             print("End of loop")
-            print(torch.cuda.memory_summary())
+            # print(torch.cuda.memory_summary())
         except Exception as e:
             print("\n" + "-" * 80)
             print(f"WARNING: Failed to process {evaled_grasp_config_dict_filepath}")
@@ -965,20 +1159,15 @@ delta = (
     cfg.fingertip_config.grasp_depth_mm / 1000 / (cfg.fingertip_config.num_pts_z - 1)
 )
 
-mesh_path = cfg.dexgraspnet_meshdata_root / object_code / "coacd" / "decomposed.obj"
-assert mesh_path.exists(), f"mesh_path {mesh_path} does not exist"
-mesh = trimesh.load(mesh_path, force="mesh")
-mesh.apply_transform(trimesh.transformations.scale_matrix(object_scale))
-
 if "nerf_densities" in globals():
     nerf_alphas = [
         1 - np.exp(-delta * dd)
         for dd in nerf_densities[cfg.grasp_visualize_index].detach().cpu().numpy()
     ]
     fig = plot_mesh_and_query_points(
-        mesh=mesh,
+        mesh=mesh_N,
         query_points_list=[
-            qq.reshape(-1, 3) for qq in query_points[cfg.grasp_visualize_index]
+            qq.reshape(-1, 3) for qq in query_points_N[cfg.grasp_visualize_index]
         ],
         query_points_colors_list=[x.reshape(-1) for x in nerf_alphas],
         num_fingers=cfg.fingertip_config.n_fingers,
@@ -987,7 +1176,7 @@ if "nerf_densities" in globals():
     fig.show()
 
 fig2 = plot_mesh_and_transforms(
-    mesh=mesh,
+    mesh=mesh_Oy,
     transforms=[
         grasp_frame_transforms[i] for i in range(cfg.fingertip_config.n_fingers)
     ],
@@ -997,42 +1186,18 @@ fig2 = plot_mesh_and_transforms(
 fig2.show()
 
 if cfg.plot_all_high_density_points:
-    PLOT_NUM_PTS_X, PLOT_NUM_PTS_Y, PLOT_NUM_PTS_Z = 100, 100, 100
-    ray_samples_in_mesh_region = get_ray_samples_in_mesh_region(
-        mesh=mesh,
-        num_pts_x=PLOT_NUM_PTS_X,
-        num_pts_y=PLOT_NUM_PTS_Y,
-        num_pts_z=PLOT_NUM_PTS_Z,
-    )
-    query_points_in_mesh_region_isaac_frame = np.copy(
-        ray_samples_in_mesh_region.frustums.get_positions()
-        .cpu()
-        .numpy()
-        .reshape(
-            PLOT_NUM_PTS_X,
-            PLOT_NUM_PTS_Y,
-            PLOT_NUM_PTS_Z,
-            3,
-        )
-    )
-    nerf_densities_in_mesh_region = (
-        nerf_pipeline.model.field.get_density(ray_samples_in_mesh_region.to("cuda"))[0]
-        .detach()
-        .cpu()
-        .numpy()
-        .reshape(
-            PLOT_NUM_PTS_X,
-            PLOT_NUM_PTS_Y,
-            PLOT_NUM_PTS_Z,
-        )
+    nerf_alphas_global = 1 - np.exp(
+        -delta * nerf_densities_global.detach().cpu().numpy()
     )
 
-    nerf_alphas_in_mesh_region = 1 - np.exp(-delta * nerf_densities_in_mesh_region)
-
+    X_Oy_N = np.linalg.inv(X_N_Oy)
+    query_points_global_Oy = transform_points(
+        T=X_Oy_N, points=query_points_global_N.reshape(-1, 3)
+    ).reshape(*query_points_global_N.shape)
     fig3 = plot_mesh_and_high_density_points(
-        mesh=mesh,
-        query_points=query_points_in_mesh_region_isaac_frame.reshape(-1, 3),
-        query_points_colors=nerf_alphas_in_mesh_region.reshape(-1),
+        mesh=mesh_Oy,
+        query_points=query_points_global_Oy.reshape(-1, 3),
+        query_points_colors=nerf_alphas_global[cfg.grasp_visualize_index].reshape(-1),
         density_threshold=0.01,
     )
     fig3.show()

@@ -6,6 +6,11 @@ import h5py
 import pypose as pp
 from nerf_grasping.config.fingertip_config import BaseFingertipConfig
 from nerf_grasping.config.camera_config import CameraConfig
+from nerf_grasping.dataset.nerf_densities_global_config import (
+    NERF_DENSITIES_GLOBAL_NUM_X,
+    NERF_DENSITIES_GLOBAL_NUM_Y,
+    NERF_DENSITIES_GLOBAL_NUM_Z,
+)
 
 
 # Make atol and rtol larger than default to avoid errors due to floating point precision.
@@ -178,7 +183,7 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
             else self.nerf_densities[idx]
         )
         nerf_densities_global_idx = (
-            torch.from_numpy(self.hdf5_file["/nerf_densities_global_idx"][idx]).long()
+            self.hdf5_file["/nerf_densities_global_idx"][idx]
             if self.nerf_densities_global_idx is None
             and "nerf_densities_global_idx" in self.hdf5_file
             else (
@@ -268,7 +273,7 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
         if nerf_densities_global is not None:
             assert_equals(
                 nerf_densities_global.shape,
-                (self.NUM_PTS_X, self.NUM_PTS_Y, self.NUM_PTS_Z),
+                (NERF_DENSITIES_GLOBAL_NUM_X, NERF_DENSITIES_GLOBAL_NUM_Y, NERF_DENSITIES_GLOBAL_NUM_Z),
             )
         NUM_CLASSES = 2
         assert_equals(passed_simulation.shape, (NUM_CLASSES,))
@@ -279,13 +284,8 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
         assert_equals(object_scale.shape, ())
         assert_equals(object_state.shape, (13,))
 
-        # BRITTLE: hardcoding buffer, exclude table thickness, so this is wrt table surface
-        BUFFER = 1.2
-        OBJ_MAX_EXTENT_FROM_ORIGIN = 1.0 * object_scale * BUFFER
-        y_offset = OBJ_MAX_EXTENT_FROM_ORIGIN
-        object_y = object_state[1]
-        object_y_wrt_table = y_offset - object_y
-        assert object_y_wrt_table >= 0
+        # TODO: Populate this better using X_N_Oy
+        object_y_wrt_table = -2
 
         return (
             nerf_densities,

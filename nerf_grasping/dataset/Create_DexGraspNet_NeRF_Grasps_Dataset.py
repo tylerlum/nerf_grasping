@@ -672,6 +672,8 @@ def get_depth_and_uncertainty_images(
         "NERF_DENSITIES_GLOBAL_NUM_X",
         "NERF_DENSITIES_GLOBAL_NUM_Y",
         "NERF_DENSITIES_GLOBAL_NUM_Z",
+        "lb_Oy",
+        "ub_Oy",
     ]
 )
 def get_nerf_densities(
@@ -792,8 +794,8 @@ def get_nerf_densities(
             query_points_N = None
 
     with loop_timer.add_section_timer("get_densities_in_grid"):
-        lb_N = transform_point(T=X_N_Oy, p=lb_Oy)
-        ub_N = transform_point(T=X_N_Oy, p=ub_Oy)
+        lb_N = transform_point(T=X_N_Oy, point=lb_Oy)
+        ub_N = transform_point(T=X_N_Oy, point=ub_Oy)
         nerf_densities_global, query_points_global_N = get_densities_in_grid(
             field=nerf_pipeline.model.field,
             lb=lb_N,

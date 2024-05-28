@@ -345,6 +345,16 @@ class CNN_3D_MLP_Model(nn.Module):
             ),
         )
 
+        x = torch.cat([x, global_x], dim=1)
+        assert_equals(
+            x.shape,
+            (
+                batch_size,
+                self.n_fingers * self.conv_output_dim
+                + self.global_mlp_hidden_layers[-1],
+            ),
+        )
+
         all_logits = self.mlp(x)
         assert_equals(all_logits.shape, (batch_size, self.n_classes * self.n_tasks))
         all_logits = all_logits.reshape(batch_size, self.n_tasks, self.n_classes)

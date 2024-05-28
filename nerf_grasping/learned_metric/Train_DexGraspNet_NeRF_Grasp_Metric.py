@@ -507,7 +507,6 @@ def custom_collate_fn(
         grasp_configs,
         object_y_wrt_table,
     ) = batch
-    breakpoint()
 
     if debug_shuffle_labels:
         shuffle_inds = torch.randperm(passed_simulation.shape[0])

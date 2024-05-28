@@ -5,6 +5,8 @@ import nerf_grasping
 import pathlib
 from nerf_grasping.models.dexgraspnet_models import (
     CNN_3D_Model,
+    CNN_3D_CNN_3D_Model,
+    CNN_3D_MLP_Model,
     CNN_2D_1D_Model,
     Simple_CNN_2D_1D_Model,
     Simple_CNN_1D_2D_Model,
@@ -118,7 +120,6 @@ class CNN_3D_XYZY_Classifier(Classifier):
         return all_logits
 
 
-
 class CNN_3D_XYZXYZY_Classifier(Classifier):
     def __init__(
         self,
@@ -193,6 +194,70 @@ class CNN_3D_XYZ_Classifier(Classifier):
         # Run model
         all_logits = self.model.get_all_logits(
             batch_data_input.nerf_alphas_with_augmented_coords
+        )
+        return all_logits
+
+
+class CNN_3D_XYZ_Global_CNN_Classifier(Classifier):
+    def __init__(
+        self,
+        input_shape: Iterable[int],
+        conv_channels: Iterable[int],
+        mlp_hidden_layers: Iterable[int],
+        global_input_shape: Iterable[int],
+        global_conv_channels: Iterable[int],
+        n_fingers: int,
+        n_tasks: int,
+    ) -> None:
+        super().__init__()
+        self.model = CNN_3D_CNN_3D_Model(
+            input_shape=input_shape,
+            conv_channels=conv_channels,
+            mlp_hidden_layers=mlp_hidden_layers,
+            global_input_shape=global_input_shape,
+            global_conv_channels=global_conv_channels,
+            n_fingers=n_fingers,
+            n_tasks=n_tasks,
+        )
+
+    def forward(self, batch_data_input: BatchDataInput) -> torch.Tensor:
+        # Run model
+        all_logits = self.model.get_all_logits(
+            batch_data_input.nerf_alphas_with_augmented_coords,
+            batch_data_input.global_nerf_alphas_with_augmented_coords,
+        )
+        return all_logits
+
+
+class CNN_3D_XYZ_Global_MLP_Classifier(Classifier):
+    def __init__(
+        self,
+        input_shape: Iterable[int],
+        conv_channels: Iterable[int],
+        mlp_hidden_layers: Iterable[int],
+        global_input_shape: Iterable[int],
+        global_mlp_hidden_layers: Iterable[int],
+        n_fingers: int,
+        n_tasks: int,
+    ) -> None:
+        super().__init__()
+        self.model = CNN_3D_MLP_Model(
+            input_shape=input_shape,
+            conv_channels=conv_channels,
+            mlp_hidden_layers=mlp_hidden_layers,
+            global_input_shape=global_input_shape,
+            global_mlp_hidden_layers=global_mlp_hidden_layers,
+            n_fingers=n_fingers,
+            n_tasks=n_tasks,
+        )
+
+    def forward(self, batch_data_input: BatchDataInput) -> torch.Tensor:
+        # Run model
+        all_logits = self.model.get_all_logits(
+            batch_data_input.nerf_alphas_with_augmented_coords,
+            batch_data_input.global_nerf_alphas.reshape(
+                batch_data_input.batch_size, -1
+            ),
         )
         return all_logits
 

@@ -53,6 +53,11 @@ from nerf_grasping.nerf_utils import (
     get_densities_in_grid,
     render,
 )
+from nerf_grasping.dataset.nerf_densities_global_config import (
+    NERF_DENSITIES_GLOBAL_NUM_X,
+    NERF_DENSITIES_GLOBAL_NUM_Y,
+    NERF_DENSITIES_GLOBAL_NUM_Z,
+)
 from nerf_grasping.config.base import CONFIG_DATETIME_STR
 from functools import partial
 from nerf_grasping.config.nerfdata_config import (
@@ -97,13 +102,6 @@ tqdm = partial(std_tqdm, dynamic_ncols=True)
 
 
 # %%
-(
-    NERF_DENSITIES_GLOBAL_NUM_X,
-    NERF_DENSITIES_GLOBAL_NUM_Y,
-    NERF_DENSITIES_GLOBAL_NUM_Z,
-) = (40, 40, 40)
-
-
 @localscope.mfc
 def nerf_config_to_object_code_and_scale_str(nerf_config: pathlib.Path) -> str:
     # Input: PosixPath('2023-08-25_nerfcheckpoints/sem-Gun-4745991e7c0c7966a93f1ea6ebdeec6f_0_10/nerfacto/2023-08-25_132225/config.yml')

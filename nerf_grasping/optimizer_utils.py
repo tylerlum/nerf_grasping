@@ -704,17 +704,22 @@ class GraspMetric(torch.nn.Module):
         )
 
         # Query NeRF in grid
-        # TODO: Make it check if it's needed to save time
-        lb_N = transform_point(T=self.X_N_Oy, p=lb_Oy)
-        ub_N = transform_point(T=self.X_N_Oy, p=ub_Oy)
-        nerf_densities_global, query_points_global_N = get_densities_in_grid(
-            field=self.nerf_field,
-            lb=lb_N,
-            ub=ub_N,
-            num_pts_x=NERF_DENSITIES_GLOBAL_NUM_X,
-            num_pts_y=NERF_DENSITIES_GLOBAL_NUM_Y,
-            num_pts_z=NERF_DENSITIES_GLOBAL_NUM_Z,
-        )
+        # BRITTLE: Require that the classifier_model has the word "Global" in it if needed
+        need_to_query_global = "global" in self.classifier_model.__class__.__name__.lower()
+        if need_to_query_global:
+            lb_N = transform_point(T=self.X_N_Oy, p=lb_Oy)
+            ub_N = transform_point(T=self.X_N_Oy, p=ub_Oy)
+            nerf_densities_global, query_points_global_N = get_densities_in_grid(
+                field=self.nerf_field,
+                lb=lb_N,
+                ub=ub_N,
+                num_pts_x=NERF_DENSITIES_GLOBAL_NUM_X,
+                num_pts_y=NERF_DENSITIES_GLOBAL_NUM_Y,
+                num_pts_z=NERF_DENSITIES_GLOBAL_NUM_Z,
+            )
+            nerf_densities_global = torch.from_numpy(nerf_densities_global).float()
+        else:
+            nerf_densities_global = None
 
         # HACK: NOT SURE HOW TO FILL THIS
         # raise NotImplementedError("Need to implement this object scale")
@@ -723,7 +728,7 @@ class GraspMetric(torch.nn.Module):
             grasp_transforms=grasp_config.grasp_frame_transforms,
             fingertip_config=self.fingertip_config,
             grasp_configs=grasp_config.as_tensor(),
-            nerf_densities_global=nerf_densities_global,  # ? NEED TO PASS THIS IN?
+            nerf_densities_global=nerf_densities_global if nerf_densities_global is not None else None,
             object_y_wrt_table=None,  # ? NEED TO PASS THIS IN?
         ).to(grasp_config.hand_config.wrist_pose.device)
 

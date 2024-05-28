@@ -1,5 +1,5 @@
 from __future__ import annotations
-from nerf_grasping.nerf_utils import (
+from nerf_grasping.other_utils import (
     get_points_in_grid,
 )
 from nerf_grasping.dataset.nerf_densities_global_config import (

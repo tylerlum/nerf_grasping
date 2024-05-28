@@ -35,7 +35,7 @@ from nerf_grasping.learned_metric.DexGraspNet_batch_data import (
     DepthImageBatchDataInput,
     BatchDataOutput,
 )
-from nerf_grasping.dataset.DexGraspNet_NeRF_Grasps_utils import (
+from nerf_grasping.dataset.DexGraspNet_NeRF_Grasps_utils_v2 import (
     get_object_code,
     get_object_scale,
     plot_mesh_and_query_points,

@@ -534,6 +534,7 @@ def custom_collate_fn(
             fingertip_config=fingertip_config,
             nerf_density_threshold_value=nerf_density_threshold_value,
             grasp_configs=grasp_configs,
+            nerf_densities_global=None,  # TODO: Implement this
             object_y_wrt_table=object_y_wrt_table,
         ),
         output=BatchDataOutput(

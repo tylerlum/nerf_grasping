@@ -700,6 +700,7 @@ class GraspMetric(torch.nn.Module):
             grasp_transforms=grasp_config.grasp_frame_transforms,
             fingertip_config=self.fingertip_config,
             grasp_configs=grasp_config.as_tensor(),
+            nerf_densities_global=None,  # ? NEED TO PASS THIS IN?
             object_y_wrt_table=None,  # ? NEED TO PASS THIS IN?
         ).to(grasp_config.hand_config.wrist_pose.device)
 

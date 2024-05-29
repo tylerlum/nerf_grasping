@@ -21,13 +21,13 @@ def main() -> None:
     args = tyro.cli(Args)
     assert args.only_objects_in_this_path.exists(), f"{args.only_objects_in_this_path} does not exist"
 
-    object_code_and_scale_strs = [p.name for p in args.only_objects_in_this_path.iterdir()]
+    object_code_and_scale_strs = sorted([p.name for p in args.only_objects_in_this_path.iterdir()])
     assert len(object_code_and_scale_strs) > 0, f"{args.only_objects_in_this_path} is empty"
 
     for object_code_and_scale_str in object_code_and_scale_strs:
         idx = object_code_and_scale_str.index("_0_")
         object_code = object_code_and_scale_str[:idx]
-        object_scale = float(object_code_and_scale_str[idx + 3 :].replace("_", "."))
+        object_scale = float(object_code_and_scale_str[idx + 1 :].replace("_", "."))
 
         obj_filepath = args.meshdata_folder / object_code / "coacd" / "decomposed.obj"
         assert obj_filepath.exists(), f"{obj_filepath} does not exist"

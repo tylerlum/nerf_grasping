@@ -63,6 +63,14 @@ class FroggerConfig:
         )
 
     @property
+    def X_O_Oz(self) -> np.ndarray:
+        return (
+            np.eye(4)
+            if self.obj_is_z_up
+            else trimesh.transformations.rotation_matrix(-np.pi / 2, [1, 0, 0])
+        )
+
+    @property
     def object_code_and_scale_str(self) -> str:
         return f"{self.object_code}_{self.object_scale:.4f}".replace(".", "_")
 
@@ -146,8 +154,24 @@ def compute_frogger_grasps_v2(
     )
     nerf_to_mesh_Oy_folder.mkdir(parents=True, exist_ok=True)
     mesh_Oy.export(nerf_to_mesh_Oy_folder / "decomposed.obj")
-    mesh_centroid_Oy = transform_point(X_Oy_N, centroid_N)
-    nerf_centroid_Oy = transform_point(X_Oy_N, centroid_N)
+
+    X_W_O = X_W_N @ X_N_O
+    X_O_W = np.linalg.inv(X_W_O)
+    mesh_O = trimesh.Trimesh(vertices=mesh_W.vertices, faces=mesh_W.faces)
+    mesh_O.apply_transform(X_O_W)
+
+    # O is a bit ambiguous, it can be Oy or Oz
+    X_O_Oz = cfg.X_O_Oz
+    X_Oz_O = np.linalg.inv(X_O_Oz)
+
+    X_W_Oz = X_W_O @ X_O_Oz
+    mesh_Oz = trimesh.Trimesh(vertices=mesh_O.vertices, faces=mesh_O.faces)
+    mesh_Oz.apply_transform(X_Oz_O)
+
+    # N is a bit ambiguous, it can be Ny or Nz
+    X_N_Ny = X_O_Oy
+    X_N_Nz = X_O_Oz
+    X_W_Nz = X_W_N @ np.linalg.inv(X_N_Nz)
 
     if cfg.visualize:
         # Visualize N
@@ -189,56 +213,34 @@ def compute_frogger_grasps_v2(
         add_transform_matrix_traces(fig=fig_N, transform_matrix=np.eye(4), length=0.1)
         fig_N.show()
 
-        # Visualize Oy
-        fig_Oy = go.Figure()
-        fig_Oy.add_trace(
+        # Visualize Oz
+        fig_Oz = go.Figure()
+        fig_Oz.add_trace(
             go.Mesh3d(
-                x=mesh_Oy.vertices[:, 0],
-                y=mesh_Oy.vertices[:, 1],
-                z=mesh_Oy.vertices[:, 2],
-                i=mesh_Oy.faces[:, 0],
-                j=mesh_Oy.faces[:, 1],
-                k=mesh_Oy.faces[:, 2],
+                x=mesh_Oz.vertices[:, 0],
+                y=mesh_Oz.vertices[:, 1],
+                z=mesh_Oz.vertices[:, 2],
+                i=mesh_Oz.faces[:, 0],
+                j=mesh_Oz.faces[:, 1],
+                k=mesh_Oz.faces[:, 2],
                 color="lightblue",
                 name="Mesh",
                 opacity=0.5,
             )
         )
-        fig_Oy.add_trace(
-            go.Scatter3d(
-                x=[mesh_centroid_Oy[0]],
-                y=[mesh_centroid_Oy[1]],
-                z=[mesh_centroid_Oy[2]],
-                mode="markers",
-                marker=dict(size=10, color="red"),
-                name="Mesh centroid",
-            )
-        )
-        fig_Oy.add_trace(
-            go.Scatter3d(
-                x=[nerf_centroid_Oy[0]],
-                y=[nerf_centroid_Oy[1]],
-                z=[nerf_centroid_Oy[2]],
-                mode="markers",
-                marker=dict(size=10, color="green"),
-                name="NeRF centroid",
-            )
-        )
-        fig_Oy.update_layout(title="Mesh in object y-up frame")
-        add_transform_matrix_traces(fig=fig_Oy, transform_matrix=np.eye(4), length=0.1)
-        fig_Oy.show()
+        fig_Oz.update_layout(title="Mesh in object z-up frame")
+        add_transform_matrix_traces(fig=fig_Oz, transform_matrix=np.eye(4), length=0.1)
+        fig_Oz.show()
 
     print("\n" + "=" * 80)
     print("Step 5: Run frogger")
     print("=" * 80 + "\n")
 
-    X_W_O = X_W_N @ X_N_O
-    X_O_W = np.linalg.inv(X_W_O)
-    mesh_O = trimesh.Trimesh(vertices=mesh_W.vertices, faces=mesh_W.faces)
-    mesh_O.apply_transform(X_O_W)
-
     from nerf_grasping import frogger_utils
 
+    # Careful: We must use Oz for frogger
+    # The mesh should be in O
+    # The X_W_O should be X_W_Oz so it is oriented upwards
     frogger_args = frogger_utils.FroggerArgs(
         obj_filepath=nerf_to_mesh_folder / "decomposed.obj",
         obj_scale=cfg.object_scale,
@@ -251,8 +253,8 @@ def compute_frogger_grasps_v2(
     )
     frogger_utils.frogger_to_grasp_config_dict(
         args=frogger_args,
-        mesh=mesh_O,
-        X_W_O=X_W_O,
+        mesh=mesh_N,
+        X_W_O=X_W_Nz,
         custom_coll_callback=custom_coll_callback,
         max_time=max_time,
     )

@@ -1287,7 +1287,7 @@ def load_from_file(filepath: pathlib.Path) -> dict:
 class CommandlineArgs(PipelineConfig):
     nerfdata_path: Optional[pathlib.Path] = None
     nerfcheckpoint_path: Optional[pathlib.Path] = None
-    max_num_iterations: int = 2000
+    max_num_iterations: int = 400
 
     def __post_init__(self) -> None:
         if self.nerfdata_path is not None and self.nerfcheckpoint_path is None:

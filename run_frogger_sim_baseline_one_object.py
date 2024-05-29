@@ -49,7 +49,7 @@ class FroggerConfig:
         return np.array([self.ub_x, self.ub_y, self.ub_z])
 
     @property
-    def X_W_N(self) -> np.ndarray:
+    def X_W_Nz(self) -> np.ndarray:
         return trimesh.transformations.translation_matrix(
             [self.nerf_frame_offset_x, 0, 0]
         )
@@ -64,6 +64,14 @@ class FroggerConfig:
 
     @property
     def X_O_Oz(self) -> np.ndarray:
+        return (
+            np.eye(4)
+            if self.obj_is_z_up
+            else trimesh.transformations.rotation_matrix(-np.pi / 2, [1, 0, 0])
+        )
+
+    @property
+    def X_N_Nz(self) -> np.ndarray:
         return (
             np.eye(4)
             if self.obj_is_z_up
@@ -92,7 +100,10 @@ def compute_frogger_grasps_v2(
         "W, N, O are z-up frames. Oy is y-up. H has z-up along finger and x-up along palm normal"
     )
     print("X_A_B represents 4x4 transformation matrix of frame B wrt A")
-    X_W_N, X_O_Oy = cfg.X_W_N, cfg.X_O_Oy
+    X_W_Nz, X_O_Oy = cfg.X_W_Nz, cfg.X_O_Oy
+    X_N_Nz = cfg.X_N_Nz
+    X_Nz_N = np.linalg.inv(X_N_Nz)
+    X_W_N = X_W_Nz @ X_Nz_N
     lb_N, ub_N = cfg.lb_N, cfg.ub_N
 
     print("\n" + "=" * 80)
@@ -167,11 +178,6 @@ def compute_frogger_grasps_v2(
     X_W_Oz = X_W_O @ X_O_Oz
     mesh_Oz = trimesh.Trimesh(vertices=mesh_O.vertices, faces=mesh_O.faces)
     mesh_Oz.apply_transform(X_Oz_O)
-
-    # N is a bit ambiguous, it can be Ny or Nz
-    X_N_Ny = X_O_Oy
-    X_N_Nz = X_O_Oz
-    X_W_Nz = X_W_N @ np.linalg.inv(X_N_Nz)
 
     if cfg.visualize:
         # Visualize N
@@ -254,7 +260,7 @@ def compute_frogger_grasps_v2(
     frogger_utils.frogger_to_grasp_config_dict(
         args=frogger_args,
         mesh=mesh_N,
-        X_W_O=X_W_Nz,
+        X_W_O=X_W_N,
         custom_coll_callback=custom_coll_callback,
         max_time=max_time,
     )

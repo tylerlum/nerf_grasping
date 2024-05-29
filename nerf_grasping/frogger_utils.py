@@ -35,6 +35,7 @@ class FroggerArgs:
     )
     visualize: bool = False
     grasp_idx_to_visualize: int = 1
+    max_time: float = 60.0
 
 
 @dataclass
@@ -352,7 +353,6 @@ def frogger_to_grasp_config_dict(
     X_W_O: Optional[np.ndarray] = None,
     mesh: Optional[trimesh.Trimesh] = None,
     custom_coll_callback: Optional[Callable[[RobotModel, str, str], float]] = None,
-    max_time: float = 60.0,
 ) -> dict:
     rc = RobotConstants()
 
@@ -375,7 +375,7 @@ def frogger_to_grasp_config_dict(
         mesh_object=mesh_object,
         num_grasps=args.num_grasps,
         custom_coll_callback=custom_coll_callback,
-        max_time=max_time,
+        max_time=args.max_time,
     )
 
     # Prepare kinematic chain

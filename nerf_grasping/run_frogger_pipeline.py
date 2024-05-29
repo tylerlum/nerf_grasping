@@ -264,13 +264,13 @@ def compute_frogger_grasps(
         output_grasp_config_dicts_folder=cfg.output_folder / "grasp_config_dicts",
         visualize=cfg.visualize,
         grasp_idx_to_visualize=0,
+        max_time=max_time,
     )
     optimized_grasp_config_dict = frogger_utils.frogger_to_grasp_config_dict(
         args=frogger_args,
         mesh=mesh_O,
         X_W_O=X_W_O,
         custom_coll_callback=custom_coll_callback,
-        max_time=max_time,
     )
 
     print("\n" + "=" * 80)

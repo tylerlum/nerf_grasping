@@ -9,6 +9,9 @@ from nerf_grasping.dataset.nerf_densities_global_config import (
     lb_Oy,
     ub_Oy,
 )
+from nerf_grasping.other_utils import (
+    get_points_in_grid,
+)
 import functools
 from dataclasses import dataclass
 import pypose as pp
@@ -339,6 +342,42 @@ class BatchDataInput:
             grasp_transforms,
             self.fingertip_config,
         ).frustums.get_positions()
+
+        finger_width_m = self.fingertip_config.finger_width_mm / 1000
+        finger_height_m = self.fingertip_config.finger_height_mm / 1000
+        grasp_depth_m = self.fingertip_config.grasp_depth_mm / 1000
+        query_point_origins = get_points_in_grid(
+            lb=np.array([-finger_width_m/2, -finger_height_m/2, 0]),
+            ub=np.array([finger_width_m/2, finger_height_m/2, grasp_depth_m]),
+            num_pts_x=self.fingertip_config.num_pts_x,
+            num_pts_y=self.fingertip_config.num_pts_y,
+            num_pts_z=self.fingertip_config.num_pts_z,
+        )
+        assert query_point_origins.shape == (
+            self.fingertip_config.num_pts_x,
+            self.fingertip_config.num_pts_y,
+            self.fingertip_config.num_pts_z,
+            NUM_XYZ,
+        )
+        query_point_origins = torch.from_numpy(query_point_origins).to(
+            device=grasp_transforms.device, dtype=grasp_transforms.dtype
+        )
+        NEW_all_query_points = grasp_transforms.unsqueeze(dim=2) @ query_point_origins.reshape(1, 1, -1, NUM_XYZ)
+        assert NEW_all_query_points.shape == (
+            self.batch_size,
+            self.fingertip_config.n_fingers,
+            self.fingertip_config.num_pts_x * self.fingertip_config.num_pts_y * self.fingertip_config.num_pts_z,
+            NUM_XYZ,
+        )
+        NEW_all_query_points = NEW_all_query_points.reshape(
+            self.batch_size,
+            self.fingertip_config.n_fingers,
+            self.fingertip_config.num_pts_x,
+            self.fingertip_config.num_pts_y,
+            self.fingertip_config.num_pts_z,
+            NUM_XYZ,
+        )
+        breakpoint()
 
         assert all_query_points.shape == (
             self.batch_size,

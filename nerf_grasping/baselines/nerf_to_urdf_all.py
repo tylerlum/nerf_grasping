@@ -39,6 +39,7 @@ def main() -> None:
             [
                 "python nerf_grasping/baselines/nerf_to_urdf.py",
                 f"--nerfcheckpoint-filepath {nerf_config}",
+                f"--nerf-is-z-up {args.nerf_is_z_up}",
                 f"--density-of-0-level-set {args.density_of_0_level_set}",
                 f"--n-pts-each-dim-marching-cubes {args.n_pts_each_dim_marching_cubes}",
                 "--rescale" if args.rescale else "--no-rescale",

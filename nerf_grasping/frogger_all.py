@@ -1,4 +1,5 @@
 from nerf_grasping.frogger_utils import frogger_to_grasp_config_dict, FroggerArgs
+from tqdm import tqdm
 import tyro
 import pathlib
 from dataclasses import dataclass
@@ -24,7 +25,7 @@ def main() -> None:
     object_code_and_scale_strs = sorted([p.name for p in args.only_objects_in_this_path.iterdir()])
     assert len(object_code_and_scale_strs) > 0, f"{args.only_objects_in_this_path} is empty"
 
-    for object_code_and_scale_str in object_code_and_scale_strs:
+    for object_code_and_scale_str in tqdm(object_code_and_scale_strs, desc="Frogger"):
         idx = object_code_and_scale_str.index("_0_")
         object_code = object_code_and_scale_str[:idx]
         object_scale = float(object_code_and_scale_str[idx + 1 :].replace("_", "."))

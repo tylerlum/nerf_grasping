@@ -54,30 +54,47 @@ for point_cloud in tqdm(point_clouds, desc="Extracting points"):
 
 
 # %%
+from scipy.sparse import csr_matrix
+from joblib import Parallel, delayed
+from scipy.sparse.csgraph import connected_components
+
+
 def construct_graph(points, distance_threshold=0.01):
-    graph = nx.Graph()
     kdtree = KDTree(points)
+    rows, cols = [], []
 
     for i, point in enumerate(points):
         neighbors = kdtree.query_ball_point(point, distance_threshold)
         for neighbor in neighbors:
             if neighbor != i:
-                graph.add_edge(i, neighbor)
+                rows.append(i)
+                cols.append(neighbor)
 
-    return graph
+    data = np.ones(len(rows), dtype=np.int8)
+    adjacency_matrix = csr_matrix(
+        (data, (rows, cols)), shape=(len(points), len(points))
+    )
+    return adjacency_matrix
 
 
-def get_largest_connected_component(graph):
-    largest_cc = max(nx.connected_components(graph), key=len)
-    return graph.subgraph(largest_cc).copy()
+def get_largest_connected_component(adjacency_matrix):
+    n_components, labels = connected_components(
+        csgraph=adjacency_matrix, directed=False, return_labels=True
+    )
+    largest_cc_label = np.bincount(labels).argmax()
+    largest_cc_indices = np.where(labels == largest_cc_label)[0]
+    return largest_cc_indices
+
+
+def process_point_cloud(points, distance_threshold=0.01):
+    adjacency_matrix = construct_graph(points, distance_threshold)
+    largest_cc_indices = get_largest_connected_component(adjacency_matrix)
+    return points[largest_cc_indices]
 
 
 all_inlier_points = []
 for points in tqdm(all_points, desc="Constructing graphs"):
-    graph = construct_graph(points)
-    largest_cc_graph = get_largest_connected_component(graph)
-    largest_cc_indices = list(largest_cc_graph.nodes)
-    inlier_points = points[largest_cc_indices]
+    inlier_points = process_point_cloud(points)
     all_inlier_points.append(inlier_points)
 
 # %%

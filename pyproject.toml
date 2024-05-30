@@ -1,39 +1,6 @@
 [build-system]
-requires = [
-    "setuptools>=61.0",
-    "setuptools-scm>=8.0",
-]
+requires = ["setuptools"]
 build-backend = "setuptools.build_meta"
-
-[project]
-name = "nerf_grasping"
-version = "0.0.1"
-description = "Repository for grasping with NeRFs"
-readme = "README.md"
-license = {text="Apache 2.0"}
-requires-python = ">=3.8"
-classifiers = [
-    "Development Status :: 3 - Alpha",
-    "Programming Language :: Python",
-]
-dependencies = [
-    "diffusers",
-    "mujoco",
-    "nerfstudio",
-    "ninja",
-    "numpy",
-    "positional_encodings",
-    "pypose",
-    "pytorch_kinematics",
-    "rich",
-    "torch==2.1.2",
-    "torchinfo",
-    "torchvision==0.16.2",
-    "transforms3d",
-    "tyro",
-    "urdf_parser_py",
-    "wandb",
-]
 
 [tool.black]
 include = '\.pyi?$'
@@ -50,16 +17,3 @@ exclude = '''
   | dist
 )/
 '''
-
-[options]
-dependency_links = [
-    "https://download.pytorch.org/whl/cu118",
-]
-
-[tool.setuptools.packages.find]
-include = ["nerf_grasping*"]
-
-[tool.setuptools.package-data]
-allegro_hand_description = [
-    "allegro_hand_description/*"
-]

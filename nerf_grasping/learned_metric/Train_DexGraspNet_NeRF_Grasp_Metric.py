@@ -498,6 +498,7 @@ def custom_collate_fn(
     batch = torch.utils.data.dataloader.default_collate(batch)
     (
         nerf_densities,
+        nerf_densities_global,
         passed_simulation,
         passed_penetration_threshold,
         passed_eval,
@@ -534,6 +535,7 @@ def custom_collate_fn(
             fingertip_config=fingertip_config,
             nerf_density_threshold_value=nerf_density_threshold_value,
             grasp_configs=grasp_configs,
+            nerf_densities_global=nerf_densities_global,
             object_y_wrt_table=object_y_wrt_table,
         ),
         output=BatchDataOutput(

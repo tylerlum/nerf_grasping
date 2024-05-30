@@ -2,27 +2,38 @@
 
 This project focuses on performing precision grasp synthesis using Neural Radiance Fields (NeRFs).
 
-# Rough Installation Instructions (2024-03-20)
+# Rough Installation Instructions (2024-05-26)
 
 ```
-conda create -n nerf_grasping_env python=3.8
+conda create -n nerf_grasping_env python=3.10
 conda activate nerf_grasping_env
 
 # Install nerf-studio https://docs.nerf.studio/quickstart/installation.html
 python -m pip install --upgrade pip
+pip install torch==2.1.2+cu118 torchvision==0.16.2+cu118 --extra-index-url https://download.pytorch.org/whl/cu118
 conda install -c "nvidia/label/cuda-11.8.0" cuda-toolkit
-pip install git+https://github.com/tylerlum/nerf_grasping.git
 pip install git+https://github.com/NVlabs/tiny-cuda-nn/#subdirectory=bindings/torch
-ns-install-cli
 
-# Install pytorch3d
 mkdir thirdparty
 cd thirdparty
+git clone https://github.com/nerfstudio-project/nerfstudio.git
+cd nerfstudio
+pip install --upgrade pip setuptools
+pip install -e .
+ns-install-cli
+cd ..
+
+# Install pytorch3d
+pip install setuptools==69.5.1  # Might need this https://github.com/aws-neuron/aws-neuron-sdk/issues/893 if you get ImportError: cannot import name 'packaging' from 'pkg_resources' 
 git clone https://github.com/facebookresearch/pytorch3d.git
 cd pytorch3d && pip install -e .
+cd ..
 
-# Install drake
-pip install drake
+# Install frogger
+git clone https://github.com/tylerlum/frogger.git
+cd frogger
+git checkout 2024-04-05_Tyler_Frogger_to_DGN
+pip install -e .
 
 # Install curobo (Library Installation step in https://curobo.org/get_started/1_install_instructions.html#library-installation, but with custom fork)
 sudo apt install git-lfs
@@ -31,6 +42,20 @@ cd curobo
 git lfs pull  # Maybe need to add this (https://github.com/NVlabs/curobo/issues/10)
 pip install -e . --no-build-isolation  # ~20 min
 python3 -m pytest .  # To verify
+cd ..
+cd ..
+
+# Install nerf_grasping
+pip install -e .
+
+# Install other dependencies
+pip install pypose numpy tyro wandb rich pytorch_kinematics mujoco transforms3d torchinfo urdf_parser_py pybullet localscope torchviz
+
+# Install drake
+pip install drake
+
+# Other dependencies for fancy things we haven't used much like transformers and learning rate scheduling
+pip install positional_encodings diffusers
 ```
 
 # How to run at inference time (Albert) (~May 2024)

@@ -1,4 +1,14 @@
 from __future__ import annotations
+from nerf_grasping.nerf_utils import (
+    get_points_in_grid,
+)
+from nerf_grasping.dataset.nerf_densities_global_config import (
+    NERF_DENSITIES_GLOBAL_NUM_X,
+    NERF_DENSITIES_GLOBAL_NUM_Y,
+    NERF_DENSITIES_GLOBAL_NUM_Z,
+    lb_Oy,
+    ub_Oy,
+)
 import functools
 from dataclasses import dataclass
 import pypose as pp
@@ -53,6 +63,7 @@ class BatchDataInput:
     grasp_transforms: pp.LieTensor
     fingertip_config: BaseFingertipConfig  # have to take this because all these shape checks used to use hardcoded constants.
     grasp_configs: torch.Tensor
+    nerf_densities_global: Optional[torch.Tensor]
     object_y_wrt_table: Optional[torch.Tensor]
     random_rotate_transform: Optional[pp.LieTensor] = None
     nerf_density_threshold_value: Optional[float] = None
@@ -60,14 +71,16 @@ class BatchDataInput:
     def to(self, device) -> BatchDataInput:
         self.nerf_densities = self.nerf_densities.to(device)
         self.grasp_transforms = self.grasp_transforms.to(device)
+        self.grasp_configs = self.grasp_configs.to(device)
+        if self.nerf_densities_global is not None:
+            self.nerf_densities_global = self.nerf_densities_global.to(device)
+        if self.object_y_wrt_table is not None:
+            self.object_y_wrt_table = self.object_y_wrt_table.to(device)
         self.random_rotate_transform = (
             self.random_rotate_transform.to(device=device)
             if self.random_rotate_transform is not None
             else None
         )
-        self.grasp_configs = self.grasp_configs.to(device)
-        if self.object_y_wrt_table is not None:
-            self.object_y_wrt_table = self.object_y_wrt_table.to(device)
         return self
 
     @property
@@ -93,12 +106,90 @@ class BatchDataInput:
         return alphas
 
     @property
+    def nerf_alphas_global(self) -> torch.Tensor:
+        # alpha = 1 - exp(-delta * sigma)
+        #       = probability of collision within this segment starting from beginning of segment
+        delta = (
+            self.fingertip_config.grasp_depth_mm
+            / (self.fingertip_config.num_pts_z - 1)
+            / 1000
+        )
+        if isinstance(self.fingertip_config, EvenlySpacedFingertipConfig):
+            assert delta == self.fingertip_config.distance_between_pts_mm / 1000
+        alphas = 1.0 - torch.exp(-delta * self.nerf_densities_global)
+
+        if self.nerf_density_threshold_value is not None:
+            alphas = torch.where(
+                self.nerf_densities_global > self.nerf_density_threshold_value,
+                torch.ones_like(alphas),
+                torch.zeros_like(alphas),
+            )
+
+        return alphas
+
+    @property
     def coords(self) -> torch.Tensor:
         return self._coords_helper(self.grasp_transforms)
 
     @property
     def augmented_coords(self) -> torch.Tensor:
         return self._coords_helper(self.augmented_grasp_transforms)
+
+    @property
+    def coords_global(self) -> torch.Tensor:
+        points = get_points_in_grid(
+            lb=lb_Oy,
+            ub=ub_Oy,
+            num_pts_x=NERF_DENSITIES_GLOBAL_NUM_X,
+            num_pts_y=NERF_DENSITIES_GLOBAL_NUM_Y,
+            num_pts_z=NERF_DENSITIES_GLOBAL_NUM_Z,
+        )
+
+        assert points.shape == (
+            NERF_DENSITIES_GLOBAL_NUM_X,
+            NERF_DENSITIES_GLOBAL_NUM_Y,
+            NERF_DENSITIES_GLOBAL_NUM_Z,
+            NUM_XYZ,
+        )
+        points = torch.from_numpy(points).to(device=self.device, dtype=self.nerf_densities.dtype)
+        points = points.permute(3, 0, 1, 2)
+        points = points[None, ...].repeat_interleave(self.batch_size, dim=0)
+        assert points.shape == (
+            self.batch_size,
+            NUM_XYZ,
+            NERF_DENSITIES_GLOBAL_NUM_X,
+            NERF_DENSITIES_GLOBAL_NUM_Y,
+            NERF_DENSITIES_GLOBAL_NUM_Z,
+        )
+        return points
+
+    @property
+    def augmented_coords_global(self) -> torch.Tensor:
+        coords_global = self.coords_global
+        if self.random_rotate_transform is None:
+            return coords_global
+
+        assert coords_global.shape == (
+            self.batch_size,
+            NUM_XYZ,
+            NERF_DENSITIES_GLOBAL_NUM_X,
+            NERF_DENSITIES_GLOBAL_NUM_Y,
+            NERF_DENSITIES_GLOBAL_NUM_Z,
+        )
+
+        # Unsqueeze because we're applying the same (single) random rotation to all fingers.
+        return_value = (
+            self.random_rotate_transform.unsqueeze(dim=1)
+            @ coords_global.permute(0, 2, 3, 4, 1).reshape(self.batch_size, -1, NUM_XYZ)  # Must put the NUM_XYZ dimension last for matrix multiplication.
+        ).permute(0, 2, 1).reshape(
+            self.batch_size,
+            NUM_XYZ,
+            NERF_DENSITIES_GLOBAL_NUM_X,
+            NERF_DENSITIES_GLOBAL_NUM_Y,
+            NERF_DENSITIES_GLOBAL_NUM_Z,
+        )
+        assert return_value.shape == coords_global.shape
+        return return_value
 
     @property
     def coords_wrt_wrist(self) -> torch.Tensor:
@@ -169,6 +260,14 @@ class BatchDataInput:
             self.augmented_coords,
             self.augmented_coords_wrt_wrist,
         )
+
+    @property
+    def nerf_alphas_global_with_coords(self) -> torch.Tensor:
+        return self._nerf_alphas_global_with_coords_helper(self.coords_global)
+
+    @property
+    def nerf_alphas_global_with_augmented_coords(self) -> torch.Tensor:
+        return self._nerf_alphas_global_with_coords_helper(self.augmented_coords_global)
 
     @property
     def augmented_grasp_transforms(self) -> pp.LieTensor:
@@ -341,12 +440,11 @@ class BatchDataInput:
         )
 
         assert self.object_y_wrt_table is not None, "object_y_wrt_table is None"
-        assert self.object_y_wrt_table.shape == (
-            self.batch_size,
-        )
+        assert self.object_y_wrt_table.shape == (self.batch_size,)
         assert torch.all(self.object_y_wrt_table >= 0)
         y_coords_wrt_table = (
-            y_coords_wrt_object + self.object_y_wrt_table[..., None, None, None, None, None]
+            y_coords_wrt_object
+            + self.object_y_wrt_table[..., None, None, None, None, None]
         )
         return y_coords_wrt_table
 
@@ -537,6 +635,39 @@ class BatchDataInput:
             self.fingertip_config.num_pts_x,
             self.fingertip_config.num_pts_y,
             self.fingertip_config.num_pts_z,
+        )
+        return return_value
+
+    def _nerf_alphas_global_with_coords_helper(
+        self, coords_global: torch.Tensor
+    ) -> torch.Tensor:
+        assert coords_global.shape == (
+            self.batch_size,
+            NUM_XYZ,
+            NERF_DENSITIES_GLOBAL_NUM_X,
+            NERF_DENSITIES_GLOBAL_NUM_Y,
+            NERF_DENSITIES_GLOBAL_NUM_Z,
+        )
+        reshaped_nerf_alphas_global = self.nerf_alphas_global.reshape(
+            self.batch_size,
+            1,
+            NERF_DENSITIES_GLOBAL_NUM_X,
+            NERF_DENSITIES_GLOBAL_NUM_Y,
+            NERF_DENSITIES_GLOBAL_NUM_Z,
+        )
+        return_value = torch.cat(
+            [
+                reshaped_nerf_alphas_global,
+                coords_global,
+            ],
+            dim=1,
+        )
+        assert return_value.shape == (
+            self.batch_size,
+            NUM_XYZ + 1,
+            NERF_DENSITIES_GLOBAL_NUM_X,
+            NERF_DENSITIES_GLOBAL_NUM_Y,
+            NERF_DENSITIES_GLOBAL_NUM_Z,
         )
         return return_value
 

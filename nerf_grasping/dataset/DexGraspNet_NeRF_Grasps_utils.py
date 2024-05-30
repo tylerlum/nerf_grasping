@@ -56,6 +56,20 @@ def parse_object_code_and_scale(
     return object_code, object_scale
 
 
+def transform_point(T: np.ndarray, point: np.ndarray) -> np.ndarray:
+    assert T.shape == (4, 4), f"{T.shape}"
+    assert point.shape == (3,), f"{point.shape}"
+    return T[:3, :3] @ point + T[:3, 3]
+
+
+def transform_points(T: np.ndarray, points: np.ndarray) -> np.ndarray:
+    assert T.shape == (4, 4), f"{T.shape}"
+    N = points.shape[0]
+    assert points.shape == (N, 3), f"{points.shape}"
+
+    return (T[:3, :3] @ points.T + T[:3, 3][:, None]).T
+
+
 def get_scene_dict() -> Dict[str, Any]:
     return dict(
         xaxis=dict(title="X"),
@@ -214,13 +228,13 @@ def plot_mesh_and_query_points(
     fig.update_layout(
         legend_orientation="h",
         scene=dict(
-            xaxis=dict(nticks=4, range=[-0.2, 0.2]),
-            yaxis=dict(nticks=4, range=[-0.2, 0.2]),
-            zaxis=dict(nticks=4, range=[-0.2, 0.2]),
+            # xaxis=dict(nticks=4, range=[-0.3, 0.3]),
+            # yaxis=dict(nticks=4, range=[-0.3, 0.3]),
+            # zaxis=dict(nticks=4, range=[-0.3, 0.3]),
         ),
         title_text=title,
     )  # Avoid overlapping legend
-    fig.update_layout(scene_aspectmode="cube")
+    fig.update_layout(scene_aspectmode="data")
     return fig
 
 
@@ -284,6 +298,7 @@ def get_ray_samples_in_mesh_region(
         num_pts_y=num_pts_y,
         num_pts_z=num_pts_z,
     )
+
 
 def get_ray_samples_in_region(
     x_min: float,

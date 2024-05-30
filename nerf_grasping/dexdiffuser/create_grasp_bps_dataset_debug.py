@@ -102,16 +102,43 @@ for points in tqdm(all_points, desc="Constructing graphs"):
 n_point_clouds = len(all_inlier_points)
 print(f"n_point_clouds: {n_point_clouds}")
 
+MIN_N_PTS = 3000
+good_idxs = []
+for i, inlier_points in enumerate(all_inlier_points):
+    if inlier_points.shape[0] >= MIN_N_PTS:
+        good_idxs.append(i)
+print(f"For MIN_N_PTS {MIN_N_PTS}, good_idxs: {good_idxs} (len {len(good_idxs)}")
+
 # %%
-num_points_list = [len(inlier_points) for inlier_points in all_inlier_points]
-import matplotlib.pyplot as plt
+filtered_inlier_points = np.stack([all_inlier_points[i][:MIN_N_PTS] for i in good_idxs], axis=0)
+assert filtered_inlier_points.shape == (len(good_idxs), MIN_N_PTS, 3), f"Expected shape ({len(good_idxs)}, {MIN_N_PTS}, 3), got {filtered_inlier_points.shape}"
 
-plt.hist(num_points_list, bins=50)
-plt.xlabel("Number of points")
-plt.ylabel("Frequency")
-plt.title("Histogram of number of points in point clouds")
-plt.show()
+# %%
+N_BASIS_PTS = 4096
+BASIS_RADIUS = 0.3
 
+# %%
+basis_points = bps.generate_random_basis(
+    n_points=N_BASIS_PTS, radius=BASIS_RADIUS, random_seed=13
+) + np.array(
+    [0.0, BASIS_RADIUS / 2, 0.0]
+)  # Shift up to get less under the table
+assert basis_points.shape == (
+    N_BASIS_PTS,
+    3,
+), f"Expected shape ({N_BASIS_PTS}, 3), got {basis_points.shape}"
+
+x_bps = bps.encode(
+    filtered_inlier_points,
+    bps_arrangement="custom",
+    bps_cell_type="dists",
+    custom_basis=basis_points,
+    verbose=0,
+)
+assert x_bps.shape == (
+    n_point_clouds,
+    N_BASIS_PTS,
+), f"Expected shape ({n_point_clouds}, {N_BASIS_PTS}), got {x_bps.shape}"
 
 # %%
 def plot_bps_and_pc(
@@ -186,21 +213,16 @@ def plot_bps_and_pc(
     fig.update_layout(title=str(title))
     fig.show()
 
-THRESHOLD = 3000
-bad_idxs = []
-for i, inlier_points in enumerate(all_inlier_points):
-    if inlier_points.shape[0] < THRESHOLD:
-        bad_idxs.append(i)
 
+
+# %%
 POINT_CLOUD_IDX = 0
 while True:
-    print(f"POINT_CLOUD_IDX: {POINT_CLOUD_IDX}, has {all_inlier_points[POINT_CLOUD_IDX].shape[0]} points, had {all_points[POINT_CLOUD_IDX].shape[0]} points, path: {all_data_paths[POINT_CLOUD_IDX].parents[0].name}")
-    print(f"bad_idxs: {bad_idxs}, THRESHOLD: {THRESHOLD}")
+    print(f"POINT_CLOUD_IDX: {POINT_CLOUD_IDX}, has {filtered_inlier_points[POINT_CLOUD_IDX].shape[0]} points, had {all_points[POINT_CLOUD_IDX].shape[0]} points, path: {all_data_paths[POINT_CLOUD_IDX].parents[0].name}")
     plot_bps_and_pc(
-        # basis_points=basis_points,
-        # x_bps=x_bps[POINT_CLOUD_IDX, :],
-        point_cloud_points=all_inlier_points[POINT_CLOUD_IDX],
-        point_cloud_points2=all_points[POINT_CLOUD_IDX],
+        basis_points=basis_points,
+        x_bps=x_bps[POINT_CLOUD_IDX, :],
+        point_cloud_points=filtered_inlier_points[POINT_CLOUD_IDX],
         title=all_data_paths[POINT_CLOUD_IDX].parents[0].name,
     )
     user_input = input("Enter point cloud index (q to quit, b to breakpoint): ")
@@ -213,55 +235,6 @@ while True:
             POINT_CLOUD_IDX = int(user_input[1:])
         else:
             print(f"Invalid input {user_input}")
-    elif user_input[0] == "t":
-        if user_input[1:].isdigit():
-            THRESHOLD = int(user_input[1:])
-            bad_idxs = []
-            for i, inlier_points in enumerate(all_inlier_points):
-                if inlier_points.shape[0] < THRESHOLD:
-                    bad_idxs.append(i)
-        else:
-            print(f"Invalid input {user_input}")
     else:
         print(f"Invalid input {user_input}")
 
-# %%
-N_BASIS_PTS = 4096
-BASIS_RADIUS = 0.3
-
-# %%
-N_PTS_PER_PC = 1000
-
-
-
-# %%
-all_inlier_points = np.stack(
-    [
-        inlier_points[np.random.choice(len(inlier_points), N_PTS_PER_PC, replace=False)]
-        for inlier_points in all_inlier_points
-    ],
-    axis=0,
-)
-
-# %%
-basis_points = bps.generate_random_basis(
-    n_points=N_BASIS_PTS, radius=BASIS_RADIUS, random_seed=13
-) + np.array(
-    [0.0, BASIS_RADIUS / 2, 0.0]
-)  # Shift up to get less under the table
-assert basis_points.shape == (
-    N_BASIS_PTS,
-    3,
-), f"Expected shape ({N_BASIS_PTS}, 3), got {basis_points.shape}"
-
-x_bps = bps.encode(
-    all_inlier_points,
-    bps_arrangement="custom",
-    bps_cell_type="dists",
-    custom_basis=basis_points,
-    verbose=0,
-)
-assert x_bps.shape == (
-    n_point_clouds,
-    N_BASIS_PTS,
-), f"Expected shape ({n_point_clouds}, {N_BASIS_PTS}), got {x_bps.shape}"

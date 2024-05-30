@@ -1,4 +1,5 @@
 # %%
+from typing import Optional
 from tqdm import tqdm
 import open3d as o3d
 import numpy as np
@@ -86,7 +87,7 @@ def get_largest_connected_component(adjacency_matrix):
     return largest_cc_indices
 
 
-def process_point_cloud(points, distance_threshold=0.01):
+def process_point_cloud(points, distance_threshold=0.05):
     adjacency_matrix = construct_graph(points, distance_threshold)
     largest_cc_indices = get_largest_connected_component(adjacency_matrix)
     return points[largest_cc_indices]
@@ -111,53 +112,13 @@ plt.ylabel("Frequency")
 plt.title("Histogram of number of points in point clouds")
 plt.show()
 
-# %%
-N_BASIS_PTS = 4096
-BASIS_RADIUS = 0.3
 
 # %%
-N_PTS_PER_PC = 1000
-
-# %%
-all_inlier_points = np.stack(
-    [
-        inlier_points[np.random.choice(len(inlier_points), N_PTS_PER_PC, replace=False)]
-        for inlier_points in all_inlier_points
-    ],
-    axis=0,
-)
-
-# %%
-basis_points = bps.generate_random_basis(
-    n_points=N_BASIS_PTS, radius=BASIS_RADIUS, random_seed=13
-) + np.array(
-    [0.0, BASIS_RADIUS / 2, 0.0]
-)  # Shift up to get less under the table
-assert basis_points.shape == (
-    N_BASIS_PTS,
-    3,
-), f"Expected shape ({N_BASIS_PTS}, 3), got {basis_points.shape}"
-
-x_bps = bps.encode(
-    all_inlier_points,
-    bps_arrangement="custom",
-    bps_cell_type="dists",
-    custom_basis=basis_points,
-    verbose=0,
-)
-assert x_bps.shape == (
-    n_point_clouds,
-    N_BASIS_PTS,
-), f"Expected shape ({n_point_clouds}, {N_BASIS_PTS}), got {x_bps.shape}"
-
-# %%
-from typing import Optional
-
-
 def plot_bps_and_pc(
     basis_points: Optional[np.ndarray] = None,
     x_bps: Optional[np.ndarray] = None,
     point_cloud_points: Optional[np.ndarray] = None,
+    point_cloud_points2: Optional[np.ndarray] = None,
     title: Optional[str] = None,
 ) -> None:
     if title is None:
@@ -204,22 +165,103 @@ def plot_bps_and_pc(
                 name="Point cloud",
             )
         )
+    if point_cloud_points2 is not None:
+        N2 = n_points2 = point_cloud_points2.shape[0]
+        assert point_cloud_points2.shape == (
+            N2,
+            3,
+        ), f"Expected shape ({N2}, 3), got {point_cloud_points2.shape}"
+        fig.add_trace(
+            go.Scatter3d(
+                x=point_cloud_points2[:, 0],
+                y=point_cloud_points2[:, 1],
+                z=point_cloud_points2[:, 2],
+                mode="markers",
+                marker=dict(
+                    size=5, color=point_cloud_points2[:, 1], colorscale="Viridis"
+                ),
+                name="Point cloud 2",
+            )
+        )
     fig.update_layout(title=str(title))
     fig.show()
 
+THRESHOLD = 3000
+bad_idxs = []
+for i, inlier_points in enumerate(all_inlier_points):
+    if inlier_points.shape[0] < THRESHOLD:
+        bad_idxs.append(i)
 
 POINT_CLOUD_IDX = 0
 while True:
+    print(f"POINT_CLOUD_IDX: {POINT_CLOUD_IDX}, has {all_inlier_points[POINT_CLOUD_IDX].shape[0]} points, had {all_points[POINT_CLOUD_IDX].shape[0]} points, path: {all_data_paths[POINT_CLOUD_IDX].parents[0].name}")
+    print(f"bad_idxs: {bad_idxs}, THRESHOLD: {THRESHOLD}")
     plot_bps_and_pc(
-        basis_points=basis_points,
-        x_bps=x_bps[POINT_CLOUD_IDX, :],
+        # basis_points=basis_points,
+        # x_bps=x_bps[POINT_CLOUD_IDX, :],
         point_cloud_points=all_inlier_points[POINT_CLOUD_IDX],
+        point_cloud_points2=all_points[POINT_CLOUD_IDX],
         title=all_data_paths[POINT_CLOUD_IDX].parents[0].name,
     )
-    user_input = input("Enter point cloud index (q to quit): ")
+    user_input = input("Enter point cloud index (q to quit, b to breakpoint): ")
     if user_input == "q":
         break
-    if user_input.isdigit():
-        POINT_CLOUD_IDX = int(user_input)
+    elif user_input == "b":
+        breakpoint()
+    elif user_input[0] == "i":
+        if user_input[1:].isdigit():
+            POINT_CLOUD_IDX = int(user_input[1:])
+        else:
+            print(f"Invalid input {user_input}")
+    elif user_input[0] == "t":
+        if user_input[1:].isdigit():
+            THRESHOLD = int(user_input[1:])
+            bad_idxs = []
+            for i, inlier_points in enumerate(all_inlier_points):
+                if inlier_points.shape[0] < THRESHOLD:
+                    bad_idxs.append(i)
+        else:
+            print(f"Invalid input {user_input}")
     else:
         print(f"Invalid input {user_input}")
+
+# %%
+N_BASIS_PTS = 4096
+BASIS_RADIUS = 0.3
+
+# %%
+N_PTS_PER_PC = 1000
+
+
+
+# %%
+all_inlier_points = np.stack(
+    [
+        inlier_points[np.random.choice(len(inlier_points), N_PTS_PER_PC, replace=False)]
+        for inlier_points in all_inlier_points
+    ],
+    axis=0,
+)
+
+# %%
+basis_points = bps.generate_random_basis(
+    n_points=N_BASIS_PTS, radius=BASIS_RADIUS, random_seed=13
+) + np.array(
+    [0.0, BASIS_RADIUS / 2, 0.0]
+)  # Shift up to get less under the table
+assert basis_points.shape == (
+    N_BASIS_PTS,
+    3,
+), f"Expected shape ({N_BASIS_PTS}, 3), got {basis_points.shape}"
+
+x_bps = bps.encode(
+    all_inlier_points,
+    bps_arrangement="custom",
+    bps_cell_type="dists",
+    custom_basis=basis_points,
+    verbose=0,
+)
+assert x_bps.shape == (
+    n_point_clouds,
+    N_BASIS_PTS,
+), f"Expected shape ({n_point_clouds}, {N_BASIS_PTS}), got {x_bps.shape}"

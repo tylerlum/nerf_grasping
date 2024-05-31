@@ -56,6 +56,9 @@ pip install drake
 
 # Other dependencies for fancy things we haven't used much like transformers and learning rate scheduling
 pip install positional_encodings diffusers
+
+# Install bps
+pip3 install git+https://github.com/sergeyprokudin/bps
 ```
 
 # How to run at inference time (Albert) (~May 2024)

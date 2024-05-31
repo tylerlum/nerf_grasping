@@ -113,9 +113,23 @@ def nerf_to_mesh(
     mesh.apply_transform(trimesh.transformations.scale_matrix(scale))
     if min_len is not None:
         cc = trimesh.graph.connected_components(mesh.face_adjacency, min_len=min_len)
-        mask = np.zeros(len(mesh.faces), dtype=bool)
-        mask[np.concatenate(cc)] = True
-        mesh.update_faces(mask)
+        ONLY_LARGEST_COMPONENT = False
+        if ONLY_LARGEST_COMPONENT:
+            # Identify the largest component by the number of faces
+            largest_component = max(cc, key=len)
+
+            # Create a mask for the largest component
+            mask = np.zeros(len(mesh.faces), dtype=bool)
+            mask[largest_component] = True
+
+            # Update the mesh to keep only the largest component
+            mesh.update_faces(mask)
+            mesh.remove_unreferenced_vertices()
+
+        else:
+            mask = np.zeros(len(mesh.faces), dtype=bool)
+            mask[np.concatenate(cc)] = True
+            mesh.update_faces(mask)
 
     # saving/visualizing
     if save_path is None:

@@ -266,27 +266,11 @@ if cfg.output_filepath.exists():
 print("IGNORING cfg.nerf_checkpoints_path")
 
 nerf_configs = []
-nerfcheckpoints_0_folder = pathlib.Path(
-    "data/2024-05-06_rotated_stable_grasps_0/NEW_nerfcheckpoints_100imgs_400iters"
-)
-for i in tqdm(range(7), desc="finding configs"):
-    nerfcheckpoints_folder = pathlib.Path(
-        str(nerfcheckpoints_0_folder).replace("_0", f"_{i}")
-    )
-    nerf_configs += get_nerf_configs(
-        nerf_checkpoints_path=str(nerfcheckpoints_folder),
-    )
-for i in tqdm(range(7), desc="finding bigger configs"):
-    nerfcheckpoints_folder = pathlib.Path(
-        str(nerfcheckpoints_0_folder).replace("_0", f"_bigger_{i}")
-    )
-    nerf_configs += get_nerf_configs(
-        nerf_checkpoints_path=str(nerfcheckpoints_folder),
-    )
-for i in tqdm(range(7), desc="finding smaller configs"):
-    nerfcheckpoints_folder = pathlib.Path(
-        str(nerfcheckpoints_0_folder).replace("_0", f"_smaller_{i}")
-    )
+experiment_folders = sorted(list(pathlib.Path("data").glob("2024-05-06_rotated_stable_grasps_*")) + list(pathlib.Path("data").glob("2024-05-26_rotated_v2_only_grasps_*")))
+print(f"Found {len(experiment_folders)} experiment folders")
+
+for experiment_folder in experiment_folders:
+    nerfcheckpoints_folder = experiment_folder / "NEW_nerfcheckpoints_100imgs_400iters"
     nerf_configs += get_nerf_configs(
         nerf_checkpoints_path=str(nerfcheckpoints_folder),
     )

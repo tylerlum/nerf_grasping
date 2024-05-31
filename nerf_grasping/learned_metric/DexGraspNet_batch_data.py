@@ -1,5 +1,5 @@
 from __future__ import annotations
-from nerf_grasping.nerf_utils import (
+from nerf_grasping.other_utils import (
     get_points_in_grid,
 )
 from nerf_grasping.dataset.nerf_densities_global_config import (
@@ -9,18 +9,15 @@ from nerf_grasping.dataset.nerf_densities_global_config import (
     lb_Oy,
     ub_Oy,
 )
+from nerf_grasping.other_utils import (
+    get_points_in_grid,
+)
 import functools
 from dataclasses import dataclass
 import pypose as pp
 import torch
 from typing import List, Optional, Union
 import numpy as np
-from nerf_grasping.grasp_utils import (
-    get_ray_samples,
-)
-from nerf_grasping.grasp_utils import (
-    get_ray_origins_finger_frame,
-)
 from nerf_grasping.config.fingertip_config import (
     BaseFingertipConfig,
     EvenlySpacedFingertipConfig,
@@ -32,6 +29,9 @@ NUM_XYZ = 3
 
 @functools.lru_cache()
 def get_ray_origins_finger_frame_cached(cfg: BaseFingertipConfig) -> torch.Tensor:
+    from nerf_grasping.grasp_utils import (
+        get_ray_origins_finger_frame,
+    )
     ray_origins_finger_frame = get_ray_origins_finger_frame(cfg)
     return ray_origins_finger_frame
 
@@ -328,17 +328,58 @@ class BatchDataInput:
             self.batch_size,
             self.fingertip_config.n_fingers,
         )
-        ray_origins_finger_frame = get_ray_origins_finger_frame_cached(
-            self.fingertip_config
-        )
+        USE_NERFSTUDIO = False
+        # These two should be the same, but avoid use of nerfstudio
+        if USE_NERFSTUDIO:
+            from nerf_grasping.grasp_utils import (
+                get_ray_samples,
+            )
+            ray_origins_finger_frame = get_ray_origins_finger_frame_cached(
+                self.fingertip_config
+            )
 
-        all_query_points = get_ray_samples(
-            ray_origins_finger_frame.to(
+            all_query_points = get_ray_samples(
+                ray_origins_finger_frame.to(
+                    device=grasp_transforms.device, dtype=grasp_transforms.dtype
+                ),
+                grasp_transforms,
+                self.fingertip_config,
+            ).frustums.get_positions()
+        else:
+            finger_width_m = self.fingertip_config.finger_width_mm / 1000
+            finger_height_m = self.fingertip_config.finger_height_mm / 1000
+            grasp_depth_m = self.fingertip_config.grasp_depth_mm / 1000
+            query_point_origins = get_points_in_grid(
+                lb=np.array([-finger_width_m/2, -finger_height_m/2, 0]),
+                ub=np.array([finger_width_m/2, finger_height_m/2, grasp_depth_m]),
+                num_pts_x=self.fingertip_config.num_pts_x,
+                num_pts_y=self.fingertip_config.num_pts_y,
+                num_pts_z=self.fingertip_config.num_pts_z,
+            )
+            assert query_point_origins.shape == (
+                self.fingertip_config.num_pts_x,
+                self.fingertip_config.num_pts_y,
+                self.fingertip_config.num_pts_z,
+                NUM_XYZ,
+            )
+            query_point_origins = torch.from_numpy(query_point_origins).to(
                 device=grasp_transforms.device, dtype=grasp_transforms.dtype
-            ),
-            grasp_transforms,
-            self.fingertip_config,
-        ).frustums.get_positions()
+            )
+            all_query_points = grasp_transforms.unsqueeze(dim=2) @ query_point_origins.reshape(1, 1, -1, NUM_XYZ)
+            assert all_query_points.shape == (
+                self.batch_size,
+                self.fingertip_config.n_fingers,
+                self.fingertip_config.num_pts_x * self.fingertip_config.num_pts_y * self.fingertip_config.num_pts_z,
+                NUM_XYZ,
+            )
+            all_query_points = all_query_points.reshape(
+                self.batch_size,
+                self.fingertip_config.n_fingers,
+                self.fingertip_config.num_pts_x,
+                self.fingertip_config.num_pts_y,
+                self.fingertip_config.num_pts_z,
+                NUM_XYZ,
+            )
 
         assert all_query_points.shape == (
             self.batch_size,

@@ -1,4 +1,5 @@
 import time
+import transforms3d
 from typing import Optional, Tuple, List, Literal
 from nerfstudio.models.base_model import Model
 from nerf_grasping.grasp_utils import load_nerf_pipeline
@@ -539,6 +540,7 @@ def run_curobo(
     lift_motion_gen: Optional[MotionGen] = None,
     lift_motion_gen_config: Optional[MotionGenConfig] = None,
     sorted_losses: Optional[np.ndarray] = None,
+    X_W_table: Optional[np.ndarray] = None,
 ) -> Tuple[List[np.ndarray], List[np.ndarray], List[float], List[int], tuple, dict]:
     # Timing
     APPROACH_TIME = cfg.approach_time
@@ -552,6 +554,21 @@ def run_curobo(
     assert q_algr_pres.shape == (n_grasps, 16)
     assert q_fr3.shape == (7,)
     assert q_algr.shape == (16,)
+
+    # Adjust obj_xyz and quat_wxyz
+    X_table_O = np.eye(4)
+    X_table_O[:3, 3] = [cfg.nerf_frame_offset_x, 0.0, 0.0]
+
+    if X_W_table is None:
+        print("X_W_table is None, using identity matrix")
+        X_W_table = np.eye(4)
+    else:
+        assert X_W_table.shape == (4, 4)
+        print(f"X_W_table: {X_W_table}")
+
+    X_W_O = X_W_table @ X_table_O
+    obj_xyz = X_W_O[:3, 3]
+    obj_quat_wxyz = transforms3d.quaternions.mat2quat(X_W_O[:3, :3])
 
     if (
         robot_cfg is None
@@ -575,8 +592,8 @@ def run_curobo(
                 n_grasps=n_grasps,
                 collision_check_object=True if not cfg.DEBUG_turn_off_object_collision else False,
                 obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
-                obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
-                obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+                obj_xyz=obj_xyz,
+                obj_quat_wxyz=obj_quat_wxyz,
                 collision_check_table=True,
                 use_cuda_graph=True,
                 collision_sphere_buffer=0.01,
@@ -609,8 +626,8 @@ def run_curobo(
             n_grasps=n_grasps,
             collision_check_object=True if not cfg.DEBUG_turn_off_object_collision else False,
             obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
-            obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
-            obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+            obj_xyz=obj_xyz,
+            obj_quat_wxyz=obj_quat_wxyz,
             collision_check_table=True,
             use_cuda_graph=True,
             collision_sphere_buffer=0.01,
@@ -622,8 +639,8 @@ def run_curobo(
     object_world_cfg = get_world_cfg(
         collision_check_object=True if not cfg.DEBUG_turn_off_object_collision else False,
         obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
-        obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
-        obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+        obj_xyz=obj_xyz,
+        obj_quat_wxyz=obj_quat_wxyz,
         collision_check_table=True,
         obj_name="NERF_OBJECT",  # HACK: MUST BE DIFFERENT FROM EXISTING OBJECT NAME "object" OR ELSE COLLISION DETECTION WILL FAIL
     )
@@ -772,8 +789,8 @@ def run_curobo(
     no_object_world_cfg = get_world_cfg(
         collision_check_object=False,
         obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
-        obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
-        obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+        obj_xyz=obj_xyz,
+        obj_quat_wxyz=obj_quat_wxyz,
         collision_check_table=True,
         obj_name="NO_OBJECT",  # HACK: MUST BE DIFFERENT FROM EXISTING OBJECT NAME "object" OR ELSE COLLISION DETECTION WILL FAIL
     )
@@ -1053,6 +1070,7 @@ def run_pipeline(
     lift_ik_solver2: Optional[IKSolver] = None,
     lift_motion_gen: Optional[MotionGen] = None,
     lift_motion_gen_config: Optional[MotionGenConfig] = None,
+    X_W_table: Optional[np.ndarray] = None,
 ) -> Tuple[List[np.ndarray], List[np.ndarray], List[float], List[int], tuple, dict]:
 
     print(f"Creating a new experiment folder at {cfg.output_folder}")
@@ -1094,6 +1112,7 @@ def run_pipeline(
         lift_ik_solver2=lift_ik_solver2,
         lift_motion_gen=lift_motion_gen,
         lift_motion_gen_config=lift_motion_gen_config,
+        X_W_table=X_W_table,
     )
     curobo_time = time.time()
     print("@" * 80)

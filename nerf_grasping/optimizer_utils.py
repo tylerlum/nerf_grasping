@@ -744,71 +744,64 @@ class GraspMetric(torch.nn.Module):
             )
         else:
             nerf_densities_global, query_points_global_N = None, None
-        fig = go.Figure()
-        BATCH_IDX = 0
-        N_FINGERS = 4
-        for i in range(N_FINGERS):
-            self.DEBUG_plot(fig=fig, densities=densities[BATCH_IDX, i].reshape(-1), query_points=all_query_points[BATCH_IDX, i].reshape(-1, 3), name=f"finger_{i}", opacity=0.2)
-        if need_to_query_global:
-            query_points_global_N = (
-                torch.from_numpy(query_points_global_N)
-                .float()[None, ...]
-                .repeat_interleave(grasp_config.batch_size, dim=0)
+
+        query_points_global_N = (
+            torch.from_numpy(query_points_global_N)
+            .float()[None, ...]
+            .repeat_interleave(grasp_config.batch_size, dim=0)
+        )
+
+        for batch_idx in range(2):
+            fig = go.Figure()
+            N_FINGERS = 4
+            for i in range(N_FINGERS):
+                self.DEBUG_plot(fig=fig, densities=densities[batch_idx, i].reshape(-1), query_points=all_query_points[batch_idx, i].reshape(-1, 3), name=f"finger_{i}", opacity=0.2)
+            if need_to_query_global:
+                nerf_densities_global_flattened = nerf_densities_global[batch_idx].reshape(-1)
+                query_points_global_N_flattened = query_points_global_N[batch_idx].reshape(-1, 3)
+                self.DEBUG_plot(fig=fig, densities=nerf_densities_global_flattened[nerf_densities_global_flattened > 15],
+                    query_points=query_points_global_N_flattened[nerf_densities_global_flattened > 15], name="global")
+
+            wrist_trans_array = (
+                grasp_config.wrist_pose.translation().detach().cpu().numpy()
             )
-            nerf_densities_global_flattened = nerf_densities_global[BATCH_IDX].reshape(-1)
-            query_points_global_N_flattened = query_points_global_N[BATCH_IDX].reshape(-1, 3)
-            self.DEBUG_plot(fig=fig, densities=nerf_densities_global_flattened[nerf_densities_global_flattened > 15],
-                query_points=query_points_global_N_flattened[nerf_densities_global_flattened > 15], name="global")
+            wrist_rot_array = (
+                grasp_config.wrist_pose.rotation().matrix().detach().cpu().numpy()
+            )
+            joint_angles_array = grasp_config.joint_angles.detach().cpu().numpy()
 
-        optimized_grasp_config_dict = grasp_config.as_dict()
+            # Put into transforms X_Oy_H_array
+            B = grasp_config.batch_size
+            X_Oy_H_array = np.repeat(np.eye(4)[None, ...], B, axis=0)
+            assert X_Oy_H_array.shape == (B, 4, 4)
+            X_Oy_H_array[:, :3, :3] = wrist_rot_array
+            X_Oy_H_array[:, :3, 3] = wrist_trans_array
 
-        # X_Oy_H_array, joint_angles_array, target_joint_angles_array = (
-        #     get_sorted_grasps_from_dict(
-        #         optimized_grasp_config_dict=optimized_grasp_config_dict,
-        #         error_if_no_loss=False,
-        #         check=False,
-        #         print_best=False,
-        #     )
-        # )
-        wrist_trans_array = (
-            grasp_config.wrist_pose.translation().detach().cpu().numpy()
-        )
-        wrist_rot_array = (
-            grasp_config.wrist_pose.rotation().matrix().detach().cpu().numpy()
-        )
-        joint_angles_array = grasp_config.joint_angles.detach().cpu().numpy()
+            X_N_H_array = np.repeat(np.eye(4)[None, ...], B, axis=0)
+            for i in range(B):
+                X_N_H_array[i] = self.X_N_Oy @ X_Oy_H_array[i]
+        
+            from nerf_grasping.dexgraspnet_utils.hand_model import HandModel, HandModelType
+            from nerf_grasping.dexgraspnet_utils.pose_conversion import hand_config_to_pose
+            device = "cuda"
+            hand_model_type = HandModelType.ALLEGRO_HAND
+            hand_model = HandModel(hand_model_type=hand_model_type, device=device)
 
-        # Put into transforms X_Oy_H_array
-        B = grasp_config.batch_size
-        X_Oy_H_array = np.repeat(np.eye(4)[None, ...], B, axis=0)
-        assert X_Oy_H_array.shape == (B, 4, 4)
-        X_Oy_H_array[:, :3, :3] = wrist_rot_array
-        X_Oy_H_array[:, :3, 3] = wrist_trans_array
+            # Compute pregrasp and target hand poses
+            trans_array = X_N_H_array[:, :3, 3]
+            rot_array = X_N_H_array[:, :3, :3]
 
-        X_N_H_array = np.repeat(np.eye(4)[None, ...], B, axis=0)
-        for i in range(B):
-            X_N_H_array[i] = self.X_N_Oy @ X_Oy_H_array[i]
-    
-        from nerf_grasping.dexgraspnet_utils.hand_model import HandModel, HandModelType
-        from nerf_grasping.dexgraspnet_utils.pose_conversion import hand_config_to_pose
-        device = "cuda"
-        hand_model_type = HandModelType.ALLEGRO_HAND
-        hand_model = HandModel(hand_model_type=hand_model_type, device=device)
+            pregrasp_hand_pose = hand_config_to_pose(trans_array, rot_array, joint_angles_array).to(device)
 
-        # Compute pregrasp and target hand poses
-        trans_array = X_N_H_array[:, :3, 3]
-        rot_array = X_N_H_array[:, :3, :3]
+            # Get plotly data
+            hand_model.set_parameters(pregrasp_hand_pose)
+            pregrasp_plot_data = hand_model.get_plotly_data(i=batch_idx, opacity=1.0)
 
-        pregrasp_hand_pose = hand_config_to_pose(trans_array, rot_array, joint_angles_array).to(device)
-
-        # Get plotly data
-        hand_model.set_parameters(pregrasp_hand_pose)
-        pregrasp_plot_data = hand_model.get_plotly_data(i=BATCH_IDX, opacity=1.0)
-
-        for x in pregrasp_plot_data:
-            fig.add_trace(x)
-        fig.show()
-        breakpoint()
+            for x in pregrasp_plot_data:
+                fig.add_trace(x)
+            # Add title with idx
+            fig.update_layout(title_text=f"Batch idx {batch_idx}")
+            fig.show()
 
         # HACK: NOT SURE HOW TO FILL THIS
         # raise NotImplementedError("Need to implement this object scale")

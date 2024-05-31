@@ -656,6 +656,8 @@ def get_optimized_grasps(
                 f"Filtered less feasible grasps. New batch size: {new_grasp_configs.batch_size}"
             )
 
+        new_grasp_configs = new_grasp_configs[[0,1]]
+
         # Evaluate grasp metric and collisions
         n_batches = math.ceil(new_grasp_configs.batch_size / BATCH_SIZE)
         for batch_i in tqdm(

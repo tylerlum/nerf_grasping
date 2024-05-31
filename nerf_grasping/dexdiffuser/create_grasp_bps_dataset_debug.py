@@ -10,35 +10,17 @@ import networkx as nx
 from scipy.spatial import KDTree
 
 # %%
-path_str = "/juno/u/tylerlum/github_repos/nerf_grasping/data/2024-05-06_rotated_stable_grasps_0/pointclouds_250imgs_400iters_5k/"
-path_bigger_str = "/juno/u/tylerlum/github_repos/nerf_grasping/data/2024-05-06_rotated_stable_grasps_bigger_0/pointclouds_250imgs_400iters_5k/"
-path_smaller_str = "/juno/u/tylerlum/github_repos/nerf_grasping/data/2024-05-06_rotated_stable_grasps_smaller_0/pointclouds_250imgs_400iters_5k/"
-
-paths = [pathlib.Path(path_str.replace("_0", f"_{i}")) for i in range(7)]
-path_biggers = [pathlib.Path(path_bigger_str.replace("_0", f"_{i}")) for i in range(7)]
-path_smallers = [
-    pathlib.Path(path_smaller_str.replace("_0", f"_{i}")) for i in range(7)
-]
-
-all_paths = paths + path_biggers + path_smallers
+point_cloud_folder = pathlib.Path("/juno/u/tylerlum/github_repos/nerf_grasping/data/2024-05-06_rotated_stable_grasps_0/pointclouds_250imgs_400iters_5k/")
+assert point_cloud_folder.exists(), f"Path {point_cloud_folder} does not exist"
 
 # %%
-all_data_paths = []
-for path in tqdm(all_paths, desc="Finding data paths"):
-    if not path.exists():
-        print(f"Path {path} does not exist")
-        continue
-
-    data_paths = sorted(list(path.rglob("*.ply")))
-    all_data_paths.extend(data_paths)
-
-all_data_paths = sorted(all_data_paths)
-print(f"Found {len(all_data_paths)} data paths")
+all_point_cloud_paths = sorted(list(point_cloud_folder.rglob("*.ply")))
+print(f"Found {len(all_point_cloud_paths)} data paths")
 
 # %%
 point_clouds = []
-for data_path in tqdm(all_data_paths, desc="Loading point clouds"):
-    point_cloud = o3d.io.read_point_cloud(str(data_path))
+for point_cloud_path in tqdm(all_point_cloud_paths, desc="Loading point clouds"):
+    point_cloud = o3d.io.read_point_cloud(str(point_cloud_path))
     point_clouds.append(point_cloud)
 
 print(f"Found {len(point_clouds)} point clouds")
@@ -219,12 +201,12 @@ def plot_bps_and_pc(
 # %%
 POINT_CLOUD_IDX = 0
 while True:
-    print(f"POINT_CLOUD_IDX: {POINT_CLOUD_IDX}, has {filtered_inlier_points[POINT_CLOUD_IDX].shape[0]} points, had {all_points[POINT_CLOUD_IDX].shape[0]} points, path: {all_data_paths[POINT_CLOUD_IDX].parents[0].name}")
+    print(f"POINT_CLOUD_IDX: {POINT_CLOUD_IDX}, has {filtered_inlier_points[POINT_CLOUD_IDX].shape[0]} points, had {all_points[POINT_CLOUD_IDX].shape[0]} points, path: {all_point_cloud_paths[POINT_CLOUD_IDX].parents[0].name}")
     plot_bps_and_pc(
         basis_points=basis_points,
         x_bps=x_bps[POINT_CLOUD_IDX, :],
         point_cloud_points=filtered_inlier_points[POINT_CLOUD_IDX],
-        title=all_data_paths[POINT_CLOUD_IDX].parents[0].name,
+        title=all_point_cloud_paths[POINT_CLOUD_IDX].parents[0].name,
     )
     user_input = input("Enter point cloud index (q to quit, b to breakpoint): ")
     if user_input == "q":

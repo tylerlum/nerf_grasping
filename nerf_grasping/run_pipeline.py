@@ -109,6 +109,7 @@ class PipelineConfig:
     eval_batch_size: int = 32
     object_scale: float = 0.9999
     nerf_config: Optional[pathlib.Path] = None
+    DEBUG_turn_off_object_collision: bool = False
 
     approach_time: float = 3.0
     stay_open_time: float = 0.2
@@ -572,7 +573,7 @@ def run_curobo(
         robot_cfg, ik_solver, ik_solver2, motion_gen, motion_gen_config = (
             prepare_trajopt_batch(
                 n_grasps=n_grasps,
-                collision_check_object=True,
+                collision_check_object=True if not cfg.DEBUG_turn_off_object_collision else False,
                 obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
                 obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
                 obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
@@ -606,7 +607,7 @@ def run_curobo(
             lift_motion_gen_config,
         ) = prepare_trajopt_batch(
             n_grasps=n_grasps,
-            collision_check_object=True,
+            collision_check_object=True if not cfg.DEBUG_turn_off_object_collision else False,
             obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
             obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
             obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
@@ -619,7 +620,7 @@ def run_curobo(
     print("Step 9: Solve motion gen for each grasp")
     print("=" * 80 + "\n")
     object_world_cfg = get_world_cfg(
-        collision_check_object=True,
+        collision_check_object=True if not cfg.DEBUG_turn_off_object_collision else False,
         obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
         obj_xyz=(cfg.nerf_frame_offset_x, 0.0, 0.0),
         obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
@@ -1358,7 +1359,7 @@ def main() -> None:
     robot_cfg, ik_solver, ik_solver2, motion_gen, motion_gen_config = (
         prepare_trajopt_batch(
             n_grasps=args.num_grasps,
-            collision_check_object=True,
+            collision_check_object=True if not args.DEBUG_turn_off_object_collision else False,
             obj_filepath=pathlib.Path("/tmp/DUMMY.obj"),
             obj_xyz=FAR_AWAY_OBJ_XYZ,
             obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
@@ -1376,7 +1377,7 @@ def main() -> None:
         lift_motion_gen_config,
     ) = prepare_trajopt_batch(
         n_grasps=args.num_grasps,
-        collision_check_object=True,
+        collision_check_object=True if not args.DEBUG_turn_off_object_collision else False,
         obj_filepath=pathlib.Path("/tmp/DUMMY.obj"),
         obj_xyz=FAR_AWAY_OBJ_XYZ,
         obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),

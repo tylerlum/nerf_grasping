@@ -1,4 +1,5 @@
 from tqdm import tqdm
+import time
 import h5py
 import open3d as o3d
 import numpy as np
@@ -26,6 +27,7 @@ class BpsGraspConfig:
     output_filepath: pathlib.Path
     N_BASIS_PTS: int = 4096
     BASIS_RADIUS: float = 0.3
+    overwrite: bool = False
 
     def __post_init__(self):
         assert (
@@ -35,9 +37,18 @@ class BpsGraspConfig:
             self.config_dict_folder.exists()
         ), f"Path {self.config_dict_folder} does not exist"
 
-        assert (
-            not self.output_filepath.parent.exists()
-        ), f"Path {self.output_filepath.parent} already exists"
+        if not self.overwrite:
+            assert (
+                not self.output_filepath.exists()
+            ), f"Path {self.output_filepath} already exists"
+        elif self.output_filepath.exists():
+            print("\033[93m" + "WARNING: OVERWRITING FILE" + "\033[0m")
+            SLEEP_TIME = 10
+            print(f"\033[93mOverwriting will begin in {SLEEP_TIME} seconds\033[0m")
+            time.sleep(SLEEP_TIME)
+            print(f"\033[93mOverwriting {self.output_filepath} will happen\033[0m")
+        else:
+            print(f"Creating {self.output_filepath} at end of script")
 
 
 def construct_graph(points, distance_threshold=0.01):
@@ -388,3 +399,7 @@ def main() -> None:
         )
         object_state_dataset[:NUM_GRASPS] = all_object_states
         hdf5_file.attrs["num_grasps"] = NUM_GRASPS
+
+
+if __name__ == "__main__":
+    main()

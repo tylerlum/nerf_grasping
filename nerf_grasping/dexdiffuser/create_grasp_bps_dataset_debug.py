@@ -87,7 +87,7 @@ def get_largest_connected_component(adjacency_matrix):
     return largest_cc_indices
 
 
-def process_point_cloud(points, distance_threshold=0.05):
+def process_point_cloud(points, distance_threshold=0.01):
     adjacency_matrix = construct_graph(points, distance_threshold)
     largest_cc_indices = get_largest_connected_component(adjacency_matrix)
     return points[largest_cc_indices]
@@ -112,6 +112,7 @@ print(f"For MIN_N_PTS {MIN_N_PTS}, good_idxs: {good_idxs} (len {len(good_idxs)}"
 # %%
 filtered_inlier_points = np.stack([all_inlier_points[i][:MIN_N_PTS] for i in good_idxs], axis=0)
 assert filtered_inlier_points.shape == (len(good_idxs), MIN_N_PTS, 3), f"Expected shape ({len(good_idxs)}, {MIN_N_PTS}, 3), got {filtered_inlier_points.shape}"
+n_point_clouds = filtered_inlier_points.shape[0]
 
 # %%
 N_BASIS_PTS = 4096
@@ -238,3 +239,5 @@ while True:
     else:
         print(f"Invalid input {user_input}")
 
+
+# %%

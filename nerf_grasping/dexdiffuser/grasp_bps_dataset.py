@@ -127,10 +127,12 @@ class GraspBPSSampleDataset(GraspBPSDataset):
     def __init__(
         self,
         input_hdf5_filepath: str,
+        passed_eval_threshold: float = 0.9,
     ) -> None:
         super().__init__(input_hdf5_filepath=input_hdf5_filepath)
 
-        self.successful_grasp_idxs = torch.where(self.passed_evals >= 0.9)[0]
+        self.passed_eval_threshold = passed_eval_threshold
+        self.successful_grasp_idxs = torch.where(self.passed_evals >= passed_eval_threshold)[0]
         self.num_successful_grasps = len(self.successful_grasp_idxs)
 
     def __len__(self) -> int:

@@ -702,6 +702,20 @@ class GraspMetric(torch.nn.Module):
             )
         )
 
+    def DEBUG_plot_mesh(self, fig, mesh):
+        fig.add_trace(
+            go.Mesh3d(
+                x=mesh.vertices[:, 0],
+                y=mesh.vertices[:, 1],
+                z=mesh.vertices[:, 2],
+                i=mesh.faces[:, 0],
+                j=mesh.faces[:, 1],
+                k=mesh.faces[:, 2],
+                name="object",
+                opacity=0.5,
+            )
+        )
+
     def forward(
         self,
         grasp_config: AllegroGraspConfig,
@@ -750,6 +764,12 @@ class GraspMetric(torch.nn.Module):
             .float()[None, ...]
             .repeat_interleave(grasp_config.batch_size, dim=0)
         )
+        import trimesh
+        from pathlib import Path
+        if Path("/tmp/mesh_viz_object.obj").exists():
+            mesh = trimesh.load("/tmp/mesh_viz_object.obj")
+        else:
+            mesh = None
 
         for batch_idx in range(2):
             fig = go.Figure()
@@ -761,6 +781,9 @@ class GraspMetric(torch.nn.Module):
                 query_points_global_N_flattened = query_points_global_N[batch_idx].reshape(-1, 3)
                 self.DEBUG_plot(fig=fig, densities=nerf_densities_global_flattened[nerf_densities_global_flattened > 15],
                     query_points=query_points_global_N_flattened[nerf_densities_global_flattened > 15], name="global")
+
+            if mesh is not None:
+                self.DEBUG_plot_mesh(fig=fig, mesh=mesh)
 
             wrist_trans_array = (
                 grasp_config.wrist_pose.translation().detach().cpu().numpy()

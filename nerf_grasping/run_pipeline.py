@@ -113,7 +113,7 @@ class PipelineConfig:
     DEBUG_turn_off_object_collision: bool = False
 
     approach_time: float = 3.0
-    stay_open_time: float = 1000
+    stay_open_time: float = 10
     close_time: float = 0.5
     stay_closed_time: float = 0.2
     lift_time: float = 1.0

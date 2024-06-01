@@ -5,7 +5,7 @@ import numpy as np
 import torch
 import wandb
 from torch.optim.lr_scheduler import ReduceLROnPlateau
-from tqdm import tqdm
+from tqdm import tqdm, trange
 from wandb.util import generate_id
 
 from nerf_grasping.dexdiffuser.dex_evaluator import DexEvaluator
@@ -77,40 +77,42 @@ def main(cfg: DexEvaluatorTrainingConfig) -> None:
     cfg.log_path.mkdir(parents=True, exist_ok=True)
 
     # update tqdm bar with train and val loss
-    for epoch in tqdm(range(cfg.num_epochs), desc="Epoch", leave=True):
-        model.train()
-        for i, (f_O, _g_O, y) in enumerate(train_loader):
-            f_O, _g_O, y = f_O.to(cfg.device), _g_O.to(cfg.device), y.to(cfg.device)
-            g_O = _g_O[..., :-12]  # don't include the grasp dirs for dexdiffuser
-            optimizer.zero_grad()
-            y_pred = model(f_O, g_O).squeeze(-1)
-            assert y_pred.shape == y.shape
-            loss = torch.nn.functional.mse_loss(y_pred, y)
-            loss.backward()
-            optimizer.step()
-            scheduler.step(loss)
-
-        model.eval()
-        with torch.no_grad():
-            for i, (f_O, _g_O, y) in enumerate(test_loader):
+    with trange(cfg.num_epochs, desc="Epoch", leave=True) as pbar:
+        for epoch in range(cfg.num_epochs):
+            pbar.update(1)
+            pbar.set_description(f"Epoch {epoch + 1}/{cfg.num_epochs}")
+            model.train()
+            for i, (f_O, _g_O, y) in enumerate(train_loader):
                 f_O, _g_O, y = f_O.to(cfg.device), _g_O.to(cfg.device), y.to(cfg.device)
                 g_O = _g_O[..., :-12]  # don't include the grasp dirs for dexdiffuser
+                optimizer.zero_grad()
                 y_pred = model(f_O, g_O).squeeze(-1)
                 assert y_pred.shape == y.shape
-                val_loss = torch.nn.functional.mse_loss(y_pred, y)
-        
-        if i % cfg.print_freq == 0:
-            print(f"Epoch {epoch}, batch {i}, train_loss: {loss.item()}, val_loss: {val_loss.item()}")
+                loss = torch.nn.functional.mse_loss(y_pred, y)
+                loss.backward()
+                optimizer.step()
+                scheduler.step(loss)
 
-        if epoch % cfg.snapshot_freq == 0:
-            print(f"Saving model at epoch {epoch}!")
-            torch.save(model.state_dict(), cfg.log_path / f"ckpt-{wandb_id}-step-{epoch}.pth")
+            model.eval()
+            with torch.no_grad():
+                for i, (f_O, _g_O, y) in enumerate(test_loader):
+                    f_O, _g_O, y = f_O.to(cfg.device), _g_O.to(cfg.device), y.to(cfg.device)
+                    g_O = _g_O[..., :-12]  # don't include the grasp dirs for dexdiffuser
+                    y_pred = model(f_O, g_O).squeeze(-1)
+                    assert y_pred.shape == y.shape
+                    val_loss = torch.nn.functional.mse_loss(y_pred, y)
             
+            pbar.set_postfix(train_loss=loss.item(), val_loss=val_loss.item())
+
+            if epoch % cfg.snapshot_freq == 0 or epoch == cfg.num_epochs - 1:
+                print(f"Saving model at epoch {epoch}!")
+                torch.save(model.state_dict(), cfg.log_path / f"ckpt-{wandb_id}-step-{epoch}.pth")
+                
 
 if __name__ == "__main__":
     cfg = DexEvaluatorTrainingConfig(
-        num_epochs=10000,
-        batch_size=32768,
+        num_epochs=10,
+        batch_size=4096,
         learning_rate=1e-4,
         device=torch.device("cuda" if torch.cuda.is_available() else "cpu"),
         random_seed=42,

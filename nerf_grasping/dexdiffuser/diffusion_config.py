@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+import datetime
 import pathlib
 
 
@@ -26,11 +27,11 @@ class DiffusionConfig:
 
 @dataclass
 class TrainingConfig:
-    batch_size: int = 512
+    batch_size: int = 32768  # TODO(ahl): integrate this with dataparallel correctly
     n_epochs: int = 10000
     print_freq: int = 100
     snapshot_freq: int = 5000
-    log_path: pathlib.Path = pathlib.Path("logs_2024-05-17")
+    log_path: pathlib.Path = pathlib.Path(f"logs_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}")
 
 
 @dataclass

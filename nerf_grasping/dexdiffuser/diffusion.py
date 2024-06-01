@@ -1,7 +1,7 @@
 """The goal of this file to implement the diffusion process for the DexDiffuser.
    Implementation based on: https://github.com/ermongroup/ddim/blob/main/runners/diffusion.py
 """
-
+import os
 from tqdm import tqdm
 import torch.nn as nn
 import time
@@ -204,10 +204,11 @@ def ddpm_steps(x, cond, seq, model, b):
     return xs, x0_preds
 
 
-def get_dataset(config: Config) -> tuple:
-    INPUT_HDF5_FILEPATH = "/juno/u/tylerlum/github_repos/nerf_grasping/data/2024-05-14_rotated_stable_grasps_bps/data.h5"
+def get_dataset(
+    hdf5_path: str | None = "/home/albert/research/nerf_grasping/bps_data/grasp_bps_dataset.hdf5"
+) -> tuple[GraspBPSSampleDataset, GraspBPSSampleDataset, GraspBPSSampleDataset]:
     full_dataset = GraspBPSSampleDataset(
-        input_hdf5_filepath=INPUT_HDF5_FILEPATH,
+        input_hdf5_filepath=hdf5_path,
     )
     train_size = int(0.8 * len(full_dataset))
     test_size = len(full_dataset) - train_size
@@ -254,6 +255,14 @@ class Diffusion(object):
         elif self.model_var_type == "fixedsmall":
             self.logvar = posterior_variance.clamp(min=1e-20).log()
 
+        # self.model = nn.DataParallel(
+        #     DexSampler(
+        #         n_pts=config.data.n_pts,
+        #         grasp_dim=config.data.grasp_dim,
+        #         d_model=128,
+        #         virtual_seq_len=4,
+        #     )
+        # ).to(self.device)  # TODO(ahl): try to get this set up
         self.model = DexSampler(
             n_pts=config.data.n_pts,
             grasp_dim=config.data.grasp_dim,
@@ -271,7 +280,7 @@ class Diffusion(object):
 
     def train(self) -> None:
         config = self.config
-        train_dataset, test_dataset, _ = get_dataset(config)
+        train_dataset, test_dataset, _ = get_dataset()
         train_loader = data.DataLoader(
             train_dataset,
             batch_size=config.training.batch_size,
@@ -402,13 +411,13 @@ def main() -> None:
     config = Config()
     runner = Diffusion(config)
 
-    TRAIN_MODE = False
+    TRAIN_MODE = True
     if TRAIN_MODE:
         runner.train()
     else:
         runner.load_checkpoint(config)
 
-        _, _, full_dataset = get_dataset(config)
+        _, _, full_dataset = get_dataset()
         GRASP_IDX = 13021
         _, bps, _ = full_dataset[GRASP_IDX]
         xT = torch.randn(1, config.data.grasp_dim, device=runner.device)
@@ -433,7 +442,7 @@ def main() -> None:
         )
 
         MESHDATA_ROOT = (
-            "/juno/u/tylerlum/github_repos/DexGraspNet/data/rotated_meshdata_stable"
+            "/home/albert/research/nerf_grasping/rsync_meshes/rotated_meshdata_v2"
         )
         print("=" * 79)
         print(f"len(full_dataset): {len(full_dataset)}")

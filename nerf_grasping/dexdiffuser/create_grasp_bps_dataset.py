@@ -50,7 +50,6 @@ class BpsGraspConfig:
         else:
             print(f"Creating {self.output_filepath} at end of script")
 
-
 def construct_graph(points, distance_threshold=0.01):
     kdtree = KDTree(points)
     rows, cols = [], []
@@ -220,13 +219,13 @@ def get_grasp_data(all_config_dict_paths, object_code_and_scale_str_to_idx) -> t
 def main() -> None:
     cfg = BpsGraspConfig(
         point_cloud_folder=pathlib.Path(
-            "/juno/u/tylerlum/github_repos/nerf_grasping/data/2024-05-06_rotated_stable_grasps_0/pointclouds_250imgs_400iters_5k/"
+            "/home/albert/research/nerf_grasping/rsync_point_clouds/point_clouds"
         ),
         config_dict_folder=pathlib.Path(
-            "/juno/u/tylerlum/github_repos/DexGraspNet/data/2024-05-06_rotated_stable_grasps_0/SHAKE_raw_evaled_grasp_config_dicts/"
+            "/home/albert/research/nerf_grasping/rsync_grasps/grasps/all"
         ),
         output_filepath=pathlib.Path(
-            "/juno/u/tylerlum/github_repos/nerf_grasping/data/2024-05-06_rotated_stable_grasps_0/grasp_bps_dataset.hdf5"
+            "/home/albert/research/nerf_grasping/bps_data/grasp_bps_dataset.hdf5"
         ),
     )
     all_point_cloud_paths = sorted(list(cfg.point_cloud_folder.rglob("*.ply")))
@@ -399,7 +398,6 @@ def main() -> None:
         )
         object_state_dataset[:NUM_GRASPS] = all_object_states
         hdf5_file.attrs["num_grasps"] = NUM_GRASPS
-
 
 if __name__ == "__main__":
     main()

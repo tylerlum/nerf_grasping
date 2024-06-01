@@ -2,14 +2,14 @@ import torch
 import torch.nn as nn
 
 
-class ResBlock(nn.Module):
+class FCResBlock(nn.Module):
     """The FFHNet ResBlock.
     
     See: github.com/qianbot/FFHNet/blob/main/FFHNet/models/networks.py#L78
     """
 
     def __init__(self, Fin, Fout, n_neurons=256):
-        super(ResBlock, self).__init__()
+        super().__init__()
         self.Fin = Fin
         self.Fout = Fout
 

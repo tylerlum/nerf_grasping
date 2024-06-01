@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from nerf_grasping.dexdiffuser.fc_resblock import ResBlock
+from nerf_grasping.dexdiffuser.fc_resblock import FCResBlock
 
 
 class DexEvaluator(nn.Module):
@@ -21,9 +21,9 @@ class DexEvaluator(nn.Module):
         super().__init__()
 
         self.bn1 = nn.BatchNorm1d(in_bps + in_grasp)
-        self.rb1 = ResBlock(in_bps + in_grasp, n_neurons)
-        self.rb2 = ResBlock(in_bps + in_grasp + n_neurons, n_neurons)
-        self.rb3 = ResBlock(in_bps + in_grasp + n_neurons, n_neurons)
+        self.rb1 = FCResBlock(in_bps + in_grasp, n_neurons)
+        self.rb2 = FCResBlock(in_bps + in_grasp + n_neurons, n_neurons)
+        self.rb3 = FCResBlock(in_bps + in_grasp + n_neurons, n_neurons)
         self.out_success = nn.Linear(n_neurons, 1)
         self.dout = nn.Dropout(0.3)
         self.sigmoid = nn.Sigmoid()

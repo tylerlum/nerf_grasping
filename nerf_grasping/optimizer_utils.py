@@ -756,14 +756,15 @@ class GraspMetric(torch.nn.Module):
                 .float()[None, ...]
                 .repeat_interleave(grasp_config.batch_size, dim=0)
             )
+            # DO not need this, just for debugging
+            query_points_global_N = (
+                torch.from_numpy(query_points_global_N)
+                .float()[None, ...]
+                .repeat_interleave(grasp_config.batch_size, dim=0)
+            )
         else:
             nerf_densities_global, query_points_global_N = None, None
 
-        query_points_global_N = (
-            torch.from_numpy(query_points_global_N)
-            .float()[None, ...]
-            .repeat_interleave(grasp_config.batch_size, dim=0)
-        )
         import trimesh
         from pathlib import Path
         if Path("/tmp/mesh_viz_object.obj").exists():
@@ -846,6 +847,8 @@ class GraspMetric(torch.nn.Module):
             return self.classifier_model.get_failure_probability(batch_data_input)
         elif self.return_type == "failure_logits":
             return self.classifier_model(batch_data_input)[:, -1]
+        elif self.return_type == "all_logits":
+            return self.classifier_model(batch_data_input)
         else:
             raise ValueError(f"return_type {self.return_type} not recognized")
 

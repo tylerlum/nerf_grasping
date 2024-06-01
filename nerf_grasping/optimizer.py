@@ -807,6 +807,21 @@ def get_optimized_grasps(
         console=console,
     )
 
+    breakpoint()
+    grasp_metric.return_type = "all_logits"
+    all_logits = grasp_metric(final_grasp_configs)
+    print(f"all_logits.shape = {all_logits.shape}")
+    assert all_logits.shape == (final_grasp_configs.batch_size, 3, 2)
+    # Softmax
+    probs = torch.nn.functional.softmax(all_logits, dim=-1)[..., 1]
+    assert probs.shape == (final_grasp_configs.batch_size, 3)
+    passed_sim_probs = probs[:, 0]
+    passed_pen_probs = probs[:, 1]
+    passed_eval_probs = probs[:, 2]
+    print(f"passed_sim_probs = {passed_sim_probs}")
+    print(f"passed_pen_probs = {passed_pen_probs}")
+    print(f"passed_eval_probs = {passed_eval_probs}")
+
     assert (
         final_losses.shape[0] == final_grasp_configs.batch_size
     ), f"{final_losses.shape[0]} != {final_grasp_configs.batch_size}"

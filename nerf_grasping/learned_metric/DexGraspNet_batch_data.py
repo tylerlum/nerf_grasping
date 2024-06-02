@@ -481,8 +481,8 @@ class BatchDataInput:
         )
 
         assert self.object_y_wrt_table is not None, "object_y_wrt_table is None"
-        assert self.object_y_wrt_table.shape == (self.batch_size,)
-        assert torch.all(self.object_y_wrt_table >= 0)
+        assert self.object_y_wrt_table.shape == (self.batch_size,), self.object_y_wrt_table.shape
+        assert torch.all(self.object_y_wrt_table >= 0), self.object_y_wrt_table
         y_coords_wrt_table = (
             y_coords_wrt_object
             + self.object_y_wrt_table[..., None, None, None, None, None]

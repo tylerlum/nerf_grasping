@@ -37,10 +37,9 @@ class DexEvaluator(nn.Module):
         Args:
             f_O: The basis point set. Shape: (B, dim_BPS)
             g_O: The grasp features. Shape: (B, dim_grasp)
-                For the DexDiffuser baseline, dim_grasp = 3 + 6 + 16 = 25.
-                For the GG-NeRF ablation, dim_grasp = 3 + 6 + 16 + 3 * 4 = 37.
+                We have dim_grasp = 3 + 6 + 16 + 3 * 4 = 37.
                 The 6 rotation dims are the first two cols of the rot matrix.
-                The extra 12 inputs for GG-NeRF are the grasp directions.
+                The extra 12 inputs are the grasp directions, which we provide to all.
         """
         X = torch.cat([f_O, g_O], dim=-1)
 

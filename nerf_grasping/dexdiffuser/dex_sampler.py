@@ -100,20 +100,20 @@ def main() -> None:
     print("Testing DexSampler...")
     print("-" * 80)
     dex_sampler = DexSampler(
-        n_pts=4096, grasp_dim=3 + 6 + 16, d_model=128, virtual_seq_len=4
+        n_pts=4096, grasp_dim=3 + 6 + 16 + 3 * 4, d_model=128, virtual_seq_len=4
     ).to(device)
 
     batch_size = 2
     f_O = torch.rand(batch_size, 4096).to(device)
-    g_t = torch.rand(batch_size, 3 + 6 + 16).to(device)
+    g_t = torch.rand(batch_size, 3 + 6 + 16 + 3 * 4).to(device)
     t = torch.rand(batch_size, 1).to(device)
 
     output = dex_sampler(f_O=f_O, g_t=g_t, t=t)
 
     assert output.shape == (
         batch_size,
-        3 + 6 + 16,
-    ), f"Expected shape ({batch_size}, 3 + 6 + 16), got {output.shape}"
+        3 + 6 + 16 + 3 * 4,
+    ), f"Expected shape ({batch_size}, 3 + 6 + 16 + 3 * 4), got {output.shape}"
     print(f"Output shape: {output.shape}")
     print(f"Output: {output}")
 

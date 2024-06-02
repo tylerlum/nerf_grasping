@@ -22,7 +22,6 @@ class DexEvaluatorTrainingConfig:
     random_seed: int = 42
 
     # validation, printing, and saving
-    print_freq: int = 100
     snapshot_freq: int = 5000
     log_path: Path = Path("logs/dexdiffuser_evaluator")
 
@@ -47,18 +46,18 @@ def setup(cfg: DexEvaluatorTrainingConfig):
         batch_size=cfg.batch_size,
         shuffle=True,
         pin_memory=True,
-        num_workers=4,
+        num_workers=16,
     )
     test_loader = torch.utils.data.DataLoader(
         test_dataset,
         batch_size=cfg.batch_size,
         shuffle=False,
         pin_memory=True,
-        num_workers=4,
+        num_workers=16,
     )
 
     # make other stuff we need
-    model = DexEvaluator(in_grasp=25).to(cfg.device)  # 25 for dexdiffuser baseline
+    model = DexEvaluator(in_grasp=37).to(cfg.device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=cfg.learning_rate)
     scheduler = ReduceLROnPlateau(optimizer, "min", patience=5, factor=0.5)
 
@@ -77,14 +76,13 @@ def main(cfg: DexEvaluatorTrainingConfig) -> None:
     cfg.log_path.mkdir(parents=True, exist_ok=True)
 
     # update tqdm bar with train and val loss
-    with trange(cfg.num_epochs, desc="Epoch", leave=True) as pbar:
+    with trange(cfg.num_epochs, desc="Epoch", leave=False) as pbar:
         for epoch in range(cfg.num_epochs):
             pbar.update(1)
             pbar.set_description(f"Epoch {epoch + 1}/{cfg.num_epochs}")
             model.train()
-            for i, (f_O, _g_O, y) in enumerate(train_loader):
-                f_O, _g_O, y = f_O.to(cfg.device), _g_O.to(cfg.device), y.to(cfg.device)
-                g_O = _g_O[..., :-12]  # don't include the grasp dirs for dexdiffuser
+            for i, (f_O, g_O, y) in tqdm(enumerate(train_loader), total=len(train_loader), desc="Iterations", leave=True):
+                f_O, g_O, y = f_O.to(cfg.device), g_O.to(cfg.device), y.to(cfg.device)
                 optimizer.zero_grad()
                 y_pred = model(f_O, g_O).squeeze(-1)
                 assert y_pred.shape == y.shape
@@ -95,9 +93,8 @@ def main(cfg: DexEvaluatorTrainingConfig) -> None:
 
             model.eval()
             with torch.no_grad():
-                for i, (f_O, _g_O, y) in enumerate(test_loader):
-                    f_O, _g_O, y = f_O.to(cfg.device), _g_O.to(cfg.device), y.to(cfg.device)
-                    g_O = _g_O[..., :-12]  # don't include the grasp dirs for dexdiffuser
+                for i, (f_O, g_O, y) in enumerate(test_loader):
+                    f_O, g_O, y = f_O.to(cfg.device), g_O.to(cfg.device), y.to(cfg.device)
                     y_pred = model(f_O, g_O).squeeze(-1)
                     assert y_pred.shape == y.shape
                     val_loss = torch.nn.functional.mse_loss(y_pred, y)
@@ -111,13 +108,12 @@ def main(cfg: DexEvaluatorTrainingConfig) -> None:
 
 if __name__ == "__main__":
     cfg = DexEvaluatorTrainingConfig(
-        num_epochs=10,
-        batch_size=4096,
+        num_epochs=1000,
+        batch_size=16384 * 8,
         learning_rate=1e-4,
         device=torch.device("cuda" if torch.cuda.is_available() else "cpu"),
         random_seed=42,
-        print_freq=100,
-        snapshot_freq=1000,
+        snapshot_freq=100,
         log_path=Path("logs/dexdiffuser_evaluator"),
         wandb_project="dexdiffuser-evaluator",
         wandb_log=True,

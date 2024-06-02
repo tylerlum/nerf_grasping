@@ -39,7 +39,7 @@ def setup(cfg: DexEvaluatorTrainingConfig):
     np.random.seed(cfg.random_seed)
 
     # get datasets
-    train_dataset, test_dataset, _ = get_dataset()
+    train_dataset, test_dataset, _ = get_dataset(use_evaluator_dataset=True)
 
     # make dataloaders
     train_loader = torch.utils.data.DataLoader(

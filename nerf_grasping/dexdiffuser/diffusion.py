@@ -11,7 +11,7 @@ import torch.optim as optim
 import torch.utils.data as data
 from nerf_grasping.dexdiffuser.dex_sampler import DexSampler
 from nerf_grasping.dexdiffuser.diffusion_config import Config
-from nerf_grasping.dexdiffuser.grasp_bps_dataset import GraspBPSSampleDataset
+from nerf_grasping.dexdiffuser.grasp_bps_dataset import GraspBPSSampleDataset, GraspBPSEvalDataset
 from torch.utils.data import random_split
 
 
@@ -205,11 +205,21 @@ def ddpm_steps(x, cond, seq, model, b):
 
 
 def get_dataset(
-    hdf5_path: str | None = "/home/albert/research/nerf_grasping/bps_data/grasp_bps_dataset.hdf5"
-) -> tuple[GraspBPSSampleDataset, GraspBPSSampleDataset, GraspBPSSampleDataset]:
-    full_dataset = GraspBPSSampleDataset(
-        input_hdf5_filepath=hdf5_path,
-    )
+    hdf5_path: str | None = "/home/albert/research/nerf_grasping/bps_data/grasp_bps_dataset.hdf5",
+    use_evaluator_dataset: bool = False,
+) -> tuple[
+    GraspBPSSampleDataset | GraspBPSEvalDataset,
+    GraspBPSSampleDataset | GraspBPSEvalDataset,
+    GraspBPSSampleDataset | GraspBPSEvalDataset,
+]:
+    if use_evaluator_dataset:
+        full_dataset = GraspBPSEvalDataset(
+            input_hdf5_filepath=hdf5_path,
+        )
+    else:
+        full_dataset = GraspBPSSampleDataset(
+            input_hdf5_filepath=hdf5_path,
+        )
     train_size = int(0.8 * len(full_dataset))
     test_size = len(full_dataset) - train_size
 

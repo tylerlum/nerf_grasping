@@ -1,50 +1,122 @@
 import os
+import pathlib
 from pathlib import Path
-from tqdm import tqdm
+
+import matplotlib.pyplot as plt
+import numpy as np
+import open3d as o3d
+import plotly.graph_objects as go
 import torch.nn as nn
 import time
 import torch
-import numpy as np
+import transforms3d
+import trimesh
 import torch.optim as optim
 import torch.utils.data as data
+from nerf_grasping.dexdiffuser.dex_evaluator import DexEvaluator
 from nerf_grasping.dexdiffuser.dex_sampler import DexSampler
 from nerf_grasping.dexdiffuser.diffusion_config import Config, TrainingConfig
 from nerf_grasping.dexdiffuser.grasp_bps_dataset import GraspBPSSampleDataset
-from torch.utils.data import random_split
 from nerf_grasping.dexdiffuser.diffusion import Diffusion, get_dataset
+from nerf_grasping.dexgraspnet_utils.hand_model import HandModel
+from nerf_grasping.dexgraspnet_utils.hand_model_type import (
+    HandModelType,
+)
+from nerf_grasping.dexgraspnet_utils.pose_conversion import (
+    hand_config_to_pose,
+)
+from nerf_grasping.dexgraspnet_utils.joint_angle_targets import (
+    compute_optimized_joint_angle_targets_given_grasp_orientations,
+)
+from torch.utils.data import random_split
+from tqdm import tqdm
 
-def main() -> None:
+
+def main(GRASP_IDX: int = 0, refine: bool = True) -> None:
+    # loading dex sampler
     config = Config(
         training=TrainingConfig(
-            log_path=Path("/home/albert/research/nerf_grasping/nerf_grasping/dexdiffuser/logs_20240531201249"),
+            log_path=Path("logs/dexdiffuser_sampler/stable_jun2")  # [r5ryh0z9] first one trained, tylers arch, not converged, no_noisy
         ),
     )
     runner = Diffusion(config)
-    runner.load_checkpoint(config)
+    runner.load_checkpoint(config, name="ckpt_final")
 
-    train_dataset, test_dataset, full_dataset = get_dataset(config)
-    GRASP_IDX = 0
+    # loading dex evaluator
+    evaluator_path = Path("logs/dexdiffuser_evaluator/ckpt-midyyjy8-step-999.pth")  # [midyyjy8] first one trained, doesn't seem fully converged, no_noisy
+    dex_evaluator = DexEvaluator(in_grasp=37).to(runner.device)
+    dex_evaluator.eval()
+
+    # loading data
+    train_dataset, test_dataset, full_dataset = get_dataset(use_evaluator_dataset=True)  # must use a different dataset for checking out evaluator!!!
+    test_loader = data.DataLoader(test_dataset, batch_size=1, shuffle=False)
+
+    # validating the evaluator
+    ys_true = []
+    ys_pred = []
+    for i, (grasps, bpss, y_PGS) in tqdm(
+        enumerate(test_loader),
+        desc="Iterations",
+        total=len(test_loader),
+        leave=False,
+    ):
+        grasps, bpss, y_PGS = grasps.to(runner.device), bpss.to(runner.device), y_PGS.to(runner.device)
+        y_PGS_pred = dex_evaluator(f_O=bpss, g_O=grasps)[0, -1]
+        ys_true.append(y_PGS.detach().cpu().numpy())
+        ys_pred.append(y_PGS_pred.detach().cpu().numpy())
+        if i == 1000:
+            break
+
+    plt.scatter(ys_true, ys_pred)
+    plt.plot([0, 1], [0, 1], "r--")
+    plt.xlabel("True PGS")
+    plt.ylabel("Predicted PGS")
+    plt.xlim(0, 1)
+    plt.ylim(0, 1)
+    plt.title("PGS True vs Predicted")
+    plt.axis("equal")
+    plt.show()
+    breakpoint()
+
+    # running just the sampler
     _, bps, _ = test_dataset[GRASP_IDX]
     xT = torch.randn(1, config.data.grasp_dim, device=runner.device)
-    x = runner.sample(xT=xT, cond=bps[None].to(runner.device)).squeeze().cpu()
+    x = runner.sample(xT=xT, cond=bps[None].to(runner.device))  # (1, 37)
     print(f"Sampled grasp shape: {x.shape}")
+    print(
+        f"Sampled grasp quality: {dex_evaluator(f_O=bps[None].to(runner.device), g_O=x.to(runner.device))[0, -1]}"
+    )
 
-    import numpy as np
-    import trimesh
-    import pathlib
-    import transforms3d
-    import open3d as o3d
-    import plotly.graph_objects as go
-    from nerf_grasping.dexgraspnet_utils.hand_model import HandModel
-    from nerf_grasping.dexgraspnet_utils.hand_model_type import (
-        HandModelType,
+    # running the MCMC
+    x_refined = dex_evaluator.refine(
+        f_O=bps.to(runner.device)[None, ...],
+        g_O=x.to(runner.device),
+        num_steps=1000,
+        stage="all",
     )
-    from nerf_grasping.dexgraspnet_utils.pose_conversion import (
-        hand_config_to_pose,
+    # x_refined = dex_evaluator.refine(
+    #     f_O=bps.to(runner.device)[None, ...],
+    #     g_O=x.to(runner.device),
+    #     num_steps=100,
+    #     stage="wrist_pose",
+    # )
+    # x_refined = dex_evaluator.refine(
+    #     f_O=bps.to(runner.device)[None, ...],
+    #     g_O=x_refined.to(runner.device),
+    #     num_steps=100,
+    #     stage="joint_angles",
+    # )
+    # x_refined = dex_evaluator.refine(
+    #     f_O=bps.to(runner.device)[None, ...],
+    #     g_O=x_refined.to(runner.device),
+    #     num_steps=100,
+    #     stage="dirs",
+    # )
+    print(
+        f"Refined grasp quality: {dex_evaluator(f_O=bps[None].to(runner.device), g_O=x_refined.to(runner.device))[0, -1]}"
     )
-    from nerf_grasping.dexgraspnet_utils.joint_angle_targets import (
-        compute_optimized_joint_angle_targets_given_grasp_orientations,
-    )
+    breakpoint()
+    grasp = x_refined[0].cpu()
 
     MESHDATA_ROOT = (
         "/home/albert/research/nerf_grasping/rsync_meshes/rotated_meshdata_v2"
@@ -55,7 +127,6 @@ def main() -> None:
     print("\n" + "=" * 79)
     print(f"Getting grasp and bps for grasp_idx {GRASP_IDX}")
     print("=" * 79)
-    grasp = x
     passed_eval = np.array(1)
     # grasp, bps, passed_eval = full_dataset[GRASP_IDX]
     print(f"grasp.shape: {grasp.shape}")
@@ -209,7 +280,8 @@ def main() -> None:
             fig.add_trace(trace)
         for trace in hand_plotly_optimized:
             fig.add_trace(trace)
-    fig.write_html("/home/albert/research/nerf_grasping/dex_diffuser_debug.html")
+    # fig.write_html("/home/albert/research/nerf_grasping/dex_diffuser_debug.html")  # if headless
+    fig.show()
 
 
 if __name__ == "__main__":

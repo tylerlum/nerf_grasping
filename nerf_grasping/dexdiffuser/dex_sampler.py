@@ -88,16 +88,8 @@ class ResBlock(nn.Module):
 #         )
 
 #         # key/value path
-#         self.fc_key = nn.Sequential(
-#             nn.Linear(512, 512),
-#             nn.LayerNorm(512),
-#             nn.SiLU(),
-#         )
-#         self.fc_value = nn.Sequential(
-#             nn.Linear(512, 512),
-#             nn.LayerNorm(512),
-#             nn.SiLU(),
-#         )
+#         self.fc_key = nn.Linear(512, 512)
+#         self.fc_value = nn.Linear(512, 512)
 
 #         # output path
 #         self.ca = MultiheadAttention(

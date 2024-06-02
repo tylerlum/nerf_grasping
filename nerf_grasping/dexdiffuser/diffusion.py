@@ -574,7 +574,7 @@ if __name__ == "__main__":
         ),
         training=TrainingConfig(
             n_epochs=20000,
-            batch_size=16384 * 2,
+            batch_size=16384,
         )
     )
     if config.multigpu:

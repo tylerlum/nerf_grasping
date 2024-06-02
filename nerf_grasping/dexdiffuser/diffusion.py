@@ -368,13 +368,14 @@ class Diffusion(object):
                     optimizer.step()
 
                     # logging
-                    pbar.set_postfix(train_loss=loss.item())
+                    pbar.set_postfix(step=step, train_loss=loss.item())
                     wandb.log({"train_loss": loss.item()})
 
                     if self.config.model.ema:
                         ema_helper.update(self.model)
 
                     if step % self.config.training.snapshot_freq == 0 or step == 1:
+                        print(f"Saving model at step {step}!")
                         states = [
                             self.model.state_dict(),
                             optimizer.state_dict(),
@@ -390,7 +391,7 @@ class Diffusion(object):
                             states,
                             log_path / "ckpt_{}.pth".format(step),
                         )
-                        torch.save(states, log_path / "ckpt.pth")
+                        torch.save(states, log_path / f"ckpt_{step}.pth")
 
                     data_start = time.time()
 

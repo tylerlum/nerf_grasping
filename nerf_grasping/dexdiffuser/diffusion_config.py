@@ -27,7 +27,7 @@ class DiffusionConfig:
 
 @dataclass
 class TrainingConfig:
-    batch_size: int = 16384 * 4  # TODO(ahl): integrate this with dataparallel correctly
+    batch_size: int = 16384 * 2
     n_epochs: int = 20000
     print_freq: int = 10
     snapshot_freq: int = 100

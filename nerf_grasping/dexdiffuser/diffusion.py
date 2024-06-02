@@ -419,7 +419,7 @@ def train(config, rank: int = 0) -> None:
         num_workers=config.data.num_workers,
         pin_memory=True,
         sampler=train_sampler,
-        multiprocessing_context="fork",
+        multiprocessing_context="fork",  # SUPER IMPORTANT THIS IS FORK AND NOT SPAWN FOR SPEED!
     )
     val_loader = data.DataLoader(
         val_dataset,
@@ -428,7 +428,7 @@ def train(config, rank: int = 0) -> None:
         num_workers=config.data.num_workers,
         pin_memory=True,
         sampler=val_sampler,
-        multiprocessing_context="fork",
+        multiprocessing_context="fork",  # SUPER IMPORTANT THIS IS FORK AND NOT SPAWN FOR SPEED!
     )
 
     # making the model
@@ -570,10 +570,11 @@ def _train_multigpu(rank, config):
 if __name__ == "__main__":
     config = Config(
         data=DataConfig(
-            num_workers=16,
+            num_workers=4,
         ),
         training=TrainingConfig(
-            n_epochs=1,  # [DEBUG]
+            n_epochs=20000,
+            batch_size=16384 * 2,
         )
     )
     if config.multigpu:

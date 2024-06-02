@@ -27,7 +27,7 @@ file.attrs["num_data_points"]
 
 # %%
 # GRASP_IDX = 61055
-GRASP_IDX = 51054
+GRASP_IDX = 31000
 assert GRASP_IDX < file.attrs["num_data_points"]
 
 # %%
@@ -143,7 +143,7 @@ query_points_N = ray_samples.frustums.get_positions().reshape(
 query_points_Oy = query_points_N + X_Oy_N[:3, 3].reshape(1, 1, 1, 1, 3)
 
 flatten_query_points_Oy = query_points_Oy.reshape(N_FINGERS, -1, 3)
-flatten_nerf_alphas = nerf_alphas.flatten()
+flatten_nerf_alphas = nerf_alphas.reshape(N_FINGERS, -1,)
 
 # %%
 # Extract density global info
@@ -172,6 +172,8 @@ passed_simulation = file["/passed_simulation"][GRASP_IDX]
 passed_penetration_threshold = file["/passed_penetration_threshold"][GRASP_IDX]
 
 # %%
+assert flatten_query_points_Oy.shape == (N_FINGERS, fingertip_config.num_pts_x * fingertip_config.num_pts_y * fingertip_config.num_pts_z, 3), f"{flatten_query_points_Oy.shape}"
+assert flatten_nerf_alphas.shape == (N_FINGERS, fingertip_config.num_pts_x * fingertip_config.num_pts_y * fingertip_config.num_pts_z,), f"{flatten_nerf_alphas.shape}"
 # Plot
 fig = go.Figure()
 fig.add_trace(
@@ -194,7 +196,7 @@ for i in range(N_FINGERS):
             mode="markers",
             marker=dict(
                 size=2,
-                color=flatten_nerf_alphas,
+                color=flatten_nerf_alphas[i],
                 # colorbar=dict(title="Density"),
             ),
             name=f"Query Points Finger {i}",
@@ -282,6 +284,97 @@ pregrasp_plot_data = hand_model.get_plotly_data(i=0, opacity=1.0)
 for x in pregrasp_plot_data:
     fig.add_trace(x)
 
+fig.show()
+
+# %%
+from nerf_grasping.learned_metric.DexGraspNet_batch_data import BatchDataInput
+batch_data_input = BatchDataInput(
+    nerf_densities=torch.from_numpy(nerf_densities[None]),
+    grasp_transforms=T_Oy_Fi[None],
+    fingertip_config=fingertip_config,
+    grasp_configs=torch.from_numpy(grasp_config[None]),
+    nerf_densities_global=torch.from_numpy(nerf_densities_global[None]),
+    object_y_wrt_table=None,
+)
+
+# %%
+
+nerf_densities.shape, T_Oy_Fi.shape, grasp_config.shape, nerf_densities_global.shape
+# %%
+nerf_alphas_with_coords = batch_data_input.nerf_alphas_with_coords.squeeze(dim=0).detach().cpu().numpy()
+
+# %%
+nerf_alphas_with_coords.shape
+
+# %%
+N_FINGERS = 4
+assert nerf_alphas_with_coords.shape == (N_FINGERS, 4, fingertip_config.num_pts_x, fingertip_config.num_pts_y, fingertip_config.num_pts_z), f"{nerf_alphas_with_coords.shape}"
+nerf_alphas = nerf_alphas_with_coords[:, 0]
+nerf_positions = nerf_alphas_with_coords[:, 1:]
+assert nerf_alphas.shape == (N_FINGERS, fingertip_config.num_pts_x, fingertip_config.num_pts_y, fingertip_config.num_pts_z), f"{nerf_alphas.shape}"
+assert nerf_positions.shape == (N_FINGERS, 3, fingertip_config.num_pts_x, fingertip_config.num_pts_y, fingertip_config.num_pts_z), f"{nerf_positions.shape}"
+
+nerf_alphas_flatten = nerf_alphas.reshape(N_FINGERS, -1,)
+nerf_positions_flatten = nerf_positions.reshape(N_FINGERS, 3, -1)
+
+# %%
+fig = go.Figure()
+fig.add_trace(
+    go.Mesh3d(
+        x=mesh_Oy.vertices[:, 0],
+        y=mesh_Oy.vertices[:, 1],
+        z=mesh_Oy.vertices[:, 2],
+        i=mesh_Oy.faces[:, 0],
+        j=mesh_Oy.faces[:, 1],
+        k=mesh_Oy.faces[:, 2],
+        opacity=0.5,
+    )
+)
+for i in range(N_FINGERS):
+    fig.add_trace(
+        go.Scatter3d(
+            x=nerf_positions_flatten[i, 0, :],
+            y=nerf_positions_flatten[i, 1, :],
+            z=nerf_positions_flatten[i, 2, :],
+            mode="markers",
+            marker=dict(
+                size=2,
+                color=nerf_alphas_flatten[i],
+                # colorbar=dict(title="Density"),
+            ),
+            name=f"Query Points Finger {i}",
+        )
+    )
+# density_threshold = 0.01
+# fig.add_trace(
+#     go.Scatter3d(
+#         x=flatten_query_points_global_Oy[:, 0][
+#             flatten_nerf_alphas_global > density_threshold
+#         ],
+#         y=flatten_query_points_global_Oy[:, 1][
+#             flatten_nerf_alphas_global > density_threshold
+#         ],
+#         z=flatten_query_points_global_Oy[:, 2][
+#             flatten_nerf_alphas_global > density_threshold
+#         ],
+#         mode="markers",
+#         marker=dict(
+#             size=2,
+#             color=flatten_nerf_alphas_global[
+#                 flatten_nerf_alphas_global > density_threshold
+#             ],
+#             # colorbar=dict(title="Density"),
+#         ),
+#         name="Query Points Global",
+#     )
+# )
+fig.update_layout(
+    scene_aspectmode="data",
+    # title_text=f"{object_code}_{object_scale}_{GRASP_IDX}_\n{passed_eval}_{passed_simulation}_{passed_penetration_threshold}",
+    # 3 decimal places
+    title_text=f"Eval-{passed_eval:.3f}_{passed_simulation:.3f}_{passed_penetration_threshold:.3f}",
+)
+print(f"{object_scale}_{GRASP_IDX}_\n{passed_eval}_{passed_simulation}_{passed_penetration_threshold}")
 fig.show()
 
 # %%

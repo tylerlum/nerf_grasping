@@ -2,10 +2,11 @@
    Implementation based on: https://github.com/ermongroup/ddim/blob/main/runners/diffusion.py
 """
 import os
-from tqdm import tqdm
+from tqdm import tqdm, trange
 import torch.nn as nn
 import time
 import torch
+import wandb
 import numpy as np
 import torch.optim as optim
 import torch.utils.data as data
@@ -13,6 +14,7 @@ from nerf_grasping.dexdiffuser.dex_sampler import DexSampler
 from nerf_grasping.dexdiffuser.diffusion_config import Config
 from nerf_grasping.dexdiffuser.grasp_bps_dataset import GraspBPSSampleDataset, GraspBPSEvalDataset
 from torch.utils.data import random_split
+from wandb.util import generate_id
 
 
 def get_beta_schedule(beta_schedule, *, beta_start, beta_end, num_diffusion_timesteps):
@@ -268,20 +270,15 @@ class Diffusion(object):
         elif self.model_var_type == "fixedsmall":
             self.logvar = posterior_variance.clamp(min=1e-20).log()
 
-        # self.model = nn.DataParallel(
-        #     DexSampler(
-        #         n_pts=config.data.n_pts,
-        #         grasp_dim=config.data.grasp_dim,
-        #         d_model=128,
-        #         virtual_seq_len=4,
-        #     )
-        # ).to(self.device)  # TODO(ahl): try to get this set up
         self.model = DexSampler(
             n_pts=config.data.n_pts,
             grasp_dim=config.data.grasp_dim,
             d_model=128,
             virtual_seq_len=4,
         ).to(self.device)
+
+        # our crappy attempt at using their archtecture
+        # self.model = DexSampler(dim_grasp=config.data.grasp_dim).to(self.device)
 
     def load_checkpoint(self, config: Config) -> None:
         states = torch.load(
@@ -293,6 +290,10 @@ class Diffusion(object):
 
     def train(self) -> None:
         config = self.config
+        wandb_id = generate_id()
+        if config.wandb_log:
+            wandb.init(project="dexdiffuser-sampler", id=wandb_id, resume="allow")
+
         train_dataset, test_dataset, _ = get_dataset(get_all_labels=False)
         train_loader = data.DataLoader(
             train_dataset,
@@ -310,75 +311,88 @@ class Diffusion(object):
             ema_helper = None
 
         start_epoch, step = 0, 0
-
-        for epoch in tqdm(
-            range(start_epoch, self.config.training.n_epochs), desc="Training Epochs"
-        ):
-            data_start = time.time()
-            data_time = 0
-            for i, (grasps, bpss, _) in tqdm(
-                enumerate(train_loader),
-                desc="Training Batches",
-                total=len(train_loader),
-            ):
-                time.sleep(0.1)  # Yield control so it can be interrupted
-                n = grasps.size(0)
-                data_time += time.time() - data_start
-                self.model.train()
-                step += 1
-
-                grasps = grasps.to(self.device)
-                bpss = bpss.to(self.device)
-                e = torch.randn_like(grasps)
-                b = self.betas
-
-                # antithetic sampling
-                t = torch.randint(
-                    low=0, high=self.num_timesteps, size=(n // 2 + 1,)
-                ).to(self.device)
-                t = torch.cat([t, self.num_timesteps - t - 1], dim=0)[:n]
-                loss = noise_estimation_loss(
-                    model=self.model, x0=grasps, cond=bpss, t=t, e=e, b=b
-                )
-
-                if step % config.training.print_freq == 0 or step == 1:
-                    print(
-                        f"step: {step}, loss: {loss.item()}, data time: {data_time / (i+1)}"
-                    )
-
-                optimizer.zero_grad()
-                loss.backward()
-
-                try:
-                    torch.nn.utils.clip_grad_norm_(
-                        self.model.parameters(), config.optim.grad_clip
-                    )
-                except Exception:
-                    pass
-                optimizer.step()
-
-                if self.config.model.ema:
-                    ema_helper.update(self.model)
-
-                if step % self.config.training.snapshot_freq == 0 or step == 1:
-                    states = [
-                        self.model.state_dict(),
-                        optimizer.state_dict(),
-                        epoch,
-                        step,
-                    ]
-                    if self.config.model.ema:
-                        states.append(ema_helper.state_dict())
-
-                    log_path = config.training.log_path
-                    log_path.mkdir(parents=True, exist_ok=True)
-                    torch.save(
-                        states,
-                        log_path / "ckpt_{}.pth".format(step),
-                    )
-                    torch.save(states, log_path / "ckpt.pth")
+        with trange(
+            start_epoch,
+            self.config.training.n_epochs,
+            initial=start_epoch,
+            total=self.config.training.n_epochs,
+            desc="Epoch",
+            leave=False,
+        ) as pbar:
+            for epoch in range(start_epoch, self.config.training.n_epochs):
+                pbar.update(1)
+                pbar.set_description(f"Epoch {epoch + 1}/{self.config.training.n_epochs}")
 
                 data_start = time.time()
+                data_time = 0
+                for i, (grasps, bpss, _) in tqdm(
+                    enumerate(train_loader),
+                    desc="Iterations",
+                    total=len(train_loader),
+                    leave=False,
+                ):
+                    time.sleep(0.1)  # Yield control so it can be interrupted
+                    n = grasps.size(0)
+                    data_time += time.time() - data_start
+                    self.model.train()
+                    step += 1
+
+                    grasps = grasps.to(self.device)
+                    bpss = bpss.to(self.device)
+                    e = torch.randn_like(grasps)
+                    b = self.betas
+
+                    # antithetic sampling
+                    t = torch.randint(
+                        low=0, high=self.num_timesteps, size=(n // 2 + 1,)
+                    ).to(self.device)
+                    t = torch.cat([t, self.num_timesteps - t - 1], dim=0)[:n]
+                    loss = noise_estimation_loss(
+                        model=self.model, x0=grasps, cond=bpss, t=t, e=e, b=b
+                    )
+
+                    # if step % config.training.print_freq == 0 or step == 1:
+                    #     print(
+                    #         f"step: {step}, loss: {loss.item()}, data time: {data_time / (i+1)}"
+                    #     )
+
+                    optimizer.zero_grad()
+                    loss.backward()
+
+                    try:
+                        torch.nn.utils.clip_grad_norm_(
+                            self.model.parameters(), config.optim.grad_clip
+                        )
+                    except Exception:
+                        pass
+                    optimizer.step()
+
+                    # logging
+                    pbar.set_postfix(train_loss=loss.item())
+                    wandb.log({"train_loss": loss.item()})
+
+                    if self.config.model.ema:
+                        ema_helper.update(self.model)
+
+                    if step % self.config.training.snapshot_freq == 0 or step == 1:
+                        states = [
+                            self.model.state_dict(),
+                            optimizer.state_dict(),
+                            epoch,
+                            step,
+                        ]
+                        if self.config.model.ema:
+                            states.append(ema_helper.state_dict())
+
+                        log_path = config.training.log_path
+                        log_path.mkdir(parents=True, exist_ok=True)
+                        torch.save(
+                            states,
+                            log_path / "ckpt_{}.pth".format(step),
+                        )
+                        torch.save(states, log_path / "ckpt.pth")
+
+                    data_start = time.time()
 
     def sample(self, xT: torch.Tensor, cond: torch.Tensor) -> torch.Tensor:
         self.model.eval()

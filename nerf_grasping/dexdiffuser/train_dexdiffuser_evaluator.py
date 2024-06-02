@@ -100,6 +100,7 @@ def main(cfg: DexEvaluatorTrainingConfig) -> None:
                     val_loss = torch.nn.functional.mse_loss(y_pred, y)
             
             pbar.set_postfix(train_loss=loss.item(), val_loss=val_loss.item())
+            wandb.log({"train_loss": loss.item(), "val_loss": val_loss.item()})
 
             if epoch % cfg.snapshot_freq == 0 or epoch == cfg.num_epochs - 1:
                 print(f"Saving model at epoch {epoch}!")

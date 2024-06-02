@@ -5,7 +5,7 @@ import pathlib
 
 @dataclass
 class DataConfig:
-    num_workers: int = 4
+    num_workers: int = 0
     n_pts: int = 4096  # Number of points in bps (from DexDiffuser)
     grasp_dim: int = 3 + 6 + 16 + 4 * 3 # Grasp xyz + rot6d + joint angles + grasp directions
 
@@ -27,11 +27,11 @@ class DiffusionConfig:
 
 @dataclass
 class TrainingConfig:
-    batch_size: int = 32768  # TODO(ahl): integrate this with dataparallel correctly
+    batch_size: int = 16384 * 4  # TODO(ahl): integrate this with dataparallel correctly
     n_epochs: int = 10000
-    print_freq: int = 100
-    snapshot_freq: int = 5000
-    log_path: pathlib.Path = pathlib.Path(f"logs_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}")
+    print_freq: int = 10
+    snapshot_freq: int = 1000
+    log_path: pathlib.Path = pathlib.Path(f"logs/dexdiffuser_sampler/{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}")
 
 
 @dataclass
@@ -52,3 +52,4 @@ class Config:
     diffusion: DiffusionConfig = field(default_factory=DiffusionConfig)
     training: TrainingConfig = field(default_factory=TrainingConfig)
     optim: OptimConfig = field(default_factory=OptimConfig)
+    wandb_log: bool = True

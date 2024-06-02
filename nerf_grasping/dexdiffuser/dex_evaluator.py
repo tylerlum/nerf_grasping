@@ -24,7 +24,7 @@ class DexEvaluator(nn.Module):
         self.rb1 = FCResBlock(in_bps + in_grasp, n_neurons)
         self.rb2 = FCResBlock(in_bps + in_grasp + n_neurons, n_neurons)
         self.rb3 = FCResBlock(in_bps + in_grasp + n_neurons, n_neurons)
-        self.out_success = nn.Linear(n_neurons, 1)
+        self.out_success = nn.Linear(n_neurons, 3)
         self.dout = nn.Dropout(0.3)
         self.sigmoid = nn.Sigmoid()
 
@@ -40,6 +40,9 @@ class DexEvaluator(nn.Module):
                 We have dim_grasp = 3 + 6 + 16 + 3 * 4 = 37.
                 The 6 rotation dims are the first two cols of the rot matrix.
                 The extra 12 inputs are the grasp directions, which we provide to all.
+
+        Returns:
+            ys: The three labels for the grasp: y_coll, y_pick, y_eval.
         """
         X = torch.cat([f_O, g_O], dim=-1)
 

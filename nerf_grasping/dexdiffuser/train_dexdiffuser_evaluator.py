@@ -81,10 +81,10 @@ def main(cfg: DexEvaluatorTrainingConfig) -> None:
             pbar.update(1)
             pbar.set_description(f"Epoch {epoch + 1}/{cfg.num_epochs}")
             model.train()
-            for i, (f_O, g_O, y) in tqdm(enumerate(train_loader), total=len(train_loader), desc="Iterations", leave=True):
+            for i, (g_O, f_O, y) in tqdm(enumerate(train_loader), total=len(train_loader), desc="Iterations", leave=False):
                 f_O, g_O, y = f_O.to(cfg.device), g_O.to(cfg.device), y.to(cfg.device)
                 optimizer.zero_grad()
-                y_pred = model(f_O, g_O).squeeze(-1)
+                y_pred = model(f_O, g_O)[..., -1]
                 assert y_pred.shape == y.shape
                 loss = torch.nn.functional.mse_loss(y_pred, y)
                 loss.backward()
@@ -93,9 +93,9 @@ def main(cfg: DexEvaluatorTrainingConfig) -> None:
 
             model.eval()
             with torch.no_grad():
-                for i, (f_O, g_O, y) in enumerate(test_loader):
+                for i, (g_O, f_O, y) in enumerate(test_loader):
                     f_O, g_O, y = f_O.to(cfg.device), g_O.to(cfg.device), y.to(cfg.device)
-                    y_pred = model(f_O, g_O).squeeze(-1)
+                    y_pred = model(f_O, g_O)[..., -1]
                     assert y_pred.shape == y.shape
                     val_loss = torch.nn.functional.mse_loss(y_pred, y)
             
@@ -109,7 +109,7 @@ def main(cfg: DexEvaluatorTrainingConfig) -> None:
 if __name__ == "__main__":
     cfg = DexEvaluatorTrainingConfig(
         num_epochs=1000,
-        batch_size=16384 * 8,
+        batch_size=16384,
         learning_rate=1e-4,
         device=torch.device("cuda" if torch.cuda.is_available() else "cpu"),
         random_seed=42,

@@ -207,6 +207,7 @@ def ddpm_steps(x, cond, seq, model, b):
 def get_dataset(
     hdf5_path: str | None = "/home/albert/research/nerf_grasping/bps_data/grasp_bps_dataset.hdf5",
     use_evaluator_dataset: bool = False,
+    get_all_labels: bool = False,
 ) -> tuple[
     GraspBPSSampleDataset | GraspBPSEvalDataset,
     GraspBPSSampleDataset | GraspBPSEvalDataset,
@@ -215,10 +216,12 @@ def get_dataset(
     if use_evaluator_dataset:
         full_dataset = GraspBPSEvalDataset(
             input_hdf5_filepath=hdf5_path,
+            get_all_labels=get_all_labels,
         )
     else:
         full_dataset = GraspBPSSampleDataset(
             input_hdf5_filepath=hdf5_path,
+            get_all_labels=get_all_labels,
         )
     train_size = int(0.8 * len(full_dataset))
     test_size = len(full_dataset) - train_size
@@ -290,7 +293,7 @@ class Diffusion(object):
 
     def train(self) -> None:
         config = self.config
-        train_dataset, test_dataset, _ = get_dataset()
+        train_dataset, test_dataset, _ = get_dataset(get_all_labels=False)
         train_loader = data.DataLoader(
             train_dataset,
             batch_size=config.training.batch_size,
@@ -427,7 +430,7 @@ def main() -> None:
     else:
         runner.load_checkpoint(config)
 
-        _, _, full_dataset = get_dataset()
+        _, _, full_dataset = get_dataset(get_all_labels=False)
         GRASP_IDX = 13021
         _, bps, _ = full_dataset[GRASP_IDX]
         xT = torch.randn(1, config.data.grasp_dim, device=runner.device)

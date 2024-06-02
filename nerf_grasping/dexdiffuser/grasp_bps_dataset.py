@@ -94,8 +94,10 @@ class GraspBPSEvalDataset(GraspBPSDataset):
     def __init__(
         self,
         input_hdf5_filepath: str,
+        get_all_labels: bool = False,
     ) -> None:
         super().__init__(input_hdf5_filepath=input_hdf5_filepath)
+        self.get_all_labels = get_all_labels
 
     def __len__(self) -> int:
         return self.num_grasps
@@ -104,7 +106,17 @@ class GraspBPSEvalDataset(GraspBPSDataset):
         self, grasp_idx: int
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         bps_idx = self.grasp_bps_idxs[grasp_idx]
-        return self.grasps[grasp_idx], self.bpss[bps_idx], self.passed_evals[grasp_idx]
+        if self.get_all_labels:
+            labels = torch.concatenate(
+                (
+                    self.passed_simulations[grasp_idx],
+                    self.passed_penetration_thresholds[grasp_idx],
+                    self.passed_evals[grasp_idx],
+                ),
+            )  # shape=(3,)
+            return self.grasps[grasp_idx], self.bpss[bps_idx], labels
+        else:
+            return self.grasps[grasp_idx], self.bpss[bps_idx], self.passed_evals[grasp_idx]
 
     ###### Extras ######
     def get_point_cloud_filepath(self, grasp_idx: int) -> str:
@@ -127,8 +139,10 @@ class GraspBPSSampleDataset(GraspBPSDataset):
     def __init__(
         self,
         input_hdf5_filepath: str,
+        get_all_labels: bool = False,
     ) -> None:
         super().__init__(input_hdf5_filepath=input_hdf5_filepath)
+        self.get_all_labels = get_all_labels
 
         self.successful_grasp_idxs = torch.where(self.passed_evals >= 0.9)[0]
         self.num_successful_grasps = len(self.successful_grasp_idxs)
@@ -141,7 +155,17 @@ class GraspBPSSampleDataset(GraspBPSDataset):
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         grasp_idx = self.successful_grasp_idxs[successful_grasp_idx]
         bps_idx = self.grasp_bps_idxs[grasp_idx]
-        return self.grasps[grasp_idx], self.bpss[bps_idx], self.passed_evals[grasp_idx]
+        if self.get_all_labels:
+            labels = torch.concatenate(
+                (
+                    self.passed_simulations[grasp_idx],
+                    self.passed_penetration_thresholds[grasp_idx],
+                    self.passed_evals[grasp_idx],
+                ),
+            )  # shape=(3,)
+            return self.grasps[grasp_idx], self.bpss[bps_idx], labels
+        else:
+            return self.grasps[grasp_idx], self.bpss[bps_idx], self.passed_evals[grasp_idx]
 
     ###### Extras ######
     def get_point_cloud_filepath(self, successful_grasp_idx: int) -> str:

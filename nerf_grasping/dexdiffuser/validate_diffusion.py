@@ -48,7 +48,7 @@ def main(GRASP_IDX: int = 0, refine: bool = True) -> None:
     dex_evaluator.eval()
 
     # loading data
-    train_dataset, test_dataset, full_dataset = get_dataset(use_evaluator_dataset=True)  # must use a different dataset for checking out evaluator!!!
+    _, val_dataset, test_dataset = get_datasets(use_evaluator_dataset=True)  # must use a different dataset for checking out evaluator!!!
     test_loader = data.DataLoader(test_dataset, batch_size=1, shuffle=False)
 
     # validating the evaluator

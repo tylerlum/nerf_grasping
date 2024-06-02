@@ -32,6 +32,7 @@ class TrainingConfig:
     print_freq: int = 10
     snapshot_freq: int = 100
     log_path: pathlib.Path = pathlib.Path(f"logs/dexdiffuser_sampler/{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}")
+    # log_path: pathlib.Path = pathlib.Path(f"logs/dexdiffuser_sampler/stable_jun2")  # [vulcan] first one trained, tylers arch, not converged, no_noisy
 
 
 @dataclass
@@ -53,3 +54,4 @@ class Config:
     training: TrainingConfig = field(default_factory=TrainingConfig)
     optim: OptimConfig = field(default_factory=OptimConfig)
     wandb_log: bool = True
+    multigpu: bool = True

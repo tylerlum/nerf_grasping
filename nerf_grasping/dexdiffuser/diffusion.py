@@ -6,14 +6,18 @@ from tqdm import tqdm, trange
 import torch.nn as nn
 import time
 import torch
+import torch.distributed as dist
+import torch.multiprocessing as mp
 import wandb
 import numpy as np
 import torch.optim as optim
 import torch.utils.data as data
 from nerf_grasping.dexdiffuser.dex_sampler import DexSampler
-from nerf_grasping.dexdiffuser.diffusion_config import Config
+from nerf_grasping.dexdiffuser.diffusion_config import Config, DataConfig, TrainingConfig
 from nerf_grasping.dexdiffuser.grasp_bps_dataset import GraspBPSSampleDataset, GraspBPSEvalDataset
+from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import random_split
+from torch.utils.data.distributed import DistributedSampler
 from wandb.util import generate_id
 
 
@@ -272,7 +276,7 @@ def get_datasets(
     return train_dataset, val_dataset, test_dataset
 
 class Diffusion(object):
-    def __init__(self, config: Config, device=None):
+    def __init__(self, config: Config, device=None, rank: int = 0, load_multigpu_ckpt: bool = False):
         self.config = config
         if device is None:
             device = (
@@ -305,12 +309,16 @@ class Diffusion(object):
         elif self.model_var_type == "fixedsmall":
             self.logvar = posterior_variance.clamp(min=1e-20).log()
 
-        self.model = DexSampler(
+        model = DexSampler(
             n_pts=config.data.n_pts,
             grasp_dim=config.data.grasp_dim,
             d_model=128,
             virtual_seq_len=4,
         ).to(self.device)
+        if config.multigpu and not load_multigpu_ckpt:
+            self.model = DDP(model, device_ids=[rank])
+        else:
+            self.model = model
 
         # our crappy attempt at using their archtecture
         # self.model = DexSampler(dim_grasp=config.data.grasp_dim).to(self.device)
@@ -326,146 +334,6 @@ class Diffusion(object):
         )
         model_state_dict = states[0]
         self.model.load_state_dict(model_state_dict)
-
-    def train(self) -> None:
-        config = self.config
-        wandb_id = generate_id()
-        if config.wandb_log:
-            wandb.init(project="dexdiffuser-sampler", id=wandb_id, resume="allow")
-
-        train_dataset, val_dataset, _ = get_datasets(get_all_labels=False)
-        train_loader = data.DataLoader(
-            train_dataset,
-            batch_size=config.training.batch_size,
-            shuffle=True,
-            num_workers=config.data.num_workers,
-        )
-        val_loader = data.DataLoader(
-            val_dataset,
-            batch_size=config.training.batch_size,
-            shuffle=False,
-            num_workers=config.data.num_workers,
-        )
-
-        optimizer = get_optimizer(self.config, self.model.parameters())
-
-        if self.config.model.ema:
-            ema_helper = EMAHelper(mu=self.config.model.ema_rate)
-            ema_helper.register(self.model)
-        else:
-            ema_helper = None
-
-        start_epoch, step = 0, 0
-        with trange(
-            start_epoch,
-            self.config.training.n_epochs,
-            initial=start_epoch,
-            total=self.config.training.n_epochs,
-            desc="Epoch",
-            leave=False,
-        ) as pbar:
-            for epoch in range(start_epoch, self.config.training.n_epochs):
-                pbar.update(1)
-                pbar.set_description(f"Epoch {epoch + 1}/{self.config.training.n_epochs}")
-
-                data_start = time.time()
-                data_time = 0
-                train_loss = 0
-
-                # training loop
-                for i, (grasps, bpss, _) in tqdm(
-                    enumerate(train_loader),
-                    desc="Iterations",
-                    total=len(train_loader),
-                    leave=False,
-                ):
-                    n = grasps.size(0)
-                    data_time += time.time() - data_start
-                    self.model.train()
-                    step += 1
-
-                    grasps = grasps.to(self.device)
-                    bpss = bpss.to(self.device)
-                    e = torch.randn_like(grasps)
-                    b = self.betas
-
-                    # antithetic sampling
-                    t = torch.randint(
-                        low=0, high=self.num_timesteps, size=(n // 2 + 1,)
-                    ).to(self.device)
-                    t = torch.cat([t, self.num_timesteps - t - 1], dim=0)[:n]
-                    loss = noise_estimation_loss(
-                        model=self.model, x0=grasps, cond=bpss, t=t, e=e, b=b
-                    )
-                    train_loss += loss.item()
-
-                    # if step % config.training.print_freq == 0 or step == 1:
-                    #     print(
-                    #         f"step: {step}, loss: {loss.item()}, data time: {data_time / (i+1)}"
-                    #     )
-
-                    optimizer.zero_grad()
-                    loss.backward()
-
-                    try:
-                        torch.nn.utils.clip_grad_norm_(
-                            self.model.parameters(), config.optim.grad_clip
-                        )
-                    except Exception:
-                        pass
-                    optimizer.step()
-
-                train_loss /= len(train_loader)
-
-                # val step
-                self.model.eval()
-                with torch.no_grad():
-                    val_loss = 0
-                    for i, (grasps, bpss, _) in enumerate(val_loader):
-                        n = grasps.size(0)
-                        grasps = grasps.to(self.device)
-                        bpss = bpss.to(self.device)
-                        e = torch.randn_like(grasps)
-                        b = self.betas
-
-                        t = torch.randint(
-                            low=0, high=self.num_timesteps, size=(n // 2 + 1,)
-                        ).to(self.device)
-                        t = torch.cat([t, self.num_timesteps - t - 1], dim=0)[:n]
-                        _val_loss = noise_estimation_loss(
-                            model=self.model, x0=grasps, cond=bpss, t=t, e=e, b=b
-                        )
-                        val_loss += _val_loss.item()
-                    val_loss /= len(val_loader)
-
-                    # logging
-                    pbar.set_postfix(step=step, train_loss=train_loss, val_loss=val_loss)
-                    if self.config.wandb_log:
-                        wandb.log({"train_loss": train_loss, "val_loss": val_loss})
-
-                    if self.config.model.ema:
-                        ema_helper.update(self.model)
-
-                    is_last_step = epoch == self.config.training.n_epochs - 1 and i == len(train_loader) - 1
-                    if step % self.config.training.snapshot_freq == 0 or step == 1 or is_last_step:
-                        print(f"Saving model at step {step}!")
-                        states = [
-                            self.model.state_dict(),
-                            optimizer.state_dict(),
-                            epoch,
-                            step,
-                        ]
-                        if self.config.model.ema:
-                            states.append(ema_helper.state_dict())
-
-                        log_path = config.training.log_path
-                        log_path.mkdir(parents=True, exist_ok=True)
-                        if is_last_step:
-                            torch.save(states, log_path / f"ckpt_final.pth")
-                        else:
-                            torch.save(states, log_path / f"ckpt_{step}.pth")
-
-                    data_start = time.time()
 
     def sample(self, xT: torch.Tensor, cond: torch.Tensor) -> torch.Tensor:
         self.model.eval()
@@ -506,11 +374,233 @@ class Diffusion(object):
             x = x[0][-1]
         return x
 
+def train(config, rank: int = 0) -> None:
+    num_gpus = torch.cuda.device_count()
+    if config.multigpu:
+        device = torch.device("cuda", rank)
+        os.environ["MASTER_ADDR"] = "localhost"
+        os.environ["MASTER_PORT"] = "12355"
+        dist.init_process_group("nccl", rank=rank, world_size=num_gpus)
+    else:
+        device = device
 
-def main(cfg: Config) -> None:
-    runner = Diffusion(cfg)
-    runner.train()
+    config = config
+    wandb_id = generate_id()
+    if config.wandb_log and rank == 0:
+        wandb.init(project="dexdiffuser-sampler", id=wandb_id, resume="allow")
+
+    # datasets and dataloader
+    train_dataset, val_dataset, _ = get_datasets(get_all_labels=False)
+    if config.multigpu:
+        train_sampler = DistributedSampler(
+            train_dataset,
+            num_replicas=num_gpus,
+            rank=rank,
+            shuffle=True,
+        )
+        val_sampler = DistributedSampler(
+            val_dataset,
+            num_replicas=num_gpus,
+            rank=rank,
+            shuffle=False,
+        )
+        train_shuffle = None
+        val_shuffle = None
+    else:
+        train_sampler = None
+        val_sampler = None
+        train_shuffle = True
+        val_shuffle = False
+
+    train_loader = data.DataLoader(
+        train_dataset,
+        batch_size=config.training.batch_size,
+        shuffle=train_shuffle,
+        num_workers=config.data.num_workers,
+        pin_memory=True,
+        sampler=train_sampler,
+        multiprocessing_context="fork",
+    )
+    val_loader = data.DataLoader(
+        val_dataset,
+        batch_size=config.training.batch_size,
+        shuffle=val_shuffle,
+        num_workers=config.data.num_workers,
+        pin_memory=True,
+        sampler=val_sampler,
+        multiprocessing_context="fork",
+    )
+
+    # making the model
+    runner = Diffusion(config, device=device, rank=rank)
+    optimizer = get_optimizer(config, runner.model.parameters())
+
+    if runner.config.model.ema:
+        ema_helper = EMAHelper(mu=runner.config.model.ema_rate)
+        ema_helper.register(runner.model)
+    else:
+        ema_helper = None
+
+    start_epoch, step = 0, 0
+    with trange(
+        start_epoch,
+        runner.config.training.n_epochs,
+        initial=start_epoch,
+        total=runner.config.training.n_epochs,
+        desc="Epoch",
+        leave=False,
+        disable=(rank != 0),
+    ) as pbar:
+        for epoch in range(start_epoch, runner.config.training.n_epochs):
+            if config.multigpu:
+                dist.barrier()
+                train_sampler.set_epoch(epoch)
+
+            pbar.update(1)
+            pbar.set_description(f"Epoch {epoch + 1}/{runner.config.training.n_epochs}")
+
+            data_start = time.time()
+            data_time = 0
+            train_loss = 0
+
+            # training loop
+            runner.model.train()
+            for i, (grasps, bpss, _) in tqdm(
+                enumerate(train_loader),
+                desc="Iterations",
+                total=len(train_loader),
+                leave=False,
+                disable=(rank != 0),
+            ):
+                n = grasps.size(0)
+                data_time += time.time() - data_start
+                runner.model.train()
+                step += 1
+
+                grasps = grasps.to(device)
+                bpss = bpss.to(device)
+                e = torch.randn_like(grasps)
+                b = runner.betas
+
+                # antithetic sampling
+                t = torch.randint(
+                    low=0, high=runner.num_timesteps, size=(n // 2 + 1,)
+                ).to(device)
+                t = torch.cat([t, runner.num_timesteps - t - 1], dim=0)[:n]
+                loss = noise_estimation_loss(
+                    model=runner.model, x0=grasps, cond=bpss, t=t, e=e, b=b
+                )
+                train_loss += loss.item()
+
+                # if step % config.training.print_freq == 0 or step == 1:
+                #     print(
+                #         f"step: {step}, loss: {loss.item()}, data time: {data_time / (i+1)}"
+                #     )
+
+                optimizer.zero_grad()
+                loss.backward()
+
+                try:
+                    torch.nn.utils.clip_grad_norm_(
+                        runner.model.parameters(), config.optim.grad_clip
+                    )
+                except Exception:
+                    pass
+                optimizer.step()
+
+            train_loss /= len(train_loader)
+
+            # val step
+            runner.model.eval()
+            with torch.no_grad():
+                val_loss = 0
+                for i, (grasps, bpss, _) in enumerate(val_loader):
+                    n = grasps.size(0)
+                    grasps = grasps.to(device)
+                    bpss = bpss.to(device)
+                    e = torch.randn_like(grasps)
+                    b = runner.betas
+
+                    t = torch.randint(
+                        low=0, high=runner.num_timesteps, size=(n // 2 + 1,)
+                    ).to(device)
+                    t = torch.cat([t, runner.num_timesteps - t - 1], dim=0)[:n]
+                    _val_loss = noise_estimation_loss(
+                        model=runner.model, x0=grasps, cond=bpss, t=t, e=e, b=b
+                    )
+                    val_loss += _val_loss.item()
+                val_loss /= len(val_loader)
+
+            # logging
+            pbar.set_postfix(step=step, train_loss=train_loss, val_loss=val_loss)
+            if runner.config.wandb_log and rank == 0:
+                wandb.log({"train_loss": train_loss, "val_loss": val_loss})
+
+            if runner.config.model.ema:
+                ema_helper.update(runner.model)
+
+            is_last_epoch = epoch == runner.config.training.n_epochs - 1
+            if (step % runner.config.training.snapshot_freq == 0 or step == 1 or is_last_epoch) and rank == 0:
+                print(f"Saving model at step {step}!")
+                states = [
+                    getattr(runner.model, "module", runner.model).state_dict(),
+                    optimizer.state_dict(),
+                    epoch,
+                    step,
+                ]
+                if runner.config.model.ema:
+                    states.append(ema_helper.state_dict())
+
+                log_path = config.training.log_path
+                log_path.mkdir(parents=True, exist_ok=True)
+                if is_last_epoch:
+                    torch.save(states, log_path / f"ckpt_final.pth")
+                else:
+                    torch.save(states, log_path / f"ckpt_{step}.pth")
+
+                data_start = time.time()
+
+    if config.multigpu:
+        dist.destroy_process_group()
+
+def _train_multigpu(rank, config):
+    train(config, rank)
+
 
 if __name__ == "__main__":
-    cfg = Config()
-    main(cfg)
+    config = Config(
+        data=DataConfig(
+            num_workers=16,
+        ),
+        training=TrainingConfig(
+            n_epochs=1,  # [DEBUG]
+        )
+    )
+    if config.multigpu:
+        mp.spawn(_train_multigpu, args=(config,), nprocs=torch.cuda.device_count(), join=True)
+    else:
+        train(config, rank=0)
+
+    # testing loading and sampling
+    #####################################################################################################
+    # config = Config(
+    #     training=TrainingConfig(
+    #         log_path=config.training.log_path,
+    #     )
+    # )
+    # runner = Diffusion(config, load_multigpu_ckpt=True)
+    # runner.load_checkpoint(config, name="ckpt_final")
+
+    # # some short eval just to make sure
+    # _, val_dataset, test_dataset = get_datasets(use_evaluator_dataset=False)
+    # test_loader = data.DataLoader(test_dataset, batch_size=1, shuffle=False)
+    # for i, (grasps, bpss, y_PGS) in tqdm(
+    #     enumerate(test_loader),
+    #     desc="Iterations",
+    #     total=len(test_loader),
+    #     leave=False,
+    # ):
+    #     grasps, bpss, y_PGS = grasps.to(runner.device), bpss.to(runner.device), y_PGS.to(runner.device)
+    #     if i == 0:
+    #         break
+    #####################################################################################################

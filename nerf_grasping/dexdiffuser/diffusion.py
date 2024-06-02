@@ -206,8 +206,41 @@ def ddpm_steps(x, cond, seq, model, b):
     return xs, x0_preds
 
 
-def get_dataset(
-    hdf5_path: str | None = "/home/albert/research/nerf_grasping/bps_data/grasp_bps_dataset.hdf5",
+# def get_dataset(
+#     hdf5_path: str | None = "/home/albert/research/nerf_grasping/bps_data/grasp_bps_dataset.hdf5",
+#     use_evaluator_dataset: bool = False,
+#     get_all_labels: bool = False,
+# ) -> tuple[
+#     GraspBPSSampleDataset | GraspBPSEvalDataset,
+#     GraspBPSSampleDataset | GraspBPSEvalDataset,
+#     GraspBPSSampleDataset | GraspBPSEvalDataset,
+# ]:
+#     if use_evaluator_dataset:
+#         full_dataset = GraspBPSEvalDataset(
+#             input_hdf5_filepath=hdf5_path,
+#             get_all_labels=get_all_labels,
+#         )
+#     else:
+#         full_dataset = GraspBPSSampleDataset(
+#             input_hdf5_filepath=hdf5_path,
+#             get_all_labels=get_all_labels,
+#         )
+#     train_size = int(0.8 * len(full_dataset))
+#     test_size = len(full_dataset) - train_size
+
+#     train_dataset, test_dataset = random_split(
+#         full_dataset,
+#         [train_size, test_size],
+#         generator=torch.Generator().manual_seed(42),
+#     )
+#     return train_dataset, test_dataset, full_dataset
+
+def get_datasets(
+    hdf5_path: tuple[str] | None = (
+        "/home/albert/research/nerf_grasping/bps_data/grasp_bps_dataset_final_train.hdf5",
+        "/home/albert/research/nerf_grasping/bps_data/grasp_bps_dataset_final_val.hdf5",
+        "/home/albert/research/nerf_grasping/bps_data/grasp_bps_dataset_final_test.hdf5",
+    ),
     use_evaluator_dataset: bool = False,
     get_all_labels: bool = False,
 ) -> tuple[
@@ -215,26 +248,28 @@ def get_dataset(
     GraspBPSSampleDataset | GraspBPSEvalDataset,
     GraspBPSSampleDataset | GraspBPSEvalDataset,
 ]:
+    train_path = hdf5_path[0]
+    val_path = hdf5_path[1]
+    test_path = hdf5_path[2]
+
     if use_evaluator_dataset:
-        full_dataset = GraspBPSEvalDataset(
-            input_hdf5_filepath=hdf5_path,
-            get_all_labels=get_all_labels,
-        )
+        DatasetClass = GraspBPSEvalDataset
     else:
-        full_dataset = GraspBPSSampleDataset(
-            input_hdf5_filepath=hdf5_path,
-            get_all_labels=get_all_labels,
-        )
-    train_size = int(0.8 * len(full_dataset))
-    test_size = len(full_dataset) - train_size
+        DatasetClass = GraspBPSSampleDataset
 
-    train_dataset, test_dataset = random_split(
-        full_dataset,
-        [train_size, test_size],
-        generator=torch.Generator().manual_seed(42),
+    train_dataset = DatasetClass(
+        input_hdf5_filepath=train_path,
+        get_all_labels=get_all_labels,
     )
-    return train_dataset, test_dataset, full_dataset
-
+    val_dataset = DatasetClass(
+        input_hdf5_filepath=val_path,
+        get_all_labels=get_all_labels,
+    )
+    test_dataset = DatasetClass(
+        input_hdf5_filepath=test_path,
+        get_all_labels=get_all_labels,
+    )
+    return train_dataset, val_dataset, test_dataset
 
 class Diffusion(object):
     def __init__(self, config: Config, device=None):
@@ -298,11 +333,17 @@ class Diffusion(object):
         if config.wandb_log:
             wandb.init(project="dexdiffuser-sampler", id=wandb_id, resume="allow")
 
-        train_dataset, test_dataset, _ = get_dataset(get_all_labels=False)
+        train_dataset, val_dataset, _ = get_datasets(get_all_labels=False)
         train_loader = data.DataLoader(
             train_dataset,
             batch_size=config.training.batch_size,
             shuffle=True,
+            num_workers=config.data.num_workers,
+        )
+        val_loader = data.DataLoader(
+            val_dataset,
+            batch_size=config.training.batch_size,
+            shuffle=False,
             num_workers=config.data.num_workers,
         )
 
@@ -329,13 +370,15 @@ class Diffusion(object):
 
                 data_start = time.time()
                 data_time = 0
+                train_loss = 0
+
+                # training loop
                 for i, (grasps, bpss, _) in tqdm(
                     enumerate(train_loader),
                     desc="Iterations",
                     total=len(train_loader),
                     leave=False,
                 ):
-                    time.sleep(0.1)  # Yield control so it can be interrupted
                     n = grasps.size(0)
                     data_time += time.time() - data_start
                     self.model.train()
@@ -354,6 +397,7 @@ class Diffusion(object):
                     loss = noise_estimation_loss(
                         model=self.model, x0=grasps, cond=bpss, t=t, e=e, b=b
                     )
+                    train_loss += loss.item()
 
                     # if step % config.training.print_freq == 0 or step == 1:
                     #     print(
@@ -371,9 +415,33 @@ class Diffusion(object):
                         pass
                     optimizer.step()
 
+                train_loss /= len(train_loader)
+
+                # val step
+                self.model.eval()
+                with torch.no_grad():
+                    val_loss = 0
+                    for i, (grasps, bpss, _) in enumerate(val_loader):
+                        n = grasps.size(0)
+                        grasps = grasps.to(self.device)
+                        bpss = bpss.to(self.device)
+                        e = torch.randn_like(grasps)
+                        b = self.betas
+
+                        t = torch.randint(
+                            low=0, high=self.num_timesteps, size=(n // 2 + 1,)
+                        ).to(self.device)
+                        t = torch.cat([t, self.num_timesteps - t - 1], dim=0)[:n]
+                        _val_loss = noise_estimation_loss(
+                            model=self.model, x0=grasps, cond=bpss, t=t, e=e, b=b
+                        )
+                        val_loss += _val_loss.item()
+                    val_loss /= len(val_loader)
+
                     # logging
-                    pbar.set_postfix(step=step, train_loss=loss.item())
-                    wandb.log({"train_loss": loss.item()})
+                    pbar.set_postfix(step=step, train_loss=train_loss, val_loss=val_loss)
+                    if self.config.wandb_log:
+                        wandb.log({"train_loss": train_loss, "val_loss": val_loss})
 
                     if self.config.model.ema:
                         ema_helper.update(self.model)
@@ -442,7 +510,6 @@ class Diffusion(object):
 def main(cfg: Config) -> None:
     runner = Diffusion(cfg)
     runner.train()
-
 
 if __name__ == "__main__":
     cfg = Config()

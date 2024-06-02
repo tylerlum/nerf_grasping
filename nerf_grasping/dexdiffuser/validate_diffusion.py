@@ -17,7 +17,7 @@ from nerf_grasping.dexdiffuser.dex_evaluator import DexEvaluator
 from nerf_grasping.dexdiffuser.dex_sampler import DexSampler
 from nerf_grasping.dexdiffuser.diffusion_config import Config, TrainingConfig
 from nerf_grasping.dexdiffuser.grasp_bps_dataset import GraspBPSSampleDataset
-from nerf_grasping.dexdiffuser.diffusion import Diffusion, get_dataset
+from nerf_grasping.dexdiffuser.diffusion import Diffusion, get_datasets
 from nerf_grasping.dexgraspnet_utils.hand_model import HandModel
 from nerf_grasping.dexgraspnet_utils.hand_model_type import (
     HandModelType,
@@ -79,6 +79,8 @@ def main(GRASP_IDX: int = 0, refine: bool = True) -> None:
     breakpoint()
 
     # running just the sampler
+    _, _, test_dataset = get_datasets()
+    GRASP_IDX = 0
     _, bps, _ = test_dataset[GRASP_IDX]
     xT = torch.randn(1, config.data.grasp_dim, device=runner.device)
     x = runner.sample(xT=xT, cond=bps[None].to(runner.device))  # (1, 37)
@@ -122,13 +124,12 @@ def main(GRASP_IDX: int = 0, refine: bool = True) -> None:
         "/home/albert/research/nerf_grasping/rsync_meshes/rotated_meshdata_v2"
     )
     print("=" * 79)
-    print(f"len(full_dataset): {len(full_dataset)}")
+    print(f"len(test_dataset): {len(test_dataset)}")
 
     print("\n" + "=" * 79)
     print(f"Getting grasp and bps for grasp_idx {GRASP_IDX}")
     print("=" * 79)
     passed_eval = np.array(1)
-    # grasp, bps, passed_eval = full_dataset[GRASP_IDX]
     print(f"grasp.shape: {grasp.shape}")
     print(f"bps.shape: {bps.shape}")
     print(f"passed_eval.shape: {passed_eval.shape}")
@@ -136,10 +137,10 @@ def main(GRASP_IDX: int = 0, refine: bool = True) -> None:
     print("\n" + "=" * 79)
     print("Getting debugging extras")
     print("=" * 79)
-    basis_points = full_dataset.get_basis_points()
-    object_code = full_dataset.get_object_code(GRASP_IDX)
-    object_scale = full_dataset.get_object_scale(GRASP_IDX)
-    object_state = full_dataset.get_object_state(GRASP_IDX)
+    basis_points = test_dataset.get_basis_points()
+    object_code = test_dataset.get_object_code(GRASP_IDX)
+    object_scale = test_dataset.get_object_scale(GRASP_IDX)
+    object_state = test_dataset.get_object_state(GRASP_IDX)
     print(f"basis_points.shape: {basis_points.shape}")
 
     # Mesh
@@ -157,7 +158,7 @@ def main(GRASP_IDX: int = 0, refine: bool = True) -> None:
     mesh.apply_transform(transform)
 
     # Point cloud
-    point_cloud_filepath = full_dataset.get_point_cloud_filepath(GRASP_IDX)
+    point_cloud_filepath = test_dataset.get_point_cloud_filepath(GRASP_IDX)
     print(f"Reading point cloud from {point_cloud_filepath}")
     point_cloud = o3d.io.read_point_cloud(point_cloud_filepath)
     point_cloud, _ = point_cloud.remove_statistical_outlier(

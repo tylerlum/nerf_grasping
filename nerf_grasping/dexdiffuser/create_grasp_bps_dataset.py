@@ -1,3 +1,5 @@
+from joblib import Parallel, delayed
+
 from tqdm import tqdm
 import time
 import h5py
@@ -216,16 +218,24 @@ def get_grasp_data(all_config_dict_paths, object_code_and_scale_str_to_idx) -> t
     )
 
 
-def main() -> None:
+def main(args) -> None:
     cfg = BpsGraspConfig(
         point_cloud_folder=pathlib.Path(
             "/home/albert/research/nerf_grasping/rsync_point_clouds/point_clouds"
         ),
         config_dict_folder=pathlib.Path(
-            "/home/albert/research/nerf_grasping/rsync_grasps/grasps/all"
+            # "/home/albert/research/nerf_grasping/rsync_grasps/grasps/all"
+            # "/home/albert/research/nerf_grasping/rsync_final_labeled_grasps_noise_and_nonoise/evaled_grasp_config_dicts_train",
+            # "/home/albert/research/nerf_grasping/rsync_final_labeled_grasps_noise_and_nonoise/evaled_grasp_config_dicts_val",
+            # "/home/albert/research/nerf_grasping/rsync_final_labeled_grasps_noise_and_nonoise/evaled_grasp_config_dicts_test",
+            args.config_dict_folder,
         ),
         output_filepath=pathlib.Path(
-            "/home/albert/research/nerf_grasping/bps_data/grasp_bps_dataset.hdf5"
+            # "/home/albert/research/nerf_grasping/bps_data/grasp_bps_dataset.hdf5"
+            # "/home/albert/research/nerf_grasping/bps_data/grasp_bps_dataset_final_train.hdf5",
+            # "/home/albert/research/nerf_grasping/bps_data/grasp_bps_dataset_final_val.hdf5",
+            # "/home/albert/research/nerf_grasping/bps_data/grasp_bps_dataset_final_test.hdf5",
+            args.output_filepath,
         ),
     )
     all_point_cloud_paths = sorted(list(cfg.point_cloud_folder.rglob("*.ply")))
@@ -248,21 +258,36 @@ def main() -> None:
     ), f"Expected shape ({cfg.N_BASIS_PTS}, 3), got {basis_points.shape}"
 
     # Point cloud per object
-    all_points = []
-    for i, data_path in tqdm(
-        enumerate(all_point_cloud_paths),
-        desc="Getting point clouds",
-        total=len(all_point_cloud_paths),
-    ):
+    # all_points = []
+    # for i, data_path in tqdm(
+    #     enumerate(all_point_cloud_paths),
+    #     desc="Getting point clouds",
+    #     total=len(all_point_cloud_paths),
+    # ):
+    #     point_cloud = o3d.io.read_point_cloud(str(data_path))
+    #     point_cloud, _ = point_cloud.remove_statistical_outlier(
+    #         nb_neighbors=20, std_ratio=2.0
+    #     )
+    #     point_cloud, _ = point_cloud.remove_radius_outlier(nb_points=16, radius=0.05)
+    #     points = np.asarray(point_cloud.points)
+
+    #     # inlier_points = process_point_cloud(points)
+    #     # all_points.append(inlier_points)
+    #     all_points.append(points)
+
+    def process_single_point_cloud(data_path):
         point_cloud = o3d.io.read_point_cloud(str(data_path))
         point_cloud, _ = point_cloud.remove_statistical_outlier(
             nb_neighbors=20, std_ratio=2.0
         )
         point_cloud, _ = point_cloud.remove_radius_outlier(nb_points=16, radius=0.05)
         points = np.asarray(point_cloud.points)
+        inlier_points = process_point_cloud(points, distance_threshold=0.01)
+        return inlier_points
 
-        inlier_points = process_point_cloud(points)
-        all_points.append(inlier_points)
+    all_points = Parallel(n_jobs=-1)(
+        delayed(process_single_point_cloud)(data_path) for data_path in tqdm(all_point_cloud_paths, desc="Processing point clouds")
+    )
 
     min_n_pts = min([x.shape[0] for x in all_points])
     all_points = np.stack([x[:min_n_pts] for x in all_points])
@@ -400,4 +425,21 @@ def main() -> None:
         hdf5_file.attrs["num_grasps"] = NUM_GRASPS
 
 if __name__ == "__main__":
-    main()
+    import argparse
+
+    # [config-dict-folder paths]
+    # "/home/albert/research/nerf_grasping/rsync_final_labeled_grasps_noise_and_nonoise/evaled_grasp_config_dicts_train",
+    # "/home/albert/research/nerf_grasping/rsync_final_labeled_grasps_noise_and_nonoise/evaled_grasp_config_dicts_val",
+    # "/home/albert/research/nerf_grasping/rsync_final_labeled_grasps_noise_and_nonoise/evaled_grasp_config_dicts_test",
+
+    # [output-folder paths]
+    # "/home/albert/research/nerf_grasping/bps_data/grasp_bps_dataset_final_train.hdf5",
+    # "/home/albert/research/nerf_grasping/bps_data/grasp_bps_dataset_final_val.hdf5",
+    # "/home/albert/research/nerf_grasping/bps_data/grasp_bps_dataset_final_test.hdf5",
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config-dict-folder", type=str, required=True)
+    parser.add_argument("--output-filepath", type=str, required=True)
+    args = parser.parse_args()
+
+    main(args)

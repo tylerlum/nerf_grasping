@@ -28,7 +28,7 @@ class DiffusionConfig:
 @dataclass
 class TrainingConfig:
     batch_size: int = 16384 * 4  # TODO(ahl): integrate this with dataparallel correctly
-    n_epochs: int = 10000
+    n_epochs: int = 20000
     print_freq: int = 10
     snapshot_freq: int = 100
     log_path: pathlib.Path = pathlib.Path(f"logs/dexdiffuser_sampler/{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}")

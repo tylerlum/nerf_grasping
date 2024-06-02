@@ -727,7 +727,15 @@ def get_optimized_grasps(
             all_success_preds,
         )
         ordered_idxs_best_first = np.argsort(new_all_success_preds)[::-1].copy()
+        print("=" * 80)
+        print(f"ordered_idxs_best_first = {ordered_idxs_best_first[:10]}")
+        print("=" * 80)
+        breakpoint()
         # breakpoint()  # TODO: Debug here
+        # ordered_idxs_best_first = [550, 759, 524, 151, 150, 533, 1179, 662, 591, 638]
+        ordered_idxs_best_first = [981, 937, 985, 874, 135, 65, 987, 1262, 1065, 472]
+
+        print(f'Forced ordered_idxs_best_first = {ordered_idxs_best_first[:10]}')
         new_grasp_configs = new_grasp_configs[ordered_idxs_best_first]
 
     # HACK: Check how many pass IK
@@ -807,20 +815,21 @@ def get_optimized_grasps(
         console=console,
     )
 
-    breakpoint()
-    grasp_metric.return_type = "all_logits"
-    all_logits = grasp_metric(final_grasp_configs)
-    print(f"all_logits.shape = {all_logits.shape}")
-    assert all_logits.shape == (final_grasp_configs.batch_size, 3, 2)
-    # Softmax
-    probs = torch.nn.functional.softmax(all_logits, dim=-1)[..., 1]
-    assert probs.shape == (final_grasp_configs.batch_size, 3)
-    passed_sim_probs = probs[:, 0]
-    passed_pen_probs = probs[:, 1]
-    passed_eval_probs = probs[:, 2]
-    print(f"passed_sim_probs = {passed_sim_probs}")
-    print(f"passed_pen_probs = {passed_pen_probs}")
-    print(f"passed_eval_probs = {passed_eval_probs}")
+    # DEBUG
+    # breakpoint()
+    # grasp_metric.return_type = "all_logits"
+    # all_logits = grasp_metric(final_grasp_configs)
+    # print(f"all_logits.shape = {all_logits.shape}")
+    # assert all_logits.shape == (final_grasp_configs.batch_size, 3, 2)
+    # # Softmax
+    # probs = torch.nn.functional.softmax(all_logits, dim=-1)[..., 1]
+    # assert probs.shape == (final_grasp_configs.batch_size, 3)
+    # passed_sim_probs = probs[:, 0]
+    # passed_pen_probs = probs[:, 1]
+    # passed_eval_probs = probs[:, 2]
+    # print(f"passed_sim_probs = {passed_sim_probs}")
+    # print(f"passed_pen_probs = {passed_pen_probs}")
+    # print(f"passed_eval_probs = {passed_eval_probs}")
 
     assert (
         final_losses.shape[0] == final_grasp_configs.batch_size

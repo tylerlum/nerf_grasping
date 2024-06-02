@@ -30,7 +30,7 @@ class TrainingConfig:
     n_epochs: int = 10000
     print_freq: int = 100
     snapshot_freq: int = 5000
-    log_path: pathlib.Path = pathlib.Path("logs_2024-05-17")
+    log_path: pathlib.Path = pathlib.Path("logs_2024-06-01")
 
 
 @dataclass

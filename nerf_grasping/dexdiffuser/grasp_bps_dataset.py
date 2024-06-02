@@ -206,8 +206,8 @@ def main() -> None:
         compute_optimized_joint_angle_targets_given_grasp_orientations,
     )
 
-    INPUT_HDF5_FILEPATH = "/home/albert/research/nerf_grasping/bps_data/grasp_bps_dataset.hdf5"
-    GRASP_IDX = 0  # [DEBUG] change this guy for different viz
+    INPUT_HDF5_FILEPATH = "/home/albert/research/nerf_grasping/bps_data/grasp_bps_dataset_final_test.hdf5"
+    GRASP_IDX = 2000  # [DEBUG] change this guy for different viz
     MESHDATA_ROOT = (
         "/home/albert/research/nerf_grasping/rsync_meshes/rotated_meshdata_v2"
     )
@@ -367,8 +367,8 @@ def main() -> None:
         fig.add_trace(trace)
     for trace in hand_plotly_optimized:
         fig.add_trace(trace)
-    fig.write_html("/home/albert/research/nerf_grasping/bps_debug.html")
-
+    fig.write_html("/home/albert/research/nerf_grasping/bps_debug.html")  # headless
+    # fig.show()
 
 if __name__ == "__main__":
     main()

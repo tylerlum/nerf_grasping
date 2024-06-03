@@ -260,7 +260,7 @@ def get_optimized_grasps(
 
     # Get BPS
     N_BASIS_PTS = 4096
-    bps_values, basis_points = nerf_to_bps(
+    bps_values, basis_points_By, point_cloud_points_By = nerf_to_bps(
         nerf_pipeline=nerf_pipeline,
         lb_N=lb_N,
         ub_N=ub_N,
@@ -283,23 +283,35 @@ def get_optimized_grasps(
 
     PLOT = True
     if PLOT:
-        IDX = 0
         mesh_N = trimesh.load("/tmp/mesh_viz_object.obj")
         mesh_By = trimesh.load("/tmp/mesh_viz_object.obj")
         X_By_N = np.linalg.inv(X_N_By)
         mesh_By.apply_transform(X_By_N)
         X_By_Oy = np.linalg.inv(X_Oy_By)
-        visualize_point_cloud_and_bps_and_grasp(
-            grasp=x[IDX],
-            X_W_Oy=X_By_Oy,  # TODO Figure this out
-            basis_points=basis_points,
-            bps=bps_values_repeated[IDX].detach().cpu().numpy(),
-            mesh=mesh_By,
-            point_cloud_points=None,
-            GRASP_IDX="?",
-            object_code="?",
-            passed_eval="?",
-        )
+        IDX = 0
+        while True:
+            visualize_point_cloud_and_bps_and_grasp(
+                grasp=x[IDX],
+                X_W_Oy=X_By_Oy,  # TODO Figure this out
+                basis_points=basis_points_By,
+                bps=bps_values_repeated[IDX].detach().cpu().numpy(),
+                mesh=mesh_By,
+                point_cloud_points=point_cloud_points_By,
+                GRASP_IDX="?",
+                object_code="?",
+                passed_eval="?",
+            )
+            user_input = input("Next action?")
+            if user_input == "q":
+                break
+            elif user_input == "n":
+                IDX += 1
+                IDX = IDX % NUM_GRASPS
+            elif user_input == "p":
+                IDX -= 1
+                IDX = IDX % NUM_GRASPS
+            else:
+                print("Invalid input")
         breakpoint()
 
     # grasp to AllegroGraspConfig

@@ -104,13 +104,14 @@ from nerf_grasping.dexgraspnet_utils.joint_angle_targets import (
     compute_optimized_joint_angle_targets_given_grasp_orientations,
 )
 
+
 def nerf_to_bps(
     nerf_pipeline: Pipeline,
     lb_N: np.ndarray,
     ub_N: np.ndarray,
     X_N_By: np.ndarray,
     num_points: int = 5000,
-) -> Tuple[np.ndarray, np.ndarray]:
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     assert lb_N.shape == (3,)
     assert ub_N.shape == (3,)
 
@@ -178,7 +179,10 @@ def nerf_to_bps(
     assert bps_values.shape == (
         N_BASIS_PTS,
     ), f"Expected shape ({N_BASIS_PTS},), got {bps_values.shape}"
-    return bps_values, basis_points_By
+
+    X_By_N = np.linalg.inv(X_N_By)
+    final_points_By = transform_points(T=X_By_N, points=final_points_N)
+    return bps_values, basis_points_By, final_points_By
 
 
 def visualize_point_cloud_and_bps_and_grasp(
@@ -197,8 +201,17 @@ def visualize_point_cloud_and_bps_and_grasp(
         3 + 6 + 16 + 4 * 3,
     ), f"Expected shape (3 + 6 + 16 + 4 * 3), got {grasp.shape}"
     assert X_W_Oy.shape == (4, 4), f"Expected shape (4, 4), got {X_W_Oy.shape}"
-    assert basis_points.shape == (4096, 3), f"Expected shape (4096, 3), got {basis_points.shape}"
+    assert basis_points.shape == (
+        4096,
+        3,
+    ), f"Expected shape (4096, 3), got {basis_points.shape}"
     assert bps.shape == (4096,), f"Expected shape (4096,), got {bps.shape}"
+    if point_cloud_points is not None:
+        B = point_cloud_points.shape[0]
+        assert point_cloud_points.shape == (
+            B,
+            3,
+        ), f"Expected shape ({B}, 3), got {point_cloud_points.shape}"
 
     grasp = grasp.detach().cpu().numpy()
     grasp_trans, grasp_rot6d, grasp_joints, grasp_dirs = (
@@ -224,7 +237,6 @@ def visualize_point_cloud_and_bps_and_grasp(
     grasp_transform = np.eye(4)  # X_Oy_H
     grasp_transform[:3, :3] = grasp_rot
     grasp_transform[:3, 3] = grasp_trans
-    print(f"grasp_transform:\n{grasp_transform}")
     grasp_transform = X_W_Oy @ grasp_transform  # X_W_H = X_W_Oy @ X_Oy_H
     grasp_trans = grasp_transform[:3, 3]
     grasp_rot = grasp_transform[:3, :3]
@@ -288,6 +300,8 @@ def visualize_point_cloud_and_bps_and_grasp(
             j=mesh.faces[:, 1],
             k=mesh.faces[:, 2],
             name="Object",
+            color="white",
+            opacity=0.5,
         )
     )
     if point_cloud_points is not None:
@@ -328,7 +342,9 @@ def get_optimized_grasps(
 
     N_BASIS_PTS = 4096
     device = torch.device("cuda")
-    dex_evaluator = DexEvaluator(grasp_dim=3 + 6 + 16 + 12, n_pts=N_BASIS_PTS).to(device)
+    dex_evaluator = DexEvaluator(grasp_dim=3 + 6 + 16 + 12, n_pts=N_BASIS_PTS).to(
+        device
+    )
 
     if pathlib.Path(ckpt_path).exists():
         dex_evaluator.load_state_dict(torch.load(ckpt_path, map_location=device))
@@ -338,7 +354,7 @@ def get_optimized_grasps(
         print("=" * 80)
 
     # Get BPS
-    bps_values, _ = nerf_to_bps(
+    bps_values, _, _ = nerf_to_bps(
         nerf_pipeline=nerf_pipeline,
         lb_N=lb_N,
         ub_N=ub_N,
@@ -453,7 +469,9 @@ def get_optimized_grasps(
             f_O = bps_values_repeated[:this_batch_size]
             assert f_O.shape == (this_batch_size, N_BASIS_PTS)
 
-            success_preds = dex_evaluator(f_O=f_O, g_O=g_O)[:, -1].detach().cpu().numpy()
+            success_preds = (
+                dex_evaluator(f_O=f_O, g_O=g_O)[:, -1].detach().cpu().numpy()
+            )
             assert success_preds.shape == (
                 this_batch_size,
             ), f"success_preds.shape = {success_preds.shape}, expected ({this_batch_size},)"
@@ -468,13 +486,15 @@ def get_optimized_grasps(
         ordered_idxs_best_first = np.argsort(new_all_success_preds)[::-1].copy()
 
         new_grasp_configs = new_grasp_configs[ordered_idxs_best_first]
-        sorted_success_preds = new_all_success_preds[ordered_idxs_best_first][: cfg.optimizer.num_grasps]
+        sorted_success_preds = new_all_success_preds[ordered_idxs_best_first][
+            : cfg.optimizer.num_grasps
+        ]
 
     init_grasp_configs = new_grasp_configs[: cfg.optimizer.num_grasps]
 
     # TODO: Optimize if needed
     grasp_config_dict = init_grasp_configs.as_dict()
-    grasp_config_dict["loss"] = (1 - sorted_success_preds)
+    grasp_config_dict["loss"] = 1 - sorted_success_preds
 
     print(f"Saving final grasp config dict to {cfg.output_path}")
     cfg.output_path.parent.mkdir(parents=True, exist_ok=True)

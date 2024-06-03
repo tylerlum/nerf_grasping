@@ -79,7 +79,7 @@ def grasp_config_to_grasp(grasp_config: torch.Tensor) -> torch.Tensor:
             joint_angles,
             grasp_dirs.reshape(B, 4 * 3),
         ],
-        dim=0,
+        dim=1,
     )
     assert grasps.shape == (
         B,
@@ -191,31 +191,35 @@ class GraspNerfDataset(data.Dataset):
         self.input_hdf5_filepath = input_hdf5_filepath
         with h5py.File(self.input_hdf5_filepath, "r") as hdf5_file:
             # Essentials
+            self.num_grasps = hdf5_file.attrs["num_data_points"]
             grasp_configs = torch.from_numpy(hdf5_file["/grasp_configs"][()]).float()
             self.grasps = grasp_config_to_grasp(grasp_configs).float()
+            if self.grasps.shape[0] != self.num_grasps:
+                print(
+                    f"WARNING: Expected {self.num_grasps} grasps, got {self.grasps.shape[0]}! Truncating data..."
+                )
 
+            self.grasps = self.grasps[: self.num_grasps, ...]
             nerf_global_grids = torch.from_numpy(
                 hdf5_file["/nerf_densities_global"][()]
-            ).float()
+            ).float()[: self.num_grasps, ...]
             self.nerf_global_grids_with_coords = add_coords_to_global_grids(
-                nerf_global_grids
-            )
+                nerf_global_grids[..., 5:35, 5:35, 5:35]  # TODO(ahl): hardcoded! change later!
+            )[: self.num_grasps, ...]
             self.global_grid_idxs = torch.from_numpy(
                 hdf5_file["/nerf_densities_global_idx"][()]
-            )
-            self.passed_evals = torch.from_numpy(hdf5_file["/passed_eval"][()]).float()
+            )[: self.num_grasps, ...]
+            self.passed_evals = torch.from_numpy(hdf5_file["/passed_eval"][()]).float()[: self.num_grasps, ...]
             self.passed_simulations = torch.from_numpy(
                 hdf5_file["/passed_simulation"][()]
-            ).float()
+            ).float()[: self.num_grasps, ...]
             self.passed_penetration_thresholds = torch.from_numpy(
                 hdf5_file["/passed_penetration_threshold"][()]
-            ).float()
-
-            self.num_grasps = hdf5_file.attrs["num_data_points"]
+            ).float()[: self.num_grasps, ...]
 
             assert (
-                self.grasp_configs.shape[0] == self.num_grasps
-            ), f"Expected {self.num_grasps} grasp_configs, got {self.grasp_configs.shape[0]}"
+                self.grasps.shape[0] == self.num_grasps
+            ), f"Expected {self.num_grasps} grasps, got {self.grasps.shape[0]}"
             assert (
                 self.global_grid_idxs.shape[0] == self.num_grasps
             ), f"Expected {self.num_grasps} global_grid_idxs, got {self.global_grid_idxs.shape[0]}"
@@ -290,16 +294,16 @@ class GraspNerfEvalDataset(GraspNerfDataset):
             )
 
     ###### Extras ######
-    def get_object_code(self, grasp_idx: int) -> str:
-        nerf_global_grids_idx = self.global_grid_idxs[grasp_idx]
-        return self.object_codes[nerf_global_grids_idx].decode("utf-8")
+    # def get_object_code(self, grasp_idx: int) -> str:
+    #     nerf_global_grids_idx = self.global_grid_idxs[grasp_idx]
+    #     return self.object_codes[nerf_global_grids_idx].decode("utf-8")
 
-    def get_object_scale(self, grasp_idx: int) -> float:
-        nerf_global_grids_idx = self.global_grid_idxs[grasp_idx]
-        return self.object_scales[nerf_global_grids_idx]
+    # def get_object_scale(self, grasp_idx: int) -> float:
+    #     nerf_global_grids_idx = self.global_grid_idxs[grasp_idx]
+    #     return self.object_scales[nerf_global_grids_idx]
 
-    def get_object_state(self, grasp_idx: int) -> torch.Tensor:
-        return self.object_states[grasp_idx]
+    # def get_object_state(self, grasp_idx: int) -> torch.Tensor:
+    #     return self.object_states[grasp_idx]
 
 
 class GraspNerfSampleDataset(GraspNerfDataset):
@@ -349,19 +353,19 @@ class GraspNerfSampleDataset(GraspNerfDataset):
             )
 
     ###### Extras ######
-    def get_object_code(self, successful_grasp_idx: int) -> str:
-        grasp_idx = self.successful_grasp_idxs[successful_grasp_idx]
-        nerf_global_grids_idx = self.global_grid_idxs[grasp_idx]
-        return self.object_codes[nerf_global_grids_idx].decode("utf-8")
+    # def get_object_code(self, successful_grasp_idx: int) -> str:
+    #     grasp_idx = self.successful_grasp_idxs[successful_grasp_idx]
+    #     nerf_global_grids_idx = self.global_grid_idxs[grasp_idx]
+    #     return self.object_codes[nerf_global_grids_idx].decode("utf-8")
 
-    def get_object_scale(self, successful_grasp_idx: int) -> float:
-        grasp_idx = self.successful_grasp_idxs[successful_grasp_idx]
-        nerf_global_grids_idx = self.global_grid_idxs[grasp_idx]
-        return self.object_scales[nerf_global_grids_idx]
+    # def get_object_scale(self, successful_grasp_idx: int) -> float:
+    #     grasp_idx = self.successful_grasp_idxs[successful_grasp_idx]
+    #     nerf_global_grids_idx = self.global_grid_idxs[grasp_idx]
+    #     return self.object_scales[nerf_global_grids_idx]
 
-    def get_object_state(self, successful_grasp_idx: int) -> torch.Tensor:
-        grasp_idx = self.successful_grasp_idxs[successful_grasp_idx]
-        return self.object_states[grasp_idx]
+    # def get_object_state(self, successful_grasp_idx: int) -> torch.Tensor:
+    #     grasp_idx = self.successful_grasp_idxs[successful_grasp_idx]
+    #     return self.object_states[grasp_idx]
 
 
 def main() -> None:

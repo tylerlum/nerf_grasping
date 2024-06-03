@@ -75,7 +75,6 @@ import sys
 def compute_ablation_grasps(
     nerf_pipeline: Pipeline,
     cfg: PipelineConfig,
-    max_time: float = 60.0,
 ) -> Tuple[
     np.ndarray,
     np.ndarray,
@@ -359,7 +358,6 @@ def run_ablation_pipeline(
     cfg: PipelineConfig,
     q_fr3: np.ndarray,
     q_algr: np.ndarray,
-    max_time: float = 60.0,
     robot_cfg: Optional[RobotConfig] = None,
     ik_solver: Optional[IKSolver] = None,
     ik_solver2: Optional[IKSolver] = None,
@@ -387,7 +385,7 @@ def run_ablation_pipeline(
         mesh_W,
         X_N_Oy,
         sorted_losses,
-    ) = compute_ablation_grasps(nerf_pipeline=nerf_pipeline, cfg=cfg, max_time=max_time)
+    ) = compute_ablation_grasps(nerf_pipeline=nerf_pipeline, cfg=cfg)
     compute_grasps_time = time.time()
     print("@" * 80)
     print(f"Time to compute_grasps: {compute_grasps_time - start_time:.2f}s")

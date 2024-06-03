@@ -12,7 +12,7 @@ import wandb
 import numpy as np
 import torch.optim as optim
 import torch.utils.data as data
-from nerf_grasping.dexdiffuser.dex_sampler import DexSampler
+from nerf_grasping.dexdiffuser.dex_sampler import DexSampler, NerfSampler
 from nerf_grasping.dexdiffuser.diffusion_config import Config, DataConfig, TrainingConfig
 from nerf_grasping.dexdiffuser.grasp_bps_dataset import GraspBPSSampleDataset, GraspBPSEvalDataset
 from torch.nn.parallel import DistributedDataParallel as DDP
@@ -309,12 +309,16 @@ class Diffusion(object):
         elif self.model_var_type == "fixedsmall":
             self.logvar = posterior_variance.clamp(min=1e-20).log()
 
-        model = DexSampler(
-            n_pts=config.data.n_pts,
-            grasp_dim=config.data.grasp_dim,
-            d_model=128,
-            virtual_seq_len=4,
-        ).to(self.device)
+        if config.use_nerf_sampler:
+            raise NotImplementedError
+            model = NerfSampler().to(self.device)
+        else:
+            model = DexSampler(
+                n_pts=config.data.n_pts,
+                grasp_dim=config.data.grasp_dim,
+                d_model=128,
+                virtual_seq_len=4,
+            ).to(self.device)
         if config.multigpu and not load_multigpu_ckpt:
             self.model = DDP(model, device_ids=[rank])
         else:
@@ -575,7 +579,8 @@ if __name__ == "__main__":
         training=TrainingConfig(
             n_epochs=20000,
             batch_size=16384,
-        )
+        ),
+        use_nerf_sampler=True,
     )
     if config.multigpu:
         mp.spawn(_train_multigpu, args=(config,), nprocs=torch.cuda.device_count(), join=True)

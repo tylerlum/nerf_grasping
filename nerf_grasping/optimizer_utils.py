@@ -764,7 +764,6 @@ class GraspMetric(torch.nn.Module):
         grasp_config: AllegroGraspConfig,
     ) -> torch.Tensor:
         ray_samples = self.compute_ray_samples(grasp_config)
-        all_query_points = ray_samples.frustums.get_positions()
 
         # Query NeRF at RaySamples.
         densities = self.compute_nerf_densities(
@@ -819,6 +818,7 @@ class GraspMetric(torch.nn.Module):
                 .float()[None, ...]
                 .repeat_interleave(grasp_config.batch_size, dim=0)
             )
+            all_query_points = ray_samples.frustums.get_positions()
 
             for batch_idx in range(2):
                 fig = go.Figure()

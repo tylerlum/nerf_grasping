@@ -47,6 +47,14 @@ from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 from contextlib import nullcontext
 
+from nerf_grasping.dexgraspnet_utils.hand_model import HandModel
+from nerf_grasping.dexgraspnet_utils.hand_model_type import (
+    HandModelType,
+)
+from nerf_grasping.dexgraspnet_utils.pose_conversion import (
+    hand_config_to_pose,
+)
+
 ALLEGRO_URDF_PATH = list(
     pathlib.Path(nerf_grasping.get_package_root()).rglob(
         "*allegro_hand_description_right.urdf"
@@ -569,6 +577,28 @@ class AllegroGraspConfig(torch.nn.Module):
             f")",
         ]
         return "\n".join(repr_parts)
+
+
+def hand_config_to_hand_model(
+    hand_config: AllegroHandConfig,
+    n_surface_points: int = 0,
+) -> HandModel:
+    """
+    Convert an AllegroHandConfig to a HandModel.
+    """
+    device = hand_config.wrist_pose.device
+    translation = hand_config.wrist_pose.translation().detach().cpu().numpy()
+    rotation = hand_config.wrist_pose.rotation().matrix().detach().cpu().numpy()
+    joint_angles = hand_config.joint_angles.detach().cpu().numpy()
+    hand_model_type = HandModelType.ALLEGRO_HAND
+    hand_model = HandModel(
+        hand_model_type=hand_model_type,
+        device=device,
+        n_surface_points=n_surface_points,
+    )
+    hand_pose = hand_config_to_pose(translation, rotation, joint_angles).to(device)
+    hand_model.set_parameters(hand_pose)
+    return hand_model
 
 
 def compute_joint_angle_targets(
@@ -1353,14 +1383,6 @@ def get_hand_surface_points_Oy(
     grasp_config: AllegroGraspConfig,
     n_surface_points: int = 1000,
 ) -> torch.Tensor:
-    from nerf_grasping.dexgraspnet_utils.hand_model import HandModel
-    from nerf_grasping.dexgraspnet_utils.hand_model_type import (
-        HandModelType,
-    )
-    from nerf_grasping.dexgraspnet_utils.pose_conversion import (
-        hand_config_to_pose,
-    )
-
     device = grasp_config.hand_config.wrist_pose.device
 
     translation = grasp_config.wrist_pose.translation().detach().cpu().numpy()

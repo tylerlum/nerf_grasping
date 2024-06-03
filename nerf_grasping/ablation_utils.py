@@ -95,7 +95,6 @@ import open3d as o3d
 
 def nerf_to_bps(
     nerf_pipeline: Pipeline,
-    output_dir: pathlib.Path,
     lb_N: np.ndarray,
     ub_N: np.ndarray,
     X_N_By: np.ndarray,
@@ -178,7 +177,6 @@ def get_optimized_grasps(
     ub_N: np.ndarray,
     X_N_By: np.ndarray,
     ckpt_path: str,
-    output_dir: pathlib.Path,
 ) -> dict:
     BATCH_SIZE = cfg.eval_batch_size
 
@@ -196,7 +194,6 @@ def get_optimized_grasps(
     # Get BPS
     bps_values = nerf_to_bps(
         nerf_pipeline=nerf_pipeline,
-        output_dir=output_dir,
         lb_N=lb_N,
         ub_N=ub_N,
         X_N_By=X_N_By,

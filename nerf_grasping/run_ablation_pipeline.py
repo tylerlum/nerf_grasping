@@ -275,10 +275,12 @@ def compute_ablation_grasps(
             eval_batch_size=cfg.eval_batch_size,
             wandb=None,
         ),
+        nerf_config=nerf_config,
         lb_N=lb_N,
         ub_N=ub_N,
         X_N_By=X_N_By,
         ckpt_path="/home/albert/research/nerf_grasping/nerf_grasping/dexdiffuser/logs/dexdiffuser_evaluator/20240602_165946/ckpt-p9u7vl8l-step-0.pth",
+        output_dir=cfg.output_folder
     )
 
     print("\n" + "=" * 80)

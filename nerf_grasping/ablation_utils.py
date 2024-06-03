@@ -181,26 +181,32 @@ def nerf_to_bps(
 
 def get_optimized_grasps(
     cfg: OptimizationConfig,
+    nerf_config: pathlib.Path,
     lb_N: np.ndarray,
     ub_N: np.ndarray,
     X_N_By: np.ndarray,
     ckpt_path: str,
+    output_dir: pathlib.Path,
 ) -> dict:
     BATCH_SIZE = cfg.eval_batch_size
 
     N_BASIS_PTS = 4096
     device = torch.device("cuda")
     dex_evaluator = DexEvaluator(3 + 6 + 16 + 12, N_BASIS_PTS).to(device)
-    dex_evaluator.load_state_dict(torch.load(ckpt_path, map_location=device))
+    # HACK
+    LOAD_CKPT = False
+    if LOAD_CKPT:
+        dex_evaluator.load_state_dict(torch.load(ckpt_path, map_location=device))
+    else:
+        print(f"Not loading")
 
     # Get BPS
     bps_values = nerf_to_bps(
-        nerf_config=cfg.nerf_checkpoint_path,
-        output_dir=pathlib.Path(cfg.output_dir),
+        nerf_config=nerf_config,
+        output_dir=output_dir,
         lb_N=lb_N,
         ub_N=ub_N,
         X_N_By=X_N_By,
-        num_points=cfg.num_points,
     )
     assert bps_values.shape == (
         N_BASIS_PTS,

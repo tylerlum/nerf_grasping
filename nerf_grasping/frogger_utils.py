@@ -35,6 +35,7 @@ class FroggerArgs:
     )
     visualize: bool = False
     grasp_idx_to_visualize: int = 1
+    max_time: float = 60.0
 
 
 @dataclass
@@ -186,7 +187,9 @@ def zup_mesh_to_q_array(
             l_array.append(normalized_l)
 
         remaining_time = np.clip(
-            remaining_time - (time.time() - start_time), a_min=1e-6, a_max=None,
+            remaining_time - (time.time() - start_time),
+            a_min=1e-6,
+            a_max=None,
         )  # Can't have 0 or negative time or timeout may do weird things
 
     q_array = np.array(q_array)
@@ -350,7 +353,6 @@ def frogger_to_grasp_config_dict(
     X_W_O: Optional[np.ndarray] = None,
     mesh: Optional[trimesh.Trimesh] = None,
     custom_coll_callback: Optional[Callable[[RobotModel, str, str], float]] = None,
-    max_time: float = 60.0,
 ) -> dict:
     rc = RobotConstants()
 
@@ -373,7 +375,7 @@ def frogger_to_grasp_config_dict(
         mesh_object=mesh_object,
         num_grasps=args.num_grasps,
         custom_coll_callback=custom_coll_callback,
-        max_time=max_time,
+        max_time=args.max_time,
     )
 
     # Prepare kinematic chain
@@ -478,6 +480,47 @@ def frogger_to_grasp_config_dict(
             mesh_object=mesh_object, q=q_array[args.grasp_idx_to_visualize]
         )
     return grasp_config_dict
+
+
+def custom_coll_callback(model, name_A: str, name_B: str) -> float:
+    """A custom collision callback.
+
+    Given two collision geom names, indicates what the lower bound on separation
+    should be between them in meters.
+
+    WARNING: for now, if you overwrite this, you MUST ensure manually that the fingertips
+    are allowed some penetration with the object!
+    """
+    # organizing names
+    has_tip = "FROGGERCOL" in name_A or "FROGGERCOL" in name_B  # MUST MANUALLY DO THIS!
+    has_palm = "palm" in name_A or "palm" in name_B
+    has_ds = (
+        "ds_collision" in name_A or "ds_collision" in name_B
+    )  # non-tip distal geoms
+    has_md = "md" in name_A or "md" in name_B  # medial geoms
+    has_px = "px" in name_A or "px" in name_B  # proximal geoms
+    has_bs = "bs" in name_A or "bs" in name_B  # base geoms
+    has_mp = "mp" in name_A or "mp" in name_B  # metacarpal geoms, thumb only
+    has_obj = "obj" in name_A or "obj" in name_B
+
+    # provide custom bounds on different geom pairs
+    if has_tip and has_obj:
+        # allow tips to penetrate object - MUST MANUALLY DO THIS!
+        return -model.d_pen
+    elif has_ds and has_obj:
+        return 0.002  # ensure at least 2mm separation
+    elif has_md and has_obj:  # noqa: SIM114
+        return 0.005  # ensure at least 5mm separation
+    elif has_px and has_obj:  # noqa: SIM114
+        return 0.005  # ensure at least 5mm separation
+    elif has_bs and has_obj:  # noqa: SIM114
+        return 0.005  # ensure at least 5mm separation
+    elif has_mp and has_obj:  # noqa: SIM114
+        return 0.005  # ensure at least 5mm separation
+    elif has_palm and has_obj:
+        return 0.01  # ensure at least 1cm separation
+    else:
+        return model.d_min  # default case: use d_min
 
 
 def main() -> None:

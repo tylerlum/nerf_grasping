@@ -17,7 +17,7 @@ class Args:
     density_of_0_level_set: float = 15.0
     n_pts_each_dim_marching_cubes: int = 31
     rescale: bool = True
-    min_num_edges: Optional[int] = 100
+    min_num_edges: Optional[int] = 200
     output_dir_path: pathlib.Path = pathlib.Path(__file__).parent / "nerf_meshdata"
 
     @property

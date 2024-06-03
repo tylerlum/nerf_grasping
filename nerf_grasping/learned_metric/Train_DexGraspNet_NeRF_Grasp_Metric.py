@@ -35,7 +35,7 @@ from nerf_grasping.learned_metric.DexGraspNet_batch_data import (
     DepthImageBatchDataInput,
     BatchDataOutput,
 )
-from nerf_grasping.dataset.DexGraspNet_NeRF_Grasps_utils import (
+from nerf_grasping.dataset.DexGraspNet_NeRF_Grasps_utils_v2 import (
     get_object_code,
     get_object_scale,
     plot_mesh_and_query_points,
@@ -675,7 +675,7 @@ def print_shapes(batch_data: BatchData) -> None:
         print(
             f"nerf_alphas_with_coords.shape = {batch_data.input.nerf_alphas_with_coords.shape}"
         )
-        print(f"nerf_alphas_with_coords_v2.shape = {batch_data.input.nerf_alphas_with_coords_v2.shape}")
+        # print(f"nerf_alphas_with_coords_v2.shape = {batch_data.input.nerf_alphas_with_coords_v2.shape}")
     elif isinstance(batch_data.input, DepthImageBatchDataInput):
         print(
             f"depth_uncertainty_images.shape: {batch_data.input.depth_uncertainty_images.shape}"
@@ -1349,13 +1349,14 @@ def _iterate_through_dataloader(
             # Set description
             if len(losses_dict["loss"]) > 0:
                 loss_log_strs = [
-                    f"{loss_name}: "
-                    + f"{np.mean(losses):.3f} "
-                    + f"({np.min(losses):.3f}, "
-                    + f"{np.quantile(losses, 0.25):.3f}, "
-                    + f"{np.median(losses):.3f}, "
-                    + f"{np.quantile(losses, 0.75):.3f}, "
-                    + f"{np.max(losses):.3f})"
+                    f"{loss_name}: ".replace("_loss", "")
+                    + f"{np.mean(losses):.3f}, "
+                    + f"{np.median(losses):.3f}"
+                    # + f"({np.min(losses):.3f}, "
+                    # + f"{np.quantile(losses, 0.25):.3f}, "
+                    # + f"{np.median(losses):.3f}, "
+                    # + f"{np.quantile(losses, 0.75):.3f}, "
+                    # + f"{np.max(losses):.3f})"
                     for loss_name, losses in losses_dict.items()
                 ]
 

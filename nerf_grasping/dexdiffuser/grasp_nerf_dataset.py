@@ -153,9 +153,10 @@ class GraspNerfDataset(data.Dataset):
         self.input_hdf5_filepath = input_hdf5_filepath
         with h5py.File(self.input_hdf5_filepath, "r") as hdf5_file:
             # Essentials
-            self.grasp_configs = torch.from_numpy(
+            grasp_configs = torch.from_numpy(
                 hdf5_file["/grasp_configs"][()]
             ).float()
+            self.grasps = grasp_config_to_grasp(grasp_configs).float()
             self.nerf_global_grids = torch.from_numpy(
                 hdf5_file["/nerf_densities_global"][()]
             ).float()
@@ -234,8 +235,6 @@ class GraspNerfEvalDataset(GraspNerfDataset):
     def __getitem__(
         self, grasp_idx: int
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        grasp = grasp_config_to_grasp(self.grasp_configs[grasp_idx])
-
         nerf_global_grid_idx = self.global_grid_idxs[grasp_idx]
 
         global_grids_with_densities = torch.cat(
@@ -256,10 +255,10 @@ class GraspNerfEvalDataset(GraspNerfDataset):
                     self.passed_evals[grasp_idx],
                 ),
             )  # shape=(3,)
-            return grasp, global_grids_with_densities, labels
+            return self.grasps[grasp_idx], global_grids_with_densities, labels
         else:
             return (
-                grasp,
+                self.grasps[grasp_idx],
                 global_grids_with_densities,
                 self.passed_evals[grasp_idx],
             )
@@ -300,7 +299,6 @@ class GraspNerfSampleDataset(GraspNerfDataset):
         self, successful_grasp_idx: int
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         grasp_idx = self.successful_grasp_idxs[successful_grasp_idx]
-        grasp = grasp_config_to_grasp(self.grasp_configs[grasp_idx])
 
         nerf_global_grid_idx = self.global_grid_idxs[grasp_idx]
         global_grids_with_densities = torch.cat(
@@ -320,10 +318,10 @@ class GraspNerfSampleDataset(GraspNerfDataset):
                     self.passed_evals[grasp_idx],
                 ),
             )  # shape=(3,)
-            return grasp, global_grids_with_densities, labels
+            return self.grasps[grasp_idx], global_grids_with_densities, labels
         else:
             return (
-                grasp,
+                self.grasps[grasp_idx],
                 global_grids_with_densities,
                 self.passed_evals[grasp_idx],
             )

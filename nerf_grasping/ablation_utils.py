@@ -191,40 +191,15 @@ def get_optimized_grasps(
     ), f"f_O.shape = {f_O.shape}"
 
     # Load grasp configs
-
-    for grasp in grasps:
-        g_O = torch.rand(batch_size, 3 + 6 + 16 + 12).to(device)
-        predictions = dex_evaluator(f_O=f_O, g_O=g_O)
-        assert predictions.shape == (
-            batch_size,
-            3,
-        ), f"predictions.shape = {predictions.shape}, expected (batch_size, 3) = ({batch_size}, 3)"
-
-    return grasp_config_dict
-
-
-def get_optimized_grasps() -> dict:
-    # Create rich.Console object.
-    if cfg.random_seed is not None:
-        torch.random.manual_seed(cfg.random_seed)
-        np.random.seed(cfg.random_seed)
-
     # TODO: Find a way to load a particular split of the grasp_data.
     init_grasp_config_dict = np.load(
         cfg.init_grasp_config_dict_path, allow_pickle=True
     ).item()
 
-    # HACK: For now, just take every 400th grasp.
-    # for key in init_grasp_config_dict.keys():
-    #     init_grasp_config_dict[key] = init_grasp_config_dict[key][::400]
-
     init_grasp_configs = AllegroGraspConfig.from_grasp_config_dict(
         init_grasp_config_dict
     )
     print(f"Loaded {init_grasp_configs.batch_size} initial grasp configs.")
-
-    # Create grasp metric
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # Put this here to ensure that the random seed is set before sampling random rotations.
     if cfg.random_seed is not None:
@@ -232,8 +207,6 @@ def get_optimized_grasps() -> dict:
 
     BATCH_SIZE = cfg.eval_batch_size
     all_success_preds = []
-    all_predicted_in_collision_obj = []
-    all_predicted_in_collision_table = []
     with torch.no_grad():
         # Sample random rotations
         N_SAMPLES = 1 + cfg.n_random_rotations_per_grasp
@@ -295,93 +268,65 @@ def get_optimized_grasps() -> dict:
             )
 
             temp_grasp_configs = new_grasp_configs[start_idx:end_idx].to(device=device)
-
-            # Metric
-            success_preds = (
-                (1 - grasp_metric.get_failure_probability(temp_grasp_configs))
-                .detach()
-                .cpu()
-                .numpy()
+            wrist_trans_array = (
+                temp_grasp_configs.wrist_pose.translation()
             )
+            wrist_rot_array = (
+                temp_grasp_configs.wrist_pose.rotation().matrix()
+            )
+            joint_angles_array = temp_grasp_configs.joint_angles
+            grasp_dirs_array = temp_grasp_configs.grasp_dirs
+            N_FINGERS = 4
+            assert wrist_trans_array.shape == (
+                BATCH_SIZE, 3
+            )
+            assert wrist_rot_array.shape == (
+                BATCH_SIZE, 3, 3
+            )
+            assert joint_angles_array.shape == (
+                BATCH_SIZE, 16
+            )
+            assert grasp_dirs_array.shape == (
+                BATCH_SIZE, N_FINGERS, 3
+            )
+            g_O = torch.cat([
+                wrist_trans_array,
+                wrist_rot_array[:, :, :2].view(BATCH_SIZE, 6),
+                joint_angles_array,
+                grasp_dirs_array.view(BATCH_SIZE, 12),
+            ],
+                dim=1,
+            ).to(device=device)
+            assert g_O.shape == (
+                BATCH_SIZE, 3 + 6 + 16 + 12
+            )
+            success_preds = dex_evaluator(f_O=f_O, g_O=g_O)[:, -1]
+            assert success_preds.shape == (
+                batch_size,
+            ), f"success_preds.shape = {success_preds.shape}, expected ({batch_size},)"
             all_success_preds.append(success_preds)
-
-            # Collision with object and table
-            USE_OBJECT = False
-            USE_TABLE = False
-            hand_surface_points_Oy = None
-            if USE_OBJECT or USE_TABLE:
-                hand_surface_points_Oy = get_hand_surface_points_Oy(
-                    grasp_config=temp_grasp_configs
-                )
-            if USE_OBJECT:
-                predicted_in_collision_obj = predict_in_collision_with_object(
-                    nerf_field=grasp_metric.nerf_field,
-                    hand_surface_points_Oy=hand_surface_points_Oy,
-                )
-                all_predicted_in_collision_obj.append(predicted_in_collision_obj)
-            else:
-                all_predicted_in_collision_obj.append(np.zeros_like(success_preds))
-            if USE_TABLE:
-                table_y_Oy = -cfg.grasp_metric.X_N_Oy[2, 3]
-                predicted_in_collision_table = predict_in_collision_with_table(
-                    table_y_Oy=table_y_Oy,
-                    hand_surface_points_Oy=hand_surface_points_Oy,
-                )
-                all_predicted_in_collision_table.append(predicted_in_collision_table)
-            else:
-                all_predicted_in_collision_table.append(np.zeros_like(success_preds))
 
         # Aggregate
         all_success_preds = np.concatenate(all_success_preds)
-        all_predicted_in_collision_obj = np.concatenate(all_predicted_in_collision_obj)
-        all_predicted_in_collision_table = np.concatenate(
-            all_predicted_in_collision_table
-        )
         assert all_success_preds.shape == (new_grasp_configs.batch_size,)
-        assert all_predicted_in_collision_obj.shape == (new_grasp_configs.batch_size,)
-        assert all_predicted_in_collision_table.shape == (new_grasp_configs.batch_size,)
 
-        # Filter out grasps that are in collision
-        new_all_success_preds = np.where(
-            np.logical_or(
-                all_predicted_in_collision_obj, all_predicted_in_collision_table
-            ),
-            np.zeros_like(all_success_preds),
-            all_success_preds,
-        )
+        # Sort by success_preds
+        new_all_success_preds = all_success_preds
         ordered_idxs_best_first = np.argsort(new_all_success_preds)[::-1].copy()
-        print("=" * 80)
-        print(f"ordered_idxs_best_first = {ordered_idxs_best_first[:10]}")
-        print("=" * 80)
-        breakpoint()
-        # breakpoint()  # TODO: Debug here
-        # ordered_idxs_best_first = [550, 759, 524, 151, 150, 533, 1179, 662, 591, 638]
-        ordered_idxs_best_first = [981, 937, 985, 874, 135, 65, 987, 1262, 1065, 472]
 
-        print(f'Forced ordered_idxs_best_first = {ordered_idxs_best_first[:10]}')
         new_grasp_configs = new_grasp_configs[ordered_idxs_best_first]
+        sorted_success_preds = new_all_success_preds[ordered_idxs_best_first]
 
     init_grasp_configs = new_grasp_configs[: cfg.optimizer.num_grasps]
 
-    # Create Optimizer.
-    if isinstance(cfg.optimizer, SGDOptimizerConfig):
-        optimizer = SGDOptimizer(
-            init_grasp_configs,
-            grasp_metric,
-            cfg.optimizer,
-        )
-    elif isinstance(cfg.optimizer, CEMOptimizerConfig):
-        optimizer = CEMOptimizer(
-            init_grasp_configs,
-            grasp_metric,
-            cfg.optimizer,
-        )
-    elif isinstance(cfg.optimizer, RandomSamplingConfig):
-        optimizer = RandomSamplingOptimizer(
-            init_grasp_configs,
-            grasp_metric,
-            cfg.optimizer,
-        )
-    else:
-        raise ValueError(f"Invalid optimizer config: {cfg.optimizer}")
+    # TODO: Optimize if needed
+    grasp_config_dict = init_grasp_configs.as_dict()
+    grasp_config_dict["loss"] = (1 - sorted_success_preds).detach().cpu().numpy()
 
+    print(f"Saving final grasp config dict to {cfg.output_path}")
+    cfg.output_path.parent.mkdir(parents=True, exist_ok=True)
+    np.save(str(cfg.output_path), grasp_config_dict, allow_pickle=True)
+
+    if wandb.run is not None:
+        wandb.finish()
+    return grasp_config_dict

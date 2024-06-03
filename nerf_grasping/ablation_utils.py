@@ -197,6 +197,8 @@ def visualize_point_cloud_and_bps_and_grasp(
         3 + 6 + 16 + 4 * 3,
     ), f"Expected shape (3 + 6 + 16 + 4 * 3), got {grasp.shape}"
     assert X_W_Oy.shape == (4, 4), f"Expected shape (4, 4), got {X_W_Oy.shape}"
+    assert basis_points.shape == (4096, 3), f"Expected shape (4096, 3), got {basis_points.shape}"
+    assert bps.shape == (4096,), f"Expected shape (4096,), got {bps.shape}"
 
     grasp = grasp.detach().cpu().numpy()
     grasp_trans, grasp_rot6d, grasp_joints, grasp_dirs = (
@@ -261,6 +263,7 @@ def visualize_point_cloud_and_bps_and_grasp(
     )
 
     fig = go.Figure()
+    breakpoint()
     fig.add_trace(
         go.Scatter3d(
             x=basis_points[:, 0],

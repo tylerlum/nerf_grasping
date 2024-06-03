@@ -284,7 +284,6 @@ def compute_dexdiffuser_grasps(
         lb_N=lb_N,
         ub_N=ub_N,
         X_N_By=X_N_By,
-        ckpt_path="/home/albert/research/nerf_grasping/nerf_grasping/dexdiffuser/logs/dexdiffuser_evaluator/20240602_165946/ckpt-p9u7vl8l-step-0.pth",
     )
 
     print("\n" + "=" * 80)

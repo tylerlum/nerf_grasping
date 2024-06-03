@@ -220,7 +220,15 @@ def compute_grasp_orientations(
     return grasp_orientations
 
 
-def get_optimized_grasps() -> dict:
+def get_optimized_grasps(
+    cfg: OptimizationConfig,
+    nerf_pipeline: Pipeline,
+    lb_N: np.ndarray,
+    ub_N: np.ndarray,
+    X_N_By: np.ndarray,
+) -> dict:
+    NUM_GRASPS = cfg.num_grasps
+
     config = Config()
     runner = Diffusion(config)
     runner.load_checkpoint(config)
@@ -239,9 +247,9 @@ def get_optimized_grasps() -> dict:
     ), f"Expected shape ({N_BASIS_PTS},), got {bps_values.shape}"
 
     bps_values_repeated = torch.from_numpy(bps_values).float().to(device)
-    bps_values_repeated = bps_values_repeated.unsqueeze(dim=0).repeat(BATCH_SIZE, 1)
+    bps_values_repeated = bps_values_repeated.unsqueeze(dim=0).repeat(NUM_GRASPS, 1)
     assert bps_values_repeated.shape == (
-        BATCH_SIZE,
+        NUM_GRASPS,
         N_BASIS_PTS,
     ), f"bps_values_repeated.shape = {bps_values_repeated.shape}"
 

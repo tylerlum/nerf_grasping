@@ -3,73 +3,73 @@ import torch.nn as nn
 from nerf_grasping.dexdiffuser.fc_resblock import FCResBlock
 
 
-# class DexEvaluator(nn.Module):
-#     """The DexDiffuser evaluator module.
+class DexEvaluator(nn.Module):
+    """The DexDiffuser evaluator module.
     
-#     Adapted for use in our repo.
+    Adapted for use in our repo.
 
-#     See: https://github.com/qianbot/FFHNet/blob/4aa38dd6bd59bcf4b794ca872f409844579afa9f/FFHNet/models/networks.py#L243
-#     """
+    See: https://github.com/qianbot/FFHNet/blob/4aa38dd6bd59bcf4b794ca872f409844579afa9f/FFHNet/models/networks.py#L243
+    """
 
-#     def __init__(
-#         self,
-#         in_grasp,
-#         n_neurons=512,
-#         in_bps=4096,
-#         cov_mcmc=None,
-#         dtype=torch.float32,
-#     ) -> None:
-#         super().__init__()
+    def __init__(
+        self,
+        in_grasp,
+        n_neurons=512,
+        in_bps=4096,
+        cov_mcmc=None,
+        dtype=torch.float32,
+    ) -> None:
+        super().__init__()
 
-#         self.bn1 = nn.BatchNorm1d(in_bps + in_grasp)
-#         self.rb1 = FCResBlock(in_bps + in_grasp, n_neurons)
-#         self.rb2 = FCResBlock(in_bps + in_grasp + n_neurons, n_neurons)
-#         self.rb3 = FCResBlock(in_bps + in_grasp + n_neurons, n_neurons)
-#         self.out_success = nn.Linear(n_neurons, 3)
-#         self.dout = nn.Dropout(0.3)
-#         self.sigmoid = nn.Sigmoid()
+        self.bn1 = nn.BatchNorm1d(in_bps + in_grasp)
+        self.rb1 = FCResBlock(in_bps + in_grasp, n_neurons)
+        self.rb2 = FCResBlock(in_bps + in_grasp + n_neurons, n_neurons)
+        self.rb3 = FCResBlock(in_bps + in_grasp + n_neurons, n_neurons)
+        self.out_success = nn.Linear(n_neurons, 3)
+        self.dout = nn.Dropout(0.3)
+        self.sigmoid = nn.Sigmoid()
 
-#         self.dtype = torch.float32
-#         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.dtype = torch.float32
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-#         if cov_mcmc is None:
-#             self.cov_mcmc = torch.diag(
-#                 torch.tensor(
-#                     [0.005 ** 2] * 3  # translations
-#                     + [0.025 ** 2] * 6  # x and y axes
-#                     + [0.025 ** 2] * 16  # joint angles
-#                     + [0.025 ** 2] * 12,  # grasp directions
-#                     device=self.device,
-#                 )
-#             )
-#         else:
-#             self.cov_mcmc = cov_mcmc
+        if cov_mcmc is None:
+            self.cov_mcmc = torch.diag(
+                torch.tensor(
+                    [0.005 ** 2] * 3  # translations
+                    + [0.025 ** 2] * 6  # x and y axes
+                    + [0.025 ** 2] * 16  # joint angles
+                    + [0.025 ** 2] * 12,  # grasp directions
+                    device=self.device,
+                )
+            )
+        else:
+            self.cov_mcmc = cov_mcmc
 
-#     def forward(self, f_O: torch.Tensor, g_O: torch.Tensor) -> torch.Tensor:
-#         """Forward pass.
+    def forward(self, f_O: torch.Tensor, g_O: torch.Tensor) -> torch.Tensor:
+        """Forward pass.
         
-#         Args:
-#             f_O: The basis point set. Shape: (B, dim_BPS)
-#             g_O: The grasp features. Shape: (B, dim_grasp)
-#                 We have dim_grasp = 3 + 6 + 16 + 3 * 4 = 37.
-#                 The 6 rotation dims are the first two cols of the rot matrix.
-#                 The extra 12 inputs are the grasp directions, which we provide to all.
+        Args:
+            f_O: The basis point set. Shape: (B, dim_BPS)
+            g_O: The grasp features. Shape: (B, dim_grasp)
+                We have dim_grasp = 3 + 6 + 16 + 3 * 4 = 37.
+                The 6 rotation dims are the first two cols of the rot matrix.
+                The extra 12 inputs are the grasp directions, which we provide to all.
 
-#         Returns:
-#             ys: The three labels for the grasp: y_coll, y_pick, y_eval.
-#         """
-#         X = torch.cat([f_O, g_O], dim=-1)
+        Returns:
+            ys: The three labels for the grasp: y_coll, y_pick, y_eval.
+        """
+        X = torch.cat([f_O, g_O], dim=-1)
 
-#         X0 = self.bn1(X)
-#         X = self.rb1(X0)
-#         X = self.dout(X)
-#         X = self.rb2(torch.cat([X, X0], dim=1))
-#         X = self.dout(X)
-#         X = self.rb3(torch.cat([X, X0], dim=1))
-#         X = self.dout(X)
-#         X = self.out_success(X)
-#         p_success = self.sigmoid(X)
-#         return p_success
+        X0 = self.bn1(X)
+        X = self.rb1(X0)
+        X = self.dout(X)
+        X = self.rb2(torch.cat([X, X0], dim=1))
+        X = self.dout(X)
+        X = self.rb3(torch.cat([X, X0], dim=1))
+        X = self.dout(X)
+        X = self.out_success(X)
+        p_success = self.sigmoid(X)
+        return p_success
 
 class OldFCResBlock(nn.Module):
     """FFHNet: https://ieeexplore.ieee.org/document/9811666:
@@ -123,7 +123,7 @@ class OldFCResBlock(nn.Module):
         ), f"Expected shape ({B}, {self.out_features}), got {x.shape}"
         return x
 
-class DexEvaluator(nn.Module):
+class _DexEvaluator(nn.Module):
     """DexDiffuser: https://arxiv.org/pdf/2402.02989
     The architecture of DexEvaluator is adopted from [20] (FFHNet)
 

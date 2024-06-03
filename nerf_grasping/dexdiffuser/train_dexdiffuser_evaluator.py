@@ -136,6 +136,7 @@ def train(cfg: DexEvaluatorTrainingConfig, rank: int = 0) -> None:
     cfg.log_path.mkdir(parents=True, exist_ok=True)
 
     # update tqdm bar with train and val loss
+    val_loss = 0.0
     with trange(cfg.num_epochs, desc="Epoch", leave=False, disable=(rank != 0)) as pbar:
         for epoch in range(cfg.num_epochs):
             if cfg.multigpu:
@@ -145,6 +146,7 @@ def train(cfg: DexEvaluatorTrainingConfig, rank: int = 0) -> None:
             pbar.update(1)
             pbar.set_description(f"Epoch {epoch + 1}/{cfg.num_epochs}")
             model.train()
+            train_loss = 0.0
             for i, (g_O, f_O, y) in tqdm(
                 enumerate(train_loader),
                 total=len(train_loader),
@@ -153,9 +155,6 @@ def train(cfg: DexEvaluatorTrainingConfig, rank: int = 0) -> None:
                 disable=(rank != 0),
             ):
                 f_O, g_O, y = f_O.to(device), g_O.to(device), y.to(device)
-
-                if not cfg.train_ablation:
-                    y = y[..., -1]  # for dexdiffuser, we get only the last label
 
                 # [DEBUG]
                 #######################
@@ -170,9 +169,11 @@ def train(cfg: DexEvaluatorTrainingConfig, rank: int = 0) -> None:
                     y_pred = model(f_O, g_O)[..., -1]
                 else:
                     y_pred = model(f_O, g_O)
+
                 assert y_pred.shape == y.shape
                 loss = torch.nn.functional.mse_loss(y_pred, y)
                 loss.backward()
+                train_loss += loss.item()
                 optimizer.step()
 
                 # [DEBUG]
@@ -187,19 +188,24 @@ def train(cfg: DexEvaluatorTrainingConfig, rank: int = 0) -> None:
                 #######################
 
                 if i % 100 == 0:
-                    pbar.set_postfix(train_loss=loss.item())
+                    pbar.set_postfix(train_loss=train_loss / (i + 1), val_loss=val_loss)
+
+            train_loss /= len(train_loader)
 
             model.eval()
+            val_loss = 0.0
             with torch.no_grad():
                 for i, (g_O, f_O, y) in enumerate(val_loader):
                     f_O, g_O, y = f_O.to(device), g_O.to(device), y.to(device)
                     y_pred = model(f_O, g_O)[..., -1]
                     assert y_pred.shape == y.shape
-                    val_loss = torch.nn.functional.mse_loss(y_pred, y)
-            
-            pbar.set_postfix(train_loss=loss.item(), val_loss=val_loss.item())
+                    loss = torch.nn.functional.mse_loss(y_pred, y)
+                    val_loss += loss.item()
+
+            val_loss /= len(val_loader)
+            pbar.set_postfix(train_loss=train_loss, val_loss=val_loss)
             if cfg.wandb_log and rank == 0:
-                wandb.log({"train_loss": loss.item(), "val_loss": val_loss.item()})
+                wandb.log({"train_loss": train_loss, "val_loss": val_loss})
 
             if (epoch % cfg.snapshot_freq == 0 or epoch == cfg.num_epochs - 1) and rank == 0:
                 print(f"Saving model at epoch {epoch}!")
@@ -226,7 +232,7 @@ def _train_multigpu(rank, cfg):
 if __name__ == "__main__":
     cfg = DexEvaluatorTrainingConfig(
         num_epochs=1000,
-        batch_size=4096,
+        batch_size=4096 * 32,
         learning_rate=1e-4,
         device=torch.device("cuda" if torch.cuda.is_available() else "cpu"),
         random_seed=42,
@@ -236,7 +242,8 @@ if __name__ == "__main__":
         wandb_log=True,
         multigpu=True,
         num_gpus=torch.cuda.device_count(),
-        num_workers=4,
+        num_workers=1,
+        train_ablation=False,
     )
     if cfg.multigpu:
         mp.spawn(_train_multigpu, args=(cfg,), nprocs=cfg.num_gpus, join=True)
@@ -251,4 +258,4 @@ if __name__ == "__main__":
     # f_O = torch.rand(batch_size, 4096).to(device)
     # g_O = torch.rand(batch_size, 3 + 6 + 16 + 12).to(device)
     # labels = dex_evaluator(f_O=f_O, g_O=g_O)
-    # breakpoint()
+    breakpoint()

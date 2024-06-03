@@ -39,12 +39,13 @@ def main(GRASP_IDX: int = 0, refine: bool = True) -> None:
             log_path=Path("logs/dexdiffuser_sampler/stable_jun2")  # [r5ryh0z9] first one trained, tylers arch, not converged, no_noisy
         ),
     )
-    runner = Diffusion(config)
+    runner = Diffusion(config, load_multigpu_ckpt=True)
     runner.load_checkpoint(config, name="ckpt_final")
 
     # loading dex evaluator
-    evaluator_path = Path("logs/dexdiffuser_evaluator/ckpt-midyyjy8-step-999.pth")  # [midyyjy8] first one trained, doesn't seem fully converged, no_noisy
+    evaluator_path = Path("/home/albert/research/nerf_grasping/nerf_grasping/dexdiffuser/dexevaluator_checkpoints/ckpt_yp920sn0_final.pth")  # crappy but the best we have rn
     dex_evaluator = DexEvaluator(in_grasp=37).to(runner.device)
+    dex_evaluator.load_state_dict(torch.load(evaluator_path))
     dex_evaluator.eval()
 
     # loading data

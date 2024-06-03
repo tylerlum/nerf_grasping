@@ -1,7 +1,7 @@
 """The goal of this file to implement the diffusion process for the DexDiffuser.
    Implementation based on: https://github.com/ermongroup/ddim/blob/main/runners/diffusion.py
 """
-
+import time
 import os
 from tqdm import tqdm, trange
 import torch.nn as nn
@@ -291,9 +291,9 @@ def get_bps_datasets(
 
 def get_nerf_datasets(
     hdf5_path: tuple[str] | None = (
-        "/home/albert/research/nerf_grasping/nerf_data/grasp_nerf_dataset_final_train.hdf5",
-        "/home/albert/research/nerf_grasping/nerf_data/grasp_nerf_dataset_final_val.hdf5",
-        "/home/albert/research/nerf_grasping/nerf_data/grasp_nerf_dataset_final_test.hdf5",
+        "/home/albert/research/nerf_grasping/rsync_final_gg_h5_noise_and_nonoise/grid_dataset/test_dataset.h5",  # [DEBUG]
+        "/home/albert/research/nerf_grasping/rsync_final_gg_h5_noise_and_nonoise/grid_dataset/test_dataset.h5",
+        "/home/albert/research/nerf_grasping/rsync_final_gg_h5_noise_and_nonoise/grid_dataset/test_dataset.h5",
     ),
     use_evaluator_dataset: bool = False,
     get_all_labels: bool = False,
@@ -661,10 +661,10 @@ if __name__ == "__main__":
         ),
         training=TrainingConfig(
             n_epochs=20000,
-            batch_size=16384,
+            batch_size=2048,
         ),
         use_nerf_sampler=True,
-        multigpu=False,  # For testing
+        multigpu=True,
     )
     if config.multigpu:
         mp.spawn(

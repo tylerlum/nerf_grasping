@@ -233,12 +233,11 @@ def _train_multigpu(rank, cfg):
 if __name__ == "__main__":
     cfg = DexEvaluatorTrainingConfig(
         num_epochs=1000,
-        # batch_size=4096 * 8,
-        batch_size=4096,
+        batch_size=4096 * 8,
         learning_rate=1e-4,
         device=torch.device("cuda" if torch.cuda.is_available() else "cpu"),
         random_seed=42,
-        snapshot_freq=100,
+        snapshot_freq=5,
         log_path=Path(f"logs/dexdiffuser_evaluator/{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"),
         wandb_project="dexdiffuser-evaluator",
         wandb_log=True,

@@ -1,6 +1,7 @@
 from __future__ import annotations
+import trimesh
 from typing import List, Tuple
-from nerf_grasping.ablation_utils import nerf_to_bps
+from nerf_grasping.ablation_utils import nerf_to_bps, visualize_point_cloud_and_bps_and_grasp
 from nerf_grasping.dexdiffuser.diffusion import Diffusion
 from nerf_grasping.dexdiffuser.diffusion_config import Config, TrainingConfig
 from tqdm import tqdm
@@ -258,7 +259,7 @@ def get_optimized_grasps(
 
     # Get BPS
     N_BASIS_PTS = 4096
-    bps_values = nerf_to_bps(
+    bps_values, basis_points = nerf_to_bps(
         nerf_pipeline=nerf_pipeline,
         lb_N=lb_N,
         ub_N=ub_N,
@@ -278,6 +279,26 @@ def get_optimized_grasps(
     # Sample grasps
     xT = torch.randn(NUM_GRASPS, config.data.grasp_dim, device=runner.device)
     x = runner.sample(xT=xT, cond=bps_values_repeated)
+
+    PLOT = True
+    if PLOT:
+        IDX = 0
+        mesh_N = trimesh.load("/tmp/mesh_viz_object.obj")
+        mesh_By = trimesh.load("/tmp/mesh_viz_object.obj")
+        X_By_N = np.linalg.inv(X_N_By)
+        mesh_By.apply_transform(X_By_N)
+        visualize_point_cloud_and_bps_and_grasp(
+            grasp=x[IDX],
+            X_W_Oy=np.eye(4),  # TODO Figure this out
+            basis_points=basis_points,
+            bps=bps_values[IDX],
+            mesh=mesh_By,
+            point_cloud_points=None,
+            GRASP_IDX="?",
+            object_code="?",
+            passed_eval="?",
+        )
+        breakpoint()
 
     # grasp to AllegroGraspConfig
     N_FINGERS = 4

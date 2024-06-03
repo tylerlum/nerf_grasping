@@ -255,7 +255,31 @@ def compute_ablation_grasps(
     X_N_By = X_N_B @ X_B_By
 
     from nerf_grasping import ablation_utils
-    optimized_grasp_config_dict = ablation_utils.get_optimized_grasps(X_N_By, mesh_N)
+    optimized_grasp_config_dict = ablation_utils.get_optimized_grasps(
+        cfg=OptimizationConfig(
+            use_rich=False,  # Not used because causes issues with logging
+            init_grasp_config_dict_path=cfg.init_grasp_config_dict_path,
+            grasp_metric=GraspMetricConfig(
+                nerf_checkpoint_path=nerf_config,
+                classifier_config_path=cfg.classifier_config_path,
+                X_N_Oy=X_N_Oy,
+            ),  # This is not used
+            optimizer=SGDOptimizerConfig(),  # This is not used
+            output_path=pathlib.Path(
+                cfg.output_folder
+                / "optimized_grasp_config_dicts"
+                / f"{cfg.object_code_and_scale_str}.npy"
+            ),
+            random_seed=cfg.random_seed,
+            n_random_rotations_per_grasp=cfg.n_random_rotations_per_grasp,
+            eval_batch_size=cfg.eval_batch_size,
+            wandb=None,
+        ),
+        lb_N=lb_N,
+        ub_N=ub_N,
+        X_N_By=X_N_By,
+        ckpt_path="/home/albert/research/nerf_grasping/nerf_grasping/dexdiffuser/logs/dexdiffuser_evaluator/20240602_165946/ckpt-p9u7vl8l-step-0.pth",
+    )
 
     print("\n" + "=" * 80)
     print("Step 7: Convert optimized grasps to joint angles")

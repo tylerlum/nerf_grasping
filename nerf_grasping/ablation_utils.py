@@ -1,8 +1,13 @@
 from __future__ import annotations
+from tqdm import tqdm
+from nerf_grasping.dexdiffuser.dex_evaluator import DexEvaluator
 import nerf_grasping
 import math
 import pypose as pp
 from collections import defaultdict
+from nerf_grasping.optimizer import (
+    sample_random_rotate_transforms_only_around_y,
+)
 from nerf_grasping.optimizer_utils import (
     AllegroGraspConfig,
     GraspMetric,
@@ -99,6 +104,7 @@ def nerf_to_bps(
 
     # TODO: This is slow because it loads NeRF from file and then outputs point cloud to file
     from nerfstudio.scripts.export import ExportPointCloud
+
     cfg = ExportPointCloud(
         load_config=nerf_config,
         output_dir=output_dir,
@@ -111,12 +117,15 @@ def nerf_to_bps(
 
     assert output_dir.exists(), f"{output_dir} does not exist"
     point_cloud_files = sorted(list(output_dir.glob("*.ply")))
-    assert len(point_cloud_files) == 1, f"Expected 1 ply file, but got {point_cloud_files}"
+    assert (
+        len(point_cloud_files) == 1
+    ), f"Expected 1 ply file, but got {point_cloud_files}"
     point_cloud_file = point_cloud_files[0]
 
     #### BELOW IS TIGHTLY CONNECTED TO create_grasp_bps_dataset ####
     # Load point cloud
     from nerf_grasping.dexdiffuser.create_grasp_bps_dataset import process_point_cloud
+
     point_cloud = o3d.io.read_point_cloud(str(point_cloud_file))
     point_cloud, _ = point_cloud.remove_statistical_outlier(
         nb_neighbors=20, std_ratio=2.0
@@ -126,10 +135,15 @@ def nerf_to_bps(
 
     inlier_points = process_point_cloud(points)
     N_PTS = inlier_points.shape[0]
-    assert inlier_points.shape == (N_PTS, 3), f"inlier_points.shape = {inlier_points.shape}"
+    assert inlier_points.shape == (
+        N_PTS,
+        3,
+    ), f"inlier_points.shape = {inlier_points.shape}"
 
     MIN_N_POINTS = 3000
-    assert N_PTS >= MIN_N_POINTS, f"Expected at least {MIN_N_POINTS} points, but got {N_PTS}"
+    assert (
+        N_PTS >= MIN_N_POINTS
+    ), f"Expected at least {MIN_N_POINTS} points, but got {N_PTS}"
     final_points = inlier_points[:MIN_N_POINTS]
 
     # Frames
@@ -137,8 +151,13 @@ def nerf_to_bps(
 
     # BPS
     from bps import bps
+
     N_BASIS_PTS = 4096
-    basis_point_path = pathlib.Path(nerf_grasping.get_package_root()) / "dexdiffuser" / "basis_points.npy"
+    basis_point_path = (
+        pathlib.Path(nerf_grasping.get_package_root())
+        / "dexdiffuser"
+        / "basis_points.npy"
+    )
     assert basis_point_path.exists(), f"{basis_point_path} does not exist"
     with open(basis_point_path, "rb") as f:
         basis_points_By = np.load(f)
@@ -161,10 +180,14 @@ def nerf_to_bps(
 
 
 def get_optimized_grasps(
-    # TODO: Populate this
-    ckpt_path: str = "/home/albert/research/nerf_grasping/nerf_grasping/dexdiffuser/logs/dexdiffuser_evaluator/20240602_165946/ckpt-p9u7vl8l-step-0.pth",
-    batch_size: int = 1,
+    cfg: OptimizationConfig,
+    lb_N: np.ndarray,
+    ub_N: np.ndarray,
+    X_N_By: np.ndarray,
+    ckpt_path: str,
 ) -> dict:
+    BATCH_SIZE = cfg.eval_batch_size
+
     N_BASIS_PTS = 4096
     device = torch.device("cuda")
     dex_evaluator = DexEvaluator(3 + 6 + 16 + 12, N_BASIS_PTS).to(device)
@@ -184,9 +207,9 @@ def get_optimized_grasps(
     ), f"Expected shape ({N_BASIS_PTS},), got {bps_values.shape}"
 
     f_O = torch.from_numpy(bps_values).to(device)
-    f_O = f_O.unsqueeze(dim=0).repeat(batch_size, 1)
+    f_O = f_O.unsqueeze(dim=0).repeat(BATCH_SIZE, 1)
     assert f_O.shape == (
-        batch_size,
+        BATCH_SIZE,
         N_BASIS_PTS,
     ), f"f_O.shape = {f_O.shape}"
 
@@ -205,7 +228,6 @@ def get_optimized_grasps(
     if cfg.random_seed is not None:
         torch.manual_seed(cfg.random_seed)
 
-    BATCH_SIZE = cfg.eval_batch_size
     all_success_preds = []
     with torch.no_grad():
         # Sample random rotations
@@ -252,9 +274,6 @@ def get_optimized_grasps(
                 f"Filtered less feasible grasps. New batch size: {new_grasp_configs.batch_size}"
             )
 
-        # HACK TO DEBUG 1
-        # new_grasp_configs = new_grasp_configs[[0,1]]
-
         # Evaluate grasp metric and collisions
         n_batches = math.ceil(new_grasp_configs.batch_size / BATCH_SIZE)
         for batch_i in tqdm(
@@ -268,42 +287,29 @@ def get_optimized_grasps(
             )
 
             temp_grasp_configs = new_grasp_configs[start_idx:end_idx].to(device=device)
-            wrist_trans_array = (
-                temp_grasp_configs.wrist_pose.translation()
-            )
-            wrist_rot_array = (
-                temp_grasp_configs.wrist_pose.rotation().matrix()
-            )
+            wrist_trans_array = temp_grasp_configs.wrist_pose.translation()
+            wrist_rot_array = temp_grasp_configs.wrist_pose.rotation().matrix()
             joint_angles_array = temp_grasp_configs.joint_angles
             grasp_dirs_array = temp_grasp_configs.grasp_dirs
             N_FINGERS = 4
-            assert wrist_trans_array.shape == (
-                BATCH_SIZE, 3
-            )
-            assert wrist_rot_array.shape == (
-                BATCH_SIZE, 3, 3
-            )
-            assert joint_angles_array.shape == (
-                BATCH_SIZE, 16
-            )
-            assert grasp_dirs_array.shape == (
-                BATCH_SIZE, N_FINGERS, 3
-            )
-            g_O = torch.cat([
-                wrist_trans_array,
-                wrist_rot_array[:, :, :2].view(BATCH_SIZE, 6),
-                joint_angles_array,
-                grasp_dirs_array.view(BATCH_SIZE, 12),
-            ],
+            assert wrist_trans_array.shape == (BATCH_SIZE, 3)
+            assert wrist_rot_array.shape == (BATCH_SIZE, 3, 3)
+            assert joint_angles_array.shape == (BATCH_SIZE, 16)
+            assert grasp_dirs_array.shape == (BATCH_SIZE, N_FINGERS, 3)
+            g_O = torch.cat(
+                [
+                    wrist_trans_array,
+                    wrist_rot_array[:, :, :2].view(BATCH_SIZE, 6),
+                    joint_angles_array,
+                    grasp_dirs_array.view(BATCH_SIZE, 12),
+                ],
                 dim=1,
             ).to(device=device)
-            assert g_O.shape == (
-                BATCH_SIZE, 3 + 6 + 16 + 12
-            )
+            assert g_O.shape == (BATCH_SIZE, 3 + 6 + 16 + 12)
             success_preds = dex_evaluator(f_O=f_O, g_O=g_O)[:, -1]
             assert success_preds.shape == (
-                batch_size,
-            ), f"success_preds.shape = {success_preds.shape}, expected ({batch_size},)"
+                BATCH_SIZE,
+            ), f"success_preds.shape = {success_preds.shape}, expected ({BATCH_SIZE},)"
             all_success_preds.append(success_preds)
 
         # Aggregate

@@ -338,10 +338,23 @@ def get_optimized_grasps(
     wrist_pose_matrix[:, :3, :3] = torch.from_numpy(rot).float().to(device)
     wrist_pose_matrix[:, :3, 3] = torch.from_numpy(trans).float().to(device)
 
-    wrist_pose = pp.from_matrix(
-        wrist_pose_matrix,
-        pp.SE3_type,
-    ).to(device)
+    try:
+        wrist_pose = pp.from_matrix(
+            wrist_pose_matrix,
+            pp.SE3_type,
+        ).to(device)
+    except ValueError as e:
+        print("Error in pp.from_matrix")
+        print(e)
+        print("rot = ", rot)
+        print("Orthogonalization did not work, running with looser tolerances")
+        wrist_pose = pp.from_matrix(
+            wrist_pose_matrix,
+            pp.SE3_type,
+            atol=1e-3,
+            rtol=1e-3,
+        ).to(device)
+
     assert wrist_pose.lshape == (NUM_GRASP_SAMPLES,)
 
     grasp_orientations = compute_grasp_orientations(

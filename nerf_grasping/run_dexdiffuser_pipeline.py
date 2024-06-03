@@ -256,7 +256,7 @@ def compute_dexdiffuser_grasps(
     X_N_B = trimesh.transformations.translation_matrix(translation)
     X_B_By = X_O_Oy.copy()
     X_N_By = X_N_B @ X_B_By
-    nerf_pipeline
+    X_Oy_By = X_Oy_N @ X_N_By
 
     from nerf_grasping import dexdiffuser_utils
     optimized_grasp_config_dict = dexdiffuser_utils.get_optimized_grasps(
@@ -285,6 +285,7 @@ def compute_dexdiffuser_grasps(
         lb_N=lb_N,
         ub_N=ub_N,
         X_N_By=X_N_By,
+        X_Oy_By=X_Oy_By,
         ckpt_path=ckpt_path,
     )
 

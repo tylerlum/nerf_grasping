@@ -242,6 +242,7 @@ def get_optimized_grasps(
     lb_N: np.ndarray,
     ub_N: np.ndarray,
     X_N_By: np.ndarray,
+    X_Oy_By: np.ndarray,
     ckpt_path: str | pathlib.Path,
 ) -> dict:
     ckpt_path = pathlib.Path(ckpt_path)
@@ -287,9 +288,10 @@ def get_optimized_grasps(
         mesh_By = trimesh.load("/tmp/mesh_viz_object.obj")
         X_By_N = np.linalg.inv(X_N_By)
         mesh_By.apply_transform(X_By_N)
+        X_By_Oy = np.linalg.inv(X_Oy_By)
         visualize_point_cloud_and_bps_and_grasp(
             grasp=x[IDX],
-            X_W_Oy=np.eye(4),  # TODO Figure this out
+            X_W_Oy=X_By_Oy,  # TODO Figure this out
             basis_points=basis_points,
             bps=bps_values[IDX],
             mesh=mesh_By,

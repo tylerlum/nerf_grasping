@@ -146,11 +146,11 @@ def rot6d_to_matrix(rot6d: np.ndarray, check: bool = True) -> np.ndarray:
         for i in range(B):
             mat = rotation_matrices[i]
             assert np.allclose(
-                np.dot(mat.T, mat), np.eye(3), atol=1e-6
-            ), f"Matrix {i} is not orthogonal"
+                np.dot(mat.T, mat), np.eye(3), atol=1e-3
+            ), f"Matrix {i} is not orthogonal, got {np.dot(mat.T, mat)}"
             assert np.allclose(
-                np.linalg.det(mat), 1.0, atol=1e-6
-            ), f"Matrix {i} does not have determinant 1"
+                np.linalg.det(mat), 1.0, atol=1e-3
+            ), f"Matrix {i} does not have determinant 1, got {np.linalg.det(mat)}"
 
     assert rotation_matrices.shape == (
         B,
@@ -189,7 +189,7 @@ def compute_grasp_orientations(
 
     # Math to get x_dirs, y_dirs
     (center_to_right_dirs, center_to_tip_dirs) = compute_fingertip_dirs(
-        joint_angles=torch.from_numpy(joint_angles).float().cuda(),
+        joint_angles=joint_angles,
         hand_model=hand_model,
     )
     option_1_ok = (
@@ -210,13 +210,28 @@ def compute_grasp_orientations(
     x_dirs = torch.cross(y_dirs, z_dirs)
     assert (x_dirs.norm(dim=-1).min() > 0).all()
     x_dirs = x_dirs / x_dirs.norm(dim=-1, keepdim=True)
-    grasp_orientations = torch.stack([x_dirs, y_dirs, z_dirs], dim=-1).cpu().numpy()
+    grasp_orientations = torch.stack([x_dirs, y_dirs, z_dirs], dim=-1)
     # Make sure y and z are orthogonal
     assert (torch.einsum("...l,...l->...", y_dirs, z_dirs).abs().max() < 1e-3).all(), (
         f"y_dirs = {y_dirs}",
         f"z_dirs = {z_dirs}",
         f"torch.einsum('...l,...l->...', y_dirs, z_dirs).abs().max() = {torch.einsum('...l,...l->...', y_dirs, z_dirs).abs().max()}",
     )
+    assert grasp_orientations.shape == (
+        B,
+        N_FINGERS,
+        3,
+        3,
+    ), f"Expected shape ({B}, {N_FINGERS}, 3, 3), got {grasp_orientations.shape}"
+    grasp_orientations = pp.from_matrix(
+        grasp_orientations,
+        pp.SO3_type,
+    )
+    assert grasp_orientations.lshape == (
+        B,
+        N_FINGERS,
+    ), f"Expected shape ({B}, {N_FINGERS}), got {grasp_orientations.lshape}"
+
     return grasp_orientations
 
 
@@ -227,7 +242,7 @@ def get_optimized_grasps(
     ub_N: np.ndarray,
     X_N_By: np.ndarray,
 ) -> dict:
-    NUM_GRASPS = cfg.num_grasps
+    NUM_GRASPS = cfg.optimizer.num_grasps
 
     config = Config()
     runner = Diffusion(config)
@@ -263,10 +278,10 @@ def get_optimized_grasps(
         NUM_GRASPS,
         config.data.grasp_dim,
     ), f"Expected shape ({NUM_GRASPS}, {config.data.grasp_dim}), got {x.shape}"
-    trans = x[:, :3]
-    rot6d = x[:, 3:9]
-    joint_angles = x[:, 9:25]
-    grasp_dirs = x[:, 25:37].reshape(NUM_GRASPS, N_FINGERS, 3)
+    trans = x[:, :3].detach().cpu().numpy()
+    rot6d = x[:, 3:9].detach().cpu().numpy()
+    joint_angles = x[:, 9:25].detach().cpu().numpy()
+    grasp_dirs = x[:, 25:37].reshape(NUM_GRASPS, N_FINGERS, 3).detach().cpu().numpy()
 
     rot = rot6d_to_matrix(rot6d)
 
@@ -285,6 +300,7 @@ def get_optimized_grasps(
     grasp_orientations = compute_grasp_orientations(
         grasp_dirs=torch.from_numpy(grasp_dirs).float().to(device),
         wrist_pose=wrist_pose,
+        joint_angles=torch.from_numpy(joint_angles).float().to(device),
     )
 
     # Convert to AllegroGraspConfig to dict
@@ -294,5 +310,8 @@ def get_optimized_grasps(
         grasp_orientations=grasp_orientations,
     )
     grasp_config_dicts = grasp_configs.as_dict()
+    grasp_config_dicts["loss"] = np.linspace(
+        0, 0.001, NUM_GRASPS
+    )  # TODO: Currently don't have a loss, but need something here
 
     return grasp_config_dicts

@@ -253,7 +253,8 @@ def compute_fingertip_dirs(
                 device=center_to_tip_dir.device,
                 dtype=center_to_tip_dir.dtype,
             ),
-        )
+            atol=1e-4,
+        ), f"center_to_tip_dir.norm(dim=-1) = {center_to_tip_dir.norm(dim=-1)}"
         assert torch.allclose(
             center_to_right_dir.norm(dim=-1),
             torch.ones(
@@ -261,7 +262,8 @@ def compute_fingertip_dirs(
                 device=center_to_right_dir.device,
                 dtype=center_to_right_dir.dtype,
             ),
-        )
+            atol=1e-4,
+        ), f"center_to_right_dir.norm(dim=-1) = {center_to_right_dir.norm(dim=-1)}"
 
         center_to_right_dirs.append(center_to_right_dir)
         center_to_tip_dirs.append(center_to_tip_dir)

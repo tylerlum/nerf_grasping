@@ -1,4 +1,5 @@
 from __future__ import annotations
+import nerf_grasping
 import math
 import pypose as pp
 from collections import defaultdict
@@ -85,14 +86,14 @@ from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 from contextlib import nullcontext
 
 
-def nerf_to_point_cloud(
+def nerf_to_bps(
     nerf_config: pathlib.Path,
     output_dir: pathlib.Path,
     lb_N: np.ndarray,
     ub_N: np.ndarray,
-    X_N_Oy: np.ndarray,
+    X_N_By: np.ndarray,
     num_points: int = 5000,
-):
+) -> np.ndarray:
     assert lb_N.shape == (3,)
     assert ub_N.shape == (3,)
 
@@ -132,233 +133,74 @@ def nerf_to_point_cloud(
     final_points = inlier_points[:MIN_N_POINTS]
 
     # Frames
-    X_Oy_N = np.linalg.inv(X_N_Oy)
     final_points_N = final_points
-    final_points_Oy = transform_points(T=X_Oy_N, points=final_points_N)
 
     # BPS
     from bps import bps
     N_BASIS_PTS = 4096
-    BASIS_RADIUS = 0.3
-    basis_points = bps.generate_random_basis(
-        n_points=N_BASIS_PTS, radius=BASIS_RADIUS, random_seed=13
-    ) + np.array(
-        [0.0, BASIS_RADIUS / 2, 0.0]
-    )  # Shift up to get less under the table
-    basis_points_Oy = basis_points
+    basis_point_path = pathlib.Path(nerf_grasping.get_package_root()) / "dexdiffuser" / "basis_points.npy"
+    assert basis_point_path.exists(), f"{basis_point_path} does not exist"
+    with open(basis_point_path, "rb") as f:
+        basis_points_By = np.load(f)
     assert basis_points.shape == (
-        cfg.N_BASIS_PTS,
+        N_BASIS_PTS,
         3,
-    ), f"Expected shape ({cfg.N_BASIS_PTS}, 3), got {basis_points.shape}"
+    ), f"Expected shape ({N_BASIS_PTS}, 3), got {basis_points.shape}"
+    basis_points_N = transform_points(T=X_N_By, points=basis_points_By)
     bps_values = bps.encode(
-        final_points_Oy.unsqueeze(dim=0),
+        final_points_N.unsqueeze(dim=0),
         bps_arrangement="custom",
         bps_cell_type="dists",
-        custom_basis=basis_points_Oy,
+        custom_basis=basis_points_N,
         verbose=0,
     ).squeeze(dim=0)
     assert bps_values.shape == (
-        cfg.N_BASIS_PTS,
-    ), f"Expected shape ({cfg.N_BASIS_PTS},), got {bps_values.shape}"
+        N_BASIS_PTS,
+    ), f"Expected shape ({N_BASIS_PTS},), got {bps_values.shape}"
     return bps_values
 
 
-    
+def get_optimized_grasps(
+    # TODO: Populate this
+    ckpt_path: str = "/home/albert/research/nerf_grasping/nerf_grasping/dexdiffuser/logs/dexdiffuser_evaluator/20240602_165946/ckpt-p9u7vl8l-step-0.pth",
+    batch_size: int = 1,
+) -> dict:
+    N_BASIS_PTS = 4096
+    device = torch.device("cuda")
+    dex_evaluator = DexEvaluator(3 + 6 + 16 + 12, N_BASIS_PTS).to(device)
+    dex_evaluator.load_state_dict(torch.load(ckpt_path, map_location=device))
 
+    # Get BPS
+    bps_values = nerf_to_bps(
+        nerf_config=cfg.nerf_checkpoint_path,
+        output_dir=pathlib.Path(cfg.output_dir),
+        lb_N=lb_N,
+        ub_N=ub_N,
+        X_N_By=X_N_By,
+        num_points=cfg.num_points,
+    )
+    assert bps_values.shape == (
+        N_BASIS_PTS,
+    ), f"Expected shape ({N_BASIS_PTS},), got {bps_values.shape}"
 
-class AblationGraspMetric(torch.nn.Module):
-    """
-    Wrapper for NeRF + grasp classifier to evaluate
-    a particular AllegroGraspConfig.
-    """
+    f_O = torch.from_numpy(bps_values).to(device)
+    f_O = f_O.unsqueeze(dim=0).repeat(batch_size, 1)
+    assert f_O.shape == (
+        batch_size,
+        N_BASIS_PTS,
+    ), f"f_O.shape = {f_O.shape}"
 
-    def __init__(
-        self,
-        nerf_field: Field,
-        ablation_model: Classifier,
-        fingertip_config: UnionFingertipConfig,
-        X_N_Oy: np.ndarray,
-        return_type: str = "failure_probability",
-    ) -> None:
-        super().__init__()
-        self.nerf_field = nerf_field
-        self.ablation_model = ablation_model
-        self.fingertip_config = fingertip_config
-        self.X_N_Oy = X_N_Oy
-        self.ray_origins_finger_frame = grasp_utils.get_ray_origins_finger_frame(
-            fingertip_config
-        )
-        self.return_type = return_type
+    # Load grasp configs
 
-    def forward(
-        self,
-        grasp_config: AllegroGraspConfig,
-    ) -> torch.Tensor:
-        B = grasp_config.batch_size
+    for grasp in grasps:
+        g_O = torch.rand(batch_size, 3 + 6 + 16 + 12).to(device)
+        predictions = dex_evaluator(f_O=f_O, g_O=g_O)
+        assert predictions.shape == (
+            batch_size,
+            3,
+        ), f"predictions.shape = {predictions.shape}, expected (batch_size, 3) = ({batch_size}, 3)"
 
-        # Grasp
-        wrist_trans_array = (
-            grasp_config.wrist_pose.translation()
-        )
-        wrist_rot_array = (
-            grasp_config.wrist_pose.rotation().matrix()
-        )
-        joint_angles_array = grasp_config.joint_angles
-        grasp_dirs_array = grasp_config.grasp_dirs
-        assert wrist_trans_array.shape == (B, 3)
-        assert wrist_rot_array.shape == (B, 3, 3)
-        assert joint_angles_array.shape == (B, 16)
-        assert grasp_dirs_array.shape == (B, 4, 3)
-        g = torch.cat(
-            [
-                wrist_trans_array,
-                wrist_rot_array[:, :, :2].reshape(B, 6),
-                joint_angles_array,
-                grasp_dirs_array.reshape(B, 4*3),
-            ],
-            dim=1,
-        )
-        assert g.shape == (
-            B,
-            3 + 6 + 16 + 4*3,
-        ), f"g.shape = {g.shape}"
-
-        # BPS
-        f_O =
-        assert f_O.shape == (B, 4096), f"f_O.shape = {f_O.shape}"
-        self.ablation_model(f_O=f_O, g=g)
-
-    def compute_ray_samples(
-        self,
-        grasp_config: AllegroGraspConfig,
-    ) -> torch.Tensor:
-        # Let Oy be object yup frame (centroid of object)
-        # Let N be nerf frame (where the nerf is defined)
-        # For NeRFs trained from sim data, Oy and N are the same.
-        # But for real-world data, Oy and N are different (N is a point on the table, used as NeRF origin)
-        # When sampling from the NeRF, we must give ray samples in N frame
-        # But classifier is trained on Oy frame
-        # Thus, we must transform grasp_frame_transforms from Oy frame to N frame
-        # Let Fi be the finger frame (origin at each fingertip i)
-        # Let p_Fi be points in Fi frame
-        # self.ray_origins_finger_frame = p_Fi
-        # grasp_frame_transforms = T_{Oy <- Fi}
-        # X_N_Oy = T_{N <- Oy}
-        # TODO: Batch this to avoid OOM (refer to Create_DexGraspNet_NeRF_Grasps_Dataset.py)
-
-        # Prepare transforms
-        T_Oy_Fi = grasp_config.grasp_frame_transforms
-        assert T_Oy_Fi.lshape == (grasp_config.batch_size, grasp_config.num_fingers)
-
-        assert self.X_N_Oy.shape == (
-            4,
-            4,
-        )
-        X_N_Oy_repeated = (
-            torch.from_numpy(self.X_N_Oy)
-            .float()
-            .unsqueeze(dim=0)
-            .repeat_interleave(
-                grasp_config.batch_size * grasp_config.num_fingers, dim=0
-            )
-            .reshape(grasp_config.batch_size, grasp_config.num_fingers, 4, 4)
-        )
-
-        T_N_Oy = pp.from_matrix(
-            X_N_Oy_repeated,
-            pp.SE3_type,
-        ).to(T_Oy_Fi.device)
-
-        # Transform grasp_frame_transforms to nerf frame
-        T_N_Fi = T_N_Oy @ T_Oy_Fi
-
-        # Generate RaySamples.
-        ray_samples = grasp_utils.get_ray_samples(
-            self.ray_origins_finger_frame,
-            T_N_Fi,
-            self.fingertip_config,
-        )
-        return ray_samples
-
-    def compute_nerf_densities(
-        self,
-        ray_samples,
-    ) -> torch.Tensor:
-        # Query NeRF at RaySamples.
-        densities = self.nerf_field.get_density(ray_samples.to("cuda"))[0][
-            ..., 0
-        ]  # Shape [B, 4, n_x, n_y, n_z]
-        return densities
-
-    def get_failure_probability(
-        self,
-        grasp_config: AllegroGraspConfig,
-    ) -> torch.Tensor:
-        return self(grasp_config)
-
-    @classmethod
-    def from_config(
-        cls,
-        grasp_metric_config: GraspMetricConfig,
-        console: Optional[Console] = None,
-    ) -> AblationGraspMetric:
-        assert grasp_metric_config.X_N_Oy is not None
-        return cls.from_configs(
-            nerf_config=grasp_metric_config.nerf_checkpoint_path,
-            classifier_config=grasp_metric_config.classifier_config,
-            X_N_Oy=grasp_metric_config.X_N_Oy,
-            classifier_checkpoint=grasp_metric_config.classifier_checkpoint,
-            console=console,
-        )
-
-    @classmethod
-    def from_configs(
-        cls,
-        nerf_config: pathlib.Path,
-        classifier_config: ClassifierConfig,
-        X_N_Oy: np.ndarray,
-        classifier_checkpoint: int = -1,
-        console: Optional[Console] = None,
-    ) -> AblationGraspMetric:
-        assert not isinstance(
-            classifier_config.nerfdata_config, DepthImageNerfDataConfig
-        ), f"classifier_config.nerfdata_config must not be a DepthImageNerfDataConfig, but is {classifier_config.nerfdata_config}"
-
-        # Load nerf
-        with (
-            Progress(
-                SpinnerColumn(),
-                TextColumn("[bold blue]{task.description} "),
-                TimeElapsedColumn(),
-                console=console,
-            )
-            if console is not None
-            else nullcontext()
-        ) as progress:
-            task = (
-                progress.add_task("Loading NeRF", total=1)
-                if progress is not None
-                else None
-            )
-
-            nerf_field = grasp_utils.load_nerf_field(nerf_config)
-
-            if progress is not None and task is not None:
-                progress.update(task, advance=1)
-
-        # Load classifier
-        classifier = load_classifier(
-            classifier_config=classifier_config,
-            classifier_checkpoint=classifier_checkpoint,
-            console=console,
-        )
-
-        return cls(
-            nerf_field,
-            classifier,
-            classifier_config.nerfdata_config.fingertip_config,
-            X_N_Oy,
-        )
+    return grasp_config_dict
 
 
 def get_optimized_grasps() -> dict:

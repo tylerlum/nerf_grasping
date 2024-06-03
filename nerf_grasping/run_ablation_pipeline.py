@@ -247,12 +247,15 @@ def compute_ablation_grasps(
     print("Step 5: Run ablation")
     print("=" * 80 + "\n")
 
-    X_W_O = X_W_N @ X_N_O
-    X_O_W = np.linalg.inv(X_W_O)
-    mesh_O = trimesh.Trimesh(vertices=mesh_W.vertices, faces=mesh_W.faces)
-    mesh_O.apply_transform(X_O_W)
+    # B frame is at base of object z up frame
+    # By frame is at base of object y up frame
+    translation = np.array([centroid_N[0], centroid_N[1], 0.0])
+    X_N_B = trimesh.transformations.translation_matrix(translation)
+    X_B_By = X_O_Oy.copy()
+    X_N_By = X_N_B @ X_B_By
 
-    optimized_grasp_config_dict = ablation_utils.get_optimized_grasps()
+    from nerf_grasping import ablation_utils
+    optimized_grasp_config_dict = ablation_utils.get_optimized_grasps(X_N_By, mesh_N)
 
     print("\n" + "=" * 80)
     print("Step 7: Convert optimized grasps to joint angles")

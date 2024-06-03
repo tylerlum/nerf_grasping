@@ -147,19 +147,19 @@ class DexEvaluator(nn.Module):
         self.fc_resblock_3 = OldFCResBlock(n_hidden, n_hidden)
         self.fc_out = nn.Linear(n_hidden, 3)
 
-    def forward(self, f_O: torch.Tensor, g_0: torch.Tensor) -> torch.Tensor:
+    def forward(self, f_O: torch.Tensor, g_O: torch.Tensor) -> torch.Tensor:
         B = f_O.shape[0]
         assert f_O.shape == (
             B,
             self.n_pts,
         ), f"Expected shape ({B}, {self.n_pts}), got {f_O.shape}"
-        assert g_0.shape == (
+        assert g_O.shape == (
             B,
             self.in_grasp,
-        ), f"Expected shape ({B}, {self.in_grasp}), got {g_0.shape}"
+        ), f"Expected shape ({B}, {self.in_grasp}), got {g_O.shape}"
 
         # Concat and batch norm
-        x = torch.cat([f_O, g_0], dim=1)
+        x = torch.cat([f_O, g_O], dim=1)
         # x = self.bn(x)
 
         # Resblocks

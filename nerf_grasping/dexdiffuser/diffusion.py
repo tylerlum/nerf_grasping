@@ -291,8 +291,8 @@ def get_bps_datasets(
 
 def get_nerf_datasets(
     hdf5_path: tuple[str] | None = (
-        "/home/albert/research/nerf_grasping/rsync_final_gg_h5_noise_and_nonoise/grid_dataset/test_dataset.h5",  # [DEBUG]
-        "/home/albert/research/nerf_grasping/rsync_final_gg_h5_noise_and_nonoise/grid_dataset/test_dataset.h5",
+        "/home/albert/research/nerf_grasping/rsync_final_gg_h5_noise_and_nonoise/grid_dataset/train_dataset.h5",
+        "/home/albert/research/nerf_grasping/rsync_final_gg_h5_noise_and_nonoise/grid_dataset/val_dataset.h5",
         "/home/albert/research/nerf_grasping/rsync_final_gg_h5_noise_and_nonoise/grid_dataset/test_dataset.h5",
     ),
     use_evaluator_dataset: bool = False,
@@ -543,6 +543,7 @@ def train(config, rank: int = 0) -> None:
 
             data_start = time.time()
             data_time = 0
+            train_time = 0
             train_loss = 0
 
             # training loop
@@ -556,6 +557,7 @@ def train(config, rank: int = 0) -> None:
             ):
                 n = grasps.size(0)
                 data_time += time.time() - data_start
+                train_start = time.time()
                 runner.model.train()
                 step += 1
 
@@ -589,6 +591,8 @@ def train(config, rank: int = 0) -> None:
                 except Exception:
                     pass
                 optimizer.step()
+                train_time += time.time() - train_start
+                data_start = time.time()
 
             train_loss /= len(train_loader)
 
@@ -614,7 +618,13 @@ def train(config, rank: int = 0) -> None:
                 val_loss /= len(val_loader)
 
             # logging
-            pbar.set_postfix(step=step, train_loss=train_loss, val_loss=val_loss)
+            pbar.set_postfix(
+                step=step,
+                train_loss=train_loss,
+                val_loss=val_loss,
+                data_time=data_time,
+                train_time=train_time,
+            )
             if runner.config.wandb_log and rank == 0:
                 wandb.log({"train_loss": train_loss, "val_loss": val_loss})
 
@@ -644,8 +654,6 @@ def train(config, rank: int = 0) -> None:
                 else:
                     torch.save(states, log_path / f"ckpt_{step}.pth")
 
-                data_start = time.time()
-
     if config.multigpu:
         dist.destroy_process_group()
 
@@ -661,10 +669,11 @@ if __name__ == "__main__":
         ),
         training=TrainingConfig(
             n_epochs=20000,
-            batch_size=2048,
+            batch_size=256,
         ),
         use_nerf_sampler=True,
         multigpu=True,
+        wandb_log=True,
     )
     if config.multigpu:
         mp.spawn(

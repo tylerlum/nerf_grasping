@@ -159,12 +159,12 @@ def nerf_to_bps(
     ), f"Expected shape ({N_BASIS_PTS}, 3), got {basis_points_By.shape}"
     basis_points_N = transform_points(T=X_N_By, points=basis_points_By)
     bps_values = bps.encode(
-        final_points_N.unsqueeze(dim=0),
+        final_points_N[None],
         bps_arrangement="custom",
         bps_cell_type="dists",
         custom_basis=basis_points_N,
         verbose=0,
-    ).squeeze(dim=0)
+    ).squeeze(axis=0)
     assert bps_values.shape == (
         N_BASIS_PTS,
     ), f"Expected shape ({N_BASIS_PTS},), got {bps_values.shape}"
@@ -184,13 +184,14 @@ def get_optimized_grasps(
 
     N_BASIS_PTS = 4096
     device = torch.device("cuda")
-    dex_evaluator = DexEvaluator(3 + 6 + 16 + 12, N_BASIS_PTS).to(device)
-    # HACK
-    LOAD_CKPT = False
-    if LOAD_CKPT:
+    dex_evaluator = DexEvaluator(grasp_dim=3 + 6 + 16 + 12, n_pts=N_BASIS_PTS).to(device)
+
+    if pathlib.Path(ckpt_path).exists():
         dex_evaluator.load_state_dict(torch.load(ckpt_path, map_location=device))
     else:
-        print(f"Not loading")
+        print("=" * 80)
+        print(f"WARNING: {ckpt_path} does not exist. Using random weights.")
+        print("=" * 80)
 
     # Get BPS
     bps_values = nerf_to_bps(
@@ -204,12 +205,12 @@ def get_optimized_grasps(
         N_BASIS_PTS,
     ), f"Expected shape ({N_BASIS_PTS},), got {bps_values.shape}"
 
-    f_O = torch.from_numpy(bps_values).to(device)
-    f_O = f_O.unsqueeze(dim=0).repeat(BATCH_SIZE, 1)
-    assert f_O.shape == (
+    bps_values_repeated = torch.from_numpy(bps_values).float().to(device)
+    bps_values_repeated = bps_values_repeated.unsqueeze(dim=0).repeat(BATCH_SIZE, 1)
+    assert bps_values_repeated.shape == (
         BATCH_SIZE,
         N_BASIS_PTS,
-    ), f"f_O.shape = {f_O.shape}"
+    ), f"bps_values_repeated.shape = {bps_values_repeated.shape}"
 
     # Load grasp configs
     # TODO: Find a way to load a particular split of the grasp_data.
@@ -283,31 +284,36 @@ def get_optimized_grasps(
                 a_min=None,
                 a_max=new_grasp_configs.batch_size,
             )
+            this_batch_size = end_idx - start_idx
 
             temp_grasp_configs = new_grasp_configs[start_idx:end_idx].to(device=device)
-            wrist_trans_array = temp_grasp_configs.wrist_pose.translation()
-            wrist_rot_array = temp_grasp_configs.wrist_pose.rotation().matrix()
-            joint_angles_array = temp_grasp_configs.joint_angles
-            grasp_dirs_array = temp_grasp_configs.grasp_dirs
+            wrist_trans_array = temp_grasp_configs.wrist_pose.translation().float()
+            wrist_rot_array = temp_grasp_configs.wrist_pose.rotation().matrix().float()
+            joint_angles_array = temp_grasp_configs.joint_angles.float()
+            grasp_dirs_array = temp_grasp_configs.grasp_dirs.float()
             N_FINGERS = 4
-            assert wrist_trans_array.shape == (BATCH_SIZE, 3)
-            assert wrist_rot_array.shape == (BATCH_SIZE, 3, 3)
-            assert joint_angles_array.shape == (BATCH_SIZE, 16)
-            assert grasp_dirs_array.shape == (BATCH_SIZE, N_FINGERS, 3)
+            assert wrist_trans_array.shape == (this_batch_size, 3)
+            assert wrist_rot_array.shape == (this_batch_size, 3, 3)
+            assert joint_angles_array.shape == (this_batch_size, 16)
+            assert grasp_dirs_array.shape == (this_batch_size, N_FINGERS, 3)
             g_O = torch.cat(
                 [
                     wrist_trans_array,
-                    wrist_rot_array[:, :, :2].view(BATCH_SIZE, 6),
+                    wrist_rot_array[:, :, :2].reshape(this_batch_size, 6),
                     joint_angles_array,
-                    grasp_dirs_array.view(BATCH_SIZE, 12),
+                    grasp_dirs_array.reshape(this_batch_size, 12),
                 ],
                 dim=1,
             ).to(device=device)
-            assert g_O.shape == (BATCH_SIZE, 3 + 6 + 16 + 12)
-            success_preds = dex_evaluator(f_O=f_O, g_O=g_O)[:, -1]
+            assert g_O.shape == (this_batch_size, 3 + 6 + 16 + 12)
+
+            f_O = bps_values_repeated[:this_batch_size]
+            assert f_O.shape == (this_batch_size, N_BASIS_PTS)
+
+            success_preds = dex_evaluator(f_O=f_O, g_O=g_O)[:, -1].detach().cpu().numpy()
             assert success_preds.shape == (
-                BATCH_SIZE,
-            ), f"success_preds.shape = {success_preds.shape}, expected ({BATCH_SIZE},)"
+                this_batch_size,
+            ), f"success_preds.shape = {success_preds.shape}, expected ({this_batch_size},)"
             all_success_preds.append(success_preds)
 
         # Aggregate
@@ -319,13 +325,13 @@ def get_optimized_grasps(
         ordered_idxs_best_first = np.argsort(new_all_success_preds)[::-1].copy()
 
         new_grasp_configs = new_grasp_configs[ordered_idxs_best_first]
-        sorted_success_preds = new_all_success_preds[ordered_idxs_best_first]
+        sorted_success_preds = new_all_success_preds[ordered_idxs_best_first][: cfg.optimizer.num_grasps]
 
     init_grasp_configs = new_grasp_configs[: cfg.optimizer.num_grasps]
 
     # TODO: Optimize if needed
     grasp_config_dict = init_grasp_configs.as_dict()
-    grasp_config_dict["loss"] = (1 - sorted_success_preds).detach().cpu().numpy()
+    grasp_config_dict["loss"] = (1 - sorted_success_preds)
 
     print(f"Saving final grasp config dict to {cfg.output_path}")
     cfg.output_path.parent.mkdir(parents=True, exist_ok=True)

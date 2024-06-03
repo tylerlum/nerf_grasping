@@ -342,7 +342,7 @@ def get_optimized_grasps(
 
     N_BASIS_PTS = 4096
     device = torch.device("cuda")
-    dex_evaluator = DexEvaluator(grasp_dim=3 + 6 + 16 + 12, n_pts=N_BASIS_PTS).to(
+    dex_evaluator = DexEvaluator(in_grasp=3 + 6 + 16 + 12, in_bps=N_BASIS_PTS).to(
         device
     )
 

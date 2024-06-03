@@ -75,6 +75,7 @@ import sys
 def compute_dexdiffuser_grasps(
     nerf_pipeline: Pipeline,
     cfg: PipelineConfig,
+    ckpt_path: str | pathlib.Path,
 ) -> Tuple[
     np.ndarray,
     np.ndarray,
@@ -284,6 +285,7 @@ def compute_dexdiffuser_grasps(
         lb_N=lb_N,
         ub_N=ub_N,
         X_N_By=X_N_By,
+        ckpt_path=ckpt_path,
     )
 
     print("\n" + "=" * 80)
@@ -358,6 +360,7 @@ def run_dexdiffuser_pipeline(
     cfg: PipelineConfig,
     q_fr3: np.ndarray,
     q_algr: np.ndarray,
+    ckpt_path: str | pathlib.Path,
     robot_cfg: Optional[RobotConfig] = None,
     ik_solver: Optional[IKSolver] = None,
     ik_solver2: Optional[IKSolver] = None,
@@ -385,7 +388,7 @@ def run_dexdiffuser_pipeline(
         mesh_W,
         X_N_Oy,
         sorted_losses,
-    ) = compute_dexdiffuser_grasps(nerf_pipeline=nerf_pipeline, cfg=cfg)
+    ) = compute_dexdiffuser_grasps(nerf_pipeline=nerf_pipeline, cfg=cfg, ckpt_path=ckpt_path)
     compute_grasps_time = time.time()
     print("@" * 80)
     print(f"Time to compute_grasps: {compute_grasps_time - start_time:.2f}s")
@@ -522,6 +525,7 @@ def main() -> None:
         cfg=args,
         q_fr3=DEFAULT_Q_FR3,
         q_algr=DEFAULT_Q_ALGR,
+        ckpt_path="/juno/u/tylerlum/github_repos/nerf_grasping/2024-06-03_ALBERT_DexDiffuser_models/ckpt_74000.pth",
         robot_cfg=robot_cfg,
         ik_solver=ik_solver,
         ik_solver2=ik_solver2,

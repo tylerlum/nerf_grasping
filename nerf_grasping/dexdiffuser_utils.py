@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import List, Tuple
 from nerf_grasping.ablation_utils import nerf_to_bps
 from nerf_grasping.dexdiffuser.diffusion import Diffusion
-from nerf_grasping.dexdiffuser.diffusion_config import Config
+from nerf_grasping.dexdiffuser.diffusion_config import Config, TrainingConfig
 from tqdm import tqdm
 from nerf_grasping.dexdiffuser.dex_evaluator import DexEvaluator
 import nerf_grasping
@@ -241,12 +241,19 @@ def get_optimized_grasps(
     lb_N: np.ndarray,
     ub_N: np.ndarray,
     X_N_By: np.ndarray,
+    ckpt_path: str | pathlib.Path,
 ) -> dict:
+    ckpt_path = pathlib.Path(ckpt_path)
+
     NUM_GRASPS = cfg.optimizer.num_grasps
 
-    config = Config()
-    runner = Diffusion(config)
-    runner.load_checkpoint(config)
+    config = Config(
+        training=TrainingConfig(
+            log_path=ckpt_path.parent,
+        )
+    )
+    runner = Diffusion(config, load_multigpu_ckpt=True)
+    runner.load_checkpoint(config, name=ckpt_path.stem)
     device = runner.device
 
     # Get BPS
@@ -270,7 +277,7 @@ def get_optimized_grasps(
 
     # Sample grasps
     xT = torch.randn(NUM_GRASPS, config.data.grasp_dim, device=runner.device)
-    x = runner.sample(xT=xT, cond=bps_values_repeated).squeeze().cpu()
+    x = runner.sample(xT=xT, cond=bps_values_repeated)
 
     # grasp to AllegroGraspConfig
     N_FINGERS = 4
@@ -312,6 +319,6 @@ def get_optimized_grasps(
     grasp_config_dicts = grasp_configs.as_dict()
     grasp_config_dicts["loss"] = np.linspace(
         0, 0.001, NUM_GRASPS
-    )  # TODO: Currently don't have a loss, but need something here
+    )  # HACK: Currently don't have a loss, but need something here to sort
 
     return grasp_config_dicts

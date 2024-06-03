@@ -325,7 +325,7 @@ class Diffusion(object):
 
     def load_checkpoint(self, config: Config, name: str | None = None) -> None:
         if name is None:
-            stem = ckpt
+            stem = "ckpt"
         else:
             stem = name
         states = torch.load(

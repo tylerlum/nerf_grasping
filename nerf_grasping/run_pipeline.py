@@ -114,7 +114,7 @@ class PipelineConfig:
 
     approach_time: float = 3.0
     stay_open_time: float = 0.2
-    # stay_open_time: float = 10  # HKCK: Stay open longer
+    # stay_open_time: float = 10  # HACK: Stay open longer
     close_time: float = 0.5
     stay_closed_time: float = 0.2
     lift_time: float = 1.0

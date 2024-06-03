@@ -402,7 +402,7 @@ def main() -> None:
     config = Config()
     runner = Diffusion(config)
 
-    TRAIN_MODE = False
+    TRAIN_MODE = True
     if TRAIN_MODE:
         runner.train()
     else:

@@ -8,6 +8,7 @@ from nerf_grasping.classifier import (
     CNN_3D_XYZY_Classifier,
     CNN_3D_XYZ_Classifier,
     CNN_3D_XYZ_Global_CNN_Classifier,
+    CNN_3D_XYZ_Global_CNN_Cropped_Classifier,
     CNN_3D_XYZ_Global_MLP_Classifier,
     CNN_2D_1D_Classifier,
     Simple_CNN_2D_1D_Classifier,
@@ -34,6 +35,9 @@ from nerf_grasping.dataset.nerf_densities_global_config import (
     NERF_DENSITIES_GLOBAL_NUM_X,
     NERF_DENSITIES_GLOBAL_NUM_Y,
     NERF_DENSITIES_GLOBAL_NUM_Z,
+    NERF_DENSITIES_GLOBAL_NUM_X_CROPPED,
+    NERF_DENSITIES_GLOBAL_NUM_Y_CROPPED,
+    NERF_DENSITIES_GLOBAL_NUM_Z_CROPPED,
 )
 
 from enum import Enum, auto
@@ -490,6 +494,63 @@ class CNN_3D_XYZ_Global_CNN_ModelConfig(ClassifierModelConfig):
 
 
 @dataclass(frozen=True)
+class CNN_3D_XYZ_Global_CNN_Cropped_ModelConfig(ClassifierModelConfig):
+    """Parameters for the CNN_3D_XYZ_Global_CNN_Cropped_Classifier."""
+
+    conv_channels: List[int]
+    """List of channels for each convolutional layer. Length specifies number of layers."""
+
+    mlp_hidden_layers: List[int]
+    """List of hidden layer sizes for the MLP. Length specifies number of layers."""
+
+    global_conv_channels: List[int]
+    """List of channels for each convolutional layer for the global CNN. Length specifies number of layers."""
+
+    n_fingers: int = 4
+    """Number of fingers."""
+
+    def input_shape_from_fingertip_config(self, fingertip_config: UnionFingertipConfig):
+        n_density_channels = 1
+        n_xyz_channels = 3
+        return [
+            n_density_channels + n_xyz_channels,
+            fingertip_config.num_pts_x,
+            fingertip_config.num_pts_y,
+            fingertip_config.num_pts_z,
+        ]
+
+    def global_input_shape(self):
+        n_density_channels = 1
+        n_xyz_channels = 3
+        return (
+            n_density_channels + n_xyz_channels,
+            NERF_DENSITIES_GLOBAL_NUM_X_CROPPED,
+            NERF_DENSITIES_GLOBAL_NUM_Y_CROPPED,
+            NERF_DENSITIES_GLOBAL_NUM_Z_CROPPED,
+        )
+
+    def get_classifier_from_fingertip_config(
+        self,
+        fingertip_config: UnionFingertipConfig,
+        n_tasks: int,
+    ) -> Classifier:
+        """Helper method to return the correct classifier from config."""
+
+        input_shape = self.input_shape_from_fingertip_config(fingertip_config)
+        global_input_shape = self.global_input_shape()
+        return CNN_3D_XYZ_Global_CNN_Cropped_Classifier(
+            input_shape=input_shape,
+            n_fingers=fingertip_config.n_fingers,
+            n_tasks=n_tasks,
+            conv_channels=self.conv_channels,
+            mlp_hidden_layers=self.mlp_hidden_layers,
+            global_input_shape=global_input_shape,
+            global_conv_channels=self.global_conv_channels,
+        )
+
+
+
+@dataclass(frozen=True)
 class CNN_3D_XYZ_Global_MLP_ModelConfig(ClassifierModelConfig):
     """Parameters for the CNN_3D_XYZ_Global_MLP_Classifier."""
 
@@ -841,6 +902,14 @@ DEFAULTS_DICT = {
     ),
     "cnn-3d-xyz-global-cnn": ClassifierConfig(
         model_config=CNN_3D_XYZ_Global_CNN_ModelConfig(
+            conv_channels=[32, 64, 128],
+            mlp_hidden_layers=[256, 256],
+            global_conv_channels=[32, 64, 128],
+        ),
+        nerfdata_config=GridNerfDataConfig(),
+    ),
+    "cnn-3d-xyz-global-cnn-cropped": ClassifierConfig(
+        model_config=CNN_3D_XYZ_Global_CNN_Cropped_ModelConfig(
             conv_channels=[32, 64, 128],
             mlp_hidden_layers=[256, 256],
             global_conv_channels=[32, 64, 128],

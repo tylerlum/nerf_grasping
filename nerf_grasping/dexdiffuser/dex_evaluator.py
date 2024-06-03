@@ -29,19 +29,19 @@ class DexEvaluator(nn.Module):
         self.fc_resblock_3 = FCResBlock(in_features=n_hidden, out_features=n_hidden)
         self.fc_out = nn.Linear(n_hidden, 1)
 
-    def forward(self, f_O: torch.Tensor, g_0: torch.Tensor) -> torch.Tensor:
+    def forward(self, f_O: torch.Tensor, g_O: torch.Tensor) -> torch.Tensor:
         B = f_O.shape[0]
         assert f_O.shape == (
             B,
             self.n_pts,
         ), f"Expected shape ({B}, {self.n_pts}), got {f_O.shape}"
-        assert g_0.shape == (
+        assert g_O.shape == (
             B,
             self.grasp_dim,
-        ), f"Expected shape ({B}, {self.grasp_dim}), got {g_0.shape}"
+        ), f"Expected shape ({B}, {self.grasp_dim}), got {g_O.shape}"
 
         # Concat and batch norm
-        x = torch.cat([f_O, g_0], dim=1)
+        x = torch.cat([f_O, g_O], dim=1)
         x = self.bn(x)
 
         # Resblocks
@@ -66,9 +66,9 @@ def main() -> None:
 
     batch_size = 2
     f_O = torch.rand(batch_size, 4096).to(device)
-    g_0 = torch.rand(batch_size, 3 + 6 + 16).to(device)
+    g_O = torch.rand(batch_size, 3 + 6 + 16).to(device)
 
-    output = dex_evaluator(f_O=f_O, g_0=g_0)
+    output = dex_evaluator(f_O=f_O, g_O=g_O)
 
     assert output.shape == (
         batch_size,

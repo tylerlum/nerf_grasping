@@ -83,7 +83,6 @@ class ExportPointCloud(Exporter):
 
     def main(self, pipeline) -> o3d.geometry.PointCloud:
         """Export point cloud."""
-
         # Increase the batchsize to speed up the evaluation.
         assert isinstance(
             pipeline.datamanager,

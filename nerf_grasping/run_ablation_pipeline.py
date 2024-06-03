@@ -456,6 +456,7 @@ def main() -> None:
                 max_num_iterations=args.max_num_iterations,
             )
         )
+        nerf_pipeline = nerf_trainer.pipeline
         nerf_config = nerf_trainer.config.get_base_dir() / "config.yml"
         end_time = time.time()
         print("@" * 80)
@@ -463,7 +464,7 @@ def main() -> None:
         print("@" * 80 + "\n")
     elif args.nerfcheckpoint_path is not None:
         start_time = time.time()
-        nerf_pipeline = load_nerf_pipeline(args.nerfcheckpoint_path)
+        nerf_pipeline = load_nerf_pipeline(args.nerfcheckpoint_path, test_mode="test")  # Must be test mode for point cloud gen
         nerf_config = args.nerfcheckpoint_path
         end_time = time.time()
         print("@" * 80)

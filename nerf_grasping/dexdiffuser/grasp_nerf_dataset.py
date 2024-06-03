@@ -18,46 +18,75 @@ from nerf_grasping.other_utils import (
     get_points_in_grid,
 )
 
-def grasp_config_to_grasp(grasp_config: np.ndarray) -> np.ndarray:
+
+def grasp_config_to_grasp(grasp_config: torch.Tensor) -> torch.Tensor:
+    B = grasp_config.shape[0]
     N_FINGERS = 4
     assert grasp_config.shape == (
+        B,
         N_FINGERS,
         27,
-    ), f"Expected shape (4, 27), got {grasp_config.shape}"
+    ), f"Expected shape (B, 4, 27), got {grasp_config.shape}"
 
-    xyz = grasp_config[0, :3]
-    quat_xyzw = grasp_config[0, 3:7]
-    joint_angles = grasp_config[0, 7:23]
-    grasp_quat_orientations = grasp_config[:, 23:]
+    # Extract data from grasp_config
+    xyz = grasp_config[:, 0, :3]
+    quat_xyzw = grasp_config[:, 0, 3:7]
+    joint_angles = grasp_config[:, 0, 7:23]
+    grasp_quat_orientations = grasp_config[:, :, 23:]
+    assert xyz.shape == (
+        B,
+        3,
+    ), f"Expected shape (3), got {xyz.shape}"
+    assert quat_xyzw.shape == (
+        B,
+        4,
+    ), f"Expected shape (4), got {quat_xyzw.shape}"
+    assert joint_angles.shape == (
+        B,
+        16,
+    ), f"Expected shape (16), got {joint_angles.shape}"
     assert grasp_quat_orientations.shape == (
+        B,
         N_FINGERS,
         4,
-    ), f"Expected shape (4, 4), got {grasp_quat_orientations.shape}"
+    ), f"Expected shape (B, 4, 4), got {grasp_quat_orientations.shape}"
 
-    rot = pp.SO3(quat_xyzw).matrix().detach().numpy()
-    assert rot.shape == (3, 3), f"Expected shape (3, 3), got {rot.shape}"
+    # Convert rot to matrix
+    rot = pp.SO3(quat_xyzw).matrix()
+    assert rot.shape == (B, 3, 3), f"Expected shape (3, 3), got {rot.shape}"
 
-    grasp_orientations = pp.SO3(grasp_quat_orientations).matrix().detach().numpy()
+    # Convert grasp_quat_orientations to matrix
+    grasp_orientations = pp.SO3(grasp_quat_orientations).matrix()
     assert grasp_orientations.shape == (
+        B,
         N_FINGERS,
         3,
         3,
-    ), f"Expected shape (4, 3, 3), got {grasp_orientations.shape}"
+    ), f"Expected shape (B, 4, 3, 3), got {grasp_orientations.shape}"
 
+    # Get grasp_dirs from grasp_orientations
     grasp_dirs = grasp_orientations[..., 2]
-    grasps = np.concatenate(
+    assert grasp_dirs.shape == (
+        B,
+        N_FINGERS,
+        3,
+    ), f"Expected shape (B, 4, 3), got {grasp_dirs.shape}"
+
+    grasps = torch.cat(
         [
             xyz,
-            rot[:, :2].reshape(6),
+            rot[..., :2].reshape(B, 6),
             joint_angles,
-            grasp_dirs.reshape(4 * 3),
+            grasp_dirs.reshape(B, 4 * 3),
         ],
-        axis=0,
+        dim=0,
     )
     assert grasps.shape == (
+        B,
         3 + 6 + 16 + 4 * 3,
-    ), f"Expected shape (3 + 6 + 16 + 4*3), got {grasps.shape}"
+    ), f"Expected shape (B, 3 + 6 + 16 + 4 * 3), got {grasps.shape}"
     return grasps
+
 
 def coords_global(device, dtype, batch_size) -> torch.Tensor:
     points = get_points_in_grid(
@@ -74,9 +103,7 @@ def coords_global(device, dtype, batch_size) -> torch.Tensor:
         NERF_DENSITIES_GLOBAL_NUM_Z,
         3,
     )
-    points = torch.from_numpy(points).to(
-        device=device, dtype=dtype
-    )
+    points = torch.from_numpy(points).to(device=device, dtype=dtype)
     points = points.permute(3, 0, 1, 2)
     points = points[None, ...].repeat_interleave(batch_size, dim=0)
     assert points.shape == (
@@ -88,6 +115,7 @@ def coords_global(device, dtype, batch_size) -> torch.Tensor:
     )
     return points
 
+
 def coords_global_cropped(device, dtype, batch_size) -> torch.Tensor:
     _coords_global = coords_global(device, dtype, batch_size)
     assert _coords_global.shape == (
@@ -98,15 +126,9 @@ def coords_global_cropped(device, dtype, batch_size) -> torch.Tensor:
         NERF_DENSITIES_GLOBAL_NUM_Z,
     )
 
-    start_x = (
-        NERF_DENSITIES_GLOBAL_NUM_X - NERF_DENSITIES_GLOBAL_NUM_X_CROPPED
-    ) // 2
-    start_y = (
-        NERF_DENSITIES_GLOBAL_NUM_Y - NERF_DENSITIES_GLOBAL_NUM_Y_CROPPED
-    ) // 2
-    start_z = (
-        NERF_DENSITIES_GLOBAL_NUM_Z - NERF_DENSITIES_GLOBAL_NUM_Z_CROPPED
-    ) // 2
+    start_x = (NERF_DENSITIES_GLOBAL_NUM_X - NERF_DENSITIES_GLOBAL_NUM_X_CROPPED) // 2
+    start_y = (NERF_DENSITIES_GLOBAL_NUM_Y - NERF_DENSITIES_GLOBAL_NUM_Y_CROPPED) // 2
+    start_z = (NERF_DENSITIES_GLOBAL_NUM_Z - NERF_DENSITIES_GLOBAL_NUM_Z_CROPPED) // 2
     end_x = start_x + NERF_DENSITIES_GLOBAL_NUM_X_CROPPED
     end_y = start_y + NERF_DENSITIES_GLOBAL_NUM_Y_CROPPED
     end_z = start_z + NERF_DENSITIES_GLOBAL_NUM_Z_CROPPED
@@ -121,6 +143,7 @@ def coords_global_cropped(device, dtype, batch_size) -> torch.Tensor:
         NERF_DENSITIES_GLOBAL_NUM_Z_CROPPED,
     )
     return coords_global_cropped
+
 
 class GraspNerfDataset(data.Dataset):
     def __init__(
@@ -169,7 +192,9 @@ class GraspNerfDataset(data.Dataset):
                 torch.device("cpu"),
                 torch.float32,
                 1,
-            )[0]  # (3, 30, 30, 30)
+            )[
+                0
+            ]  # (3, 30, 30, 30)
 
             # Extras
             # self.object_codes = hdf5_file["/object_code"][()]
@@ -215,9 +240,9 @@ class GraspNerfEvalDataset(GraspNerfDataset):
 
         global_grids_with_densities = torch.cat(
             [
-                self.nerf_global_grids[
-                    None, nerf_global_grid_idx
-                ][:, 5:35, 5:35, 5:35],  # (1, 30, 30, 30), TODO(ahl): this is hardcoded for now
+                self.nerf_global_grids[None, nerf_global_grid_idx][
+                    :, 5:35, 5:35, 5:35
+                ],  # (1, 30, 30, 30), TODO(ahl): this is hardcoded for now
                 self.global_grid,  # (3, 30, 30, 30)
             ],
             dim=0,
@@ -280,9 +305,9 @@ class GraspNerfSampleDataset(GraspNerfDataset):
         nerf_global_grid_idx = self.global_grid_idxs[grasp_idx]
         global_grids_with_densities = torch.cat(
             [
-                self.nerf_global_grids[
-                    None, nerf_global_grid_idx
-                ][:, 5:35, 5:35, 5:35],  # (1, 30, 30, 30), TODO(ahl): this is hardcoded for now
+                self.nerf_global_grids[None, nerf_global_grid_idx][
+                    :, 5:35, 5:35, 5:35
+                ],  # (1, 30, 30, 30), TODO(ahl): this is hardcoded for now
                 self.global_grid,  # (3, 30, 30, 30)
             ],
             dim=0,

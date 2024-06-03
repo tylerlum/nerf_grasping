@@ -319,6 +319,7 @@ def get_optimized_grasps(
         breakpoint()
 
     # grasp to AllegroGraspConfig
+    # TODO: make the numpy torch conversions less bad
     N_FINGERS = 4
     assert x.shape == (
         NUM_GRASP_SAMPLES,

@@ -291,9 +291,9 @@ def get_bps_datasets(
 
 def get_nerf_datasets(
     hdf5_path: tuple[str] | None = (
-        "/home/albert/research/nerf_grasping/bps_data/grasp_bps_dataset_final_train.hdf5",
-        "/home/albert/research/nerf_grasping/bps_data/grasp_bps_dataset_final_val.hdf5",
-        "/home/albert/research/nerf_grasping/bps_data/grasp_bps_dataset_final_test.hdf5",
+        "/home/albert/research/nerf_grasping/nerf_data/grasp_nerf_dataset_final_train.hdf5",
+        "/home/albert/research/nerf_grasping/nerf_data/grasp_nerf_dataset_final_val.hdf5",
+        "/home/albert/research/nerf_grasping/nerf_data/grasp_nerf_dataset_final_test.hdf5",
     ),
     use_evaluator_dataset: bool = False,
     get_all_labels: bool = False,
@@ -460,7 +460,7 @@ def train(config, rank: int = 0) -> None:
         os.environ["MASTER_PORT"] = "12355"
         dist.init_process_group("nccl", rank=rank, world_size=num_gpus)
     else:
-        device = device
+        device = torch.device("cuda")
 
     config = config
     wandb_id = generate_id()
@@ -664,6 +664,7 @@ if __name__ == "__main__":
             batch_size=16384,
         ),
         use_nerf_sampler=True,
+        multigpu=False,  # For testing
     )
     if config.multigpu:
         mp.spawn(

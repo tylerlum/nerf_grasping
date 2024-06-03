@@ -1,6 +1,7 @@
 """The goal of this file to implement the diffusion process for the DexDiffuser.
    Implementation based on: https://github.com/ermongroup/ddim/blob/main/runners/diffusion.py
 """
+import time
 import os
 from tqdm import tqdm, trange
 import torch.nn as nn
@@ -12,9 +13,20 @@ import wandb
 import numpy as np
 import torch.optim as optim
 import torch.utils.data as data
-from nerf_grasping.dexdiffuser.dex_sampler import DexSampler
-from nerf_grasping.dexdiffuser.diffusion_config import Config, DataConfig, TrainingConfig
-from nerf_grasping.dexdiffuser.grasp_bps_dataset import GraspBPSSampleDataset, GraspBPSEvalDataset
+from nerf_grasping.dexdiffuser.dex_sampler import DexSampler, NerfSampler
+from nerf_grasping.dexdiffuser.diffusion_config import (
+    Config,
+    DataConfig,
+    TrainingConfig,
+)
+from nerf_grasping.dexdiffuser.grasp_bps_dataset import (
+    GraspBPSSampleDataset,
+    GraspBPSEvalDataset,
+)
+from nerf_grasping.dexdiffuser.grasp_nerf_dataset import (
+    GraspNerfSampleDataset,
+    GraspNerfEvalDataset,
+)
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import random_split
 from torch.utils.data.distributed import DistributedSampler
@@ -239,7 +251,8 @@ def ddpm_steps(x, cond, seq, model, b):
 #     )
 #     return train_dataset, test_dataset, full_dataset
 
-def get_datasets(
+
+def get_bps_datasets(
     hdf5_path: tuple[str] | None = (
         "/home/albert/research/nerf_grasping/bps_data/grasp_bps_dataset_final_train.hdf5",
         "/home/albert/research/nerf_grasping/bps_data/grasp_bps_dataset_final_val.hdf5",
@@ -275,8 +288,52 @@ def get_datasets(
     )
     return train_dataset, val_dataset, test_dataset
 
+
+def get_nerf_datasets(
+    hdf5_path: tuple[str] | None = (
+        "/home/albert/research/nerf_grasping/rsync_final_gg_h5_noise_and_nonoise/grid_dataset/test_dataset.h5",  # [DEBUG]
+        "/home/albert/research/nerf_grasping/rsync_final_gg_h5_noise_and_nonoise/grid_dataset/test_dataset.h5",
+        "/home/albert/research/nerf_grasping/rsync_final_gg_h5_noise_and_nonoise/grid_dataset/test_dataset.h5",
+    ),
+    use_evaluator_dataset: bool = False,
+    get_all_labels: bool = False,
+) -> tuple[
+    GraspBPSSampleDataset | GraspBPSEvalDataset,
+    GraspBPSSampleDataset | GraspBPSEvalDataset,
+    GraspBPSSampleDataset | GraspBPSEvalDataset,
+]:
+    train_path = hdf5_path[0]
+    val_path = hdf5_path[1]
+    test_path = hdf5_path[2]
+
+    if use_evaluator_dataset:
+        DatasetClass = GraspNerfEvalDataset
+    else:
+        DatasetClass = GraspNerfSampleDataset
+
+    train_dataset = DatasetClass(
+        input_hdf5_filepath=train_path,
+        get_all_labels=get_all_labels,
+    )
+    val_dataset = DatasetClass(
+        input_hdf5_filepath=val_path,
+        get_all_labels=get_all_labels,
+    )
+    test_dataset = DatasetClass(
+        input_hdf5_filepath=test_path,
+        get_all_labels=get_all_labels,
+    )
+    return train_dataset, val_dataset, test_dataset
+
+
 class Diffusion(object):
-    def __init__(self, config: Config, device=None, rank: int = 0, load_multigpu_ckpt: bool = False):
+    def __init__(
+        self,
+        config: Config,
+        device=None,
+        rank: int = 0,
+        load_multigpu_ckpt: bool = False,
+    ):
         self.config = config
         if device is None:
             device = (
@@ -309,12 +366,32 @@ class Diffusion(object):
         elif self.model_var_type == "fixedsmall":
             self.logvar = posterior_variance.clamp(min=1e-20).log()
 
-        model = DexSampler(
-            n_pts=config.data.n_pts,
-            grasp_dim=config.data.grasp_dim,
-            d_model=128,
-            virtual_seq_len=4,
-        ).to(self.device)
+        if config.use_nerf_sampler:
+            from nerf_grasping.dataset.nerf_densities_global_config import (
+                NERF_DENSITIES_GLOBAL_NUM_X_CROPPED,
+                NERF_DENSITIES_GLOBAL_NUM_Y_CROPPED,
+                NERF_DENSITIES_GLOBAL_NUM_Z_CROPPED,
+            )
+
+            model = NerfSampler(
+                global_grid_shape=(
+                    4,
+                    NERF_DENSITIES_GLOBAL_NUM_X_CROPPED,
+                    NERF_DENSITIES_GLOBAL_NUM_Y_CROPPED,
+                    NERF_DENSITIES_GLOBAL_NUM_Z_CROPPED,
+                ),
+                grasp_dim=config.data.grasp_dim,
+                d_model=128,
+                virtual_seq_len=4,
+                conv_channels=(32, 64, 128),
+            ).to(self.device)
+        else:
+            model = DexSampler(
+                n_pts=config.data.n_pts,
+                grasp_dim=config.data.grasp_dim,
+                d_model=128,
+                virtual_seq_len=4,
+            ).to(self.device)
         if config.multigpu and not load_multigpu_ckpt:
             self.model = DDP(model, device_ids=[rank])
         else:
@@ -325,7 +402,7 @@ class Diffusion(object):
 
     def load_checkpoint(self, config: Config, name: str | None = None) -> None:
         if name is None:
-            stem = ckpt
+            stem = "ckpt"
         else:
             stem = name
         states = torch.load(
@@ -374,6 +451,7 @@ class Diffusion(object):
             x = x[0][-1]
         return x
 
+
 def train(config, rank: int = 0) -> None:
     num_gpus = torch.cuda.device_count()
     if config.multigpu:
@@ -382,7 +460,7 @@ def train(config, rank: int = 0) -> None:
         os.environ["MASTER_PORT"] = "12355"
         dist.init_process_group("nccl", rank=rank, world_size=num_gpus)
     else:
-        device = device
+        device = torch.device("cuda")
 
     config = config
     wandb_id = generate_id()
@@ -390,7 +468,11 @@ def train(config, rank: int = 0) -> None:
         wandb.init(project="dexdiffuser-sampler", id=wandb_id, resume="allow")
 
     # datasets and dataloader
-    train_dataset, val_dataset, _ = get_datasets(get_all_labels=False)
+    if config.use_nerf_sampler:
+        train_dataset, val_dataset, _ = get_nerf_datasets(get_all_labels=False)
+    else:
+        train_dataset, val_dataset, _ = get_bps_datasets(get_all_labels=False)
+
     if config.multigpu:
         train_sampler = DistributedSampler(
             train_dataset,
@@ -540,7 +622,11 @@ def train(config, rank: int = 0) -> None:
                 ema_helper.update(runner.model)
 
             is_last_epoch = epoch == runner.config.training.n_epochs - 1
-            if (step % runner.config.training.snapshot_freq == 0 or step == 1 or is_last_epoch) and rank == 0:
+            if (
+                step % runner.config.training.snapshot_freq == 0
+                or step == 1
+                or is_last_epoch
+            ) and rank == 0:
                 print(f"Saving model at step {step}!")
                 states = [
                     getattr(runner.model, "module", runner.model).state_dict(),
@@ -563,6 +649,7 @@ def train(config, rank: int = 0) -> None:
     if config.multigpu:
         dist.destroy_process_group()
 
+
 def _train_multigpu(rank, config):
     train(config, rank)
 
@@ -574,11 +661,15 @@ if __name__ == "__main__":
         ),
         training=TrainingConfig(
             n_epochs=20000,
-            batch_size=16384,
-        )
+            batch_size=2048,
+        ),
+        use_nerf_sampler=True,
+        multigpu=True,
     )
     if config.multigpu:
-        mp.spawn(_train_multigpu, args=(config,), nprocs=torch.cuda.device_count(), join=True)
+        mp.spawn(
+            _train_multigpu, args=(config,), nprocs=torch.cuda.device_count(), join=True
+        )
     else:
         train(config, rank=0)
 
@@ -593,7 +684,7 @@ if __name__ == "__main__":
     # runner.load_checkpoint(config, name="ckpt_final")
 
     # # some short eval just to make sure
-    # _, val_dataset, test_dataset = get_datasets(use_evaluator_dataset=False)
+    # _, val_dataset, test_dataset = get_bps_datasets(use_evaluator_dataset=False)
     # test_loader = data.DataLoader(test_dataset, batch_size=1, shuffle=False)
     # for i, (grasps, bpss, y_PGS) in tqdm(
     #     enumerate(test_loader),

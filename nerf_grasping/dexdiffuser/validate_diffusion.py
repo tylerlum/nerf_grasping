@@ -17,7 +17,7 @@ from nerf_grasping.dexdiffuser.dex_evaluator import DexEvaluator
 from nerf_grasping.dexdiffuser.dex_sampler import DexSampler
 from nerf_grasping.dexdiffuser.diffusion_config import Config, TrainingConfig
 from nerf_grasping.dexdiffuser.grasp_bps_dataset import GraspBPSSampleDataset
-from nerf_grasping.dexdiffuser.diffusion import Diffusion, get_datasets
+from nerf_grasping.dexdiffuser.diffusion import Diffusion, get_bps_datasets
 from nerf_grasping.dexgraspnet_utils.hand_model import HandModel
 from nerf_grasping.dexgraspnet_utils.hand_model_type import (
     HandModelType,
@@ -48,7 +48,7 @@ def main(GRASP_IDX: int = 0, refine: bool = True) -> None:
     dex_evaluator.eval()
 
     # loading data
-    _, val_dataset, test_dataset = get_datasets(use_evaluator_dataset=True)  # must use a different dataset for checking out evaluator!!!
+    _, val_dataset, test_dataset = get_bps_datasets(use_evaluator_dataset=True)  # must use a different dataset for checking out evaluator!!!
     test_loader = data.DataLoader(test_dataset, batch_size=1, shuffle=False)
 
     # validating the evaluator

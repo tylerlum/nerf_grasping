@@ -687,7 +687,14 @@ class GraspMetric(torch.nn.Module):
         )
         self.return_type = return_type
 
-    def DEBUG_plot(self, fig, densities: torch.Tensor, query_points: torch.Tensor, name: str, opacity: float = 1.0):
+    def DEBUG_plot(
+        self,
+        fig,
+        densities: torch.Tensor,
+        query_points: torch.Tensor,
+        name: str,
+        opacity: float = 1.0,
+    ):
         B = densities.shape[0]
         assert densities.shape == (B,), f"densities.shape: {densities.shape}"
         assert query_points.shape == (B, 3), f"query_points.shape: {query_points.shape}"
@@ -697,7 +704,13 @@ class GraspMetric(torch.nn.Module):
                 y=query_points[:, 1].detach().cpu().numpy(),
                 z=query_points[:, 2].detach().cpu().numpy(),
                 mode="markers",
-                marker=dict(size=3, opacity=opacity, color=densities.detach().cpu().numpy(), colorscale="Viridis", colorbar=dict(title="Density")),
+                marker=dict(
+                    size=3,
+                    opacity=opacity,
+                    color=densities.detach().cpu().numpy(),
+                    colorscale="Viridis",
+                    colorbar=dict(title="Density"),
+                ),
                 name=name,
             )
         )
@@ -756,34 +769,55 @@ class GraspMetric(torch.nn.Module):
                 .float()[None, ...]
                 .repeat_interleave(grasp_config.batch_size, dim=0)
             )
-            # DO not need this, just for debugging
+        else:
+            nerf_densities_global, query_points_global_N = None, None
+
+        # DEBUG PLOT
+        PLOT = False
+        if PLOT:
+            import trimesh
+            from pathlib import Path
+
+            if Path("/tmp/mesh_viz_object.obj").exists():
+                mesh = trimesh.load("/tmp/mesh_viz_object.obj")
+            else:
+                mesh = None
+
+            # Do not need this, just for debugging
             query_points_global_N = (
                 torch.from_numpy(query_points_global_N)
                 .float()[None, ...]
                 .repeat_interleave(grasp_config.batch_size, dim=0)
             )
-        else:
-            nerf_densities_global, query_points_global_N = None, None
 
-        import trimesh
-        from pathlib import Path
-        if Path("/tmp/mesh_viz_object.obj").exists():
-            mesh = trimesh.load("/tmp/mesh_viz_object.obj")
-        else:
-            mesh = None
-
-        PLOT = False
-        if PLOT:
             for batch_idx in range(2):
                 fig = go.Figure()
                 N_FINGERS = 4
                 for i in range(N_FINGERS):
-                    self.DEBUG_plot(fig=fig, densities=densities[batch_idx, i].reshape(-1), query_points=all_query_points[batch_idx, i].reshape(-1, 3), name=f"finger_{i}", opacity=0.2)
+                    self.DEBUG_plot(
+                        fig=fig,
+                        densities=densities[batch_idx, i].reshape(-1),
+                        query_points=all_query_points[batch_idx, i].reshape(-1, 3),
+                        name=f"finger_{i}",
+                        opacity=0.2,
+                    )
                 if need_to_query_global:
-                    nerf_densities_global_flattened = nerf_densities_global[batch_idx].reshape(-1)
-                    query_points_global_N_flattened = query_points_global_N[batch_idx].reshape(-1, 3)
-                    self.DEBUG_plot(fig=fig, densities=nerf_densities_global_flattened[nerf_densities_global_flattened > 15],
-                        query_points=query_points_global_N_flattened[nerf_densities_global_flattened > 15], name="global")
+                    nerf_densities_global_flattened = nerf_densities_global[
+                        batch_idx
+                    ].reshape(-1)
+                    query_points_global_N_flattened = query_points_global_N[
+                        batch_idx
+                    ].reshape(-1, 3)
+                    self.DEBUG_plot(
+                        fig=fig,
+                        densities=nerf_densities_global_flattened[
+                            nerf_densities_global_flattened > 15
+                        ],
+                        query_points=query_points_global_N_flattened[
+                            nerf_densities_global_flattened > 15
+                        ],
+                        name="global",
+                    )
 
                 if mesh is not None:
                     self.DEBUG_plot_mesh(fig=fig, mesh=mesh)
@@ -806,9 +840,15 @@ class GraspMetric(torch.nn.Module):
                 X_N_H_array = np.repeat(np.eye(4)[None, ...], B, axis=0)
                 for i in range(B):
                     X_N_H_array[i] = self.X_N_Oy @ X_Oy_H_array[i]
-            
-                from nerf_grasping.dexgraspnet_utils.hand_model import HandModel, HandModelType
-                from nerf_grasping.dexgraspnet_utils.pose_conversion import hand_config_to_pose
+
+                from nerf_grasping.dexgraspnet_utils.hand_model import (
+                    HandModel,
+                    HandModelType,
+                )
+                from nerf_grasping.dexgraspnet_utils.pose_conversion import (
+                    hand_config_to_pose,
+                )
+
                 device = "cuda"
                 hand_model_type = HandModelType.ALLEGRO_HAND
                 hand_model = HandModel(hand_model_type=hand_model_type, device=device)
@@ -817,11 +857,15 @@ class GraspMetric(torch.nn.Module):
                 trans_array = X_N_H_array[:, :3, 3]
                 rot_array = X_N_H_array[:, :3, :3]
 
-                pregrasp_hand_pose = hand_config_to_pose(trans_array, rot_array, joint_angles_array).to(device)
+                pregrasp_hand_pose = hand_config_to_pose(
+                    trans_array, rot_array, joint_angles_array
+                ).to(device)
 
                 # Get plotly data
                 hand_model.set_parameters(pregrasp_hand_pose)
-                pregrasp_plot_data = hand_model.get_plotly_data(i=batch_idx, opacity=1.0)
+                pregrasp_plot_data = hand_model.get_plotly_data(
+                    i=batch_idx, opacity=1.0
+                )
 
                 for x in pregrasp_plot_data:
                     fig.add_trace(x)

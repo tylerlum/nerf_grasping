@@ -727,15 +727,17 @@ def get_optimized_grasps(
             all_success_preds,
         )
         ordered_idxs_best_first = np.argsort(new_all_success_preds)[::-1].copy()
-        print("=" * 80)
-        print(f"ordered_idxs_best_first = {ordered_idxs_best_first[:10]}")
-        print("=" * 80)
-        breakpoint()
-        # breakpoint()  # TODO: Debug here
-        # ordered_idxs_best_first = [550, 759, 524, 151, 150, 533, 1179, 662, 591, 638]
-        ordered_idxs_best_first = [981, 937, 985, 874, 135, 65, 987, 1262, 1065, 472]
 
-        print(f'Forced ordered_idxs_best_first = {ordered_idxs_best_first[:10]}')
+        # DEBUG
+        # print("=" * 80)
+        # print(f"ordered_idxs_best_first = {ordered_idxs_best_first[:10]}")
+        # print("=" * 80)
+        # breakpoint()
+        # # breakpoint()  # TODO: Debug here
+        # # ordered_idxs_best_first = [550, 759, 524, 151, 150, 533, 1179, 662, 591, 638]
+        # ordered_idxs_best_first = [981, 937, 985, 874, 135, 65, 987, 1262, 1065, 472]
+        # print(f'Forced ordered_idxs_best_first = {ordered_idxs_best_first[:10]}')
+
         new_grasp_configs = new_grasp_configs[ordered_idxs_best_first]
 
     # HACK: Check how many pass IK

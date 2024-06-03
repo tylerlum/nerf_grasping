@@ -203,6 +203,7 @@ def train(cfg: DexEvaluatorTrainingConfig, rank: int = 0) -> None:
                     val_loss += loss.item()
 
             val_loss /= len(val_loader)
+            scheduler.step(val_loss)
             pbar.set_postfix(train_loss=train_loss, val_loss=val_loss)
             if cfg.wandb_log and rank == 0:
                 wandb.log({"train_loss": train_loss, "val_loss": val_loss})
@@ -242,7 +243,7 @@ if __name__ == "__main__":
         wandb_log=True,
         multigpu=True,
         num_gpus=torch.cuda.device_count(),
-        num_workers=1,
+        num_workers=4,
         train_ablation=False,
     )
     if cfg.multigpu:

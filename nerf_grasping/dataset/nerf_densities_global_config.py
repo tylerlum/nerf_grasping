@@ -10,3 +10,9 @@ import numpy as np
 
 lb_Oy = np.array([-0.2, -0.2, -0.2])
 ub_Oy = np.array([0.2, 0.2, 0.2])
+
+(
+    NERF_DENSITIES_GLOBAL_NUM_X_CROPPED,
+    NERF_DENSITIES_GLOBAL_NUM_Y_CROPPED,
+    NERF_DENSITIES_GLOBAL_NUM_Z_CROPPED,
+) = (30, 30, 30)

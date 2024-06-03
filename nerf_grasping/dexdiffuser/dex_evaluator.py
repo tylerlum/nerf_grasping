@@ -160,7 +160,7 @@ class _DexEvaluator(nn.Module):
 
         # Concat and batch norm
         x = torch.cat([f_O, g_O], dim=1)
-        # x = self.bn(x)
+        # x = self.bn(x)  # TODO: Not sure if this helps
 
         # Resblocks
         x = self.fc_resblock_1(x) + x
@@ -313,12 +313,12 @@ def main() -> None:
     print(f"PGS_new: {PGS_new}")
     breakpoint()
 
-    assert output.shape == (
+    assert labels.shape == (
         batch_size,
-        1,
-    ), f"Expected shape ({batch_size}, 1), got {output.shape}"
-    print(f"Output shape: {output.shape}")
-    print(f"Output: {output}")
+        3,
+    ), f"Expected shape ({batch_size}, 3), got {labels.shape}"
+    print(f"Output shape: {labels.shape}")
+    print(f"Output: {labels}")
 
 
 if __name__ == "__main__":

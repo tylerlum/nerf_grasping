@@ -34,7 +34,6 @@ class TrainingConfig:
     log_path: pathlib.Path = pathlib.Path(f"logs/dexdiffuser_sampler/{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}")
     # log_path: pathlib.Path = pathlib.Path(f"logs/dexdiffuser_sampler/stable_jun2")  # [vulcan] first one trained, tylers arch, not converged, no_noisy
 
-
 @dataclass
 class OptimConfig:
     weight_decay: float = 0.000

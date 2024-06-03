@@ -564,10 +564,16 @@ def get_optimized_grasps(
         init_grasp_config_dict = np.load(
             cfg.init_grasp_config_dict_path, allow_pickle=True
         ).item()
+        num_grasps_in_dict = init_grasp_config_dict["trans"].shape[0]
+        print(f"Found {num_grasps_in_dict} grasps in grasp config dict dataset")
 
-        # HACK: For now, just take every 400th grasp.
-        # for key in init_grasp_config_dict.keys():
-        #     init_grasp_config_dict[key] = init_grasp_config_dict[key][::400]
+        if cfg.max_num_grasps_to_eval is not None and num_grasps_in_dict > cfg.max_num_grasps_to_eval:
+            print(f"Limiting to {cfg.max_num_grasps_to_eval} grasps from dataset.")
+            # randomize the order, keep at most max_num_grasps_to_eval
+            init_grasp_config_dict = {
+                k: v[np.random.choice(a=v.shape[0], size=cfg.max_num_grasps_to_eval, replace=False)]
+                for k, v in init_grasp_config_dict.items()
+            }
 
         init_grasp_configs = AllegroGraspConfig.from_grasp_config_dict(
             init_grasp_config_dict

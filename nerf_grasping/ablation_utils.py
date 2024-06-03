@@ -1,5 +1,6 @@
 from __future__ import annotations
 from tqdm import tqdm
+import trimesh
 from nerf_grasping.dexdiffuser.dex_evaluator import DexEvaluator
 import nerf_grasping
 import math
@@ -92,6 +93,17 @@ from contextlib import nullcontext
 from nerfstudio.pipelines.base_pipeline import Pipeline
 
 import open3d as o3d
+from nerf_grasping.dexgraspnet_utils.hand_model import HandModel
+from nerf_grasping.dexgraspnet_utils.hand_model_type import (
+    HandModelType,
+)
+from nerf_grasping.dexgraspnet_utils.pose_conversion import (
+    hand_config_to_pose,
+)
+from nerf_grasping.dexgraspnet_utils.joint_angle_targets import (
+    compute_optimized_joint_angle_targets_given_grasp_orientations,
+)
+
 
 def nerf_to_bps(
     nerf_pipeline: Pipeline,
@@ -99,7 +111,7 @@ def nerf_to_bps(
     ub_N: np.ndarray,
     X_N_By: np.ndarray,
     num_points: int = 5000,
-) -> np.ndarray:
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     assert lb_N.shape == (3,)
     assert ub_N.shape == (3,)
 
@@ -167,7 +179,155 @@ def nerf_to_bps(
     assert bps_values.shape == (
         N_BASIS_PTS,
     ), f"Expected shape ({N_BASIS_PTS},), got {bps_values.shape}"
-    return bps_values
+
+    X_By_N = np.linalg.inv(X_N_By)
+    final_points_By = transform_points(T=X_By_N, points=final_points_N)
+    return bps_values, basis_points_By, final_points_By
+
+
+def visualize_point_cloud_and_bps_and_grasp(
+    grasp: torch.Tensor,
+    X_W_Oy: np.array,
+    basis_points: np.array,
+    bps: np.array,
+    mesh: trimesh.Trimesh,
+    point_cloud_points: Optional[np.array],
+    GRASP_IDX: int,
+    object_code: str,
+    passed_eval: int,
+) -> None:
+    # Extract data from grasp
+    assert grasp.shape == (
+        3 + 6 + 16 + 4 * 3,
+    ), f"Expected shape (3 + 6 + 16 + 4 * 3), got {grasp.shape}"
+    assert X_W_Oy.shape == (4, 4), f"Expected shape (4, 4), got {X_W_Oy.shape}"
+    assert basis_points.shape == (
+        4096,
+        3,
+    ), f"Expected shape (4096, 3), got {basis_points.shape}"
+    assert bps.shape == (4096,), f"Expected shape (4096,), got {bps.shape}"
+    if point_cloud_points is not None:
+        B = point_cloud_points.shape[0]
+        assert point_cloud_points.shape == (
+            B,
+            3,
+        ), f"Expected shape ({B}, 3), got {point_cloud_points.shape}"
+
+    grasp = grasp.detach().cpu().numpy()
+    grasp_trans, grasp_rot6d, grasp_joints, grasp_dirs = (
+        grasp[:3],
+        grasp[3:9],
+        grasp[9:25],
+        grasp[25:].reshape(4, 3),
+    )
+    grasp_rot = np.zeros((3, 3))
+    grasp_rot[:3, :2] = grasp_rot6d.reshape(3, 2)
+    grasp_rot[:3, 0] = grasp_rot[:3, 0] / np.linalg.norm(grasp_rot[:3, 0])
+
+    # make grasp_rot[:3, 1] orthogonal to grasp_rot[:3, 0]
+    grasp_rot[:3, 1] = (
+        grasp_rot[:3, 1] - np.dot(grasp_rot[:3, 0], grasp_rot[:3, 1]) * grasp_rot[:3, 0]
+    )
+    grasp_rot[:3, 1] = grasp_rot[:3, 1] / np.linalg.norm(grasp_rot[:3, 1])
+    assert (
+        np.dot(grasp_rot[:3, 0], grasp_rot[:3, 1]) < 1e-3
+    ), f"Expected dot product < 1e-3, got {np.dot(grasp_rot[:3, 0], grasp_rot[:3, 1])}"
+    grasp_rot[:3, 2] = np.cross(grasp_rot[:3, 0], grasp_rot[:3, 1])
+
+    grasp_transform = np.eye(4)  # X_Oy_H
+    grasp_transform[:3, :3] = grasp_rot
+    grasp_transform[:3, 3] = grasp_trans
+    grasp_transform = X_W_Oy @ grasp_transform  # X_W_H = X_W_Oy @ X_Oy_H
+    grasp_trans = grasp_transform[:3, 3]
+    grasp_rot = grasp_transform[:3, :3]
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    hand_pose = hand_config_to_pose(
+        grasp_trans[None], grasp_rot[None], grasp_joints[None]
+    ).to(device)
+    hand_model_type = HandModelType.ALLEGRO_HAND
+    grasp_orientations = np.zeros(
+        (4, 3, 3)
+    )  # NOTE: should have applied transform with this, but didn't because we only have z-dir, hopefully transforms[:3, :3] ~= np.eye(3)
+    grasp_orientations[:, :, 2] = (
+        grasp_dirs  # Leave the x-axis and y-axis as zeros, hacky but works
+    )
+    hand_model = HandModel(hand_model_type=hand_model_type, device=device)
+    hand_model.set_parameters(hand_pose)
+    hand_plotly = hand_model.get_plotly_data(i=0, opacity=0.8)
+
+    (
+        optimized_joint_angle_targets,
+        _,
+    ) = compute_optimized_joint_angle_targets_given_grasp_orientations(
+        joint_angles_start=hand_model.hand_pose[:, 9:],
+        hand_model=hand_model,
+        grasp_orientations=torch.from_numpy(grasp_orientations[None]).to(device),
+    )
+    new_hand_pose = hand_config_to_pose(
+        grasp_trans[None],
+        grasp_rot[None],
+        optimized_joint_angle_targets.detach().cpu().numpy(),
+    ).to(device)
+    hand_model.set_parameters(new_hand_pose)
+    hand_plotly_optimized = hand_model.get_plotly_data(
+        i=0, opacity=0.3, color="lightgreen"
+    )
+
+    fig = go.Figure()
+    breakpoint()
+    fig.add_trace(
+        go.Scatter3d(
+            x=basis_points[:, 0],
+            y=basis_points[:, 1],
+            z=basis_points[:, 2],
+            mode="markers",
+            marker=dict(
+                size=1,
+                color=bps,
+                colorscale="rainbow",
+                colorbar=dict(title="Basis points", orientation="h"),
+            ),
+            name="Basis points",
+        )
+    )
+    fig.add_trace(
+        go.Mesh3d(
+            x=mesh.vertices[:, 0],
+            y=mesh.vertices[:, 1],
+            z=mesh.vertices[:, 2],
+            i=mesh.faces[:, 0],
+            j=mesh.faces[:, 1],
+            k=mesh.faces[:, 2],
+            name="Object",
+            color="white",
+            opacity=0.5,
+        )
+    )
+    if point_cloud_points is not None:
+        fig.add_trace(
+            go.Scatter3d(
+                x=point_cloud_points[:, 0],
+                y=point_cloud_points[:, 1],
+                z=point_cloud_points[:, 2],
+                mode="markers",
+                marker=dict(size=1.5, color="black"),
+                name="Point cloud",
+            )
+        )
+    fig.update_layout(
+        title=dict(
+            text=f"Grasp idx: {GRASP_IDX}, Object: {object_code}, Passed Eval: {passed_eval}"
+        ),
+    )
+    VISUALIZE_HAND = True
+    if VISUALIZE_HAND:
+        for trace in hand_plotly:
+            fig.add_trace(trace)
+        for trace in hand_plotly_optimized:
+            fig.add_trace(trace)
+    # fig.write_html("/home/albert/research/nerf_grasping/dex_diffuser_debug.html")  # if headless
+    fig.show()
 
 
 def get_optimized_grasps(
@@ -182,7 +342,9 @@ def get_optimized_grasps(
 
     N_BASIS_PTS = 4096
     device = torch.device("cuda")
-    dex_evaluator = DexEvaluator(grasp_dim=3 + 6 + 16 + 12, n_pts=N_BASIS_PTS).to(device)
+    dex_evaluator = DexEvaluator(grasp_dim=3 + 6 + 16 + 12, n_pts=N_BASIS_PTS).to(
+        device
+    )
 
     if pathlib.Path(ckpt_path).exists():
         dex_evaluator.load_state_dict(torch.load(ckpt_path, map_location=device))
@@ -192,7 +354,7 @@ def get_optimized_grasps(
         print("=" * 80)
 
     # Get BPS
-    bps_values = nerf_to_bps(
+    bps_values, _, _ = nerf_to_bps(
         nerf_pipeline=nerf_pipeline,
         lb_N=lb_N,
         ub_N=ub_N,
@@ -307,7 +469,9 @@ def get_optimized_grasps(
             f_O = bps_values_repeated[:this_batch_size]
             assert f_O.shape == (this_batch_size, N_BASIS_PTS)
 
-            success_preds = dex_evaluator(f_O=f_O, g_O=g_O)[:, -1].detach().cpu().numpy()
+            success_preds = (
+                dex_evaluator(f_O=f_O, g_O=g_O)[:, -1].detach().cpu().numpy()
+            )
             assert success_preds.shape == (
                 this_batch_size,
             ), f"success_preds.shape = {success_preds.shape}, expected ({this_batch_size},)"
@@ -322,13 +486,15 @@ def get_optimized_grasps(
         ordered_idxs_best_first = np.argsort(new_all_success_preds)[::-1].copy()
 
         new_grasp_configs = new_grasp_configs[ordered_idxs_best_first]
-        sorted_success_preds = new_all_success_preds[ordered_idxs_best_first][: cfg.optimizer.num_grasps]
+        sorted_success_preds = new_all_success_preds[ordered_idxs_best_first][
+            : cfg.optimizer.num_grasps
+        ]
 
     init_grasp_configs = new_grasp_configs[: cfg.optimizer.num_grasps]
 
     # TODO: Optimize if needed
     grasp_config_dict = init_grasp_configs.as_dict()
-    grasp_config_dict["loss"] = (1 - sorted_success_preds)
+    grasp_config_dict["loss"] = 1 - sorted_success_preds
 
     print(f"Saving final grasp config dict to {cfg.output_path}")
     cfg.output_path.parent.mkdir(parents=True, exist_ok=True)

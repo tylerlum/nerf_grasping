@@ -1,8 +1,9 @@
 from __future__ import annotations
+import trimesh
 from typing import List, Tuple
-from nerf_grasping.ablation_utils import nerf_to_bps
+from nerf_grasping.ablation_utils import nerf_to_bps, visualize_point_cloud_and_bps_and_grasp
 from nerf_grasping.dexdiffuser.diffusion import Diffusion
-from nerf_grasping.dexdiffuser.diffusion_config import Config
+from nerf_grasping.dexdiffuser.diffusion_config import Config, TrainingConfig
 from tqdm import tqdm
 from nerf_grasping.dexdiffuser.dex_evaluator import DexEvaluator
 import nerf_grasping
@@ -241,17 +242,25 @@ def get_optimized_grasps(
     lb_N: np.ndarray,
     ub_N: np.ndarray,
     X_N_By: np.ndarray,
+    X_Oy_By: np.ndarray,
+    ckpt_path: str | pathlib.Path,
 ) -> dict:
+    ckpt_path = pathlib.Path(ckpt_path)
+
     NUM_GRASPS = cfg.optimizer.num_grasps
 
-    config = Config()
-    runner = Diffusion(config)
-    runner.load_checkpoint(config)
+    config = Config(
+        training=TrainingConfig(
+            log_path=ckpt_path.parent,
+        )
+    )
+    runner = Diffusion(config, load_multigpu_ckpt=True)
+    runner.load_checkpoint(config, name=ckpt_path.stem)
     device = runner.device
 
     # Get BPS
     N_BASIS_PTS = 4096
-    bps_values = nerf_to_bps(
+    bps_values, basis_points_By, point_cloud_points_By = nerf_to_bps(
         nerf_pipeline=nerf_pipeline,
         lb_N=lb_N,
         ub_N=ub_N,
@@ -270,7 +279,42 @@ def get_optimized_grasps(
 
     # Sample grasps
     xT = torch.randn(NUM_GRASPS, config.data.grasp_dim, device=runner.device)
-    x = runner.sample(xT=xT, cond=bps_values_repeated).squeeze().cpu()
+    x = runner.sample(xT=xT, cond=bps_values_repeated)
+
+    PLOT = False
+    if PLOT:
+        X_By_Oy = np.linalg.inv(X_Oy_By)
+        X_By_N = np.linalg.inv(X_N_By)
+
+        mesh_N = trimesh.load("/tmp/mesh_viz_object.obj")
+        mesh_By = trimesh.load("/tmp/mesh_viz_object.obj")
+        mesh_By.apply_transform(X_By_N)
+
+        IDX = 0
+        while True:
+            visualize_point_cloud_and_bps_and_grasp(
+                grasp=x[IDX],
+                X_W_Oy=X_By_Oy,  # TODO Figure this out
+                basis_points=basis_points_By,
+                bps=bps_values_repeated[IDX].detach().cpu().numpy(),
+                mesh=mesh_By,
+                point_cloud_points=point_cloud_points_By,
+                GRASP_IDX="?",
+                object_code="?",
+                passed_eval="?",
+            )
+            user_input = input("Next action?")
+            if user_input == "q":
+                break
+            elif user_input == "n":
+                IDX += 1
+                IDX = IDX % NUM_GRASPS
+            elif user_input == "p":
+                IDX -= 1
+                IDX = IDX % NUM_GRASPS
+            else:
+                print("Invalid input")
+        breakpoint()
 
     # grasp to AllegroGraspConfig
     N_FINGERS = 4
@@ -312,6 +356,6 @@ def get_optimized_grasps(
     grasp_config_dicts = grasp_configs.as_dict()
     grasp_config_dicts["loss"] = np.linspace(
         0, 0.001, NUM_GRASPS
-    )  # TODO: Currently don't have a loss, but need something here
+    )  # HACK: Currently don't have a loss, but need something here to sort
 
     return grasp_config_dicts

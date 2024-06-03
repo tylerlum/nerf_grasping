@@ -115,7 +115,7 @@ def setup(cfg: DexEvaluatorTrainingConfig, rank: int = 0):
     else:
         model = DexEvaluator(in_grasp=37).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=cfg.learning_rate)
-    scheduler = ReduceLROnPlateau(optimizer, "min", patience=5, factor=0.5)
+    scheduler = ReduceLROnPlateau(optimizer, "min", patience=10, factor=0.9)
 
     # logging
     wandb_id = generate_id()
@@ -203,7 +203,7 @@ def train(cfg: DexEvaluatorTrainingConfig, rank: int = 0) -> None:
                     val_loss += loss.item()
 
             val_loss /= len(val_loader)
-            scheduler.step(val_loss)
+            # scheduler.step(val_loss)
             pbar.set_postfix(train_loss=train_loss, val_loss=val_loss)
             if cfg.wandb_log and rank == 0:
                 wandb.log({"train_loss": train_loss, "val_loss": val_loss})
@@ -233,7 +233,8 @@ def _train_multigpu(rank, cfg):
 if __name__ == "__main__":
     cfg = DexEvaluatorTrainingConfig(
         num_epochs=1000,
-        batch_size=4096 * 32,
+        # batch_size=4096 * 8,
+        batch_size=4096,
         learning_rate=1e-4,
         device=torch.device("cuda" if torch.cuda.is_available() else "cpu"),
         random_seed=42,

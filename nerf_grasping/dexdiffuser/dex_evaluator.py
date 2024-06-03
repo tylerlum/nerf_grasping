@@ -14,7 +14,7 @@ class DexEvaluator(nn.Module):
     def __init__(
         self,
         in_grasp,
-        n_neurons=512,
+        n_neurons=1024,
         in_bps=4096,
         cov_mcmc=None,
         dtype=torch.float32,

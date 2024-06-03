@@ -1,6 +1,7 @@
 import time
 from typing import Optional, Tuple, List, Literal, Callable
 from nerfstudio.models.base_model import Model
+from nerfstudio.pipelines.base_pipeline import Pipeline
 from nerf_grasping.run_pipeline import (
     run_curobo,
     MultipleOutputs,
@@ -72,7 +73,7 @@ import sys
 
 
 def compute_ablation_grasps(
-    nerf_model: Model,
+    nerf_pipeline: Pipeline,
     cfg: PipelineConfig,
     max_time: float = 60.0,
 ) -> Tuple[
@@ -83,6 +84,8 @@ def compute_ablation_grasps(
     np.ndarray,
     np.ndarray,
 ]:
+    nerf_model = nerf_pipeline.model
+
     print("=" * 80)
     print("Step 1: Figuring out frames")
     print("=" * 80 + "\n")
@@ -253,6 +256,7 @@ def compute_ablation_grasps(
     X_N_B = trimesh.transformations.translation_matrix(translation)
     X_B_By = X_O_Oy.copy()
     X_N_By = X_N_B @ X_B_By
+    nerf_pipeline
 
     from nerf_grasping import ablation_utils
     optimized_grasp_config_dict = ablation_utils.get_optimized_grasps(
@@ -275,7 +279,7 @@ def compute_ablation_grasps(
             eval_batch_size=cfg.eval_batch_size,
             wandb=None,
         ),
-        nerf_config=nerf_config,
+        nerf_pipeline=nerf_pipeline,
         lb_N=lb_N,
         ub_N=ub_N,
         X_N_By=X_N_By,
@@ -351,7 +355,7 @@ def compute_ablation_grasps(
 
 
 def run_ablation_pipeline(
-    nerf_model: Model,
+    nerf_pipeline: Pipeline,
     cfg: PipelineConfig,
     q_fr3: np.ndarray,
     q_algr: np.ndarray,
@@ -367,6 +371,7 @@ def run_ablation_pipeline(
     lift_motion_gen: Optional[MotionGen] = None,
     lift_motion_gen_config: Optional[MotionGenConfig] = None,
 ) -> Tuple[List[np.ndarray], List[np.ndarray], List[float], List[int], tuple, dict]:
+    nerf_model = nerf_pipeline.model
 
     print(f"Creating a new experiment folder at {cfg.output_folder}")
     cfg.output_folder.mkdir(parents=True, exist_ok=True)
@@ -382,7 +387,7 @@ def run_ablation_pipeline(
         mesh_W,
         X_N_Oy,
         sorted_losses,
-    ) = compute_ablation_grasps(nerf_model=nerf_model, cfg=cfg, max_time=max_time)
+    ) = compute_ablation_grasps(nerf_pipeline=nerf_pipeline, cfg=cfg, max_time=max_time)
     compute_grasps_time = time.time()
     print("@" * 80)
     print(f"Time to compute_grasps: {compute_grasps_time - start_time:.2f}s")
@@ -451,7 +456,6 @@ def main() -> None:
                 max_num_iterations=args.max_num_iterations,
             )
         )
-        nerf_model = nerf_trainer.pipeline.model
         nerf_config = nerf_trainer.config.get_base_dir() / "config.yml"
         end_time = time.time()
         print("@" * 80)
@@ -460,7 +464,6 @@ def main() -> None:
     elif args.nerfcheckpoint_path is not None:
         start_time = time.time()
         nerf_pipeline = load_nerf_pipeline(args.nerfcheckpoint_path)
-        nerf_model = nerf_pipeline.model
         nerf_config = args.nerfcheckpoint_path
         end_time = time.time()
         print("@" * 80)
@@ -514,7 +517,7 @@ def main() -> None:
     print("@" * 80 + "\n")
 
     qs, qds, T_trajs, success_idxs, DEBUG_TUPLE, log_dict = run_ablation_pipeline(
-        nerf_model=nerf_model,
+        nerf_pipeline=nerf_pipeline,
         cfg=args,
         q_fr3=DEFAULT_Q_FR3,
         q_algr=DEFAULT_Q_ALGR,

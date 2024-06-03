@@ -89,10 +89,12 @@ from nerf_grasping.dataset.nerf_densities_global_config import (
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 from contextlib import nullcontext
+from nerfstudio.pipelines.base_pipeline import Pipeline
 
+import open3d as o3d
 
 def nerf_to_bps(
-    nerf_config: pathlib.Path,
+    nerf_pipeline: Pipeline,
     output_dir: pathlib.Path,
     lb_N: np.ndarray,
     ub_N: np.ndarray,
@@ -103,30 +105,20 @@ def nerf_to_bps(
     assert ub_N.shape == (3,)
 
     # TODO: This is slow because it loads NeRF from file and then outputs point cloud to file
-    from nerfstudio.scripts.export import ExportPointCloud
+    from nerf_grasping.nerfstudio_point_cloud_copy import ExportPointCloud
 
     cfg = ExportPointCloud(
-        load_config=nerf_config,
-        output_dir=output_dir,
         normal_method="open3d",
         bounding_box_min=(lb_N[0], lb_N[1], lb_N[2]),
         bounding_box_max=(ub_N[0], ub_N[1], ub_N[2]),
         num_points=num_points,
     )
-    cfg.main()
-
-    assert output_dir.exists(), f"{output_dir} does not exist"
-    point_cloud_files = sorted(list(output_dir.glob("*.ply")))
-    assert (
-        len(point_cloud_files) == 1
-    ), f"Expected 1 ply file, but got {point_cloud_files}"
-    point_cloud_file = point_cloud_files[0]
+    point_cloud = cfg.main(nerf_pipeline)
 
     #### BELOW IS TIGHTLY CONNECTED TO create_grasp_bps_dataset ####
     # Load point cloud
     from nerf_grasping.dexdiffuser.create_grasp_bps_dataset import process_point_cloud
 
-    point_cloud = o3d.io.read_point_cloud(str(point_cloud_file))
     point_cloud, _ = point_cloud.remove_statistical_outlier(
         nb_neighbors=20, std_ratio=2.0
     )
@@ -161,10 +153,10 @@ def nerf_to_bps(
     assert basis_point_path.exists(), f"{basis_point_path} does not exist"
     with open(basis_point_path, "rb") as f:
         basis_points_By = np.load(f)
-    assert basis_points.shape == (
+    assert basis_points_By.shape == (
         N_BASIS_PTS,
         3,
-    ), f"Expected shape ({N_BASIS_PTS}, 3), got {basis_points.shape}"
+    ), f"Expected shape ({N_BASIS_PTS}, 3), got {basis_points_By.shape}"
     basis_points_N = transform_points(T=X_N_By, points=basis_points_By)
     bps_values = bps.encode(
         final_points_N.unsqueeze(dim=0),
@@ -181,7 +173,7 @@ def nerf_to_bps(
 
 def get_optimized_grasps(
     cfg: OptimizationConfig,
-    nerf_config: pathlib.Path,
+    nerf_pipeline: Pipeline,
     lb_N: np.ndarray,
     ub_N: np.ndarray,
     X_N_By: np.ndarray,
@@ -202,7 +194,7 @@ def get_optimized_grasps(
 
     # Get BPS
     bps_values = nerf_to_bps(
-        nerf_config=nerf_config,
+        nerf_pipeline=nerf_pipeline,
         output_dir=output_dir,
         lb_N=lb_N,
         ub_N=ub_N,

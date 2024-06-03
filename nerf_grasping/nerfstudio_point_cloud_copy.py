@@ -39,11 +39,7 @@ from nerfstudio.utils.rich_utils import CONSOLE
 @dataclass
 class Exporter:
     """Export the mesh from a YML config to a folder."""
-
-    load_config: Path
-    """Path to the config YAML file."""
-    output_dir: Path
-    """Path to the output directory."""
+    pass
 
 
 @dataclass
@@ -85,7 +81,7 @@ class ExportPointCloud(Exporter):
     """If set, saves the point cloud in the same frame as the original dataset. Otherwise, uses the
     scaled and reoriented coordinate space expected by the NeRF models."""
 
-    def main(self, pipeline) -> None:
+    def main(self, pipeline) -> o3d.geometry.PointCloud:
         """Export point cloud."""
 
         # Increase the batchsize to speed up the evaluation.

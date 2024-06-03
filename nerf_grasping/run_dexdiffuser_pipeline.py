@@ -493,7 +493,7 @@ def main() -> None:
             obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
             collision_check_table=True,
             use_cuda_graph=True,
-            collision_sphere_buffer=0.01,
+            collision_sphere_buffer=0.001,
             warmup=False,  # Warmup amortizes the cost of subsequent calls, but takes longer overall, no help in serial program
         )
     )
@@ -511,7 +511,7 @@ def main() -> None:
         obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
         collision_check_table=True,
         use_cuda_graph=True,
-        collision_sphere_buffer=0.01,
+        collision_sphere_buffer=0.001,
         warmup=False,  # Warmup amortizes the cost of subsequent calls, but takes longer overall, no help in serial program
     )
     end_prepare_trajopt_batch = time.time()

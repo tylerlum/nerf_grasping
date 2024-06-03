@@ -478,7 +478,7 @@ def main() -> None:
             obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
             collision_check_table=True,
             use_cuda_graph=True,
-            collision_sphere_buffer=0.01,
+            collision_sphere_buffer=0.001,
         )
     )
     (
@@ -495,7 +495,7 @@ def main() -> None:
         obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
         collision_check_table=True,
         use_cuda_graph=True,
-        collision_sphere_buffer=0.01,
+        collision_sphere_buffer=0.001,
     )
     end_prepare_trajopt_batch = time.time()
     print("@" * 80)

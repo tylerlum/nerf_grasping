@@ -1,10 +1,11 @@
 from dataclasses import dataclass, field
+import datetime
 import pathlib
 
 
 @dataclass
 class DataConfig:
-    num_workers: int = 4
+    num_workers: int = 0
     n_pts: int = 4096  # Number of points in bps (from DexDiffuser)
     grasp_dim: int = 3 + 6 + 16 + 4 * 3 # Grasp xyz + rot6d + joint angles + grasp directions
 
@@ -26,12 +27,12 @@ class DiffusionConfig:
 
 @dataclass
 class TrainingConfig:
-    batch_size: int = 512
-    n_epochs: int = 10000
-    print_freq: int = 100
-    snapshot_freq: int = 5000
-    log_path: pathlib.Path = pathlib.Path("logs_2024-06-01")
-
+    batch_size: int = 16384 * 2
+    n_epochs: int = 20000
+    print_freq: int = 10
+    snapshot_freq: int = 100
+    log_path: pathlib.Path = pathlib.Path(f"logs/dexdiffuser_sampler/{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}")
+    # log_path: pathlib.Path = pathlib.Path(f"logs/dexdiffuser_sampler/stable_jun2")  # [vulcan] first one trained, tylers arch, not converged, no_noisy
 
 @dataclass
 class OptimConfig:
@@ -51,3 +52,5 @@ class Config:
     diffusion: DiffusionConfig = field(default_factory=DiffusionConfig)
     training: TrainingConfig = field(default_factory=TrainingConfig)
     optim: OptimConfig = field(default_factory=OptimConfig)
+    wandb_log: bool = True
+    multigpu: bool = True

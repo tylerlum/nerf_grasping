@@ -15,7 +15,7 @@ from tqdm import tqdm, trange
 from wandb.util import generate_id
 
 from nerf_grasping.dexdiffuser.dex_evaluator import DexEvaluator
-from nerf_grasping.dexdiffuser.diffusion import get_datasets
+from nerf_grasping.dexdiffuser.diffusion import get_bps_datasets
 
 
 @dataclass
@@ -63,7 +63,7 @@ def setup(cfg: DexEvaluatorTrainingConfig, rank: int = 0):
         dist.init_process_group("nccl", rank=rank, world_size=cfg.num_gpus)
 
     # get datasets
-    train_dataset, val_dataset, _ = get_datasets(
+    train_dataset, val_dataset, _ = get_bps_datasets(
         use_evaluator_dataset=True,
         get_all_labels=cfg.train_ablation,  # if we're training the ablation, get all the labels
     )
@@ -233,12 +233,11 @@ def _train_multigpu(rank, cfg):
 if __name__ == "__main__":
     cfg = DexEvaluatorTrainingConfig(
         num_epochs=1000,
-        # batch_size=4096 * 8,
-        batch_size=4096,
+        batch_size=4096 * 8,
         learning_rate=1e-4,
         device=torch.device("cuda" if torch.cuda.is_available() else "cpu"),
         random_seed=42,
-        snapshot_freq=100,
+        snapshot_freq=5,
         log_path=Path(f"logs/dexdiffuser_evaluator/{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"),
         wandb_project="dexdiffuser-evaluator",
         wandb_log=True,

@@ -14,7 +14,7 @@ class DexEvaluator(nn.Module):
     def __init__(
         self,
         in_grasp,
-        n_neurons=1024,
+        n_neurons=2048,
         in_bps=4096,
         cov_mcmc=None,
         dtype=torch.float32,
@@ -26,7 +26,7 @@ class DexEvaluator(nn.Module):
         self.rb2 = FCResBlock(in_bps + in_grasp + n_neurons, n_neurons)
         self.rb3 = FCResBlock(in_bps + in_grasp + n_neurons, n_neurons)
         self.out_success = nn.Linear(n_neurons, 3)
-        self.dout = nn.Dropout(0.3)
+        self.dout = nn.Dropout(0.2)
         self.sigmoid = nn.Sigmoid()
 
         self.dtype = torch.float32
@@ -65,7 +65,7 @@ class DexEvaluator(nn.Module):
         X = self.dout(X)
         X = self.rb2(torch.cat([X, X0], dim=1))
         X = self.dout(X)
-        X = self.rb3(torch.cat([X, X0], dim=1))
+        X = self.rb3(torch.cat([X, X0], dim=1), final_nl=False)
         X = self.dout(X)
         X = self.out_success(X)
         p_success = self.sigmoid(X)

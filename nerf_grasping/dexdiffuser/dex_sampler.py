@@ -2,8 +2,19 @@ import torch
 import torch.nn as nn
 
 from nerf_grasping.dexdiffuser.fc_resblock import FCResBlock
+
 from torch.nn.modules.activation import MultiheadAttention
 
+
+from nerf_grasping.models.tyler_new_models import (
+    conv_encoder,
+    PoolType,
+    ConvOutputTo1D,
+    mlp,
+    ConvEncoder2D,
+    ConvEncoder1D,
+    ResnetType2d,
+)
 
 
 class ResBlock(nn.Module):
@@ -33,15 +44,14 @@ class ResBlock(nn.Module):
         )
 
         self.emb_layers = nn.Sequential(
-            nn.SiLU(),
-            nn.Linear(self.emb_channels, self.out_channels)
+            nn.SiLU(), nn.Linear(self.emb_channels, self.out_channels)
         )
 
         self.out_layers = nn.Sequential(
             nn.LayerNorm((self.out_channels, 1)),
             nn.SiLU(),
             nn.Dropout(p=self.dropout),
-            nn.Conv1d(self.out_channels, self.out_channels, 1)
+            nn.Conv1d(self.out_channels, self.out_channels, 1),
         )
 
         if self.out_channels == self.in_channels:
@@ -211,18 +221,152 @@ class DexSampler(nn.Module):
         return eps
 
 
+class NerfSampler(nn.Module):
+    """ """
+
+    def __init__(
+        self,
+        global_grid_shape: tuple[int, int, int, int],
+        grasp_dim: int,
+        d_model: int,
+        virtual_seq_len: int,
+        conv_channels: tuple[int, ...],
+    ) -> None:
+        super().__init__()
+        self.global_grid_shape = global_grid_shape
+        assert (
+            len(global_grid_shape) == 4
+        ), f"Expected 4D shape, got {global_grid_shape}"
+        self.grasp_dim = grasp_dim
+        self.d_model = d_model
+        self.virtual_seq_len = virtual_seq_len
+        S = virtual_seq_len
+
+        # Grasp self attention
+        self.resblock = FCResBlock(grasp_dim + 1, d_model * S)
+        self.sa_fc_query = nn.Linear(d_model, d_model)
+        self.sa_fc_key = nn.Linear(d_model, d_model)
+        self.sa_fc_value = nn.Linear(d_model, d_model)
+        self.self_attention = MultiheadAttention(
+            embed_dim=d_model, num_heads=8, batch_first=False
+        )
+
+        # Conv encode nerf grid
+        self.conv = conv_encoder(
+            input_shape=global_grid_shape,
+            conv_channels=conv_channels,
+            pool_type=PoolType.MAX,
+            dropout_prob=0.1,
+            conv_output_to_1d=ConvOutputTo1D.AVG_POOL_SPATIAL,
+        )
+        # Get conv output shape
+        example_batch_size = 2
+        example_input = torch.zeros(example_batch_size, *global_grid_shape)
+        example_input = example_input.reshape(example_batch_size, *global_grid_shape)
+        conv_output = self.conv(example_input)
+        self.conv_output_dim = conv_output.shape[-1]
+        assert conv_output.shape == (example_batch_size, self.conv_output_dim)
+
+        self.ca_fc_key = nn.Linear(self.conv_output_dim, d_model * S)
+        self.ca_fc_value = nn.Linear(self.conv_output_dim, d_model * S)
+        self.cross_attention = MultiheadAttention(
+            embed_dim=d_model, num_heads=8, batch_first=False
+        )
+
+        self.fc_out = nn.Linear(d_model * S, grasp_dim)
+
+    def forward(
+        self, f_O: torch.Tensor, g_t: torch.Tensor, t: torch.Tensor
+    ) -> torch.Tensor:
+        B = f_O.shape[0]
+        S = self.virtual_seq_len
+        assert f_O.shape == (
+            B,
+            *self.global_grid_shape,
+        ), f"Expected shape ({B}, {self.global_grid_shape}), got {f_O.shape}"
+        assert g_t.shape == (
+            B,
+            self.grasp_dim,
+        ), f"Expected shape ({B}, {self.grasp_dim}), got {g_t.shape}"
+        assert t.shape == (
+            B,
+            1,
+        ), f"Expected shape ({B}, 1), got {t.shape}"
+
+        # Grasp self attention
+        x = torch.cat([g_t, t], dim=-1)
+        x = self.resblock(x).reshape(B, S, self.d_model).permute(1, 0, 2)
+        sa_query = self.sa_fc_query(x)
+        sa_key = self.sa_fc_key(x)
+        sa_value = self.sa_fc_value(x)
+        ca_query, _ = self.self_attention(key=sa_key, value=sa_value, query=sa_query)
+        assert ca_query.shape == (
+            S,
+            B,
+            self.d_model,
+        ), f"Expected shape ({S}, {B}, {self.d_model}), got {ca_query.shape}"
+
+        # Grasp-BPS cross attention
+        f_O = self.conv(f_O)
+        assert f_O.shape == (
+            B,
+            self.conv_output_dim,
+        ), f"Expected shape ({B}, {self.conv_output_dim}), got {f_O.shape}"
+
+        ca_key = self.ca_fc_key(f_O).reshape(B, S, self.d_model).permute(1, 0, 2)
+        ca_value = self.ca_fc_value(f_O).reshape(B, S, self.d_model).permute(1, 0, 2)
+        eps, _ = self.cross_attention(key=ca_key, value=ca_value, query=ca_query)
+        assert eps.shape == (
+            S,
+            B,
+            self.d_model,
+        ), f"Expected shape ({S}, {B}, {self.d_model}), got {eps.shape}"
+
+        # Output
+        eps = eps.permute(1, 0, 2).reshape(B, self.d_model * S)
+        eps = self.fc_out(eps)
+        assert eps.shape == (
+            B,
+            self.grasp_dim,
+        ), f"Expected shape ({B}, {self.grasp_dim}), got {eps.shape}"
+
+        return eps
+
+
 def main() -> None:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     print("\n" + "-" * 80)
     print("Testing DexSampler...")
     print("-" * 80)
-    dex_sampler = DexSampler().to(device)
+    dex_sampler = DexSampler(
+        n_pts=4096, grasp_dim=37, d_model=128, virtual_seq_len=4
+    ).to(device)
     batch_size = 2
     f_O = torch.rand(batch_size, 4096).to(device)
     g_t = torch.rand(batch_size, 37).to(device)
     t = torch.rand(batch_size, 1).to(device)
     output = dex_sampler(f_O=f_O, g_t=g_t, t=t)
+    print(f"Output shape: {output.shape}")
+
+    print("\n" + "-" * 80)
+    print("Testing NerfSampler...")
+    print("-" * 80)
+
+    nerf_sampler = NerfSampler(
+        global_grid_shape=(4, 30, 30, 30),
+        grasp_dim=37,
+        d_model=128,
+        virtual_seq_len=8,
+        conv_channels=(32, 64, 128),
+    ).to(device)
+
+    batch_size = 2
+    f_O = torch.rand(batch_size, 4, 30, 30, 30).to(device)
+    g_t = torch.rand(batch_size, 37).to(device)
+    t = torch.rand(batch_size, 1).to(device)
+    output = nerf_sampler(f_O=f_O, g_t=g_t, t=t)
+    print(f"Output shape: {output.shape}")
 
     # dex_sampler = DexSampler(
     #     n_pts=4096, grasp_dim=3 + 6 + 16 + 3 * 4, d_model=128, virtual_seq_len=4

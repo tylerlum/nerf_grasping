@@ -267,7 +267,9 @@ def compute_ablation_grasps(
                 classifier_config_path=cfg.classifier_config_path,
                 X_N_Oy=X_N_Oy,
             ),  # This is not used
-            optimizer=SGDOptimizerConfig(),  # This is not used
+            optimizer=SGDOptimizerConfig(
+                num_grasps=cfg.num_grasps,
+            ),  # This optimizer is not used, but the num_grasps is used
             output_path=pathlib.Path(
                 cfg.output_folder
                 / "optimized_grasp_config_dicts"

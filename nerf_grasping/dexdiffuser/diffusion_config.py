@@ -54,3 +54,4 @@ class Config:
     optim: OptimConfig = field(default_factory=OptimConfig)
     wandb_log: bool = True
     multigpu: bool = True
+    use_nerf_sampler: bool = False  # DexSampler or NeRFSampler

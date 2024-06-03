@@ -46,36 +46,6 @@ class Exporter:
     """Path to the output directory."""
 
 
-def validate_pipeline(normal_method: str, normal_output_name: str, pipeline: Pipeline) -> None:
-    """Check that the pipeline is valid for this exporter.
-
-    Args:
-        normal_method: Method to estimate normals with. Either "open3d" or "model_output".
-        normal_output_name: Name of the normal output.
-        pipeline: Pipeline to evaluate with.
-    """
-    if normal_method == "model_output":
-        CONSOLE.print("Checking that the pipeline has a normal output.")
-        origins = torch.zeros((1, 3), device=pipeline.device)
-        directions = torch.ones_like(origins)
-        pixel_area = torch.ones_like(origins[..., :1])
-        camera_indices = torch.zeros_like(origins[..., :1])
-        ray_bundle = RayBundle(
-            origins=origins, directions=directions, pixel_area=pixel_area, camera_indices=camera_indices
-        )
-        outputs = pipeline.model(ray_bundle)
-        if normal_output_name not in outputs:
-            CONSOLE.print(f"[bold yellow]Warning: Normal output '{normal_output_name}' not found in pipeline outputs.")
-            CONSOLE.print(f"Available outputs: {list(outputs.keys())}")
-            CONSOLE.print(
-                "[bold yellow]Warning: Please train a model with normals "
-                "(e.g., nerfacto with predicted normals turned on)."
-            )
-            CONSOLE.print("[bold yellow]Warning: Or change --normal-method")
-            CONSOLE.print("[bold yellow]Exiting early.")
-            sys.exit(1)
-
-
 @dataclass
 class ExportPointCloud(Exporter):
     """Export NeRF as a point cloud."""
@@ -115,15 +85,8 @@ class ExportPointCloud(Exporter):
     """If set, saves the point cloud in the same frame as the original dataset. Otherwise, uses the
     scaled and reoriented coordinate space expected by the NeRF models."""
 
-    def main(self) -> None:
+    def main(self, pipeline) -> None:
         """Export point cloud."""
-
-        if not self.output_dir.exists():
-            self.output_dir.mkdir(parents=True)
-
-        _, pipeline, _, _ = eval_setup(self.load_config)
-
-        validate_pipeline(self.normal_method, self.normal_output_name, pipeline)
 
         # Increase the batchsize to speed up the evaluation.
         assert isinstance(
@@ -165,14 +128,4 @@ class ExportPointCloud(Exporter):
             pcd.points = o3d.utility.Vector3dVector(points)
 
         torch.cuda.empty_cache()
-
-        CONSOLE.print(f"[bold green]:white_check_mark: Generated {pcd}")
-        CONSOLE.print("Saving Point Cloud...")
-        tpcd = o3d.t.geometry.PointCloud.from_legacy(pcd)
-        # The legacy PLY writer converts colors to UInt8,
-        # let us do the same to save space.
-        tpcd.point.colors = (tpcd.point.colors * 255).to(o3d.core.Dtype.UInt8)  # type: ignore
-        o3d.t.io.write_point_cloud(str(self.output_dir / "point_cloud.ply"), tpcd)
-        print("\033[A\033[A")
-        CONSOLE.print("[bold green]:white_check_mark: Saving Point Cloud")
-
+        return pcd

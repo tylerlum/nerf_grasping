@@ -281,13 +281,15 @@ def get_optimized_grasps(
     xT = torch.randn(NUM_GRASPS, config.data.grasp_dim, device=runner.device)
     x = runner.sample(xT=xT, cond=bps_values_repeated)
 
-    PLOT = True
+    PLOT = False
     if PLOT:
+        X_By_Oy = np.linalg.inv(X_Oy_By)
+        X_By_N = np.linalg.inv(X_N_By)
+
         mesh_N = trimesh.load("/tmp/mesh_viz_object.obj")
         mesh_By = trimesh.load("/tmp/mesh_viz_object.obj")
-        X_By_N = np.linalg.inv(X_N_By)
         mesh_By.apply_transform(X_By_N)
-        X_By_Oy = np.linalg.inv(X_Oy_By)
+
         IDX = 0
         while True:
             visualize_point_cloud_and_bps_and_grasp(

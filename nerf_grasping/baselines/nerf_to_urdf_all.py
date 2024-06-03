@@ -11,11 +11,11 @@ from nerf_grasping.grasp_utils import get_nerf_configs
 @dataclass
 class Args:
     nerfcheckpoints_path: pathlib.Path
-    bounding_cube_half_length: float = 0.2
+    nerf_is_z_up: bool
     density_of_0_level_set: float = 15.0
     n_pts_each_dim_marching_cubes: int = 31
     rescale: bool = True
-    min_num_edges: Optional[int] = 100
+    min_num_edges: Optional[int] = 200
     output_dir_path: pathlib.Path = pathlib.Path(__file__).parent / "nerf_meshdata"
 
 
@@ -39,7 +39,7 @@ def main() -> None:
             [
                 "python nerf_grasping/baselines/nerf_to_urdf.py",
                 f"--nerfcheckpoint-filepath {nerf_config}",
-                f"--bounding-cube-half-length {args.bounding_cube_half_length}",
+                f"--nerf-is-z-up {args.nerf_is_z_up}",
                 f"--density-of-0-level-set {args.density_of_0_level_set}",
                 f"--n-pts-each-dim-marching-cubes {args.n_pts_each_dim_marching_cubes}",
                 "--rescale" if args.rescale else "--no-rescale",

@@ -12,6 +12,7 @@ conda activate nerf_grasping_env
 python -m pip install --upgrade pip
 pip install torch==2.1.2+cu118 torchvision==0.16.2+cu118 --extra-index-url https://download.pytorch.org/whl/cu118
 conda install -c "nvidia/label/cuda-11.8.0" cuda-toolkit
+pip install setuptools==69.5.1  # Might need this https://github.com/aws-neuron/aws-neuron-sdk/issues/893 if you get ImportError: cannot import name 'packaging' from 'pkg_resources' 
 pip install git+https://github.com/NVlabs/tiny-cuda-nn/#subdirectory=bindings/torch
 
 mkdir thirdparty
@@ -56,6 +57,9 @@ pip install drake
 
 # Other dependencies for fancy things we haven't used much like transformers and learning rate scheduling
 pip install positional_encodings diffusers
+
+# Install bps
+pip3 install git+https://github.com/sergeyprokudin/bps
 ```
 
 # How to run at inference time (Albert) (~May 2024)

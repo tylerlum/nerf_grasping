@@ -63,9 +63,12 @@ class MultipleOutputs:
     def __init__(
         self, stdout: bool = True, stderr: bool = False, filename: Optional[str] = None
     ):
+        # Avoid error:
+        # UnicodeEncodeError: 'ascii' codec can't encode character '\u2601' in position 0: ordinal not in range(128)
+        # *** You may need to add PYTHONIOENCODING=utf-8 to your environment ***
         self.stdout = sys.stdout if stdout else None
         self.stderr = sys.stderr if stderr else None
-        self.file = open(filename, "a") if filename is not None else None
+        self.file = open(filename, "a", encoding='utf-8') if filename is not None else None
 
     def write(self, message: str) -> None:
         if self.stdout is not None:
@@ -114,6 +117,7 @@ class PipelineConfig:
 
     approach_time: float = 3.0
     stay_open_time: float = 0.2
+    # stay_open_time: float = 10  # HACK: Stay open longer
     close_time: float = 0.5
     stay_closed_time: float = 0.2
     lift_time: float = 1.0
@@ -1307,7 +1311,7 @@ def load_from_file(filepath: pathlib.Path) -> dict:
 class CommandlineArgs(PipelineConfig):
     nerfdata_path: Optional[pathlib.Path] = None
     nerfcheckpoint_path: Optional[pathlib.Path] = None
-    max_num_iterations: int = 2000
+    max_num_iterations: int = 400
 
     def __post_init__(self) -> None:
         if self.nerfdata_path is not None and self.nerfcheckpoint_path is None:

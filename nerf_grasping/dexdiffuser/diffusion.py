@@ -1,18 +1,36 @@
 """The goal of this file to implement the diffusion process for the DexDiffuser.
    Implementation based on: https://github.com/ermongroup/ddim/blob/main/runners/diffusion.py
 """
-
-from tqdm import tqdm
+import time
+import os
+from tqdm import tqdm, trange
 import torch.nn as nn
 import time
 import torch
+import torch.distributed as dist
+import torch.multiprocessing as mp
+import wandb
 import numpy as np
 import torch.optim as optim
 import torch.utils.data as data
-from nerf_grasping.dexdiffuser.dex_sampler import DexSampler
-from nerf_grasping.dexdiffuser.diffusion_config import Config
-from nerf_grasping.dexdiffuser.grasp_bps_dataset import GraspBPSSampleDataset
+from nerf_grasping.dexdiffuser.dex_sampler import DexSampler, NerfSampler
+from nerf_grasping.dexdiffuser.diffusion_config import (
+    Config,
+    DataConfig,
+    TrainingConfig,
+)
+from nerf_grasping.dexdiffuser.grasp_bps_dataset import (
+    GraspBPSSampleDataset,
+    GraspBPSEvalDataset,
+)
+from nerf_grasping.dexdiffuser.grasp_nerf_dataset import (
+    GraspNerfSampleDataset,
+    GraspNerfEvalDataset,
+)
+from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import random_split
+from torch.utils.data.distributed import DistributedSampler
+from wandb.util import generate_id
 
 
 def get_beta_schedule(beta_schedule, *, beta_start, beta_end, num_diffusion_timesteps):
@@ -204,24 +222,118 @@ def ddpm_steps(x, cond, seq, model, b):
     return xs, x0_preds
 
 
-def get_dataset(config: Config) -> tuple:
-    INPUT_HDF5_FILEPATH = "/juno/u/tylerlum/github_repos/nerf_grasping/data/2024-05-14_rotated_stable_grasps_bps/data.h5"
-    full_dataset = GraspBPSSampleDataset(
-        input_hdf5_filepath=INPUT_HDF5_FILEPATH,
-    )
-    train_size = int(0.8 * len(full_dataset))
-    test_size = len(full_dataset) - train_size
+# def get_dataset(
+#     hdf5_path: str | None = "/home/albert/research/nerf_grasping/bps_data/grasp_bps_dataset.hdf5",
+#     use_evaluator_dataset: bool = False,
+#     get_all_labels: bool = False,
+# ) -> tuple[
+#     GraspBPSSampleDataset | GraspBPSEvalDataset,
+#     GraspBPSSampleDataset | GraspBPSEvalDataset,
+#     GraspBPSSampleDataset | GraspBPSEvalDataset,
+# ]:
+#     if use_evaluator_dataset:
+#         full_dataset = GraspBPSEvalDataset(
+#             input_hdf5_filepath=hdf5_path,
+#             get_all_labels=get_all_labels,
+#         )
+#     else:
+#         full_dataset = GraspBPSSampleDataset(
+#             input_hdf5_filepath=hdf5_path,
+#             get_all_labels=get_all_labels,
+#         )
+#     train_size = int(0.8 * len(full_dataset))
+#     test_size = len(full_dataset) - train_size
 
-    train_dataset, test_dataset = random_split(
-        full_dataset,
-        [train_size, test_size],
-        generator=torch.Generator().manual_seed(42),
+#     train_dataset, test_dataset = random_split(
+#         full_dataset,
+#         [train_size, test_size],
+#         generator=torch.Generator().manual_seed(42),
+#     )
+#     return train_dataset, test_dataset, full_dataset
+
+
+def get_bps_datasets(
+    hdf5_path: tuple[str] | None = (
+        "/home/albert/research/nerf_grasping/bps_data/grasp_bps_dataset_final_train.hdf5",
+        "/home/albert/research/nerf_grasping/bps_data/grasp_bps_dataset_final_val.hdf5",
+        "/home/albert/research/nerf_grasping/bps_data/grasp_bps_dataset_final_test.hdf5",
+    ),
+    use_evaluator_dataset: bool = False,
+    get_all_labels: bool = False,
+) -> tuple[
+    GraspBPSSampleDataset | GraspBPSEvalDataset,
+    GraspBPSSampleDataset | GraspBPSEvalDataset,
+    GraspBPSSampleDataset | GraspBPSEvalDataset,
+]:
+    train_path = hdf5_path[0]
+    val_path = hdf5_path[1]
+    test_path = hdf5_path[2]
+
+    if use_evaluator_dataset:
+        DatasetClass = GraspBPSEvalDataset
+    else:
+        DatasetClass = GraspBPSSampleDataset
+
+    train_dataset = DatasetClass(
+        input_hdf5_filepath=train_path,
+        get_all_labels=get_all_labels,
     )
-    return train_dataset, test_dataset, full_dataset
+    val_dataset = DatasetClass(
+        input_hdf5_filepath=val_path,
+        get_all_labels=get_all_labels,
+    )
+    test_dataset = DatasetClass(
+        input_hdf5_filepath=test_path,
+        get_all_labels=get_all_labels,
+    )
+    return train_dataset, val_dataset, test_dataset
+
+
+def get_nerf_datasets(
+    hdf5_path: tuple[str] | None = (
+        "/home/albert/research/nerf_grasping/rsync_final_gg_h5_noise_and_nonoise/grid_dataset/train_dataset.h5",
+        "/home/albert/research/nerf_grasping/rsync_final_gg_h5_noise_and_nonoise/grid_dataset/val_dataset.h5",
+        "/home/albert/research/nerf_grasping/rsync_final_gg_h5_noise_and_nonoise/grid_dataset/test_dataset.h5",
+    ),
+    use_evaluator_dataset: bool = False,
+    get_all_labels: bool = False,
+) -> tuple[
+    GraspBPSSampleDataset | GraspBPSEvalDataset,
+    GraspBPSSampleDataset | GraspBPSEvalDataset,
+    GraspBPSSampleDataset | GraspBPSEvalDataset,
+]:
+    train_path = hdf5_path[0]
+    val_path = hdf5_path[1]
+    test_path = hdf5_path[2]
+
+    if use_evaluator_dataset:
+        DatasetClass = GraspNerfEvalDataset
+    else:
+        DatasetClass = GraspNerfSampleDataset
+
+    train_dataset = DatasetClass(
+        input_hdf5_filepath=train_path,
+        get_all_labels=get_all_labels,
+    )
+    val_dataset = DatasetClass(
+        input_hdf5_filepath=val_path,
+        get_all_labels=get_all_labels,
+    )
+    test_dataset = DatasetClass(
+        input_hdf5_filepath=test_path,
+        get_all_labels=get_all_labels,
+    )
+    return train_dataset, val_dataset, test_dataset
 
 
 class Diffusion(object):
-    def __init__(self, config: Config, device=None):
+    def __init__(
+        self,
+        config: Config,
+        device=None,
+        rank: int = 0,
+        load_multigpu_ckpt: bool = False,
+    ):
         self.config = config
         if device is None:
             device = (
@@ -254,109 +366,51 @@ class Diffusion(object):
         elif self.model_var_type == "fixedsmall":
             self.logvar = posterior_variance.clamp(min=1e-20).log()
 
-        self.model = DexSampler(
-            n_pts=config.data.n_pts,
-            grasp_dim=config.data.grasp_dim,
-            d_model=128,
-            virtual_seq_len=4,
-        ).to(self.device)
+        if config.use_nerf_sampler:
+            from nerf_grasping.dataset.nerf_densities_global_config import (
+                NERF_DENSITIES_GLOBAL_NUM_X_CROPPED,
+                NERF_DENSITIES_GLOBAL_NUM_Y_CROPPED,
+                NERF_DENSITIES_GLOBAL_NUM_Z_CROPPED,
+            )
 
-    def load_checkpoint(self, config: Config) -> None:
+            model = NerfSampler(
+                global_grid_shape=(
+                    4,
+                    NERF_DENSITIES_GLOBAL_NUM_X_CROPPED,
+                    NERF_DENSITIES_GLOBAL_NUM_Y_CROPPED,
+                    NERF_DENSITIES_GLOBAL_NUM_Z_CROPPED,
+                ),
+                grasp_dim=config.data.grasp_dim,
+                d_model=128,
+                virtual_seq_len=4,
+                conv_channels=(32, 64, 128),
+            ).to(self.device)
+        else:
+            model = DexSampler(
+                n_pts=config.data.n_pts,
+                grasp_dim=config.data.grasp_dim,
+                d_model=128,
+                virtual_seq_len=4,
+            ).to(self.device)
+        if config.multigpu and not load_multigpu_ckpt:
+            self.model = DDP(model, device_ids=[rank])
+        else:
+            self.model = model
+
+        # our crappy attempt at using their archtecture
+        # self.model = DexSampler(dim_grasp=config.data.grasp_dim).to(self.device)
+
+    def load_checkpoint(self, config: Config, name: str | None = None) -> None:
+        if name is None:
+            stem = "ckpt"
+        else:
+            stem = name
         states = torch.load(
-            config.training.log_path / "ckpt.pth",
+            config.training.log_path / f"{stem}.pth",
             map_location=self.device,
         )
         model_state_dict = states[0]
         self.model.load_state_dict(model_state_dict)
-
-    def train(self) -> None:
-        config = self.config
-        train_dataset, test_dataset, _ = get_dataset(config)
-        train_loader = data.DataLoader(
-            train_dataset,
-            batch_size=config.training.batch_size,
-            shuffle=True,
-            num_workers=config.data.num_workers,
-        )
-
-        optimizer = get_optimizer(self.config, self.model.parameters())
-
-        if self.config.model.ema:
-            ema_helper = EMAHelper(mu=self.config.model.ema_rate)
-            ema_helper.register(self.model)
-        else:
-            ema_helper = None
-
-        start_epoch, step = 0, 0
-
-        for epoch in tqdm(
-            range(start_epoch, self.config.training.n_epochs), desc="Training Epochs"
-        ):
-            data_start = time.time()
-            data_time = 0
-            for i, (grasps, bpss, _) in tqdm(
-                enumerate(train_loader),
-                desc="Training Batches",
-                total=len(train_loader),
-            ):
-                time.sleep(0.1)  # Yield control so it can be interrupted
-                n = grasps.size(0)
-                data_time += time.time() - data_start
-                self.model.train()
-                step += 1
-
-                grasps = grasps.to(self.device)
-                bpss = bpss.to(self.device)
-                e = torch.randn_like(grasps)
-                b = self.betas
-
-                # antithetic sampling
-                t = torch.randint(
-                    low=0, high=self.num_timesteps, size=(n // 2 + 1,)
-                ).to(self.device)
-                t = torch.cat([t, self.num_timesteps - t - 1], dim=0)[:n]
-                loss = noise_estimation_loss(
-                    model=self.model, x0=grasps, cond=bpss, t=t, e=e, b=b
-                )
-
-                if step % config.training.print_freq == 0 or step == 1:
-                    print(
-                        f"step: {step}, loss: {loss.item()}, data time: {data_time / (i+1)}"
-                    )
-
-                optimizer.zero_grad()
-                loss.backward()
-
-                try:
-                    torch.nn.utils.clip_grad_norm_(
-                        self.model.parameters(), config.optim.grad_clip
-                    )
-                except Exception:
-                    pass
-                optimizer.step()
-
-                if self.config.model.ema:
-                    ema_helper.update(self.model)
-
-                if step % self.config.training.snapshot_freq == 0 or step == 1:
-                    states = [
-                        self.model.state_dict(),
-                        optimizer.state_dict(),
-                        epoch,
-                        step,
-                    ]
-                    if self.config.model.ema:
-                        states.append(ema_helper.state_dict())
-
-                    log_path = config.training.log_path
-                    log_path.mkdir(parents=True, exist_ok=True)
-                    torch.save(
-                        states,
-                        log_path / "ckpt_{}.pth".format(step),
-                    )
-                    torch.save(states, log_path / "ckpt.pth")
-
-                data_start = time.time()
 
     def sample(self, xT: torch.Tensor, cond: torch.Tensor) -> torch.Tensor:
         self.model.eval()
@@ -398,205 +452,256 @@ class Diffusion(object):
         return x
 
 
-def main() -> None:
-    config = Config()
-    runner = Diffusion(config)
-
-    TRAIN_MODE = False
-    if TRAIN_MODE:
-        runner.train()
+def train(config, rank: int = 0) -> None:
+    num_gpus = torch.cuda.device_count()
+    if config.multigpu:
+        device = torch.device("cuda", rank)
+        os.environ["MASTER_ADDR"] = "localhost"
+        os.environ["MASTER_PORT"] = "12355"
+        dist.init_process_group("nccl", rank=rank, world_size=num_gpus)
     else:
-        runner.load_checkpoint(config)
+        device = torch.device("cuda")
 
-        _, _, full_dataset = get_dataset(config)
-        GRASP_IDX = 13021
-        _, bps, _ = full_dataset[GRASP_IDX]
-        xT = torch.randn(1, config.data.grasp_dim, device=runner.device)
-        x = runner.sample(xT=xT, cond=bps[None].to(runner.device)).squeeze().cpu()
-        print(f"Sampled grasp shape: {x.shape}")
+    config = config
+    wandb_id = generate_id()
+    if config.wandb_log and rank == 0:
+        wandb.init(project="dexdiffuser-sampler", id=wandb_id, resume="allow")
 
-        import numpy as np
-        import trimesh
-        import pathlib
-        import transforms3d
-        import open3d as o3d
-        import plotly.graph_objects as go
-        from nerf_grasping.dexgraspnet_utils.hand_model import HandModel
-        from nerf_grasping.dexgraspnet_utils.hand_model_type import (
-            HandModelType,
+    # datasets and dataloader
+    if config.use_nerf_sampler:
+        train_dataset, val_dataset, _ = get_nerf_datasets(get_all_labels=False)
+    else:
+        train_dataset, val_dataset, _ = get_bps_datasets(get_all_labels=False)
+
+    if config.multigpu:
+        train_sampler = DistributedSampler(
+            train_dataset,
+            num_replicas=num_gpus,
+            rank=rank,
+            shuffle=True,
         )
-        from nerf_grasping.dexgraspnet_utils.pose_conversion import (
-            hand_config_to_pose,
+        val_sampler = DistributedSampler(
+            val_dataset,
+            num_replicas=num_gpus,
+            rank=rank,
+            shuffle=False,
         )
-        from nerf_grasping.dexgraspnet_utils.joint_angle_targets import (
-            compute_optimized_joint_angle_targets_given_grasp_orientations,
-        )
+        train_shuffle = None
+        val_shuffle = None
+    else:
+        train_sampler = None
+        val_sampler = None
+        train_shuffle = True
+        val_shuffle = False
 
-        MESHDATA_ROOT = (
-            "/juno/u/tylerlum/github_repos/DexGraspNet/data/rotated_meshdata_stable"
-        )
-        print("=" * 79)
-        print(f"len(full_dataset): {len(full_dataset)}")
+    train_loader = data.DataLoader(
+        train_dataset,
+        batch_size=config.training.batch_size,
+        shuffle=train_shuffle,
+        num_workers=config.data.num_workers,
+        pin_memory=True,
+        sampler=train_sampler,
+        multiprocessing_context="fork",  # SUPER IMPORTANT THIS IS FORK AND NOT SPAWN FOR SPEED!
+    )
+    val_loader = data.DataLoader(
+        val_dataset,
+        batch_size=config.training.batch_size,
+        shuffle=val_shuffle,
+        num_workers=config.data.num_workers,
+        pin_memory=True,
+        sampler=val_sampler,
+        multiprocessing_context="fork",  # SUPER IMPORTANT THIS IS FORK AND NOT SPAWN FOR SPEED!
+    )
 
-        print("\n" + "=" * 79)
-        print(f"Getting grasp and bps for grasp_idx {GRASP_IDX}")
-        print("=" * 79)
-        grasp = x
-        passed_eval = np.array(1)
-        # grasp, bps, passed_eval = full_dataset[GRASP_IDX]
-        print(f"grasp.shape: {grasp.shape}")
-        print(f"bps.shape: {bps.shape}")
-        print(f"passed_eval.shape: {passed_eval.shape}")
+    # making the model
+    runner = Diffusion(config, device=device, rank=rank)
+    optimizer = get_optimizer(config, runner.model.parameters())
 
-        print("\n" + "=" * 79)
-        print("Getting debugging extras")
-        print("=" * 79)
-        basis_points = full_dataset.get_basis_points()
-        object_code = full_dataset.get_object_code(GRASP_IDX)
-        object_scale = full_dataset.get_object_scale(GRASP_IDX)
-        object_state = full_dataset.get_object_state(GRASP_IDX)
-        print(f"basis_points.shape: {basis_points.shape}")
+    if runner.config.model.ema:
+        ema_helper = EMAHelper(mu=runner.config.model.ema_rate)
+        ema_helper.register(runner.model)
+    else:
+        ema_helper = None
 
-        # Mesh
-        mesh_path = pathlib.Path(f"{MESHDATA_ROOT}/{object_code}/coacd/decomposed.obj")
-        assert mesh_path.exists(), f"{mesh_path} does not exist"
-        print(f"Reading mesh from {mesh_path}")
-        mesh = trimesh.load(mesh_path)
+    start_epoch, step = 0, 0
+    with trange(
+        start_epoch,
+        runner.config.training.n_epochs,
+        initial=start_epoch,
+        total=runner.config.training.n_epochs,
+        desc="Epoch",
+        leave=False,
+        disable=(rank != 0),
+    ) as pbar:
+        for epoch in range(start_epoch, runner.config.training.n_epochs):
+            if config.multigpu:
+                dist.barrier()
+                train_sampler.set_epoch(epoch)
 
-        xyz, quat_xyzw = object_state[:3], object_state[3:7]
-        quat_wxyz = quat_xyzw[[3, 0, 1, 2]]
-        transform = np.eye(4)  # X_W_Oy
-        transform[:3, :3] = transforms3d.quaternions.quat2mat(quat_wxyz)
-        transform[:3, 3] = xyz
-        mesh.apply_scale(object_scale)
-        mesh.apply_transform(transform)
+            pbar.update(1)
+            pbar.set_description(f"Epoch {epoch + 1}/{runner.config.training.n_epochs}")
 
-        # Point cloud
-        point_cloud_filepath = full_dataset.get_point_cloud_filepath(GRASP_IDX)
-        print(f"Reading point cloud from {point_cloud_filepath}")
-        point_cloud = o3d.io.read_point_cloud(point_cloud_filepath)
-        point_cloud, _ = point_cloud.remove_statistical_outlier(
-            nb_neighbors=20, std_ratio=2.0
-        )
-        point_cloud, _ = point_cloud.remove_radius_outlier(nb_points=16, radius=0.05)
-        point_cloud_points = np.asarray(point_cloud.points)
-        print(f"point_cloud_points.shape: {point_cloud_points.shape}")
+            data_start = time.time()
+            data_time = 0
+            train_time = 0
+            train_loss = 0
 
-        # Grasp
-        assert grasp.shape == (
-            3 + 6 + 16 + 4 * 3,
-        ), f"Expected shape (3 + 6 + 16 + 4 * 3), got {grasp.shape}"
-        grasp = grasp.detach().cpu().numpy()
-        grasp_trans, grasp_rot6d, grasp_joints, grasp_dirs = (
-            grasp[:3],
-            grasp[3:9],
-            grasp[9:25],
-            grasp[25:].reshape(4, 3),
-        )
-        grasp_rot = np.zeros((3, 3))
-        grasp_rot[:3, :2] = grasp_rot6d.reshape(3, 2)
-        grasp_rot[:3, 0] = grasp_rot[:3, 0] / np.linalg.norm(grasp_rot[:3, 0])
-        # make grasp_rot[:3, 1] orthogonal to grasp_rot[:3, 0]
-        grasp_rot[:3, 1] = (
-            grasp_rot[:3, 1]
-            - np.dot(grasp_rot[:3, 0], grasp_rot[:3, 1]) * grasp_rot[:3, 0]
-        )
-        grasp_rot[:3, 1] = grasp_rot[:3, 1] / np.linalg.norm(grasp_rot[:3, 1])
-        assert (
-            np.dot(grasp_rot[:3, 0], grasp_rot[:3, 1]) < 1e-3
-        ), f"Expected dot product < 1e-3, got {np.dot(grasp_rot[:3, 0], grasp_rot[:3, 1])}"
-        grasp_rot[:3, 2] = np.cross(grasp_rot[:3, 0], grasp_rot[:3, 1])
-        grasp_transform = np.eye(4)  # X_Oy_H
-        grasp_transform[:3, :3] = grasp_rot
-        grasp_transform[:3, 3] = grasp_trans
-        print(f"grasp_transform:\n{grasp_transform}")
-        grasp_transform = transform @ grasp_transform  # X_W_H = X_W_Oy @ X_Oy_H
-        grasp_trans = grasp_transform[:3, 3]
-        grasp_rot = grasp_transform[:3, :3]
+            # training loop
+            runner.model.train()
+            for i, (grasps, bpss, _) in tqdm(
+                enumerate(train_loader),
+                desc="Iterations",
+                total=len(train_loader),
+                leave=False,
+                disable=(rank != 0),
+            ):
+                n = grasps.size(0)
+                data_time += time.time() - data_start
+                train_start = time.time()
+                runner.model.train()
+                step += 1
 
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        hand_pose = hand_config_to_pose(
-            grasp_trans[None], grasp_rot[None], grasp_joints[None]
-        ).to(device)
-        hand_model_type = HandModelType.ALLEGRO_HAND
-        grasp_orientations = np.zeros(
-            (4, 3, 3)
-        )  # NOTE: should have applied transform with this, but didn't because we only have z-dir, hopefully transforms[:3, :3] ~= np.eye(3)
-        grasp_orientations[:, :, 2] = (
-            grasp_dirs  # Leave the x-axis and y-axis as zeros, hacky but works
-        )
-        hand_model = HandModel(hand_model_type=hand_model_type, device=device)
-        hand_model.set_parameters(hand_pose)
-        hand_plotly = hand_model.get_plotly_data(i=0, opacity=0.8)
+                grasps = grasps.to(device)
+                bpss = bpss.to(device)
+                e = torch.randn_like(grasps)
+                b = runner.betas
 
-        (
-            optimized_joint_angle_targets,
-            _,
-        ) = compute_optimized_joint_angle_targets_given_grasp_orientations(
-            joint_angles_start=hand_model.hand_pose[:, 9:],
-            hand_model=hand_model,
-            grasp_orientations=torch.from_numpy(grasp_orientations[None]).to(device),
-        )
-        new_hand_pose = hand_config_to_pose(
-            grasp_trans[None],
-            grasp_rot[None],
-            optimized_joint_angle_targets.detach().cpu().numpy(),
-        ).to(device)
-        hand_model.set_parameters(new_hand_pose)
-        hand_plotly_optimized = hand_model.get_plotly_data(
-            i=0, opacity=0.3, color="lightgreen"
-        )
+                # antithetic sampling
+                t = torch.randint(
+                    low=0, high=runner.num_timesteps, size=(n // 2 + 1,)
+                ).to(device)
+                t = torch.cat([t, runner.num_timesteps - t - 1], dim=0)[:n]
+                loss = noise_estimation_loss(
+                    model=runner.model, x0=grasps, cond=bpss, t=t, e=e, b=b
+                )
+                train_loss += loss.item()
 
-        fig = go.Figure()
-        fig.add_trace(
-            go.Scatter3d(
-                x=basis_points[:, 0],
-                y=basis_points[:, 1],
-                z=basis_points[:, 2],
-                mode="markers",
-                marker=dict(
-                    size=1,
-                    color=bps,
-                    colorscale="rainbow",
-                    colorbar=dict(title="Basis points", orientation="h"),
-                ),
-                name="Basis points",
+                # if step % config.training.print_freq == 0 or step == 1:
+                #     print(
+                #         f"step: {step}, loss: {loss.item()}, data time: {data_time / (i+1)}"
+                #     )
+
+                optimizer.zero_grad()
+                loss.backward()
+
+                try:
+                    torch.nn.utils.clip_grad_norm_(
+                        runner.model.parameters(), config.optim.grad_clip
+                    )
+                except Exception:
+                    pass
+                optimizer.step()
+                train_time += time.time() - train_start
+                data_start = time.time()
+
+            train_loss /= len(train_loader)
+
+            # val step
+            runner.model.eval()
+            with torch.no_grad():
+                val_loss = 0
+                for i, (grasps, bpss, _) in enumerate(val_loader):
+                    n = grasps.size(0)
+                    grasps = grasps.to(device)
+                    bpss = bpss.to(device)
+                    e = torch.randn_like(grasps)
+                    b = runner.betas
+
+                    t = torch.randint(
+                        low=0, high=runner.num_timesteps, size=(n // 2 + 1,)
+                    ).to(device)
+                    t = torch.cat([t, runner.num_timesteps - t - 1], dim=0)[:n]
+                    _val_loss = noise_estimation_loss(
+                        model=runner.model, x0=grasps, cond=bpss, t=t, e=e, b=b
+                    )
+                    val_loss += _val_loss.item()
+                val_loss /= len(val_loader)
+
+            # logging
+            pbar.set_postfix(
+                step=step,
+                train_loss=train_loss,
+                val_loss=val_loss,
+                data_time=data_time,
+                train_time=train_time,
             )
-        )
-        fig.add_trace(
-            go.Mesh3d(
-                x=mesh.vertices[:, 0],
-                y=mesh.vertices[:, 1],
-                z=mesh.vertices[:, 2],
-                i=mesh.faces[:, 0],
-                j=mesh.faces[:, 1],
-                k=mesh.faces[:, 2],
-                name="Object",
-            )
-        )
-        fig.add_trace(
-            go.Scatter3d(
-                x=point_cloud_points[:, 0],
-                y=point_cloud_points[:, 1],
-                z=point_cloud_points[:, 2],
-                mode="markers",
-                marker=dict(size=1.5, color="black"),
-                name="Point cloud",
-            )
-        )
-        fig.update_layout(
-            title=dict(
-                text=f"Grasp idx: {GRASP_IDX}, Object: {object_code}, Passed Eval: {passed_eval}"
-            ),
-        )
-        VISUALIZE_HAND = True
-        if VISUALIZE_HAND:
-            for trace in hand_plotly:
-                fig.add_trace(trace)
-            for trace in hand_plotly_optimized:
-                fig.add_trace(trace)
-        fig.show()
+            if runner.config.wandb_log and rank == 0:
+                wandb.log({"train_loss": train_loss, "val_loss": val_loss})
+
+            if runner.config.model.ema:
+                ema_helper.update(runner.model)
+
+            is_last_epoch = epoch == runner.config.training.n_epochs - 1
+            if (
+                step % runner.config.training.snapshot_freq == 0
+                or step == 1
+                or is_last_epoch
+            ) and rank == 0:
+                print(f"Saving model at step {step}!")
+                states = [
+                    getattr(runner.model, "module", runner.model).state_dict(),
+                    optimizer.state_dict(),
+                    epoch,
+                    step,
+                ]
+                if runner.config.model.ema:
+                    states.append(ema_helper.state_dict())
+
+                log_path = config.training.log_path
+                log_path.mkdir(parents=True, exist_ok=True)
+                if is_last_epoch:
+                    torch.save(states, log_path / f"ckpt_final.pth")
+                else:
+                    torch.save(states, log_path / f"ckpt_{step}.pth")
+
+    if config.multigpu:
+        dist.destroy_process_group()
+
+
+def _train_multigpu(rank, config):
+    train(config, rank)
 
 
 if __name__ == "__main__":
-    main()
+    config = Config(
+        data=DataConfig(
+            num_workers=4,
+        ),
+        training=TrainingConfig(
+            n_epochs=20000,
+            batch_size=256,
+        ),
+        use_nerf_sampler=True,
+        multigpu=True,
+        wandb_log=True,
+    )
+    if config.multigpu:
+        mp.spawn(
+            _train_multigpu, args=(config,), nprocs=torch.cuda.device_count(), join=True
+        )
+    else:
+        train(config, rank=0)
+
+    # testing loading and sampling
+    #####################################################################################################
+    # config = Config(
+    #     training=TrainingConfig(
+    #         log_path=config.training.log_path,
+    #     )
+    # )
+    # runner = Diffusion(config, load_multigpu_ckpt=True)
+    # runner.load_checkpoint(config, name="ckpt_final")
+
+    # # some short eval just to make sure
+    # _, val_dataset, test_dataset = get_bps_datasets(use_evaluator_dataset=False)
+    # test_loader = data.DataLoader(test_dataset, batch_size=1, shuffle=False)
+    # for i, (grasps, bpss, y_PGS) in tqdm(
+    #     enumerate(test_loader),
+    #     desc="Iterations",
+    #     total=len(test_loader),
+    #     leave=False,
+    # ):
+    #     grasps, bpss, y_PGS = grasps.to(runner.device), bpss.to(runner.device), y_PGS.to(runner.device)
+    #     if i == 0:
+    #         break
+    #####################################################################################################

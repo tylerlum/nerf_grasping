@@ -287,7 +287,22 @@ class NeRFGrid_To_GraspSuccess_HDF5_Dataset(Dataset):
         # BRITTLE: Assumes that object_state is given in a frame such that y=0 is the table surface
         object_y = object_state[1]
         object_y_wrt_table = object_y
-        assert object_y_wrt_table >= 0
+        # assert object_y_wrt_table >= 0,  # May still be negative if object is below table surface, fell off
+        if object_y_wrt_table < 0:
+            if not hasattr(self, "num_warnings"):
+                self.num_warnings = 0
+            self.num_warnings += 1
+            MAX_WARNINGS = 10
+            if self.num_warnings < MAX_WARNINGS:
+                print("!" * 80)
+                print(f"WARNING: object_y_wrt_table = {object_y_wrt_table} < 0")
+                print(f"object_state = {object_state}")
+                print("!" * 80)
+            elif self.num_warnings == MAX_WARNINGS:
+                print("!" * 80)
+                print(f"WARNING: Suppressing further warnings about object_y_wrt_table < 0")
+                print("!" * 80)
+
 
         return (
             nerf_densities,

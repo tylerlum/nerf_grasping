@@ -178,8 +178,8 @@ def load_nerf_field(cfg_path: pathlib.Path) -> Field:
     return load_nerf_model(cfg_path).field
 
 
-def load_nerf_pipeline(cfg_path: pathlib.Path) -> Pipeline:
-    _, pipeline, _, _ = eval_utils.eval_setup(cfg_path, test_mode="inference")
+def load_nerf_pipeline(cfg_path: pathlib.Path, test_mode="inference") -> Pipeline:
+    _, pipeline, _, _ = eval_utils.eval_setup(cfg_path, test_mode=test_mode)
     return pipeline
 
 

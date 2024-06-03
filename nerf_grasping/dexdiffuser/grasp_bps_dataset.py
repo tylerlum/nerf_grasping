@@ -94,8 +94,10 @@ class GraspBPSEvalDataset(GraspBPSDataset):
     def __init__(
         self,
         input_hdf5_filepath: str,
+        get_all_labels: bool = False,
     ) -> None:
         super().__init__(input_hdf5_filepath=input_hdf5_filepath)
+        self.get_all_labels = get_all_labels
 
     def __len__(self) -> int:
         return self.num_grasps
@@ -104,7 +106,17 @@ class GraspBPSEvalDataset(GraspBPSDataset):
         self, grasp_idx: int
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         bps_idx = self.grasp_bps_idxs[grasp_idx]
-        return self.grasps[grasp_idx], self.bpss[bps_idx], self.passed_evals[grasp_idx]
+        if self.get_all_labels:
+            labels = torch.concatenate(
+                (
+                    self.passed_simulations[grasp_idx],
+                    self.passed_penetration_thresholds[grasp_idx],
+                    self.passed_evals[grasp_idx],
+                ),
+            )  # shape=(3,)
+            return self.grasps[grasp_idx], self.bpss[bps_idx], labels
+        else:
+            return self.grasps[grasp_idx], self.bpss[bps_idx], self.passed_evals[grasp_idx]
 
     ###### Extras ######
     def get_point_cloud_filepath(self, grasp_idx: int) -> str:
@@ -127,10 +139,14 @@ class GraspBPSSampleDataset(GraspBPSDataset):
     def __init__(
         self,
         input_hdf5_filepath: str,
+        get_all_labels: bool = False,
+        passed_eval_threshold: float = 0.9,
     ) -> None:
         super().__init__(input_hdf5_filepath=input_hdf5_filepath)
+        self.get_all_labels = get_all_labels
 
-        self.successful_grasp_idxs = torch.where(self.passed_evals >= 0.9)[0]
+        self.passed_eval_threshold = passed_eval_threshold
+        self.successful_grasp_idxs = torch.where(self.passed_evals >= passed_eval_threshold)[0]
         self.num_successful_grasps = len(self.successful_grasp_idxs)
 
     def __len__(self) -> int:
@@ -141,7 +157,17 @@ class GraspBPSSampleDataset(GraspBPSDataset):
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         grasp_idx = self.successful_grasp_idxs[successful_grasp_idx]
         bps_idx = self.grasp_bps_idxs[grasp_idx]
-        return self.grasps[grasp_idx], self.bpss[bps_idx], self.passed_evals[grasp_idx]
+        if self.get_all_labels:
+            labels = torch.concatenate(
+                (
+                    self.passed_simulations[grasp_idx],
+                    self.passed_penetration_thresholds[grasp_idx],
+                    self.passed_evals[grasp_idx],
+                ),
+            )  # shape=(3,)
+            return self.grasps[grasp_idx], self.bpss[bps_idx], labels
+        else:
+            return self.grasps[grasp_idx], self.bpss[bps_idx], self.passed_evals[grasp_idx]
 
     ###### Extras ######
     def get_point_cloud_filepath(self, successful_grasp_idx: int) -> str:
@@ -182,10 +208,10 @@ def main() -> None:
         compute_optimized_joint_angle_targets_given_grasp_orientations,
     )
 
-    INPUT_HDF5_FILEPATH = "/juno/u/tylerlum/github_repos/nerf_grasping/data/2024-05-14_rotated_stable_grasps_bps/data.h5"
-    GRASP_IDX = 190000
+    INPUT_HDF5_FILEPATH = "/home/albert/research/nerf_grasping/bps_data/grasp_bps_dataset_final_test.hdf5"
+    GRASP_IDX = 2000  # [DEBUG] change this guy for different viz
     MESHDATA_ROOT = (
-        "/juno/u/tylerlum/github_repos/DexGraspNet/data/rotated_meshdata_stable"
+        "/home/albert/research/nerf_grasping/rsync_meshes/rotated_meshdata_v2"
     )
     USE_EVAL_DATASET = True
 
@@ -343,8 +369,8 @@ def main() -> None:
         fig.add_trace(trace)
     for trace in hand_plotly_optimized:
         fig.add_trace(trace)
-    fig.show()
-
+    fig.write_html("/home/albert/research/nerf_grasping/bps_debug.html")  # headless
+    # fig.show()
 
 if __name__ == "__main__":
     main()

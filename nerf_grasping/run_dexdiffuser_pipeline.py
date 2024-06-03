@@ -1,6 +1,7 @@
 import time
 from typing import Optional, Tuple, List, Literal, Callable
 from nerfstudio.models.base_model import Model
+from nerfstudio.pipelines.base_pipeline import Pipeline
 from nerf_grasping.run_pipeline import (
     run_curobo,
     MultipleOutputs,
@@ -71,11 +72,10 @@ from frogger.robots.robot_core import RobotModel
 import sys
 
 
-def compute_frogger_grasps(
-    nerf_model: Model,
+def compute_dexdiffuser_grasps(
+    nerf_pipeline: Pipeline,
     cfg: PipelineConfig,
-    custom_coll_callback: Optional[Callable[[RobotModel, str, str], float]] = None,
-    max_time: float = 60.0,
+    ckpt_path: str | pathlib.Path,
 ) -> Tuple[
     np.ndarray,
     np.ndarray,
@@ -84,6 +84,8 @@ def compute_frogger_grasps(
     np.ndarray,
     np.ndarray,
 ]:
+    nerf_model = nerf_pipeline.model
+
     print("=" * 80)
     print("Step 1: Figuring out frames")
     print("=" * 80 + "\n")
@@ -245,32 +247,46 @@ def compute_frogger_grasps(
         fig_Oy.show()
 
     print("\n" + "=" * 80)
-    print("Step 5: Run frogger")
+    print("Step 5: Run dexdiffuser")
     print("=" * 80 + "\n")
 
-    X_W_O = X_W_N @ X_N_O
-    X_O_W = np.linalg.inv(X_W_O)
-    mesh_O = trimesh.Trimesh(vertices=mesh_W.vertices, faces=mesh_W.faces)
-    mesh_O.apply_transform(X_O_W)
+    # B frame is at base of object z up frame
+    # By frame is at base of object y up frame
+    translation = np.array([centroid_N[0], centroid_N[1], 0.0])
+    X_N_B = trimesh.transformations.translation_matrix(translation)
+    X_B_By = X_O_Oy.copy()
+    X_N_By = X_N_B @ X_B_By
+    X_Oy_By = X_Oy_N @ X_N_By
 
-    from nerf_grasping import frogger_utils
-
-    frogger_args = frogger_utils.FroggerArgs(
-        obj_filepath=nerf_to_mesh_folder / "decomposed.obj",
-        obj_scale=cfg.object_scale,
-        obj_name=cfg.object_code,
-        obj_is_yup=False,
-        num_grasps=cfg.num_grasps,
-        output_grasp_config_dicts_folder=cfg.output_folder / "grasp_config_dicts",
-        visualize=cfg.visualize,
-        grasp_idx_to_visualize=0,
-        max_time=max_time,
-    )
-    optimized_grasp_config_dict = frogger_utils.frogger_to_grasp_config_dict(
-        args=frogger_args,
-        mesh=mesh_O,
-        X_W_O=X_W_O,
-        custom_coll_callback=custom_coll_callback,
+    from nerf_grasping import dexdiffuser_utils
+    optimized_grasp_config_dict = dexdiffuser_utils.get_optimized_grasps(
+        cfg=OptimizationConfig(
+            use_rich=False,  # Not used because causes issues with logging
+            init_grasp_config_dict_path=cfg.init_grasp_config_dict_path,
+            grasp_metric=GraspMetricConfig(
+                nerf_checkpoint_path=nerf_config,
+                classifier_config_path=cfg.classifier_config_path,
+                X_N_Oy=X_N_Oy,
+            ),  # This is not used
+            optimizer=SGDOptimizerConfig(
+                num_grasps=cfg.num_grasps,
+            ),  # This optimizer is not used, but the num_grasps is used
+            output_path=pathlib.Path(
+                cfg.output_folder
+                / "optimized_grasp_config_dicts"
+                / f"{cfg.object_code_and_scale_str}.npy"
+            ),
+            random_seed=cfg.random_seed,
+            n_random_rotations_per_grasp=cfg.n_random_rotations_per_grasp,
+            eval_batch_size=cfg.eval_batch_size,
+            wandb=None,
+        ),
+        nerf_pipeline=nerf_pipeline,
+        lb_N=lb_N,
+        ub_N=ub_N,
+        X_N_By=X_N_By,
+        X_Oy_By=X_Oy_By,
+        ckpt_path=ckpt_path,
     )
 
     print("\n" + "=" * 80)
@@ -340,13 +356,12 @@ def compute_frogger_grasps(
     )
 
 
-def run_frogger_pipeline(
-    nerf_model: Model,
+def run_dexdiffuser_pipeline(
+    nerf_pipeline: Pipeline,
     cfg: PipelineConfig,
     q_fr3: np.ndarray,
     q_algr: np.ndarray,
-    custom_coll_callback: Optional[Callable[[RobotModel, str, str], float]] = None,
-    max_time: float = 60.0,
+    ckpt_path: str | pathlib.Path,
     robot_cfg: Optional[RobotConfig] = None,
     ik_solver: Optional[IKSolver] = None,
     ik_solver2: Optional[IKSolver] = None,
@@ -358,6 +373,7 @@ def run_frogger_pipeline(
     lift_motion_gen: Optional[MotionGen] = None,
     lift_motion_gen_config: Optional[MotionGenConfig] = None,
 ) -> Tuple[List[np.ndarray], List[np.ndarray], List[float], List[int], tuple, dict]:
+    nerf_model = nerf_pipeline.model
 
     print(f"Creating a new experiment folder at {cfg.output_folder}")
     cfg.output_folder.mkdir(parents=True, exist_ok=True)
@@ -373,7 +389,7 @@ def run_frogger_pipeline(
         mesh_W,
         X_N_Oy,
         sorted_losses,
-    ) = compute_frogger_grasps(nerf_model=nerf_model, cfg=cfg, custom_coll_callback=custom_coll_callback, max_time=max_time)
+    ) = compute_dexdiffuser_grasps(nerf_pipeline=nerf_pipeline, cfg=cfg, ckpt_path=ckpt_path)
     compute_grasps_time = time.time()
     print("@" * 80)
     print(f"Time to compute_grasps: {compute_grasps_time - start_time:.2f}s")
@@ -442,7 +458,7 @@ def main() -> None:
                 max_num_iterations=args.max_num_iterations,
             )
         )
-        nerf_model = nerf_trainer.pipeline.model
+        nerf_pipeline = nerf_trainer.pipeline
         nerf_config = nerf_trainer.config.get_base_dir() / "config.yml"
         end_time = time.time()
         print("@" * 80)
@@ -450,8 +466,7 @@ def main() -> None:
         print("@" * 80 + "\n")
     elif args.nerfcheckpoint_path is not None:
         start_time = time.time()
-        nerf_pipeline = load_nerf_pipeline(args.nerfcheckpoint_path)
-        nerf_model = nerf_pipeline.model
+        nerf_pipeline = load_nerf_pipeline(args.nerfcheckpoint_path, test_mode="test")  # Must be test mode for point cloud gen
         nerf_config = args.nerfcheckpoint_path
         end_time = time.time()
         print("@" * 80)
@@ -479,6 +494,7 @@ def main() -> None:
             collision_check_table=True,
             use_cuda_graph=True,
             collision_sphere_buffer=0.01,
+            warmup=False,  # Warmup amortizes the cost of subsequent calls, but takes longer overall, no help in serial program
         )
     )
     (
@@ -496,6 +512,7 @@ def main() -> None:
         collision_check_table=True,
         use_cuda_graph=True,
         collision_sphere_buffer=0.01,
+        warmup=False,  # Warmup amortizes the cost of subsequent calls, but takes longer overall, no help in serial program
     )
     end_prepare_trajopt_batch = time.time()
     print("@" * 80)
@@ -504,11 +521,12 @@ def main() -> None:
     )
     print("@" * 80 + "\n")
 
-    qs, qds, T_trajs, success_idxs, DEBUG_TUPLE, log_dict = run_frogger_pipeline(
-        nerf_model=nerf_model,
+    qs, qds, T_trajs, success_idxs, DEBUG_TUPLE, log_dict = run_dexdiffuser_pipeline(
+        nerf_pipeline=nerf_pipeline,
         cfg=args,
         q_fr3=DEFAULT_Q_FR3,
         q_algr=DEFAULT_Q_ALGR,
+        ckpt_path="/juno/u/tylerlum/github_repos/nerf_grasping/2024-06-03_ALBERT_DexDiffuser_models/ckpt_74000.pth",
         robot_cfg=robot_cfg,
         ik_solver=ik_solver,
         ik_solver2=ik_solver2,

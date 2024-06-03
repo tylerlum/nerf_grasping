@@ -270,15 +270,17 @@ def get_optimized_grasps(
         N_BASIS_PTS,
     ), f"Expected shape ({N_BASIS_PTS},), got {bps_values.shape}"
 
+    # We sample more grasps than needed to account for filtering
+    NUM_GRASP_SAMPLES = 10 * NUM_GRASPS
     bps_values_repeated = torch.from_numpy(bps_values).float().to(device)
-    bps_values_repeated = bps_values_repeated.unsqueeze(dim=0).repeat(NUM_GRASPS, 1)
+    bps_values_repeated = bps_values_repeated.unsqueeze(dim=0).repeat(NUM_GRASP_SAMPLES, 1)
     assert bps_values_repeated.shape == (
-        NUM_GRASPS,
+        NUM_GRASP_SAMPLES,
         N_BASIS_PTS,
     ), f"bps_values_repeated.shape = {bps_values_repeated.shape}"
 
     # Sample grasps
-    xT = torch.randn(NUM_GRASPS, config.data.grasp_dim, device=runner.device)
+    xT = torch.randn(NUM_GRASP_SAMPLES, config.data.grasp_dim, device=runner.device)
     x = runner.sample(xT=xT, cond=bps_values_repeated)
 
     PLOT = False
@@ -308,10 +310,10 @@ def get_optimized_grasps(
                 break
             elif user_input == "n":
                 IDX += 1
-                IDX = IDX % NUM_GRASPS
+                IDX = IDX % NUM_GRASP_SAMPLES
             elif user_input == "p":
                 IDX -= 1
-                IDX = IDX % NUM_GRASPS
+                IDX = IDX % NUM_GRASP_SAMPLES
             else:
                 print("Invalid input")
         breakpoint()
@@ -319,18 +321,18 @@ def get_optimized_grasps(
     # grasp to AllegroGraspConfig
     N_FINGERS = 4
     assert x.shape == (
-        NUM_GRASPS,
+        NUM_GRASP_SAMPLES,
         config.data.grasp_dim,
-    ), f"Expected shape ({NUM_GRASPS}, {config.data.grasp_dim}), got {x.shape}"
+    ), f"Expected shape ({NUM_GRASP_SAMPLES}, {config.data.grasp_dim}), got {x.shape}"
     trans = x[:, :3].detach().cpu().numpy()
     rot6d = x[:, 3:9].detach().cpu().numpy()
     joint_angles = x[:, 9:25].detach().cpu().numpy()
-    grasp_dirs = x[:, 25:37].reshape(NUM_GRASPS, N_FINGERS, 3).detach().cpu().numpy()
+    grasp_dirs = x[:, 25:37].reshape(NUM_GRASP_SAMPLES, N_FINGERS, 3).detach().cpu().numpy()
 
     rot = rot6d_to_matrix(rot6d)
 
     wrist_pose_matrix = (
-        torch.eye(4, device=device).unsqueeze(0).repeat(NUM_GRASPS, 1, 1).float()
+        torch.eye(4, device=device).unsqueeze(0).repeat(NUM_GRASP_SAMPLES, 1, 1).float()
     )
     wrist_pose_matrix[:, :3, :3] = torch.from_numpy(rot).float().to(device)
     wrist_pose_matrix[:, :3, 3] = torch.from_numpy(trans).float().to(device)
@@ -339,7 +341,7 @@ def get_optimized_grasps(
         wrist_pose_matrix,
         pp.SE3_type,
     ).to(device)
-    assert wrist_pose.lshape == (NUM_GRASPS,)
+    assert wrist_pose.lshape == (NUM_GRASP_SAMPLES,)
 
     grasp_orientations = compute_grasp_orientations(
         grasp_dirs=torch.from_numpy(grasp_dirs).float().to(device),
@@ -353,6 +355,20 @@ def get_optimized_grasps(
         joint_angles=torch.from_numpy(joint_angles).float().to(device),
         grasp_orientations=grasp_orientations,
     )
+    wrist_pose_matrix = grasp_configs.wrist_pose.matrix()
+    x_dirs = wrist_pose_matrix[:, :, 0]
+    z_dirs = wrist_pose_matrix[:, :, 2]
+
+    cos_theta = math.cos(math.radians(60))
+    fingers_forward = z_dirs[:, 0] >= cos_theta
+    palm_upwards = x_dirs[:, 1] >= cos_theta
+    grasp_configs = grasp_configs[fingers_forward & ~palm_upwards]
+    print(
+        f"Filtered less feasible grasps. New batch size: {grasp_configs.batch_size}"
+    )
+    grasp_configs = grasp_configs[:NUM_GRASPS]
+    print(f"Returning {grasp_configs.batch_size} grasps")
+
     grasp_config_dicts = grasp_configs.as_dict()
     grasp_config_dicts["loss"] = np.linspace(
         0, 0.001, NUM_GRASPS

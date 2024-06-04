@@ -106,6 +106,66 @@ from nerf_grasping.dexgraspnet_utils.joint_angle_targets import (
 
 import open3d as o3d
 
+import time
+import transforms3d
+from typing import Optional, Tuple, List, Literal
+from nerfstudio.models.base_model import Model
+from nerf_grasping.grasp_utils import load_nerf_pipeline
+from nerf_grasping.optimizer import get_optimized_grasps
+from nerf_grasping.optimizer_utils import (
+    get_sorted_grasps_from_dict,
+    GraspMetric,
+    DepthImageGraspMetric,
+    load_classifier,
+    load_depth_image_classifier,
+    is_in_limits,
+    clamp_in_limits,
+)
+from nerf_grasping.config.nerfdata_config import DepthImageNerfDataConfig
+from nerf_grasping.config.optimization_config import OptimizationConfig
+from nerf_grasping.config.optimizer_config import (
+    SGDOptimizerConfig,
+    CEMOptimizerConfig,
+    RandomSamplingConfig,
+)
+from nerf_grasping.config.grasp_metric_config import GraspMetricConfig
+from nerf_grasping.nerfstudio_train import train_nerfs_return_trainer
+from nerf_grasping.baselines.nerf_to_mesh import nerf_to_mesh
+from nerf_grasping.nerf_utils import (
+    compute_centroid_from_nerf,
+)
+from nerf_grasping.config.classifier_config import ClassifierConfig
+import trimesh
+import pathlib
+import tyro
+import numpy as np
+from dataclasses import dataclass
+import plotly.graph_objects as go
+from datetime import datetime
+
+from nerf_grasping.curobo_fr3_algr_zed2i.trajopt_batch import (
+    prepare_trajopt_batch,
+    solve_prepared_trajopt_batch,
+    get_trajectories_from_result,
+    compute_over_limit_factors,
+)
+from nerf_grasping.curobo_fr3_algr_zed2i.trajopt_fr3_algr_zed2i import (
+    # solve_trajopt,
+    DEFAULT_Q_FR3,
+    DEFAULT_Q_ALGR,
+)
+from nerf_grasping.curobo_fr3_algr_zed2i.fr3_algr_zed2i_world import (
+    get_world_cfg,
+)
+from curobo.types.robot import RobotConfig
+from curobo.wrap.reacher.ik_solver import IKSolver
+from curobo.wrap.reacher.motion_gen import (
+    MotionGen,
+    MotionGenConfig,
+)
+
+import sys
+
 
 def normalize_with_warning(v: np.ndarray, atol: float = 1e-6) -> np.ndarray:
     B = v.shape[0]
@@ -247,7 +307,7 @@ def get_optimized_grasps(
     lb_N: np.ndarray,
     ub_N: np.ndarray,
     X_N_By: np.ndarray,
-    X_Oy_By: np.ndarray,
+    X_Oy_By: Optional[np.ndarray],
     ckpt_path: str | pathlib.Path,
     return_exactly_requested_num_grasps: bool = True,
 ) -> dict:
@@ -293,6 +353,7 @@ def get_optimized_grasps(
 
     PLOT = False
     if PLOT:
+        assert X_Oy_By is not None
         X_By_Oy = np.linalg.inv(X_Oy_By)
         X_By_N = np.linalg.inv(X_N_By)
 
@@ -403,3 +464,115 @@ def get_optimized_grasps(
     )  # HACK: Currently don't have a loss, but need something here to sort
 
     return grasp_config_dicts
+
+
+@dataclass
+class CommandlineArgs:
+    nerfdata_path: Optional[pathlib.Path] = None
+    nerfcheckpoint_path: Optional[pathlib.Path] = None
+    max_num_iterations: int = 400
+
+    def __post_init__(self) -> None:
+        if self.nerfdata_path is not None and self.nerfcheckpoint_path is None:
+            assert self.nerfdata_path.exists(), f"{self.nerfdata_path} does not exist"
+            assert (
+                self.nerfdata_path / "transforms.json"
+            ).exists(), f"{self.nerfdata_path / 'transforms.json'} does not exist"
+            assert (
+                self.nerfdata_path / "images"
+            ).exists(), f"{self.nerfdata_path / 'images'} does not exist"
+        elif self.nerfdata_path is None and self.nerfcheckpoint_path is not None:
+            assert (
+                self.nerfcheckpoint_path.exists()
+            ), f"{self.nerfcheckpoint_path} does not exist"
+            assert (
+                self.nerfcheckpoint_path.suffix == ".yml"
+            ), f"{self.nerfcheckpoint_path} does not have a .yml suffix"
+        else:
+            raise ValueError(
+                "Exactly one of nerfdata_path or nerfcheckpoint_path must be specified"
+            )
+
+
+def main() -> None:
+    args = tyro.cli(CommandlineArgs)
+    print("=" * 80)
+    print(f"args: {args}")
+    print("=" * 80 + "\n")
+
+    # Prepare nerf model
+    if args.nerfdata_path is not None:
+        start_time = time.time()
+        nerf_checkpoints_folder = args.output_folder / "nerfcheckpoints"
+        nerf_trainer = train_nerfs_return_trainer.train_nerf(
+            args=train_nerfs_return_trainer.Args(
+                nerfdata_folder=args.nerfdata_path,
+                nerfcheckpoints_folder=nerf_checkpoints_folder,
+                max_num_iterations=args.max_num_iterations,
+            )
+        )
+        nerf_pipeline = nerf_trainer.pipeline
+        nerf_model = nerf_trainer.pipeline.model
+        nerf_config = nerf_trainer.config.get_base_dir() / "config.yml"
+        end_time = time.time()
+        print("@" * 80)
+        print(f"Time to train_nerf: {end_time - start_time:.2f}s")
+        print("@" * 80 + "\n")
+
+        object_name = args.nerfdata_path.name
+    elif args.nerfcheckpoint_path is not None:
+        start_time = time.time()
+        nerf_pipeline = load_nerf_pipeline(args.nerfcheckpoint_path, test_mode="test")
+        nerf_model = nerf_pipeline.model
+        nerf_config = args.nerfcheckpoint_path
+        end_time = time.time()
+        print("@" * 80)
+        print(f"Time to load_nerf_pipeline: {end_time - start_time:.2f}s")
+        print("@" * 80 + "\n")
+
+        object_name = args.nerfcheckpoint_path.parents[2].name
+    else:
+        raise ValueError(
+            "Exactly one of nerfdata_path or nerfcheckpoint_path must be specified"
+        )
+    print(f"object_name = {object_name}")
+    args.nerf_config = nerf_config
+
+    UNUSED_INIT_GRASP_CONFIG_DICT_PATH = pathlib.Path("/juno/u/tylerlum/github_repos/DexGraspNet/data/2024-06-03_FINAL_INFERENCE_GRASPS/good_nonoise_one_per_object/grasps.npy")
+    UNUSED_CLASSIFIER_CONFIG_PATH = pathlib.Path("/juno/u/tylerlum/github_repos/nerf_grasping/Train_DexGraspNet_NeRF_Grasp_Metric_workspaces/2024-06-02_nonoise_train_val_test_splits_cnn-3d-xyz-global-cnn-cropped_2024-06-02_16-57-36-630877/config.yaml")
+    UNUSED_X_N_Oy = np.eye(4)
+    UNUSED_OUTPUT_PATH = pathlib.Path("UNUSED")
+    NUM_GRASPS = 10
+    grasp_config_dict = get_optimized_grasps(
+        cfg=OptimizationConfig(
+            use_rich=False,  # Not used because causes issues with logging
+            init_grasp_config_dict_path=UNUSED_INIT_GRASP_CONFIG_DICT_PATH,
+            grasp_metric=GraspMetricConfig(
+                nerf_checkpoint_path=nerf_config,
+                classifier_config_path=UNUSED_CLASSIFIER_CONFIG_PATH,
+                X_N_Oy=UNUSED_X_N_Oy,
+            ),  # This is not used
+            optimizer=SGDOptimizerConfig(
+                num_grasps=NUM_GRASPS
+            ),  # This optimizer is not used, but the num_grasps is used
+            output_path=UNUSED_OUTPUT_PATH,
+            random_seed=0,
+            n_random_rotations_per_grasp=0,
+            eval_batch_size=0,
+            wandb=None,
+        ),
+        nerf_pipeline=nerf_pipeline,
+        lb_N=np.array([-0.2, 0.0, -0.2]),
+        ub_N=np.array([0.2, 0.3, 0.2]),
+        X_N_By=np.eye(4),  # Same for sim nerfs
+        X_Oy_By=None,
+        ckpt_path="/juno/u/tylerlum/github_repos/nerf_grasping/2024-06-03_ALBERT_DexDiffuser_models/ckpt_74000.pth",
+        return_exactly_requested_num_grasps=True,
+    )
+    output_folder = pathlib.Path("/juno/u/tylerlum/github_repos/nerf_grasping/OUTPUT_FOLDER/grasp_config_dicts")
+    output_folder.mkdir(exist_ok=True, parents=True)
+    np.save(output_folder/f"{object_name}.npy", grasp_config_dict)
+
+
+if __name__ == "__main__":
+    main()

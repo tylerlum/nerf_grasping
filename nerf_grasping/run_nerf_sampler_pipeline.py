@@ -255,7 +255,7 @@ def compute_nerf_sampler_grasps(
     optimized_grasp_config_dict = nerf_sampler_utils.get_optimized_grasps(
         cfg=OptimizationConfig(
             use_rich=False,  # Not used because causes issues with logging
-            init_grasp_config_dict_path=cfg.init_grasp_config_dict_path,
+            init_grasp_config_dict_path=cfg.init_grasp_config_dict_path,  # This is not used
             grasp_metric=GraspMetricConfig(
                 nerf_checkpoint_path=nerf_config,
                 classifier_config_path=cfg.classifier_config_path,

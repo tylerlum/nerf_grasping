@@ -1,6 +1,7 @@
 import time
 from typing import Optional, Tuple, List, Literal, Callable
 from nerfstudio.models.base_model import Model
+from nerfstudio.pipelines.base_pipeline import Pipeline
 from nerf_grasping.run_pipeline import (
     run_curobo,
     MultipleOutputs,
@@ -71,11 +72,10 @@ from frogger.robots.robot_core import RobotModel
 import sys
 
 
-def compute_frogger_grasps(
+def compute_nerf_sampler_grasps(
     nerf_model: Model,
     cfg: PipelineConfig,
-    custom_coll_callback: Optional[Callable[[RobotModel, str, str], float]] = None,
-    max_time: float = 60.0,
+    ckpt_path: str | pathlib.Path,
 ) -> Tuple[
     np.ndarray,
     np.ndarray,
@@ -245,33 +245,129 @@ def compute_frogger_grasps(
         fig_Oy.show()
 
     print("\n" + "=" * 80)
-    print("Step 5: Run frogger")
+    print("Step 5: Run nerf_sampler")
     print("=" * 80 + "\n")
 
-    X_W_O = X_W_N @ X_N_O
-    X_O_W = np.linalg.inv(X_W_O)
-    mesh_O = trimesh.Trimesh(vertices=mesh_W.vertices, faces=mesh_W.faces)
-    mesh_O.apply_transform(X_O_W)
+    from nerf_grasping import nerf_sampler_utils
 
-    from nerf_grasping import frogger_utils
+    optimized_grasp_config_dict = nerf_sampler_utils.get_optimized_grasps(
+        cfg=OptimizationConfig(
+            use_rich=False,  # Not used because causes issues with logging
+            init_grasp_config_dict_path=cfg.init_grasp_config_dict_path,
+            grasp_metric=GraspMetricConfig(
+                nerf_checkpoint_path=nerf_config,
+                classifier_config_path=cfg.classifier_config_path,
+                X_N_Oy=X_N_Oy,
+            ),  # This is not used
+            optimizer=SGDOptimizerConfig(
+                num_grasps=cfg.num_grasps,
+            ),  # This optimizer is not used, but the num_grasps is used
+            output_path=pathlib.Path(
+                cfg.output_folder
+                / "optimized_grasp_config_dicts"
+                / f"{cfg.object_code_and_scale_str}.npy"
+            ),
+            random_seed=cfg.random_seed,
+            n_random_rotations_per_grasp=cfg.n_random_rotations_per_grasp,
+            eval_batch_size=cfg.eval_batch_size,
+            wandb=None,
+        ),
+        nerf_model=nerf_model,
+        X_N_Oy=X_N_Oy,
+        ckpt_path=ckpt_path,
+    )
 
-    frogger_args = frogger_utils.FroggerArgs(
-        obj_filepath=nerf_to_mesh_folder / "decomposed.obj",
-        obj_scale=cfg.object_scale,
-        obj_name=cfg.object_code,
-        obj_is_yup=False,
-        num_grasps=cfg.num_grasps,
-        output_grasp_config_dicts_folder=cfg.output_folder / "grasp_config_dicts",
-        visualize=cfg.visualize,
-        grasp_idx_to_visualize=0,
-        max_time=max_time,
-    )
-    optimized_grasp_config_dict = frogger_utils.frogger_to_grasp_config_dict(
-        args=frogger_args,
-        mesh=mesh_O,
-        X_W_O=X_W_O,
-        custom_coll_callback=custom_coll_callback,
-    )
+    # TODO: Figure out if should use this
+    OPTIMIZE = False
+    if OPTIMIZE:
+        given_grasp_config_dict = optimized_grasp_config_dict.copy()
+        NEW_init_grasp_config_dict_path = (
+            cfg.output_folder
+            / "NEW_init_grasp_config_dicts.npy"
+        )
+        np.save(NEW_init_grasp_config_dict_path, given_grasp_config_dict)
+
+        print("\n" + "=" * 80)
+        print("Step 5: Load grasp metric")
+        print("=" * 80 + "\n")
+        print(f"Loading classifier config from {cfg.classifier_config_path}")
+        classifier_config = tyro.extras.from_yaml(
+            ClassifierConfig, cfg.classifier_config_path.open()
+        )
+
+        USE_DEPTH_IMAGES = isinstance(
+            classifier_config.nerfdata_config, DepthImageNerfDataConfig
+        )
+        if USE_DEPTH_IMAGES:
+            classifier_model = load_depth_image_classifier(classifier=classifier_config)
+            grasp_metric = DepthImageGraspMetric(
+                nerf_model=nerf_model,
+                classifier_model=classifier_model,
+                fingertip_config=classifier_config.nerfdata_config.fingertip_config,
+                camera_config=classifier_config.nerfdata_config.fingertip_camera_config,
+                X_N_Oy=X_N_Oy,
+            )
+        else:
+            classifier_model = load_classifier(classifier_config=classifier_config)
+            grasp_metric = GraspMetric(
+                nerf_field=nerf_field,
+                classifier_model=classifier_model,
+                fingertip_config=classifier_config.nerfdata_config.fingertip_config,
+                X_N_Oy=X_N_Oy,
+            )
+
+        print("\n" + "=" * 80)
+        print("Step 6: Optimize grasps")
+        print("=" * 80 + "\n")
+        if cfg.optimizer_type == "sgd":
+            optimizer = SGDOptimizerConfig(
+                num_grasps=cfg.num_grasps,
+                num_steps=cfg.num_steps,
+                # finger_lr=1e-3,
+                finger_lr=0,
+                # grasp_dir_lr=1e-4,
+                grasp_dir_lr=0,
+                wrist_lr=1e-3,
+            )
+        elif cfg.optimizer_type == "cem":
+            optimizer = CEMOptimizerConfig(
+                num_grasps=cfg.num_grasps,
+                num_steps=cfg.num_steps,
+                num_samples=cfg.num_grasps,
+                num_elite=2,
+                min_cov_std=1e-2,
+            )
+        elif cfg.optimizer_type == "random-sampling":
+            optimizer = RandomSamplingConfig(
+                num_grasps=cfg.num_grasps,
+                num_steps=cfg.num_steps,
+            )
+        else:
+            raise ValueError(f"Invalid cfg.optimizer_type: {cfg.optimizer_type}")
+
+        optimized_grasp_config_dict = get_optimized_grasps(
+            cfg=OptimizationConfig(
+                use_rich=False,  # Not used because causes issues with logging
+                # init_grasp_config_dict_path=cfg.init_grasp_config_dict_path,
+                init_grasp_config_dict_path=NEW_init_grasp_config_dict_path,
+                grasp_metric=GraspMetricConfig(
+                    nerf_checkpoint_path=nerf_config,
+                    classifier_config_path=cfg.classifier_config_path,
+                    X_N_Oy=X_N_Oy,
+                ),  # This is not used because we are passing in a grasp_metric
+                optimizer=optimizer,
+                output_path=pathlib.Path(
+                    cfg.output_folder
+                    / "optimized_grasp_config_dicts"
+                    / f"{cfg.object_code_and_scale_str}.npy"
+                ),
+                random_seed=cfg.random_seed,
+                n_random_rotations_per_grasp=cfg.n_random_rotations_per_grasp,
+                eval_batch_size=cfg.eval_batch_size,
+                wandb=None,
+            ),
+            grasp_metric=grasp_metric,
+        )
 
     print("\n" + "=" * 80)
     print("Step 7: Convert optimized grasps to joint angles")
@@ -279,10 +375,8 @@ def compute_frogger_grasps(
     X_Oy_Hs, q_algr_pres, q_algr_posts, q_algr_extra_open, sorted_losses = (
         get_sorted_grasps_from_dict(
             optimized_grasp_config_dict=optimized_grasp_config_dict,
-            dist_move_finger=0.06
-            - 0.015,  # Adjust default by 0.015 to account for frogger being on surface
-            dist_move_finger_backward=-0.03
-            - 0.015,  # Adjust default by 0.015 to account for frogger being on surface
+            dist_move_finger=0.06,
+            dist_move_finger_backward=-0.03,
             error_if_no_loss=True,
             check=False,
             print_best=False,
@@ -340,13 +434,12 @@ def compute_frogger_grasps(
     )
 
 
-def run_frogger_pipeline(
+def run_nerf_sampler_pipeline(
     nerf_model: Model,
     cfg: PipelineConfig,
     q_fr3: np.ndarray,
     q_algr: np.ndarray,
-    custom_coll_callback: Optional[Callable[[RobotModel, str, str], float]] = None,
-    max_time: float = 60.0,
+    ckpt_path: str | pathlib.Path,
     robot_cfg: Optional[RobotConfig] = None,
     ik_solver: Optional[IKSolver] = None,
     ik_solver2: Optional[IKSolver] = None,
@@ -358,7 +451,6 @@ def run_frogger_pipeline(
     lift_motion_gen: Optional[MotionGen] = None,
     lift_motion_gen_config: Optional[MotionGenConfig] = None,
 ) -> Tuple[List[np.ndarray], List[np.ndarray], List[float], List[int], tuple, dict]:
-
     print(f"Creating a new experiment folder at {cfg.output_folder}")
     cfg.output_folder.mkdir(parents=True, exist_ok=True)
     sys.stdout = MultipleOutputs(
@@ -373,7 +465,7 @@ def run_frogger_pipeline(
         mesh_W,
         X_N_Oy,
         sorted_losses,
-    ) = compute_frogger_grasps(nerf_model=nerf_model, cfg=cfg, custom_coll_callback=custom_coll_callback, max_time=max_time)
+    ) = compute_nerf_sampler_grasps(nerf_model=nerf_model, cfg=cfg, ckpt_path=ckpt_path)
     compute_grasps_time = time.time()
     print("@" * 80)
     print(f"Time to compute_grasps: {compute_grasps_time - start_time:.2f}s")
@@ -450,7 +542,9 @@ def main() -> None:
         print("@" * 80 + "\n")
     elif args.nerfcheckpoint_path is not None:
         start_time = time.time()
-        nerf_pipeline = load_nerf_pipeline(args.nerfcheckpoint_path)
+        nerf_pipeline = load_nerf_pipeline(
+            args.nerfcheckpoint_path, test_mode="test"
+        )  # Must be test mode for point cloud gen
         nerf_model = nerf_pipeline.model
         nerf_config = args.nerfcheckpoint_path
         end_time = time.time()
@@ -479,6 +573,7 @@ def main() -> None:
             collision_check_table=True,
             use_cuda_graph=True,
             collision_sphere_buffer=0.001,
+            warmup=False,  # Warmup amortizes the cost of subsequent calls, but takes longer overall, no help in serial program
         )
     )
     (
@@ -496,6 +591,7 @@ def main() -> None:
         collision_check_table=True,
         use_cuda_graph=True,
         collision_sphere_buffer=0.001,
+        warmup=False,  # Warmup amortizes the cost of subsequent calls, but takes longer overall, no help in serial program
     )
     end_prepare_trajopt_batch = time.time()
     print("@" * 80)
@@ -504,11 +600,12 @@ def main() -> None:
     )
     print("@" * 80 + "\n")
 
-    qs, qds, T_trajs, success_idxs, DEBUG_TUPLE, log_dict = run_frogger_pipeline(
+    qs, qds, T_trajs, success_idxs, DEBUG_TUPLE, log_dict = run_nerf_sampler_pipeline(
         nerf_model=nerf_model,
         cfg=args,
         q_fr3=DEFAULT_Q_FR3,
         q_algr=DEFAULT_Q_ALGR,
+        ckpt_path="/juno/u/tylerlum/github_repos/nerf_grasping/2024-06-03_ALBERT_NERF_SAMPLER_V1/ckpt_740900.pth",
         robot_cfg=robot_cfg,
         ik_solver=ik_solver,
         ik_solver2=ik_solver2,

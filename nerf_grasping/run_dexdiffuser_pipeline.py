@@ -289,16 +289,106 @@ def compute_dexdiffuser_grasps(
         ckpt_path=ckpt_path,
     )
 
+    # TODO: Figure out if should use this
+    OPTIMIZE = False
+    if OPTIMIZE:
+        given_grasp_config_dict = optimized_grasp_config_dict.copy()
+        NEW_init_grasp_config_dict_path = (
+            cfg.output_folder
+            / "NEW_init_grasp_config_dicts.npy"
+        )
+        np.save(NEW_init_grasp_config_dict_path, given_grasp_config_dict)
+
+        print("\n" + "=" * 80)
+        print("Step 5: Load grasp metric")
+        print("=" * 80 + "\n")
+        print(f"Loading classifier config from {cfg.classifier_config_path}")
+        classifier_config = tyro.extras.from_yaml(
+            ClassifierConfig, cfg.classifier_config_path.open()
+        )
+
+        USE_DEPTH_IMAGES = isinstance(
+            classifier_config.nerfdata_config, DepthImageNerfDataConfig
+        )
+        if USE_DEPTH_IMAGES:
+            classifier_model = load_depth_image_classifier(classifier=classifier_config)
+            grasp_metric = DepthImageGraspMetric(
+                nerf_model=nerf_model,
+                classifier_model=classifier_model,
+                fingertip_config=classifier_config.nerfdata_config.fingertip_config,
+                camera_config=classifier_config.nerfdata_config.fingertip_camera_config,
+                X_N_Oy=X_N_Oy,
+            )
+        else:
+            classifier_model = load_classifier(classifier_config=classifier_config)
+            grasp_metric = GraspMetric(
+                nerf_field=nerf_field,
+                classifier_model=classifier_model,
+                fingertip_config=classifier_config.nerfdata_config.fingertip_config,
+                X_N_Oy=X_N_Oy,
+            )
+
+        print("\n" + "=" * 80)
+        print("Step 6: Optimize grasps")
+        print("=" * 80 + "\n")
+        if cfg.optimizer_type == "sgd":
+            optimizer = SGDOptimizerConfig(
+                num_grasps=cfg.num_grasps,
+                num_steps=cfg.num_steps,
+                # finger_lr=1e-3,
+                finger_lr=0,
+                # grasp_dir_lr=1e-4,
+                grasp_dir_lr=0,
+                wrist_lr=1e-3,
+            )
+        elif cfg.optimizer_type == "cem":
+            optimizer = CEMOptimizerConfig(
+                num_grasps=cfg.num_grasps,
+                num_steps=cfg.num_steps,
+                num_samples=cfg.num_grasps,
+                num_elite=2,
+                min_cov_std=1e-2,
+            )
+        elif cfg.optimizer_type == "random-sampling":
+            optimizer = RandomSamplingConfig(
+                num_grasps=cfg.num_grasps,
+                num_steps=cfg.num_steps,
+            )
+        else:
+            raise ValueError(f"Invalid cfg.optimizer_type: {cfg.optimizer_type}")
+
+        optimized_grasp_config_dict = get_optimized_grasps(
+            cfg=OptimizationConfig(
+                use_rich=False,  # Not used because causes issues with logging
+                # init_grasp_config_dict_path=cfg.init_grasp_config_dict_path,
+                init_grasp_config_dict_path=NEW_init_grasp_config_dict_path,
+                grasp_metric=GraspMetricConfig(
+                    nerf_checkpoint_path=nerf_config,
+                    classifier_config_path=cfg.classifier_config_path,
+                    X_N_Oy=X_N_Oy,
+                ),  # This is not used because we are passing in a grasp_metric
+                optimizer=optimizer,
+                output_path=pathlib.Path(
+                    cfg.output_folder
+                    / "optimized_grasp_config_dicts"
+                    / f"{cfg.object_code_and_scale_str}.npy"
+                ),
+                random_seed=cfg.random_seed,
+                n_random_rotations_per_grasp=cfg.n_random_rotations_per_grasp,
+                eval_batch_size=cfg.eval_batch_size,
+                wandb=None,
+            ),
+            grasp_metric=grasp_metric,
+        )
+
     print("\n" + "=" * 80)
     print("Step 7: Convert optimized grasps to joint angles")
     print("=" * 80 + "\n")
     X_Oy_Hs, q_algr_pres, q_algr_posts, q_algr_extra_open, sorted_losses = (
         get_sorted_grasps_from_dict(
             optimized_grasp_config_dict=optimized_grasp_config_dict,
-            dist_move_finger=0.05
-            - 0.015,  # Adjust default by 0.015 to account for frogger being on surface
-            dist_move_finger_backward=-0.03
-            - 0.015,  # Adjust default by 0.015 to account for frogger being on surface
+            dist_move_finger=0.06,
+            dist_move_finger_backward=-0.03,
             error_if_no_loss=True,
             check=False,
             print_best=False,

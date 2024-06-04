@@ -467,7 +467,7 @@ def compute_grasps(
     X_Oy_Hs, q_algr_pres, q_algr_posts, q_algr_extra_open, sorted_losses = (
         get_sorted_grasps_from_dict(
             optimized_grasp_config_dict=optimized_grasp_config_dict,
-            dist_move_finger=0.05,
+            dist_move_finger=0.06,
             dist_move_finger_backward=-0.03,
             error_if_no_loss=True,
             check=False,

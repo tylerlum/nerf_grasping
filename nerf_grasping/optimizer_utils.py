@@ -143,7 +143,16 @@ class AllegroHandConfig(torch.nn.Module):
         assert joint_angles.shape == (batch_size, 16)
 
         wrist_translation = trans
-        wrist_quat = pp.from_matrix(rot, pp.SO3_type, check=check)
+
+        wrist_quat = pp.from_matrix(
+            rot,
+            pp.SO3_type,
+            check=check,
+            # Set atol and rtol to be a bit larger than default to handle large matrices
+            # (numerical errors larger affect the sanity checking)
+            atol=1e-4,
+            rtol=1e-4,
+        )
         wrist_pose = pp.SE3(torch.cat([wrist_translation, wrist_quat], dim=1))
 
         return cls.from_values(wrist_pose=wrist_pose, joint_angles=joint_angles)

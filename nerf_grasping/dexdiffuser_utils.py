@@ -227,6 +227,8 @@ def compute_grasp_orientations(
     grasp_orientations = pp.from_matrix(
         grasp_orientations,
         pp.SO3_type,
+        atol=1e-3,  # Looser tolerances, esp if larger batch dim
+        rtol=1e-3,  # Looser tolerances, esp if larger batch dim
     )
     assert grasp_orientations.lshape == (
         B,

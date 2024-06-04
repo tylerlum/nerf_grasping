@@ -444,7 +444,7 @@ def get_optimized_grasps(
     xT = torch.randn(NUM_GRASP_SAMPLES, config.data.grasp_dim, device=runner.device)
     x = runner.sample(xT=xT, cond=nerf_densities_global_with_coords_repeated)
 
-    PLOT = True
+    PLOT = False
     if PLOT:
         fig = go.Figure()
         nerf_densities_global_flattened = nerf_densities_global_cropped.reshape(-1)

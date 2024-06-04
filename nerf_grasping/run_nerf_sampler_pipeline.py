@@ -249,6 +249,7 @@ def compute_nerf_sampler_grasps(
     print("=" * 80 + "\n")
 
     from nerf_grasping import nerf_sampler_utils
+
     optimized_grasp_config_dict = nerf_sampler_utils.get_optimized_grasps(
         cfg=OptimizationConfig(
             use_rich=False,  # Not used because causes issues with logging
@@ -449,7 +450,9 @@ def main() -> None:
         print("@" * 80 + "\n")
     elif args.nerfcheckpoint_path is not None:
         start_time = time.time()
-        nerf_pipeline = load_nerf_pipeline(args.nerfcheckpoint_path, test_mode="test")  # Must be test mode for point cloud gen
+        nerf_pipeline = load_nerf_pipeline(
+            args.nerfcheckpoint_path, test_mode="test"
+        )  # Must be test mode for point cloud gen
         nerf_model = nerf_pipeline.model
         nerf_config = args.nerfcheckpoint_path
         end_time = time.time()

@@ -325,7 +325,6 @@ def get_optimized_grasps(
         mesh_Oy.apply_transform(X_Oy_N)
         DEBUG_plot_mesh(fig=fig, mesh=mesh_Oy)
         fig.show()
-        breakpoint()
 
     nerf_densities_global_with_coords = np.concatenate(
         [query_points_Oy_cropped, nerf_densities_global_cropped[..., None]], axis=-1
@@ -367,29 +366,6 @@ def get_optimized_grasps(
     # Sample grasps
     xT = torch.randn(NUM_GRASP_SAMPLES, config.data.grasp_dim, device=runner.device)
     x = runner.sample(xT=xT, cond=nerf_densities_global_with_coords_repeated)
-
-    PLOT = False
-    if PLOT:
-        X_Oy_N = np.linalg.inv(X_N_Oy)
-
-        mesh_N = trimesh.load("/tmp/mesh_viz_object.obj")
-        mesh_Oy = trimesh.load("/tmp/mesh_viz_object.obj")
-        mesh_Oy.apply_transform(X_Oy_N)
-
-        IDX = 0
-        while True:
-            user_input = input("Next action?")
-            if user_input == "q":
-                break
-            elif user_input == "n":
-                IDX += 1
-                IDX = IDX % NUM_GRASP_SAMPLES
-            elif user_input == "p":
-                IDX -= 1
-                IDX = IDX % NUM_GRASP_SAMPLES
-            else:
-                print("Invalid input")
-        breakpoint()
 
     # grasp to AllegroGraspConfig
     # TODO: make the numpy torch conversions less bad

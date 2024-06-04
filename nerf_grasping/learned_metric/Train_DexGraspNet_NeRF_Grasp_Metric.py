@@ -1142,8 +1142,33 @@ def save_checkpoint(
     print("Done saving checkpoint")
 
 
+@localscope.mfc
+def save_checkpoint_batch(
+    checkpoint_output_dir: pathlib.Path,
+    batch_idx: int,
+    classifier: Classifier,
+    optimizer: torch.optim.Optimizer,
+    lr_scheduler: Optional[torch.optim.lr_scheduler.LRScheduler] = None,
+) -> None:
+    checkpoint_filepath = checkpoint_output_dir / f"checkpoint_batch_{batch_idx:04}.pt"
+    print(f"Saving checkpoint to {checkpoint_filepath}")
+    torch.save(
+        {
+            "batch_idx": batch_idx,
+            "classifier": classifier.state_dict(),
+            "optimizer": optimizer.state_dict(),
+            "lr_scheduler": lr_scheduler.state_dict()
+            if lr_scheduler is not None
+            else None,
+        },
+        checkpoint_filepath,
+    )
+    print("Done saving checkpoint")
+
+
 # %%
-@localscope.mfc(allowed=["tqdm", "USE_DEPTH_IMAGES"])
+GLOBAL_BATCH_IDX = 0
+@localscope.mfc(allowed=["tqdm", "USE_DEPTH_IMAGES", "GLOBAL_BATCH_IDX"])
 def _iterate_through_dataloader(
     loop_timer: LoopTimer,
     phase: Phase,
@@ -1152,6 +1177,7 @@ def _iterate_through_dataloader(
     device: torch.device,
     loss_fns: List[nn.Module],
     task_type: TaskType,
+    checkpoint_output_dir: pathlib.Path,
     training_cfg: Optional[ClassifierTrainingConfig] = None,
     optimizer: Optional[torch.optim.Optimizer] = None,
     lr_scheduler: Optional[torch.optim.lr_scheduler.LRScheduler] = None,
@@ -1182,6 +1208,17 @@ def _iterate_through_dataloader(
             dataload_section_timer.stop()
 
             batch_idx = int(batch_idx)
+
+            if batch_idx % 1000 == 0 and phase == Phase.TRAIN:
+                global GLOBAL_BATCH_IDX
+                save_checkpoint_batch(
+                    checkpoint_output_dir=checkpoint_output_dir,
+                    batch_idx=GLOBAL_BATCH_IDX,
+                    classifier=classifier,
+                    optimizer=optimizer,
+                    lr_scheduler=lr_scheduler,
+                )
+                GLOBAL_BATCH_IDX += 1
 
             if max_num_batches is not None and batch_idx >= max_num_batches:
                 break
@@ -1462,24 +1499,26 @@ def create_log_dict(
             temp_log_dict[f"{loss_name}_max"] = np.max(losses)
 
     with loop_timer.add_section_timer("Scatter"):
+        pass  # Skip for now
         # Make scatter plot of predicted vs ground truth
-        for task_name in task_type.task_names:
-            predictions = predictions_dict[task_name]
-            ground_truths = ground_truths_dict[task_name]
-            temp_log_dict[f"{task_name}_scatter"] = _create_wandb_scatter_plot(
-                ground_truths=ground_truths,
-                predictions=predictions,
-                title=f"{phase.name.title()} {task_name} Scatter Plot",
-            )
+        # for task_name in task_type.task_names:
+        #     predictions = predictions_dict[task_name]
+        #     ground_truths = ground_truths_dict[task_name]
+        #     temp_log_dict[f"{task_name}_scatter"] = _create_wandb_scatter_plot(
+        #         ground_truths=ground_truths,
+        #         predictions=predictions,
+        #         title=f"{phase.name.title()} {task_name} Scatter Plot",
+        #     )
 
     with loop_timer.add_section_timer("Histogram"):
+        pass  # Skip for now
         # For each task, make multiple histograms of prediction (one per label)
-        for task_name in task_type.task_names:
-            temp_log_dict[f"{task_name}_histogram"] = _create_wandb_histogram_plot(
-                ground_truths=ground_truths_dict[task_name],
-                predictions=predictions_dict[task_name],
-                title=f"{phase.name.title()} {task_name} Histogram",
-            )
+        # for task_name in task_type.task_names:
+        #     temp_log_dict[f"{task_name}_histogram"] = _create_wandb_histogram_plot(
+        #         ground_truths=ground_truths_dict[task_name],
+        #         predictions=predictions_dict[task_name],
+        #         title=f"{phase.name.title()} {task_name} Histogram",
+        #     )
 
     with loop_timer.add_section_timer("Metrics"):
         for task_name in task_type.task_names:
@@ -1500,21 +1539,22 @@ def create_log_dict(
                 )
 
     with loop_timer.add_section_timer("Confusion Matrix"):
-        for task_name in task_type.task_names:
-            predictions = (
-                np.array(predictions_dict[task_name]).round().astype(int).tolist()
-            )
-            ground_truths = (
-                np.array(ground_truths_dict[task_name]).round().astype(int).tolist()
-            )
-            temp_log_dict[
-                f"{task_name}_confusion_matrix"
-            ] = wandb.plot.confusion_matrix(
-                preds=predictions,
-                y_true=ground_truths,
-                class_names=["failure", "success"],
-                title=f"{phase.name.title()} {task_name} Confusion Matrix",
-            )
+        pass  # Skip for now
+        # for task_name in task_type.task_names:
+        #     predictions = (
+        #         np.array(predictions_dict[task_name]).round().astype(int).tolist()
+        #     )
+        #     ground_truths = (
+        #         np.array(ground_truths_dict[task_name]).round().astype(int).tolist()
+        #     )
+        #     temp_log_dict[
+        #         f"{task_name}_confusion_matrix"
+        #     ] = wandb.plot.confusion_matrix(
+        #         preds=predictions,
+        #         y_true=ground_truths,
+        #         class_names=["failure", "success"],
+        #         title=f"{phase.name.title()} {task_name} Confusion Matrix",
+        #     )
 
     log_dict = {}
     for key, value in temp_log_dict.items():
@@ -1530,6 +1570,7 @@ def iterate_through_dataloader(
     device: torch.device,
     loss_fns: List[nn.Module],
     task_type: TaskType,
+    checkpoint_output_dir: pathlib.Path,
     training_cfg: Optional[ClassifierTrainingConfig] = None,
     optimizer: Optional[torch.optim.Optimizer] = None,
     lr_scheduler: Optional[torch.optim.lr_scheduler.LRScheduler] = None,
@@ -1548,6 +1589,7 @@ def iterate_through_dataloader(
         device=device,
         loss_fns=loss_fns,
         task_type=task_type,
+        checkpoint_output_dir=checkpoint_output_dir,
         training_cfg=training_cfg,
         optimizer=optimizer,
         lr_scheduler=lr_scheduler,
@@ -1619,6 +1661,7 @@ def run_training_loop(
             device=device,
             loss_fns=loss_fns,
             task_type=task_type,
+            checkpoint_output_dir=checkpoint_output_dir,
             training_cfg=training_cfg,
             optimizer=optimizer,
             lr_scheduler=lr_scheduler,
@@ -1640,6 +1683,7 @@ def run_training_loop(
                 device=device,
                 loss_fns=loss_fns,
                 task_type=task_type,
+                checkpoint_output_dir=checkpoint_output_dir,
             )
             wandb_log_dict.update(val_log_dict)
         val_time_taken = time.time() - start_val_time
@@ -2315,6 +2359,7 @@ test_log_dict = iterate_through_dataloader(
     device=device,
     loss_fns=loss_fns,
     task_type=cfg.task_type,
+    checkpoint_output_dir=cfg.checkpoint_workspace.output_dir,
 )
 wandb_log_dict.update(test_log_dict)
 wandb.log(wandb_log_dict)

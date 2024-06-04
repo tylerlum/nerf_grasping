@@ -216,7 +216,6 @@ def DEBUG_plot_grasp(
         for trace in hand_plotly_optimized:
             fig.add_trace(trace)
     # fig.write_html("/home/albert/research/nerf_grasping/dex_diffuser_debug.html")  # if headless
-    fig.show()
 
 
 

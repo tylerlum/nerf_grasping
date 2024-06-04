@@ -178,22 +178,62 @@ def get_optimized_grasps(
     device = runner.device
 
     # Get nerf densities global cropped
-    lb_N = transform_point(T=X_N_Oy, point=lb_Oy)
-    ub_N = transform_point(T=X_N_Oy, point=ub_Oy)
-    nerf_densities_global, query_points_N = get_densities_in_grid(
-        field=nerf_model.field,
+    # lb_N = transform_point(T=X_N_Oy, point=lb_Oy)
+    # ub_N = transform_point(T=X_N_Oy, point=ub_Oy)
+    # nerf_densities_global, query_points_N = get_densities_in_grid(
+    #     field=nerf_model.field,
+    #     num_pts_x=NERF_DENSITIES_GLOBAL_NUM_X,
+    #     num_pts_y=NERF_DENSITIES_GLOBAL_NUM_Y,
+    #     num_pts_z=NERF_DENSITIES_GLOBAL_NUM_Z,
+    #     lb=lb_N,
+    #     ub=ub_N,
+    # )
+
+    from nerf_grasping.other_utils import get_points_in_grid
+    query_points_Oy = get_points_in_grid(
+        lb=lb_Oy,
+        ub=ub_Oy,
         num_pts_x=NERF_DENSITIES_GLOBAL_NUM_X,
         num_pts_y=NERF_DENSITIES_GLOBAL_NUM_Y,
         num_pts_z=NERF_DENSITIES_GLOBAL_NUM_Z,
-        lb=lb_N,
-        ub=ub_N,
     )
+    assert query_points_Oy.shape == (
+        NERF_DENSITIES_GLOBAL_NUM_X,
+        NERF_DENSITIES_GLOBAL_NUM_Y,
+        NERF_DENSITIES_GLOBAL_NUM_Z,
+        3,
+    )
+    query_points_Nz = transform_points(
+        T=X_N_Oy,
+        points=query_points_Oy.reshape(-1, 3),
+    ).reshape(
+        NERF_DENSITIES_GLOBAL_NUM_X,
+        NERF_DENSITIES_GLOBAL_NUM_Y,
+        NERF_DENSITIES_GLOBAL_NUM_Z,
+        3,
+    )
+    nerf_densities_global = (
+        get_density(
+            field=nerf_model.field,
+            positions=torch.from_numpy(query_points_Nz).cuda(),
+        )[0]
+        .squeeze(dim=-1)
+        .detach()
+        .cpu()
+        .numpy()
+        .reshape(
+            NERF_DENSITIES_GLOBAL_NUM_X,
+            NERF_DENSITIES_GLOBAL_NUM_Y,
+            NERF_DENSITIES_GLOBAL_NUM_Z,
+        )
+    )
+    
     assert nerf_densities_global.shape == (
         NERF_DENSITIES_GLOBAL_NUM_X,
         NERF_DENSITIES_GLOBAL_NUM_Y,
         NERF_DENSITIES_GLOBAL_NUM_Z,
     ), f"Expected shape ({NERF_DENSITIES_GLOBAL_NUM_X}, {NERF_DENSITIES_GLOBAL_NUM_Y}, {NERF_DENSITIES_GLOBAL_NUM_Z}), got {nerf_densities_global.shape}"
-    assert query_points_N.shape == (
+    assert query_points_Nz.shape == (
         NERF_DENSITIES_GLOBAL_NUM_X,
         NERF_DENSITIES_GLOBAL_NUM_Y,
         NERF_DENSITIES_GLOBAL_NUM_Z,
@@ -212,17 +252,18 @@ def get_optimized_grasps(
             start_z:end_z,
         ]
     )
-    query_points_N_cropped = (
-        query_points_N[
+    query_points_Nz_cropped = (
+        query_points_Nz[
             start_x:end_x,
             start_y:end_y,
             start_z:end_z,
         ]
     )
     X_Oy_N = np.linalg.inv(X_N_Oy)
+    breakpoint()
     query_points_Oy_cropped = transform_points(
         T=X_Oy_N,
-        points=query_points_N_cropped.reshape(-1, 3),
+        points=query_points_Nz_cropped.reshape(-1, 3),
     ).reshape(
         NERF_DENSITIES_GLOBAL_NUM_X_CROPPED,
         NERF_DENSITIES_GLOBAL_NUM_Y_CROPPED,
@@ -258,27 +299,28 @@ def get_optimized_grasps(
         fig = go.Figure()
         nerf_densities_global_flattened = nerf_densities_global_cropped.reshape(-1)
         query_points_global_N_flattened = query_points_Oy_cropped.reshape(-1, 3)
-        query_points_global_N_flattened_2 = query_points_Oy_cropped_2.reshape(3, -1).transpose(1, 0)
+        query_points_global_N_flattened_2 = query_points_Oy_cropped_2.reshape(-1, 3)
+        THRESHOLD = 15
         DEBUG_plot(
             fig=fig,
             densities=torch.from_numpy(nerf_densities_global_flattened[
-                nerf_densities_global_flattened > 15
+                nerf_densities_global_flattened > THRESHOLD
             ]),
             query_points=torch.from_numpy(query_points_global_N_flattened[
-                nerf_densities_global_flattened > 15
+                nerf_densities_global_flattened > THRESHOLD
             ]),
             # query_points=query_points_global_N_flattened_2[
-            #     nerf_densities_global_flattened > 15
+            #     nerf_densities_global_flattened > THRESHOLD
             # ],
             name="global",
         )
         DEBUG_plot(
             fig=fig,
             densities=torch.from_numpy(nerf_densities_global_flattened[
-                nerf_densities_global_flattened > 15
+                nerf_densities_global_flattened > THRESHOLD
             ]),
             query_points=torch.from_numpy(query_points_global_N_flattened_2[
-                nerf_densities_global_flattened > 15
+                nerf_densities_global_flattened > THRESHOLD
             ]),
             # query_points=query_points_global_N_flattened_2[
             #     nerf_densities_global_flattened > 15

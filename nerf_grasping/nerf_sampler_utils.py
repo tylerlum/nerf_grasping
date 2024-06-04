@@ -1,4 +1,14 @@
 from __future__ import annotations
+from nerf_grasping.dexgraspnet_utils.hand_model import HandModel
+from nerf_grasping.dexgraspnet_utils.hand_model_type import (
+    HandModelType,
+)
+from nerf_grasping.dexgraspnet_utils.pose_conversion import (
+    hand_config_to_pose,
+)
+from nerf_grasping.dexgraspnet_utils.joint_angle_targets import (
+    compute_optimized_joint_angle_targets_given_grasp_orientations,
+)
 import trimesh
 from nerf_grasping.other_utils import get_points_in_grid
 from typing import List, Tuple
@@ -113,6 +123,102 @@ from nerf_grasping.dexgraspnet_utils.joint_angle_targets import (
 )
 
 import open3d as o3d
+
+
+def DEBUG_plot_grasp(
+    fig,
+    grasp: torch.Tensor,
+    mesh_Oy: trimesh.Trimesh,
+):
+    assert grasp.shape == (37,), f"grasp.shape: {grasp.shape}"
+    grasp = grasp.detach().cpu().numpy()
+    grasp_trans, grasp_rot6d, grasp_joints, grasp_dirs = (
+        grasp[:3],
+        grasp[3:9],
+        grasp[9:25],
+        grasp[25:].reshape(4, 3),
+    )
+    grasp_rot = np.zeros((3, 3))
+    grasp_rot[:3, :2] = grasp_rot6d.reshape(3, 2)
+    grasp_rot[:3, 0] = grasp_rot[:3, 0] / np.linalg.norm(grasp_rot[:3, 0])
+
+    # make grasp_rot[:3, 1] orthogonal to grasp_rot[:3, 0]
+    grasp_rot[:3, 1] = (
+        grasp_rot[:3, 1] - np.dot(grasp_rot[:3, 0], grasp_rot[:3, 1]) * grasp_rot[:3, 0]
+    )
+    grasp_rot[:3, 1] = grasp_rot[:3, 1] / np.linalg.norm(grasp_rot[:3, 1])
+    assert (
+        np.dot(grasp_rot[:3, 0], grasp_rot[:3, 1]) < 1e-3
+    ), f"Expected dot product < 1e-3, got {np.dot(grasp_rot[:3, 0], grasp_rot[:3, 1])}"
+    grasp_rot[:3, 2] = np.cross(grasp_rot[:3, 0], grasp_rot[:3, 1])
+
+    grasp_transform = np.eye(4)  # X_Oy_H
+    grasp_transform[:3, :3] = grasp_rot
+    grasp_transform[:3, 3] = grasp_trans
+    grasp_trans = grasp_transform[:3, 3]
+    grasp_rot = grasp_transform[:3, :3]
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    hand_pose = hand_config_to_pose(
+        grasp_trans[None], grasp_rot[None], grasp_joints[None]
+    ).to(device)
+    hand_model_type = HandModelType.ALLEGRO_HAND
+    grasp_orientations = np.zeros(
+        (4, 3, 3)
+    )  # NOTE: should have applied transform with this, but didn't because we only have z-dir, hopefully transforms[:3, :3] ~= np.eye(3)
+    grasp_orientations[:, :, 2] = (
+        grasp_dirs  # Leave the x-axis and y-axis as zeros, hacky but works
+    )
+    hand_model = HandModel(hand_model_type=hand_model_type, device=device)
+    hand_model.set_parameters(hand_pose)
+    hand_plotly = hand_model.get_plotly_data(i=0, opacity=0.8)
+
+    (
+        optimized_joint_angle_targets,
+        _,
+    ) = compute_optimized_joint_angle_targets_given_grasp_orientations(
+        joint_angles_start=hand_model.hand_pose[:, 9:],
+        hand_model=hand_model,
+        grasp_orientations=torch.from_numpy(grasp_orientations[None]).to(device),
+    )
+    new_hand_pose = hand_config_to_pose(
+        grasp_trans[None],
+        grasp_rot[None],
+        optimized_joint_angle_targets.detach().cpu().numpy(),
+    ).to(device)
+    hand_model.set_parameters(new_hand_pose)
+    hand_plotly_optimized = hand_model.get_plotly_data(
+        i=0, opacity=0.3, color="lightgreen"
+    )
+
+    fig.add_trace(
+        go.Mesh3d(
+            x=mesh_Oy.vertices[:, 0],
+            y=mesh_Oy.vertices[:, 1],
+            z=mesh_Oy.vertices[:, 2],
+            i=mesh_Oy.faces[:, 0],
+            j=mesh_Oy.faces[:, 1],
+            k=mesh_Oy.faces[:, 2],
+            name="Object",
+            color="white",
+            opacity=0.5,
+        )
+    )
+    fig.update_layout(
+        title=dict(
+            text="Grasp Visualization",
+        ),
+    )
+    VISUALIZE_HAND = True
+    if VISUALIZE_HAND:
+        for trace in hand_plotly:
+            fig.add_trace(trace)
+        for trace in hand_plotly_optimized:
+            fig.add_trace(trace)
+    # fig.write_html("/home/albert/research/nerf_grasping/dex_diffuser_debug.html")  # if headless
+    fig.show()
+
+
 
 
 def DEBUG_plot(
@@ -298,34 +404,6 @@ def get_optimized_grasps(
         diff = query_points_Oy_cropped - query_points_Oy_cropped_2
         assert np.max(np.abs(diff)) < 1e-6, f"diff = {np.max(np.abs(diff))}"
 
-    PLOT = True
-    if PLOT:
-        fig = go.Figure()
-        nerf_densities_global_flattened = nerf_densities_global_cropped.reshape(-1)
-        query_points_global_N_flattened = query_points_Oy_cropped.reshape(-1, 3)
-        THRESHOLD = 15
-        DEBUG_plot(
-            fig=fig,
-            densities=torch.from_numpy(
-                nerf_densities_global_flattened[
-                    nerf_densities_global_flattened > THRESHOLD
-                ]
-            ),
-            query_points=torch.from_numpy(
-                query_points_global_N_flattened[
-                    nerf_densities_global_flattened > THRESHOLD
-                ]
-            ),
-            name="global",
-        )
-
-        X_Oy_N = np.linalg.inv(X_N_Oy)
-        mesh_N = trimesh.load("/tmp/mesh_viz_object.obj")
-        mesh_Oy = trimesh.load("/tmp/mesh_viz_object.obj")
-        mesh_Oy.apply_transform(X_Oy_N)
-        DEBUG_plot_mesh(fig=fig, mesh=mesh_Oy)
-        fig.show()
-
     nerf_densities_global_with_coords = np.concatenate(
         [query_points_Oy_cropped, nerf_densities_global_cropped[..., None]], axis=-1
     )
@@ -366,6 +444,43 @@ def get_optimized_grasps(
     # Sample grasps
     xT = torch.randn(NUM_GRASP_SAMPLES, config.data.grasp_dim, device=runner.device)
     x = runner.sample(xT=xT, cond=nerf_densities_global_with_coords_repeated)
+
+    PLOT = True
+    if PLOT:
+        fig = go.Figure()
+        nerf_densities_global_flattened = nerf_densities_global_cropped.reshape(-1)
+        query_points_global_N_flattened = query_points_Oy_cropped.reshape(-1, 3)
+        THRESHOLD = 15
+        DEBUG_plot(
+            fig=fig,
+            densities=torch.from_numpy(
+                nerf_densities_global_flattened[
+                    nerf_densities_global_flattened > THRESHOLD
+                ]
+            ),
+            query_points=torch.from_numpy(
+                query_points_global_N_flattened[
+                    nerf_densities_global_flattened > THRESHOLD
+                ]
+            ),
+            name="global",
+        )
+
+        X_Oy_N = np.linalg.inv(X_N_Oy)
+        mesh_N = trimesh.load("/tmp/mesh_viz_object.obj")
+        mesh_Oy = trimesh.load("/tmp/mesh_viz_object.obj")
+        mesh_Oy.apply_transform(X_Oy_N)
+
+        GRASP_IDX = 0
+        breakpoint()
+        DEBUG_plot_grasp(
+            fig=fig,
+            grasp=x[GRASP_IDX],
+            mesh_Oy=mesh_Oy,
+        )
+        fig.show()
+
+
 
     # grasp to AllegroGraspConfig
     # TODO: make the numpy torch conversions less bad

@@ -296,7 +296,7 @@ def get_optimized_grasps(
         while True:
             visualize_point_cloud_and_bps_and_grasp(
                 grasp=x[IDX],
-                X_W_Oy=X_By_Oy,  # TODO Figure this out
+                X_W_Oy=X_By_Oy,
                 basis_points=basis_points_By,
                 bps=bps_values_repeated[IDX].detach().cpu().numpy(),
                 mesh=mesh_By,

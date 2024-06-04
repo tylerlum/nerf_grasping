@@ -278,7 +278,7 @@ def compute_nerf_sampler_grasps(
     )
 
     # TODO: Figure out if should use this
-    OPTIMIZE = True
+    OPTIMIZE = False
     if OPTIMIZE:
         given_grasp_config_dict = optimized_grasp_config_dict.copy()
         NEW_init_grasp_config_dict_path = (

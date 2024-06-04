@@ -733,6 +733,7 @@ def get_optimized_grasps(
             all_success_preds,
         )
         ordered_idxs_best_first = np.argsort(new_all_success_preds)[::-1].copy()
+        print(f"ordered_idxs_best_first = {ordered_idxs_best_first[:cfg.optimizer.num_grasps]}")
 
         # DEBUG
         # print("=" * 80)

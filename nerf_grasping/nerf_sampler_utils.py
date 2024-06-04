@@ -1,5 +1,6 @@
 from __future__ import annotations
 import trimesh
+from nerf_grasping.other_utils import get_points_in_grid
 from typing import List, Tuple
 from nerf_grasping.ablation_utils import (
     nerf_to_bps,
@@ -113,6 +114,7 @@ from nerf_grasping.dexgraspnet_utils.joint_angle_targets import (
 
 import open3d as o3d
 
+
 def DEBUG_plot(
     fig,
     densities: torch.Tensor,
@@ -140,6 +142,7 @@ def DEBUG_plot(
         )
     )
 
+
 def DEBUG_plot_mesh(fig, mesh):
     fig.add_trace(
         go.Mesh3d(
@@ -153,8 +156,6 @@ def DEBUG_plot_mesh(fig, mesh):
             opacity=0.5,
         )
     )
-
-
 
 
 def get_optimized_grasps(
@@ -178,6 +179,8 @@ def get_optimized_grasps(
     device = runner.device
 
     # Get nerf densities global cropped
+    # THIS IS WRONG! IT ONLY WORKS IF X_N_Oy HAS NO ROTATION COMPONENT
+    # THIS IS BECAUSE IF WE ROTATE FIRST VS. AFTER SAMPLING THE GRID, IT IS NOT THE SAME
     # lb_N = transform_point(T=X_N_Oy, point=lb_Oy)
     # ub_N = transform_point(T=X_N_Oy, point=ub_Oy)
     # nerf_densities_global, query_points_N = get_densities_in_grid(
@@ -189,7 +192,7 @@ def get_optimized_grasps(
     #     ub=ub_N,
     # )
 
-    from nerf_grasping.other_utils import get_points_in_grid
+    # Must sample points in grid in Oy before transforming to Nz
     query_points_Oy = get_points_in_grid(
         lb=lb_Oy,
         ub=ub_Oy,
@@ -227,7 +230,7 @@ def get_optimized_grasps(
             NERF_DENSITIES_GLOBAL_NUM_Z,
         )
     )
-    
+
     assert nerf_densities_global.shape == (
         NERF_DENSITIES_GLOBAL_NUM_X,
         NERF_DENSITIES_GLOBAL_NUM_Y,
@@ -239,28 +242,25 @@ def get_optimized_grasps(
         NERF_DENSITIES_GLOBAL_NUM_Z,
         3,
     ), f"Expected shape ({NERF_DENSITIES_GLOBAL_NUM_X}, {NERF_DENSITIES_GLOBAL_NUM_Y}, {NERF_DENSITIES_GLOBAL_NUM_Z}, 3), got {query_points_N.shape}"
+
+    # Crop
     start_x = (NERF_DENSITIES_GLOBAL_NUM_X - NERF_DENSITIES_GLOBAL_NUM_X_CROPPED) // 2
     start_y = (NERF_DENSITIES_GLOBAL_NUM_Y - NERF_DENSITIES_GLOBAL_NUM_Y_CROPPED) // 2
     start_z = (NERF_DENSITIES_GLOBAL_NUM_Z - NERF_DENSITIES_GLOBAL_NUM_Z_CROPPED) // 2
     end_x = start_x + NERF_DENSITIES_GLOBAL_NUM_X_CROPPED
     end_y = start_y + NERF_DENSITIES_GLOBAL_NUM_Y_CROPPED
     end_z = start_z + NERF_DENSITIES_GLOBAL_NUM_Z_CROPPED
-    nerf_densities_global_cropped = (
-        nerf_densities_global[
-            start_x:end_x,
-            start_y:end_y,
-            start_z:end_z,
-        ]
-    )
-    query_points_Nz_cropped = (
-        query_points_Nz[
-            start_x:end_x,
-            start_y:end_y,
-            start_z:end_z,
-        ]
-    )
+    nerf_densities_global_cropped = nerf_densities_global[
+        start_x:end_x,
+        start_y:end_y,
+        start_z:end_z,
+    ]
+    query_points_Nz_cropped = query_points_Nz[
+        start_x:end_x,
+        start_y:end_y,
+        start_z:end_z,
+    ]
     X_Oy_N = np.linalg.inv(X_N_Oy)
-    breakpoint()
     query_points_Oy_cropped = transform_points(
         T=X_Oy_N,
         points=query_points_Nz_cropped.reshape(-1, 3),
@@ -270,75 +270,62 @@ def get_optimized_grasps(
         NERF_DENSITIES_GLOBAL_NUM_Z_CROPPED,
         3,
     )
-    from nerf_grasping.dexdiffuser.grasp_nerf_dataset import (
-        coords_global_cropped,
-    )
-    query_points_Oy_cropped_2 = coords_global_cropped(
-        device=torch.device("cpu"), dtype=torch.float, batch_size=1
-    ).squeeze(0)
-    assert query_points_Oy_cropped_2.shape == (
-        3,
-        NERF_DENSITIES_GLOBAL_NUM_X_CROPPED,
-        NERF_DENSITIES_GLOBAL_NUM_Y_CROPPED,
-        NERF_DENSITIES_GLOBAL_NUM_Z_CROPPED,
-    )
-    breakpoint()
-    query_points_Oy_cropped_2 = query_points_Oy_cropped_2.permute(1, 2, 3, 0).numpy()
-    assert query_points_Oy_cropped_2.shape == (
-        NERF_DENSITIES_GLOBAL_NUM_X_CROPPED,
-        NERF_DENSITIES_GLOBAL_NUM_Y_CROPPED,
-        NERF_DENSITIES_GLOBAL_NUM_Z_CROPPED,
-        3,
-    )
-    diff = query_points_Oy_cropped - query_points_Oy_cropped_2
-    print(f"diff = {np.max(np.abs(diff))}")
 
-    breakpoint()
+    CHECK = False
+    if CHECK:
+        from nerf_grasping.dexdiffuser.grasp_nerf_dataset import (
+            coords_global_cropped,
+        )
+
+        query_points_Oy_cropped_2 = coords_global_cropped(
+            device=torch.device("cpu"), dtype=torch.float, batch_size=1
+        ).squeeze(0)
+        assert query_points_Oy_cropped_2.shape == (
+            3,
+            NERF_DENSITIES_GLOBAL_NUM_X_CROPPED,
+            NERF_DENSITIES_GLOBAL_NUM_Y_CROPPED,
+            NERF_DENSITIES_GLOBAL_NUM_Z_CROPPED,
+        )
+        query_points_Oy_cropped_2 = query_points_Oy_cropped_2.permute(
+            1, 2, 3, 0
+        ).numpy()
+        assert query_points_Oy_cropped_2.shape == (
+            NERF_DENSITIES_GLOBAL_NUM_X_CROPPED,
+            NERF_DENSITIES_GLOBAL_NUM_Y_CROPPED,
+            NERF_DENSITIES_GLOBAL_NUM_Z_CROPPED,
+            3,
+        )
+        diff = query_points_Oy_cropped - query_points_Oy_cropped_2
+        assert np.max(np.abs(diff)) < 1e-6, f"diff = {np.max(np.abs(diff))}"
+
     PLOT = True
     if PLOT:
         fig = go.Figure()
         nerf_densities_global_flattened = nerf_densities_global_cropped.reshape(-1)
         query_points_global_N_flattened = query_points_Oy_cropped.reshape(-1, 3)
-        query_points_global_N_flattened_2 = query_points_Oy_cropped_2.reshape(-1, 3)
         THRESHOLD = 15
         DEBUG_plot(
             fig=fig,
-            densities=torch.from_numpy(nerf_densities_global_flattened[
-                nerf_densities_global_flattened > THRESHOLD
-            ]),
-            query_points=torch.from_numpy(query_points_global_N_flattened[
-                nerf_densities_global_flattened > THRESHOLD
-            ]),
-            # query_points=query_points_global_N_flattened_2[
-            #     nerf_densities_global_flattened > THRESHOLD
-            # ],
-            name="global",
-        )
-        DEBUG_plot(
-            fig=fig,
-            densities=torch.from_numpy(nerf_densities_global_flattened[
-                nerf_densities_global_flattened > THRESHOLD
-            ]),
-            query_points=torch.from_numpy(query_points_global_N_flattened_2[
-                nerf_densities_global_flattened > THRESHOLD
-            ]),
-            # query_points=query_points_global_N_flattened_2[
-            #     nerf_densities_global_flattened > 15
-            # ],
+            densities=torch.from_numpy(
+                nerf_densities_global_flattened[
+                    nerf_densities_global_flattened > THRESHOLD
+                ]
+            ),
+            query_points=torch.from_numpy(
+                query_points_global_N_flattened[
+                    nerf_densities_global_flattened > THRESHOLD
+                ]
+            ),
             name="global",
         )
 
         X_Oy_N = np.linalg.inv(X_N_Oy)
-
         mesh_N = trimesh.load("/tmp/mesh_viz_object.obj")
         mesh_Oy = trimesh.load("/tmp/mesh_viz_object.obj")
         mesh_Oy.apply_transform(X_Oy_N)
         DEBUG_plot_mesh(fig=fig, mesh=mesh_Oy)
         fig.show()
         breakpoint()
-
-
-
 
     nerf_densities_global_with_coords = np.concatenate(
         [query_points_Oy_cropped, nerf_densities_global_cropped[..., None]], axis=-1
@@ -349,20 +336,33 @@ def get_optimized_grasps(
         NERF_DENSITIES_GLOBAL_NUM_Z_CROPPED,
         4,
     ), f"Expected shape ({NERF_DENSITIES_GLOBAL_NUM_X_CROPPED}, {NERF_DENSITIES_GLOBAL_NUM_Y_CROPPED}, {NERF_DENSITIES_GLOBAL_NUM_Z_CROPPED}, 4), got {nerf_densities_global_with_coords.shape}"
-
-    # We sample more grasps than needed to account for filtering
-    NUM_GRASP_SAMPLES = 10 * NUM_GRASPS
-    nerf_densities_global_with_coords_repeated = nerf_densities_global_with_coords.unsqueeze(
-        0
-    ).repeat(NUM_GRASPS, 1, 1, 1, 1)
-
-    assert nerf_densities_global_with_coords_repeated.shape == (
-        NUM_GRASP_SAMPLES,
+    nerf_densities_global_with_coords = nerf_densities_global_with_coords.transpose(
+        3, 0, 1, 2
+    )
+    assert nerf_densities_global_with_coords.shape == (
+        4,
         NERF_DENSITIES_GLOBAL_NUM_X_CROPPED,
         NERF_DENSITIES_GLOBAL_NUM_Y_CROPPED,
         NERF_DENSITIES_GLOBAL_NUM_Z_CROPPED,
+    ), f"Expected shape (4, {NERF_DENSITIES_GLOBAL_NUM_X_CROPPED}, {NERF_DENSITIES_GLOBAL_NUM_Y_CROPPED}, {NERF_DENSITIES_GLOBAL_NUM_Z_CROPPED}), got {nerf_densities_global_with_coords.shape}"
+
+    nerf_densities_global_with_coords = (
+        torch.from_numpy(nerf_densities_global_with_coords).float().to(device)
+    )
+
+    # We sample more grasps than needed to account for filtering
+    NUM_GRASP_SAMPLES = 10 * NUM_GRASPS
+    nerf_densities_global_with_coords_repeated = (
+        nerf_densities_global_with_coords.unsqueeze(0).repeat(NUM_GRASP_SAMPLES, 1, 1, 1, 1)
+    )
+
+    assert nerf_densities_global_with_coords_repeated.shape == (
+        NUM_GRASP_SAMPLES,
         4,
-    ), f"Expected shape ({NUM_GRASP_SAMPLES}, {NERF_DENSITIES_GLOBAL_NUM_X_CROPPED}, {NERF_DENSITIES_GLOBAL_NUM_Y_CROPPED}, {NERF_DENSITIES_GLOBAL_NUM_Z_CROPPED}, 4), got {nerf_densities_global_with_coords_repeated.shape}"
+        NERF_DENSITIES_GLOBAL_NUM_X_CROPPED,
+        NERF_DENSITIES_GLOBAL_NUM_Y_CROPPED,
+        NERF_DENSITIES_GLOBAL_NUM_Z_CROPPED,
+    ), f"Expected shape ({NUM_GRASP_SAMPLES}, 4, {NERF_DENSITIES_GLOBAL_NUM_X_CROPPED}, {NERF_DENSITIES_GLOBAL_NUM_Y_CROPPED}, {NERF_DENSITIES_GLOBAL_NUM_Z_CROPPED}), got {nerf_densities_global_with_coords_repeated.shape}"
 
     # Sample grasps
     xT = torch.randn(NUM_GRASP_SAMPLES, config.data.grasp_dim, device=runner.device)

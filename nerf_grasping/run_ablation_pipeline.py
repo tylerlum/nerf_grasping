@@ -76,6 +76,7 @@ def compute_ablation_grasps(
     nerf_pipeline: Pipeline,
     cfg: PipelineConfig,
     ckpt_path: str,
+    optimize: bool,
 ) -> Tuple[
     np.ndarray,
     np.ndarray,
@@ -286,6 +287,7 @@ def compute_ablation_grasps(
         ub_N=ub_N,
         X_N_By=X_N_By,
         ckpt_path=ckpt_path,
+        optimize=optimize,
     )
 
     print("\n" + "=" * 80)
@@ -359,6 +361,7 @@ def run_ablation_pipeline(
     q_fr3: np.ndarray,
     q_algr: np.ndarray,
     ckpt_path: str,
+    optimize: bool,
     robot_cfg: Optional[RobotConfig] = None,
     ik_solver: Optional[IKSolver] = None,
     ik_solver2: Optional[IKSolver] = None,
@@ -386,7 +389,7 @@ def run_ablation_pipeline(
         mesh_W,
         X_N_Oy,
         sorted_losses,
-    ) = compute_ablation_grasps(nerf_pipeline=nerf_pipeline, cfg=cfg, ckpt_path=ckpt_path)
+    ) = compute_ablation_grasps(nerf_pipeline=nerf_pipeline, cfg=cfg, ckpt_path=ckpt_path, optimize=optimize)
     compute_grasps_time = time.time()
     print("@" * 80)
     print(f"Time to compute_grasps: {compute_grasps_time - start_time:.2f}s")
@@ -524,6 +527,7 @@ def main() -> None:
         q_fr3=DEFAULT_Q_FR3,
         q_algr=DEFAULT_Q_ALGR,
         ckpt_path="/home/albert/research/nerf_grasping/nerf_grasping/dexdiffuser/logs/dexdiffuser_evaluator/20240602_165946/ckpt-p9u7vl8l-step-0.pth",
+        optimize=True,
         robot_cfg=robot_cfg,
         ik_solver=ik_solver,
         ik_solver2=ik_solver2,

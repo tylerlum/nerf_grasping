@@ -337,6 +337,7 @@ def get_optimized_grasps(
     ub_N: np.ndarray,
     X_N_By: np.ndarray,
     ckpt_path: str,
+    optimize: bool,
 ) -> dict:
     BATCH_SIZE = cfg.eval_batch_size
 
@@ -345,6 +346,7 @@ def get_optimized_grasps(
     dex_evaluator = DexEvaluator(in_grasp=3 + 6 + 16 + 12, in_bps=N_BASIS_PTS).to(
         device
     )
+    dex_evaluator.eval()
 
     if pathlib.Path(ckpt_path).exists():
         dex_evaluator.load_state_dict(torch.load(ckpt_path, map_location=device))
@@ -376,6 +378,17 @@ def get_optimized_grasps(
     init_grasp_config_dict = np.load(
         cfg.init_grasp_config_dict_path, allow_pickle=True
     ).item()
+
+    num_grasps_in_dict = init_grasp_config_dict["trans"].shape[0]
+    print(f"Found {num_grasps_in_dict} grasps in grasp config dict dataset")
+
+    if cfg.max_num_grasps_to_eval is not None and num_grasps_in_dict > cfg.max_num_grasps_to_eval:
+        print(f"Limiting to {cfg.max_num_grasps_to_eval} grasps from dataset.")
+        # randomize the order, keep at most max_num_grasps_to_eval
+        init_grasp_config_dict = {
+            k: v[np.random.choice(a=v.shape[0], size=cfg.max_num_grasps_to_eval, replace=False)]
+            for k, v in init_grasp_config_dict.items()
+        }
 
     init_grasp_configs = AllegroGraspConfig.from_grasp_config_dict(
         init_grasp_config_dict
@@ -491,6 +504,43 @@ def get_optimized_grasps(
         ]
 
     init_grasp_configs = new_grasp_configs[: cfg.optimizer.num_grasps]
+
+    if optimize:
+        print(f"Optimizing {cfg.optimizer.num_grasps} grasps with random sampling")
+        initial_losses = 1 - sorted_success_preds
+
+        from nerf_grasping.ablation_optimizer import RandomSamplingOptimizer
+        wrist_trans_array = init_grasp_configs.wrist_pose.translation().float()
+        wrist_rot_array = init_grasp_configs.wrist_pose.rotation().matrix().float()
+        joint_angles_array = init_grasp_configs.joint_angles.float()
+        grasp_dirs_array = init_grasp_configs.grasp_dirs.float()
+        N_FINGERS = 4
+        assert wrist_trans_array.shape == (cfg.optimizer.num_grasps, 3)
+        assert wrist_rot_array.shape == (cfg.optimizer.num_grasps, 3, 3)
+        assert joint_angles_array.shape == (cfg.optimizer.num_grasps, 16)
+        assert grasp_dirs_array.shape == (cfg.optimizer.num_grasps, N_FINGERS, 3)
+        g_O = torch.cat(
+            [
+                wrist_trans_array,
+                wrist_rot_array[:, :, :2].reshape(cfg.optimizer.num_grasps, 6),
+                joint_angles_array,
+                grasp_dirs_array.reshape(cfg.optimizer.num_grasps, 12),
+            ],
+            dim=1,
+        ).to(device=device)
+        assert g_O.shape == (cfg.optimizer.num_grasps, 3 + 6 + 16 + 12)
+
+        random_sampling_optimizer = RandomSamplingOptimizer(
+            dex_evaluator=dex_evaluator, bps=bps_values_repeated, init_grasps=g_O
+        )
+        N_STEPS = 10
+        for i in range(N_STEPS):
+            losses = random_sampling_optimizer.step()
+
+        import sys
+        print(f"Init Losses:  {[f'{x:.4f}' for x in initial_losses.tolist()]}", file=sys.stderr)
+        print(f"Final Losses: {[f'{x:.4f}' for x in losses.tolist()]}", file=sys.stderr)
+
 
     # TODO: Optimize if needed
     grasp_config_dict = init_grasp_configs.as_dict()

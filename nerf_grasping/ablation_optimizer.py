@@ -22,7 +22,8 @@ class RandomSamplingOptimizer:
         self.bps = bps
         self.grasps = init_grasps
 
-        self.wrist_pose_noise = 0.005
+        self.trans_noise = 0.005 / 2
+        self.rot6d_noise = 0.025
         self.joint_angle_noise = 0.01
         self.grasp_orientation_noise = 0.0
 
@@ -59,8 +60,8 @@ class RandomSamplingOptimizer:
             return updated_losses
 
     def add_noise(self, grasps):
-        xyz_noise = torch.randn_like(grasps[:, :3]) * self.wrist_pose_noise
-        rot6d_noise = torch.randn_like(grasps[:, 3:9]) * self.wrist_pose_noise
+        xyz_noise = torch.randn_like(grasps[:, :3]) * self.trans_noise
+        rot6d_noise = torch.randn_like(grasps[:, 3:9]) * self.rot6d_noise
         joint_noise = torch.randn_like(grasps[:, 9:25]) * self.joint_angle_noise
         grasp_dirs_noise = (
             torch.randn_like(grasps[:, 25:37]) * self.grasp_orientation_noise

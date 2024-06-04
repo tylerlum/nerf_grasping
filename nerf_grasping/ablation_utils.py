@@ -104,6 +104,111 @@ from nerf_grasping.dexgraspnet_utils.joint_angle_targets import (
     compute_optimized_joint_angle_targets_given_grasp_orientations,
 )
 
+import trimesh
+from typing import List, Tuple
+from nerf_grasping.dexdiffuser.diffusion import Diffusion
+from nerf_grasping.dexdiffuser.diffusion_config import Config, TrainingConfig
+from tqdm import tqdm
+from nerf_grasping.dexdiffuser.dex_evaluator import DexEvaluator
+import nerf_grasping
+import math
+import pypose as pp
+from collections import defaultdict
+from nerf_grasping.optimizer import (
+    sample_random_rotate_transforms_only_around_y,
+)
+from nerf_grasping.optimizer_utils import (
+    AllegroGraspConfig,
+    AllegroHandConfig,
+    GraspMetric,
+    DepthImageGraspMetric,
+    predict_in_collision_with_object,
+    predict_in_collision_with_table,
+    get_hand_surface_points_Oy,
+    get_joint_limits,
+    hand_config_to_hand_model,
+)
+from dataclasses import asdict
+from nerf_grasping.config.optimization_config import OptimizationConfig
+import pathlib
+import torch
+from nerf_grasping.classifier import Classifier, Simple_CNN_LSTM_Classifier
+from nerf_grasping.config.classifier_config import ClassifierConfig
+from nerf_grasping.config.nerfdata_config import DepthImageNerfDataConfig
+from nerf_grasping.config.optimizer_config import (
+    SGDOptimizerConfig,
+    CEMOptimizerConfig,
+    RandomSamplingConfig,
+)
+from typing import Tuple, Union, Dict
+import nerf_grasping
+from functools import partial
+import numpy as np
+import tyro
+import wandb
+
+from rich.console import Console
+from rich.table import Table
+
+from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
+from contextlib import nullcontext
+import plotly.graph_objects as go
+import numpy as np
+import pathlib
+import pytorch_kinematics as pk
+from pytorch_kinematics.chain import Chain
+import pypose as pp
+import torch
+
+import nerf_grasping
+from nerf_grasping import grasp_utils
+
+from typing import List, Tuple, Dict, Any, Iterable, Union, Optional
+from nerfstudio.fields.base_field import Field
+from nerfstudio.models.base_model import Model
+from nerf_grasping.classifier import (
+    Classifier,
+    DepthImageClassifier,
+    Simple_CNN_LSTM_Classifier,
+)
+from nerf_grasping.learned_metric.DexGraspNet_batch_data import (
+    BatchDataInput,
+    DepthImageBatchDataInput,
+)
+from nerf_grasping.dataset.DexGraspNet_NeRF_Grasps_utils import (
+    transform_point,
+    transform_points,
+)
+from nerf_grasping.nerf_utils import (
+    get_cameras,
+    render,
+    get_densities_in_grid,
+    get_density,
+)
+from nerf_grasping.config.grasp_metric_config import GraspMetricConfig
+from nerf_grasping.config.fingertip_config import UnionFingertipConfig
+from nerf_grasping.config.camera_config import CameraConfig
+from nerf_grasping.config.classifier_config import ClassifierConfig
+from nerf_grasping.config.nerfdata_config import DepthImageNerfDataConfig
+from nerf_grasping.dataset.nerf_densities_global_config import (
+    NERF_DENSITIES_GLOBAL_NUM_X,
+    NERF_DENSITIES_GLOBAL_NUM_Y,
+    NERF_DENSITIES_GLOBAL_NUM_Z,
+    lb_Oy,
+    ub_Oy,
+)
+from rich.console import Console
+from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
+from contextlib import nullcontext
+from nerfstudio.pipelines.base_pipeline import Pipeline
+from nerf_grasping.dexgraspnet_utils.joint_angle_targets import (
+    compute_fingertip_dirs,
+)
+
+import open3d as o3d
+
+
+
 
 def nerf_to_bps(
     nerf_pipeline: Pipeline,
@@ -329,6 +434,197 @@ def visualize_point_cloud_and_bps_and_grasp(
     # fig.write_html("/home/albert/research/nerf_grasping/dex_diffuser_debug.html")  # if headless
     fig.show()
 
+def normalize_with_warning(v: np.ndarray, atol: float = 1e-6) -> np.ndarray:
+    B = v.shape[0]
+    assert v.shape == (B, 3), f"Expected shape ({B}, 3), got {v.shape}"
+    norm = np.linalg.norm(v, axis=1, keepdims=True)
+    if np.any(norm < atol):
+        print("^" * 80)
+        print(
+            f"Warning: Found {np.sum(norm < atol)} vectors with norm less than {atol}"
+        )
+        print("^" * 80)
+    return v / (norm + atol)
+
+
+def rot6d_to_matrix(rot6d: np.ndarray, check: bool = True) -> np.ndarray:
+    B = rot6d.shape[0]
+    assert rot6d.shape == (B, 6), f"Expected shape ({B}, 6), got {rot6d.shape}"
+
+    # Step 1: Reshape to (B, 3, 2)
+    rot3x2 = rot6d.reshape(B, 3, 2)
+
+    # Step 2: Normalize the first column
+    col1 = rot3x2[:, :, 0]
+    col1_normalized = normalize_with_warning(col1)
+
+    # Step 3: Orthogonalize the second column with respect to the first column
+    col2 = rot3x2[:, :, 1]
+    dot_product = np.sum(col1_normalized * col2, axis=1, keepdims=True)
+    col2_orthogonal = col2 - dot_product * col1_normalized
+
+    # Step 4: Normalize the second column
+    col2_normalized = normalize_with_warning(col2_orthogonal)
+
+    # Step 5: Compute the cross product to obtain the third column
+    col3 = np.cross(col1_normalized, col2_normalized)
+
+    # Combine the columns to form the rotation matrix
+    rotation_matrices = np.stack((col1_normalized, col2_normalized, col3), axis=-1)
+
+    # Step 6: Check orthogonality and determinant
+    if check:
+        for i in range(B):
+            mat = rotation_matrices[i]
+            assert np.allclose(
+                np.dot(mat.T, mat), np.eye(3), atol=1e-3
+            ), f"Matrix {i} is not orthogonal, got {np.dot(mat.T, mat)}"
+            assert np.allclose(
+                np.linalg.det(mat), 1.0, atol=1e-3
+            ), f"Matrix {i} does not have determinant 1, got {np.linalg.det(mat)}"
+
+    assert rotation_matrices.shape == (
+        B,
+        3,
+        3,
+    ), f"Expected shape ({B}, 3, 3), got {rotation_matrices.shape}"
+    return rotation_matrices
+
+
+def compute_grasp_orientations(
+    grasp_dirs: torch.Tensor,
+    wrist_pose: pp.LieTensor,
+    joint_angles: torch.Tensor,
+) -> pp.LieTensor:
+    B = grasp_dirs.shape[0]
+    N_FINGERS = 4
+    assert grasp_dirs.shape == (
+        B,
+        N_FINGERS,
+        3,
+    ), f"Expected shape ({B}, {N_FINGERS}, 3), got {grasp_dirs.shape}"
+    assert wrist_pose.lshape == (B,), f"Expected shape ({B},), got {wrist_pose.lshape}"
+
+    # Normalize
+    z_dirs = grasp_dirs
+    z_dirs = z_dirs / z_dirs.norm(dim=-1, keepdim=True)
+
+    # Get hand model
+    hand_config = AllegroHandConfig.from_values(
+        wrist_pose=wrist_pose,
+        joint_angles=joint_angles,
+    )
+    hand_model = hand_config_to_hand_model(
+        hand_config=hand_config,
+    )
+
+    # Math to get x_dirs, y_dirs
+    (center_to_right_dirs, center_to_tip_dirs) = compute_fingertip_dirs(
+        joint_angles=joint_angles,
+        hand_model=hand_model,
+    )
+    option_1_ok = (
+        torch.cross(center_to_tip_dirs, z_dirs).norm(dim=-1, keepdim=True) > 1e-4
+    )
+
+    y_dirs = torch.where(
+        option_1_ok,
+        center_to_tip_dirs
+        - (center_to_tip_dirs * z_dirs).sum(dim=-1, keepdim=True) * z_dirs,
+        center_to_right_dirs
+        - (center_to_right_dirs * z_dirs).sum(dim=-1, keepdim=True) * z_dirs,
+    )
+
+    assert (y_dirs.norm(dim=-1).min() > 0).all()
+    y_dirs = y_dirs / y_dirs.norm(dim=-1, keepdim=True)
+
+    x_dirs = torch.cross(y_dirs, z_dirs)
+    assert (x_dirs.norm(dim=-1).min() > 0).all()
+    x_dirs = x_dirs / x_dirs.norm(dim=-1, keepdim=True)
+    grasp_orientations = torch.stack([x_dirs, y_dirs, z_dirs], dim=-1)
+    # Make sure y and z are orthogonal
+    assert (torch.einsum("...l,...l->...", y_dirs, z_dirs).abs().max() < 1e-3).all(), (
+        f"y_dirs = {y_dirs}",
+        f"z_dirs = {z_dirs}",
+        f"torch.einsum('...l,...l->...', y_dirs, z_dirs).abs().max() = {torch.einsum('...l,...l->...', y_dirs, z_dirs).abs().max()}",
+    )
+    assert grasp_orientations.shape == (
+        B,
+        N_FINGERS,
+        3,
+        3,
+    ), f"Expected shape ({B}, {N_FINGERS}, 3, 3), got {grasp_orientations.shape}"
+    grasp_orientations = pp.from_matrix(
+        grasp_orientations,
+        pp.SO3_type,
+    )
+    assert grasp_orientations.lshape == (
+        B,
+        N_FINGERS,
+    ), f"Expected shape ({B}, {N_FINGERS}), got {grasp_orientations.lshape}"
+
+    return grasp_orientations
+
+
+
+def grasp_to_grasp_config(grasp: torch.Tensor) -> AllegroGraspConfig:
+    device = grasp.device
+
+    N_FINGERS = 4
+    GRASP_DIM = 3 + 6 + 16 + 4 * 3
+    x = grasp
+    B = x.shape[0]
+
+    assert x.shape == (
+        B,
+        GRASP_DIM,
+    ), f"Expected shape ({B}, {GRASP_DIM}), got {x.shape}"
+    trans = x[:, :3].detach().cpu().numpy()
+    rot6d = x[:, 3:9].detach().cpu().numpy()
+    joint_angles = x[:, 9:25].detach().cpu().numpy()
+    grasp_dirs = x[:, 25:37].reshape(B, N_FINGERS, 3).detach().cpu().numpy()
+
+    rot = rot6d_to_matrix(rot6d)
+
+    wrist_pose_matrix = (
+        torch.eye(4, device=device).unsqueeze(0).repeat(B, 1, 1).float()
+    )
+    wrist_pose_matrix[:, :3, :3] = torch.from_numpy(rot).float().to(device)
+    wrist_pose_matrix[:, :3, 3] = torch.from_numpy(trans).float().to(device)
+
+    try:
+        wrist_pose = pp.from_matrix(
+            wrist_pose_matrix,
+            pp.SE3_type,
+        ).to(device)
+    except ValueError as e:
+        print("Error in pp.from_matrix")
+        print(e)
+        print("rot = ", rot)
+        print("Orthogonalization did not work, running with looser tolerances")
+        wrist_pose = pp.from_matrix(
+            wrist_pose_matrix,
+            pp.SE3_type,
+            atol=1e-3,
+            rtol=1e-3,
+        ).to(device)
+
+    assert wrist_pose.lshape == (B,)
+
+    grasp_orientations = compute_grasp_orientations(
+        grasp_dirs=torch.from_numpy(grasp_dirs).float().to(device),
+        wrist_pose=wrist_pose,
+        joint_angles=torch.from_numpy(joint_angles).float().to(device),
+    )
+
+    # Convert to AllegroGraspConfig to dict
+    grasp_configs = AllegroGraspConfig.from_values(
+        wrist_pose=wrist_pose,
+        joint_angles=torch.from_numpy(joint_angles).float().to(device),
+        grasp_orientations=grasp_orientations,
+    )
+    return grasp_configs
+
 
 def get_optimized_grasps(
     cfg: OptimizationConfig,
@@ -507,7 +803,7 @@ def get_optimized_grasps(
 
     if optimize:
         print(f"Optimizing {cfg.optimizer.num_grasps} grasps with random sampling")
-        initial_losses = 1 - sorted_success_preds
+        initial_losses_np = 1 - sorted_success_preds
 
         from nerf_grasping.ablation_optimizer import RandomSamplingOptimizer
         wrist_trans_array = init_grasp_configs.wrist_pose.translation().float()
@@ -537,14 +833,20 @@ def get_optimized_grasps(
         for i in range(N_STEPS):
             losses = random_sampling_optimizer.step()
 
+        losses_np = losses.detach().cpu().numpy()
+        diff_losses = losses_np - initial_losses_np
+
         import sys
-        print(f"Init Losses:  {[f'{x:.4f}' for x in initial_losses.tolist()]}", file=sys.stderr)
+        print(f"Init Losses:  {[f'{x:.4f}' for x in initial_losses_np.tolist()]}", file=sys.stderr)
         print(f"Final Losses: {[f'{x:.4f}' for x in losses.tolist()]}", file=sys.stderr)
-
-
-    # TODO: Optimize if needed
-    grasp_config_dict = init_grasp_configs.as_dict()
-    grasp_config_dict["loss"] = 1 - sorted_success_preds
+        print(f"Diff Losses:  {[f'{x:.4f}' for x in diff_losses.tolist()]}", file=sys.stderr)
+        grasp_config = grasp_to_grasp_config(grasp=random_sampling_optimizer.grasps)
+        grasp_config_dict = grasp_config.as_dict()
+        grasp_config_dict["loss"] = losses_np
+    else:
+        print(f"Skipping optimization of grasps")
+        grasp_config_dict = init_grasp_configs.as_dict()
+        grasp_config_dict["loss"] = 1 - sorted_success_preds
 
     print(f"Saving final grasp config dict to {cfg.output_path}")
     cfg.output_path.parent.mkdir(parents=True, exist_ok=True)

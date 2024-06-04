@@ -218,8 +218,6 @@ def DEBUG_plot_grasp(
     # fig.write_html("/home/albert/research/nerf_grasping/dex_diffuser_debug.html")  # if headless
 
 
-
-
 def DEBUG_plot(
     fig,
     densities: torch.Tensor,
@@ -429,7 +427,9 @@ def get_optimized_grasps(
     # We sample more grasps than needed to account for filtering
     NUM_GRASP_SAMPLES = 10 * NUM_GRASPS
     nerf_densities_global_with_coords_repeated = (
-        nerf_densities_global_with_coords.unsqueeze(0).repeat(NUM_GRASP_SAMPLES, 1, 1, 1, 1)
+        nerf_densities_global_with_coords.unsqueeze(0).repeat(
+            NUM_GRASP_SAMPLES, 1, 1, 1, 1
+        )
     )
 
     assert nerf_densities_global_with_coords_repeated.shape == (
@@ -478,8 +478,6 @@ def get_optimized_grasps(
             mesh_Oy=mesh_Oy,
         )
         fig.show()
-
-
 
     # grasp to AllegroGraspConfig
     # TODO: make the numpy torch conversions less bad

@@ -266,6 +266,7 @@ def get_optimized_grasps(
     nerf_model: Model,
     X_N_Oy: np.ndarray,
     ckpt_path: str,
+    return_exactly_requested_num_grasps: bool = True,
 ) -> dict:
     ckpt_path = pathlib.Path(ckpt_path)
 
@@ -541,12 +542,19 @@ def get_optimized_grasps(
     palm_upwards = x_dirs[:, 1] >= cos_theta
     grasp_configs = grasp_configs[fingers_forward & ~palm_upwards]
     print(f"Filtered less feasible grasps. New batch size: {grasp_configs.batch_size}")
-    grasp_configs = grasp_configs[:NUM_GRASPS]
+
+    if len(grasp_configs) < NUM_GRASPS:
+        print(
+            f"WARNING: After filtering, only {len(grasp_configs)} grasps remain, less than the requested {NUM_GRASPS} grasps"
+        )
+
+    if return_exactly_requested_num_grasps:
+        grasp_configs = grasp_configs[:NUM_GRASPS]
     print(f"Returning {grasp_configs.batch_size} grasps")
 
     grasp_config_dicts = grasp_configs.as_dict()
     grasp_config_dicts["loss"] = np.linspace(
-        0, 0.001, NUM_GRASPS
+        0, 0.001, len(grasp_configs)
     )  # HACK: Currently don't have a loss, but need something here to sort
 
     return grasp_config_dicts

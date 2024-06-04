@@ -1,7 +1,10 @@
 from __future__ import annotations
 import trimesh
 from typing import List, Tuple
-from nerf_grasping.ablation_utils import nerf_to_bps, visualize_point_cloud_and_bps_and_grasp
+from nerf_grasping.ablation_utils import (
+    nerf_to_bps,
+    visualize_point_cloud_and_bps_and_grasp,
+)
 from nerf_grasping.dexdiffuser.diffusion import Diffusion
 from nerf_grasping.dexdiffuser.diffusion_config import Config, TrainingConfig
 from tqdm import tqdm
@@ -246,6 +249,7 @@ def get_optimized_grasps(
     X_N_By: np.ndarray,
     X_Oy_By: np.ndarray,
     ckpt_path: str | pathlib.Path,
+    return_exactly_requested_num_grasps: bool = True,
 ) -> dict:
     ckpt_path = pathlib.Path(ckpt_path)
 
@@ -275,7 +279,9 @@ def get_optimized_grasps(
     # We sample more grasps than needed to account for filtering
     NUM_GRASP_SAMPLES = 10 * NUM_GRASPS
     bps_values_repeated = torch.from_numpy(bps_values).float().to(device)
-    bps_values_repeated = bps_values_repeated.unsqueeze(dim=0).repeat(NUM_GRASP_SAMPLES, 1)
+    bps_values_repeated = bps_values_repeated.unsqueeze(dim=0).repeat(
+        NUM_GRASP_SAMPLES, 1
+    )
     assert bps_values_repeated.shape == (
         NUM_GRASP_SAMPLES,
         N_BASIS_PTS,
@@ -330,7 +336,9 @@ def get_optimized_grasps(
     trans = x[:, :3].detach().cpu().numpy()
     rot6d = x[:, 3:9].detach().cpu().numpy()
     joint_angles = x[:, 9:25].detach().cpu().numpy()
-    grasp_dirs = x[:, 25:37].reshape(NUM_GRASP_SAMPLES, N_FINGERS, 3).detach().cpu().numpy()
+    grasp_dirs = (
+        x[:, 25:37].reshape(NUM_GRASP_SAMPLES, N_FINGERS, 3).detach().cpu().numpy()
+    )
 
     rot = rot6d_to_matrix(rot6d)
 
@@ -379,15 +387,19 @@ def get_optimized_grasps(
     fingers_forward = z_dirs[:, 0] >= cos_theta
     palm_upwards = x_dirs[:, 1] >= cos_theta
     grasp_configs = grasp_configs[fingers_forward & ~palm_upwards]
-    print(
-        f"Filtered less feasible grasps. New batch size: {grasp_configs.batch_size}"
-    )
-    grasp_configs = grasp_configs[:NUM_GRASPS]
+    print(f"Filtered less feasible grasps. New batch size: {grasp_configs.batch_size}")
+    if len(grasp_configs) < NUM_GRASPS:
+        print(
+            f"WARNING: After filtering, only {len(grasp_configs)} grasps remain, less than the requested {NUM_GRASPS} grasps"
+        )
+
+    if return_exactly_requested_num_grasps:
+        grasp_configs = grasp_configs[:NUM_GRASPS]
     print(f"Returning {grasp_configs.batch_size} grasps")
 
     grasp_config_dicts = grasp_configs.as_dict()
     grasp_config_dicts["loss"] = np.linspace(
-        0, 0.001, NUM_GRASPS
+        0, 0.001, len(grasp_configs)
     )  # HACK: Currently don't have a loss, but need something here to sort
 
     return grasp_config_dicts

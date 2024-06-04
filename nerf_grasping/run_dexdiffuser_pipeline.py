@@ -260,6 +260,7 @@ def compute_dexdiffuser_grasps(
     X_Oy_By = X_Oy_N @ X_N_By
 
     from nerf_grasping import dexdiffuser_utils
+    return_exactly_requested_num_grasps = True if not optimize else False
     optimized_grasp_config_dict = dexdiffuser_utils.get_optimized_grasps(
         cfg=OptimizationConfig(
             use_rich=False,  # Not used because causes issues with logging
@@ -288,6 +289,7 @@ def compute_dexdiffuser_grasps(
         X_N_By=X_N_By,
         X_Oy_By=X_Oy_By,
         ckpt_path=ckpt_path,
+        return_exactly_requested_num_grasps=return_exactly_requested_num_grasps,
     )
 
     if optimize:

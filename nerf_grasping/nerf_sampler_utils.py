@@ -402,7 +402,7 @@ def get_optimized_grasps(
         assert np.max(np.abs(diff)) < 1e-6, f"diff = {np.max(np.abs(diff))}"
 
     nerf_densities_global_with_coords = np.concatenate(
-        [query_points_Oy_cropped, nerf_densities_global_cropped[..., None]], axis=-1
+        [nerf_densities_global_cropped[..., None], query_points_Oy_cropped], axis=-1
     )
     assert nerf_densities_global_with_coords.shape == (
         NERF_DENSITIES_GLOBAL_NUM_X_CROPPED,

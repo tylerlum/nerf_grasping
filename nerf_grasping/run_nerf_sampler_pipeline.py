@@ -510,7 +510,7 @@ def main() -> None:
         cfg=args,
         q_fr3=DEFAULT_Q_FR3,
         q_algr=DEFAULT_Q_ALGR,
-        ckpt_path="/juno/u/tylerlum/github_repos/nerf_grasping/2024-06-03_ALBERT_NERF_SAMPLER_V1/ckpt_406300.pth",
+        ckpt_path="/juno/u/tylerlum/github_repos/nerf_grasping/2024-06-03_ALBERT_NERF_SAMPLER_V1/ckpt_740900.pth",
         robot_cfg=robot_cfg,
         ik_solver=ik_solver,
         ik_solver2=ik_solver2,

@@ -251,6 +251,7 @@ def compute_nerf_sampler_grasps(
 
     from nerf_grasping import nerf_sampler_utils
 
+    return_exactly_requested_num_grasps = True if not optimize else False
     optimized_grasp_config_dict = nerf_sampler_utils.get_optimized_grasps(
         cfg=OptimizationConfig(
             use_rich=False,  # Not used because causes issues with logging
@@ -276,6 +277,7 @@ def compute_nerf_sampler_grasps(
         nerf_model=nerf_model,
         X_N_Oy=X_N_Oy,
         ckpt_path=ckpt_path,
+        return_exactly_requested_num_grasps=return_exactly_requested_num_grasps,
     )
 
     if optimize:
@@ -599,6 +601,7 @@ def main() -> None:
         f"Time to prepare_trajopt_batch: {end_prepare_trajopt_batch - start_prepare_trajopt_batch:.2f}s"
     )
     print("@" * 80 + "\n")
+
 
     qs, qds, T_trajs, success_idxs, DEBUG_TUPLE, log_dict = run_nerf_sampler_pipeline(
         nerf_model=nerf_model,

@@ -310,7 +310,6 @@ class NerfSampler(nn.Module):
 
         # Grasp-BPS cross attention
         if self.HACK_MODE_FOR_PERFORMANCE:
-            print("HACK_MODE_FOR_PERFORMANCE")
             if not hasattr(self, "HACK_STORED_f_O"):
                 f_O = self.conv(f_O)
                 self.HACK_STORED_f_O = f_O
@@ -318,6 +317,13 @@ class NerfSampler(nn.Module):
                 f_O = self.HACK_STORED_f_O
                 assert f_O.shape[0] <= B, f"Expected batch size <= {B}, got {f_O}"
                 f_O = f_O[:B]
+
+            # Print only a max of 10 times
+            if not hasattr(self, "HACK_PRINT_COUNT"):
+                self.HACK_PRINT_COUNT = 0
+            if self.HACK_PRINT_COUNT < 10:
+                print("HACK_MODE_FOR_PERFORMANCE")
+                self.HACK_PRINT_COUNT += 1
         else:
             f_O = self.conv(f_O)
 

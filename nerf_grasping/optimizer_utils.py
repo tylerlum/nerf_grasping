@@ -553,10 +553,9 @@ class AllegroGraspConfig(torch.nn.Module):
 
     @property
     def grasp_dirs(self) -> torch.Tensor:  # shape [B, 4, 3].
-        Z_AXIS = torch.tensor(
-            [0, 0, 1], device=self.grasp_orientations.device, dtype=self.grasp_orientations.dtype
-        )
-        return self.grasp_frame_transforms.rotation() @ Z_AXIS[None, None, :]
+        return self.grasp_frame_transforms.rotation() @ Z_AXIS.to(
+            device=self.grasp_orientations.device, dtype=self.grasp_orientations.dtype
+        ).unsqueeze(0).unsqueeze(0)
 
     def target_joint_angles(
         self, dist_move_finger: Optional[float] = None

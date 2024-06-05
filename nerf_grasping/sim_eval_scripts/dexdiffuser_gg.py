@@ -4,7 +4,7 @@ import tyro
 from nerf_grasping import dexdiffuser_utils
 from dataclasses import dataclass
 from typing import Optional, Literal
-from nerf_grasping.grasp_utils import get_nerf_configs
+from nerf_grasping.grasp_utils import get_nerf_configs_through_symlinks
 
 
 @dataclass
@@ -65,7 +65,7 @@ def main() -> None:
                 )
             )
     elif args.nerfcheckpoints_path is not None:
-        nerf_configs = get_nerf_configs(args.nerfcheckpoints_path)
+        nerf_configs = get_nerf_configs_through_symlinks(args.nerfcheckpoints_path)
         print(f"Found {len(nerf_configs)} NERF configs")
         for nerf_config in tqdm(nerf_configs, desc="nerf_configs"):
             dexdiffuser_utils.run_dexdiffuser_sim_eval(

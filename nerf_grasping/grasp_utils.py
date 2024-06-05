@@ -2,6 +2,7 @@
 Module implementing utils for grasping,
 including normal estimation and surface detection.
 """
+
 from __future__ import annotations
 import nerfstudio
 import numpy as np
@@ -164,6 +165,36 @@ def get_ray_samples_helper(
 
 def get_nerf_configs(nerf_checkpoints_path: str) -> List[pathlib.Path]:
     return list(pathlib.Path(nerf_checkpoints_path).rglob("nerfacto/*/config.yml"))
+
+
+def get_nerf_configs_through_symlinks(nerf_checkpoints_path: str) -> List[pathlib.Path]:
+    """
+    Expects following directory structure:
+    <nerf_checkpoints_path>
+    ├── <object_name>
+    |   ├── nerfacto
+    |   |   ├── <timestamp>
+    |   |   |   ├── config.yml
+    ├── <object_name>
+    |   ├── nerfacto
+    |   |   ├── <timestamp>
+    |   |   |   ├── config.yml
+    ...
+    """
+    object_nerfcheckpoint_paths = sorted(
+        [
+            object_nerfcheckpoint_path
+            for object_nerfcheckpoint_path in nerf_checkpoints_path.iterdir()
+        ]
+    )
+    nerf_configs = []
+    for object_nerfcheckpoint_path in object_nerfcheckpoint_paths:
+        nerfacto_path = object_nerfcheckpoint_path / "nerfacto"
+        assert nerfacto_path.exists(), f"{nerfacto_path} does not exist"
+
+        nerf_config = sorted(list(nerfacto_path.rglob("config.yml")))[-1]
+        nerf_configs.append(nerf_config)
+    return nerf_configs
 
 
 def load_nerf_model(cfg_path: pathlib.Path) -> Model:

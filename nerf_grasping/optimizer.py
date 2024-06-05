@@ -256,9 +256,8 @@ class RandomSamplingOptimizer(Optimizer):
                 check=False,  # Check causing issues, probably just numerical issues
             ).to(device=self.device)
 
-            breakpoint()
             wrist_trans_perturbations = (
-                torch.randn_like(*new_grasp_config.wrist_pose.lshape, 3)
+                torch.randn((*new_grasp_config.wrist_pose.lshape, 3))
                 * self.optimizer_config.wrist_trans_noise
             ).to(device=self.device)
             wrist_rot_perturbations = (

@@ -446,7 +446,7 @@ def get_optimized_grasps(
 
         n_batches = int(math.ceil(NUM_GRASP_SAMPLES / MAX_BATCH_SIZE))
         x_list = []
-        for i in range(n_batches):
+        for i in tqdm(range(n_batches), desc="Sampling grasps in batches"):
             start_idx = i * MAX_BATCH_SIZE
             end_idx = min((i + 1) * MAX_BATCH_SIZE, NUM_GRASP_SAMPLES)
             num_samples = end_idx - start_idx

@@ -77,6 +77,7 @@ def compute_dexdiffuser_grasps(
     cfg: PipelineConfig,
     ckpt_path: str | pathlib.Path,
     optimize: bool,
+    sample_grasps_multiplier: int,
 ) -> Tuple[
     np.ndarray,
     np.ndarray,
@@ -290,6 +291,7 @@ def compute_dexdiffuser_grasps(
         X_Oy_By=X_Oy_By,
         ckpt_path=ckpt_path,
         return_exactly_requested_num_grasps=return_exactly_requested_num_grasps,
+        sample_grasps_multiplier=sample_grasps_multiplier,
     )
 
     if optimize:
@@ -454,6 +456,7 @@ def run_dexdiffuser_pipeline(
     q_algr: np.ndarray,
     ckpt_path: str | pathlib.Path,
     optimize: bool,
+    sample_grasps_multiplier: int,
     robot_cfg: Optional[RobotConfig] = None,
     ik_solver: Optional[IKSolver] = None,
     ik_solver2: Optional[IKSolver] = None,
@@ -481,7 +484,7 @@ def run_dexdiffuser_pipeline(
         mesh_W,
         X_N_Oy,
         sorted_losses,
-    ) = compute_dexdiffuser_grasps(nerf_pipeline=nerf_pipeline, cfg=cfg, ckpt_path=ckpt_path, optimize=optimize)
+    ) = compute_dexdiffuser_grasps(nerf_pipeline=nerf_pipeline, cfg=cfg, ckpt_path=ckpt_path, optimize=optimize, sample_grasps_multiplier=sample_grasps_multiplier)
     compute_grasps_time = time.time()
     print("@" * 80)
     print(f"Time to compute_grasps: {compute_grasps_time - start_time:.2f}s")
@@ -529,6 +532,14 @@ def run_dexdiffuser_pipeline(
         "success_idxs": success_idxs,
         **log_dict,
     }
+
+    # Print this in green
+    print("+" * 80)
+    BEST_IDX = success_idxs[0]
+    print(
+        f"\033[92mFINAL LOSS OF GRASP TO BE EXECUTED: {sorted_losses[BEST_IDX]:.5f} (idx: {BEST_IDX})\033[0m"
+    )
+    print("+" * 80 + "\n")
 
     return q_trajs, qd_trajs, T_trajs, success_idxs, DEBUG_TUPLE, pipeline_log_dict
 
@@ -618,8 +629,9 @@ def main() -> None:
         cfg=args,
         q_fr3=DEFAULT_Q_FR3,
         q_algr=DEFAULT_Q_ALGR,
-        ckpt_path="/juno/u/tylerlum/github_repos/nerf_grasping/2024-06-03_ALBERT_DexDiffuser_models/ckpt_74000.pth",
+        ckpt_path="/juno/u/tylerlum/github_repos/nerf_grasping/2024-06-03_ALBERT_DexDiffuser_models/ckpt_final.pth",
         optimize=True,
+        sample_grasps_multiplier=100,
         robot_cfg=robot_cfg,
         ik_solver=ik_solver,
         ik_solver2=ik_solver2,

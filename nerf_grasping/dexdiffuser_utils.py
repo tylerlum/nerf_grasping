@@ -309,7 +309,7 @@ def get_optimized_grasps(
     X_Oy_By: np.ndarray,
     ckpt_path: str | pathlib.Path,
     return_exactly_requested_num_grasps: bool = True,
-    filter_grasps: bool = True,
+    sample_grasps_multiplier: int = 10,
     PLOT: bool = False,
 ) -> dict:
     ckpt_path = pathlib.Path(ckpt_path)
@@ -338,7 +338,7 @@ def get_optimized_grasps(
     ), f"Expected shape ({N_BASIS_PTS},), got {bps_values.shape}"
 
     # We sample more grasps than needed to account for filtering
-    NUM_GRASP_SAMPLES = 10 * NUM_GRASPS
+    NUM_GRASP_SAMPLES = sample_grasps_multiplier * NUM_GRASPS
     bps_values_repeated = torch.from_numpy(bps_values).float().to(device)
     bps_values_repeated = bps_values_repeated.unsqueeze(dim=0).repeat(
         NUM_GRASP_SAMPLES, 1
@@ -441,15 +441,15 @@ def get_optimized_grasps(
         grasp_orientations=grasp_orientations,
     )
 
-    # Filter out in collision with table
-    if filter_grasps:
+    if cfg.filter_less_feasible_grasps:
         wrist_pose_matrix = grasp_configs.wrist_pose.matrix()
         x_dirs = wrist_pose_matrix[:, :, 0]
         z_dirs = wrist_pose_matrix[:, :, 2]
 
-        cos_theta = math.cos(math.radians(60))
-        fingers_forward = z_dirs[:, 0] >= cos_theta
-        palm_upwards = x_dirs[:, 1] >= cos_theta
+        fingers_forward_cos_theta = math.cos(math.radians(cfg.fingers_forward_theta_deg))
+        palm_upwards_cos_theta = math.cos(math.radians(cfg.palm_upwards_theta_deg))
+        fingers_forward = z_dirs[:, 0] >= fingers_forward_cos_theta
+        palm_upwards = x_dirs[:, 1] >= palm_upwards_cos_theta
         grasp_configs = grasp_configs[fingers_forward & ~palm_upwards]
         print(f"Filtered less feasible grasps. New batch size: {grasp_configs.batch_size}")
 

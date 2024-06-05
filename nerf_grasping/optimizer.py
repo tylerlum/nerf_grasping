@@ -256,18 +256,34 @@ class RandomSamplingOptimizer(Optimizer):
                 check=False,  # Check causing issues, probably just numerical issues
             ).to(device=self.device)
 
-            wrist_pose_perturbations = (
-                pp.randn_se3(new_grasp_config.wrist_pose.lshape)
-                * self.optimizer_config.wrist_pose_noise
-            ).Exp().to(device=self.device)
+            wrist_trans_perturbations = (
+                torch.randn((*new_grasp_config.wrist_pose.lshape, 3))
+                * self.optimizer_config.wrist_trans_noise
+            ).to(device=self.device)
+            wrist_rot_perturbations = (
+                (
+                    pp.randn_so3(new_grasp_config.wrist_pose.lshape)
+                    * self.optimizer_config.wrist_rot_noise
+                )
+                .Exp()
+                .to(device=self.device)
+            )
+            wrist_pose_perturbations = pp.SE3(
+                torch.cat([wrist_trans_perturbations, wrist_rot_perturbations], dim=-1)
+            ).to(device=self.device)
+
             joint_angle_perturbations = (
                 torch.randn_like(new_grasp_config.joint_angles)
                 * self.optimizer_config.joint_angle_noise
             ).to(device=self.device)
             grasp_orientation_perturbations = (
-                pp.randn_so3(new_grasp_config.grasp_orientations.lshape)
-                * self.optimizer_config.grasp_orientation_noise
-            ).Exp().to(device=self.device)
+                (
+                    pp.randn_so3(new_grasp_config.grasp_orientations.lshape)
+                    * self.optimizer_config.grasp_orientation_noise
+                )
+                .Exp()
+                .to(device=self.device)
+            )
 
             new_grasp_config.hand_config.set_wrist_pose(
                 wrist_pose_perturbations @ new_grasp_config.hand_config.wrist_pose
@@ -352,12 +368,10 @@ class CEMOptimizer(Optimizer):
             )
         ).unsqueeze(0)
 
-        wrist_pose_perturbations = (
-            torch.randn_like(
-                elite_mean.wrist_pose.Log()
-                .expand(self.optimizer_config.num_samples, -1)
-                .unsqueeze(-1)
-            )
+        wrist_pose_perturbations = torch.randn_like(
+            elite_mean.wrist_pose.Log()
+            .expand(self.optimizer_config.num_samples, -1)
+            .unsqueeze(-1)
         )
 
         wrist_pose_innovations = (
@@ -372,11 +386,9 @@ class CEMOptimizer(Optimizer):
             )
         ).unsqueeze(0)
 
-        joint_angle_perturbations = (
-            torch.randn_like(
-                elite_mean.joint_angles.expand(self.optimizer_config.num_samples, -1)
-            ).unsqueeze(-1)
-        )
+        joint_angle_perturbations = torch.randn_like(
+            elite_mean.joint_angles.expand(self.optimizer_config.num_samples, -1)
+        ).unsqueeze(-1)
 
         joint_angle_innovations = (
             elite_chol_joint_angles @ joint_angle_perturbations
@@ -567,11 +579,18 @@ def get_optimized_grasps(
         num_grasps_in_dict = init_grasp_config_dict["trans"].shape[0]
         print(f"Found {num_grasps_in_dict} grasps in grasp config dict dataset")
 
-        if cfg.max_num_grasps_to_eval is not None and num_grasps_in_dict > cfg.max_num_grasps_to_eval:
+        if (
+            cfg.max_num_grasps_to_eval is not None
+            and num_grasps_in_dict > cfg.max_num_grasps_to_eval
+        ):
             print(f"Limiting to {cfg.max_num_grasps_to_eval} grasps from dataset.")
             # randomize the order, keep at most max_num_grasps_to_eval
             init_grasp_config_dict = {
-                k: v[np.random.choice(a=v.shape[0], size=cfg.max_num_grasps_to_eval, replace=False)]
+                k: v[
+                    np.random.choice(
+                        a=v.shape[0], size=cfg.max_num_grasps_to_eval, replace=False
+                    )
+                ]
                 for k, v in init_grasp_config_dict.items()
             }
 
@@ -654,9 +673,10 @@ def get_optimized_grasps(
             x_dirs = wrist_pose_matrix[:, :, 0]
             z_dirs = wrist_pose_matrix[:, :, 2]
 
-            cos_theta = math.cos(math.radians(60))
-            fingers_forward = z_dirs[:, 0] >= cos_theta
-            palm_upwards = x_dirs[:, 1] >= cos_theta
+            fingers_forward_cos_theta = math.cos(math.radians(cfg.fingers_forward_theta_deg))
+            palm_upwards_cos_theta = math.cos(math.radians(cfg.palm_upwards_theta_deg))
+            fingers_forward = z_dirs[:, 0] >= fingers_forward_cos_theta
+            palm_upwards = x_dirs[:, 1] >= palm_upwards_cos_theta
             new_grasp_configs = new_grasp_configs[fingers_forward & ~palm_upwards]
             print(
                 f"Filtered less feasible grasps. New batch size: {new_grasp_configs.batch_size}"
@@ -733,7 +753,9 @@ def get_optimized_grasps(
             all_success_preds,
         )
         ordered_idxs_best_first = np.argsort(new_all_success_preds)[::-1].copy()
-        print(f"ordered_idxs_best_first = {ordered_idxs_best_first[:cfg.optimizer.num_grasps]}")
+        print(
+            f"ordered_idxs_best_first = {ordered_idxs_best_first[:cfg.optimizer.num_grasps]}"
+        )
 
         # DEBUG
         # print("=" * 80)

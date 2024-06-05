@@ -438,6 +438,14 @@ def run_ablation_pipeline(
         **log_dict,
     }
 
+    # Print this in green
+    print("+" * 80)
+    BEST_IDX = success_idxs[0]
+    print(
+        f"\033[92mFINAL LOSS OF GRASP TO BE EXECUTED: {sorted_losses[BEST_IDX]:.5f} (idx: {BEST_IDX})\033[0m"
+    )
+    print("+" * 80 + "\n")
+
     return q_trajs, qd_trajs, T_trajs, success_idxs, DEBUG_TUPLE, pipeline_log_dict
 
 

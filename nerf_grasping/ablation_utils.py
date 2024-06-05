@@ -733,9 +733,10 @@ def get_optimized_grasps(
             x_dirs = wrist_pose_matrix[:, :, 0]
             z_dirs = wrist_pose_matrix[:, :, 2]
 
-            cos_theta = math.cos(math.radians(60))
-            fingers_forward = z_dirs[:, 0] >= cos_theta
-            palm_upwards = x_dirs[:, 1] >= cos_theta
+            fingers_forward_cos_theta = math.cos(math.radians(cfg.fingers_forward_theta_deg))
+            palm_upwards_cos_theta = math.cos(math.radians(cfg.palm_upwards_theta_deg))
+            fingers_forward = z_dirs[:, 0] >= fingers_forward_cos_theta
+            palm_upwards = x_dirs[:, 1] >= palm_upwards_cos_theta
             new_grasp_configs = new_grasp_configs[fingers_forward & ~palm_upwards]
             print(
                 f"Filtered less feasible grasps. New batch size: {new_grasp_configs.batch_size}"

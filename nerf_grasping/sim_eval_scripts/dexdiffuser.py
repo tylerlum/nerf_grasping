@@ -11,7 +11,7 @@ from nerf_grasping.grasp_utils import get_nerf_configs
 class CommandlineArgs:
     output_folder: pathlib.Path
     ckpt_path: pathlib.Path = pathlib.Path(
-        "/juno/u/tylerlum/github_repos/nerf_grasping/2024-06-03_ALBERT_DexDiffuser_models/ckpt_74000.pth"
+        "/juno/u/tylerlum/github_repos/nerf_grasping/2024-06-03_ALBERT_DexDiffuser_models/ckpt_final.pth"
     )
     nerfdatas_path: Optional[pathlib.Path] = None
     nerfcheckpoints_path: Optional[pathlib.Path] = None

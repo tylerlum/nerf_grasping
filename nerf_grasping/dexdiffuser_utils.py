@@ -489,7 +489,7 @@ class CommandlineArgs:
 
     optimize: bool = False
     classifier_config_path: pathlib.Path = pathlib.Path(
-        "/juno/u/tylerlum/github_repos/nerf_grasping/Train_DexGraspNet_NeRF_Grasp_Metric_workspaces/2024-06-02_FINAL_LABELED_GRASPS_NOISE_AND_NONOISE_cnn-3d-xyz-global-cnn-cropped_2024-06-03_04-03-54-479790/config.yaml"
+        "/juno/u/tylerlum/github_repos/nerf_grasping/Train_DexGraspNet_NeRF_Grasp_Metric_workspaces/2024-06-02_FINAL_LABELED_GRASPS_NOISE_AND_NONOISE_cnn-3d-xyz-global-cnn-cropped_CONTINUE/config.yaml"
     )
     optimizer_type: Literal["sgd", "cem", "random-sampling"] = "sgd"
     num_steps: int = 50

@@ -830,16 +830,20 @@ def get_optimized_grasps(
         random_sampling_optimizer = RandomSamplingOptimizer(
             dex_evaluator=dex_evaluator, bps=bps_values_repeated, init_grasps=g_O
         )
-        N_STEPS = 10
-        for i in range(N_STEPS):
-            losses = random_sampling_optimizer.step()
+        N_STEPS = cfg.optimizer.num_steps
 
-        losses_np = losses.detach().cpu().numpy()
+        if N_STEPS > 0:
+            for i in range(N_STEPS):
+                losses = random_sampling_optimizer.step()
+            losses_np = losses.detach().cpu().numpy()
+        else:
+            losses_np = initial_losses_np
+
         diff_losses = losses_np - initial_losses_np
 
         import sys
         print(f"Init Losses:  {[f'{x:.4f}' for x in initial_losses_np.tolist()]}", file=sys.stderr)
-        print(f"Final Losses: {[f'{x:.4f}' for x in losses.tolist()]}", file=sys.stderr)
+        print(f"Final Losses: {[f'{x:.4f}' for x in losses_np.tolist()]}", file=sys.stderr)
         print(f"Diff Losses:  {[f'{x:.4f}' for x in diff_losses.tolist()]}", file=sys.stderr)
         grasp_config = grasp_to_grasp_config(grasp=random_sampling_optimizer.grasps)
         grasp_config_dict = grasp_config.as_dict()

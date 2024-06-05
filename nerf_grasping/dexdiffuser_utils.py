@@ -111,7 +111,6 @@ import transforms3d
 from typing import Optional, Tuple, List, Literal
 from nerfstudio.models.base_model import Model
 from nerf_grasping.grasp_utils import load_nerf_pipeline
-from nerf_grasping.optimizer import get_optimized_grasps
 from nerf_grasping.optimizer_utils import (
     get_sorted_grasps_from_dict,
     GraspMetric,
@@ -307,9 +306,10 @@ def get_optimized_grasps(
     lb_N: np.ndarray,
     ub_N: np.ndarray,
     X_N_By: np.ndarray,
-    X_Oy_By: Optional[np.ndarray],
+    X_Oy_By: np.ndarray,
     ckpt_path: str | pathlib.Path,
     return_exactly_requested_num_grasps: bool = True,
+    PLOT: bool = False,
 ) -> dict:
     ckpt_path = pathlib.Path(ckpt_path)
 
@@ -351,7 +351,6 @@ def get_optimized_grasps(
     xT = torch.randn(NUM_GRASP_SAMPLES, config.data.grasp_dim, device=runner.device)
     x = runner.sample(xT=xT, cond=bps_values_repeated)
 
-    PLOT = False
     if PLOT:
         assert X_Oy_By is not None
         X_By_Oy = np.linalg.inv(X_Oy_By)
@@ -468,8 +467,13 @@ def get_optimized_grasps(
 
 @dataclass
 class CommandlineArgs:
+    output_folder: pathlib.Path
+    ckpt_path: pathlib.Path = pathlib.Path(
+        "/juno/u/tylerlum/github_repos/nerf_grasping/2024-06-03_ALBERT_DexDiffuser_models/ckpt_74000.pth"
+    )
     nerfdata_path: Optional[pathlib.Path] = None
     nerfcheckpoint_path: Optional[pathlib.Path] = None
+    num_grasps: int = 32
     max_num_iterations: int = 400
 
     def __post_init__(self) -> None:
@@ -538,11 +542,30 @@ def main() -> None:
     print(f"object_name = {object_name}")
     args.nerf_config = nerf_config
 
-    UNUSED_INIT_GRASP_CONFIG_DICT_PATH = pathlib.Path("/juno/u/tylerlum/github_repos/DexGraspNet/data/2024-06-03_FINAL_INFERENCE_GRASPS/good_nonoise_one_per_object/grasps.npy")
-    UNUSED_CLASSIFIER_CONFIG_PATH = pathlib.Path("/juno/u/tylerlum/github_repos/nerf_grasping/Train_DexGraspNet_NeRF_Grasp_Metric_workspaces/2024-06-02_nonoise_train_val_test_splits_cnn-3d-xyz-global-cnn-cropped_2024-06-02_16-57-36-630877/config.yaml")
+    nerf_centroid_N = compute_centroid_from_nerf(
+        nerf_model.field,
+        lb=np.array([-0.2, 0.0, -0.2]),
+        ub=np.array([0.2, 0.3, 0.2]),
+        level=15,
+        num_pts_x=100,
+        num_pts_y=100,
+        num_pts_z=100,
+    )
+    assert nerf_centroid_N.shape == (
+        3,
+    ), f"Expected shape (3,), got {nerf_centroid_N.shape}"
+    obj_y = nerf_centroid_N[1]
+    X_By_Oy = trimesh.transformations.translation_matrix([0, obj_y, 0])
+    X_Oy_By = np.linalg.inv(X_By_Oy)
+
+    UNUSED_INIT_GRASP_CONFIG_DICT_PATH = pathlib.Path(
+        "/juno/u/tylerlum/github_repos/DexGraspNet/data/2024-06-03_FINAL_INFERENCE_GRASPS/good_nonoise_one_per_object/grasps.npy"
+    )
+    UNUSED_CLASSIFIER_CONFIG_PATH = pathlib.Path(
+        "/juno/u/tylerlum/github_repos/nerf_grasping/Train_DexGraspNet_NeRF_Grasp_Metric_workspaces/2024-06-02_nonoise_train_val_test_splits_cnn-3d-xyz-global-cnn-cropped_2024-06-02_16-57-36-630877/config.yaml"
+    )
     UNUSED_X_N_Oy = np.eye(4)
     UNUSED_OUTPUT_PATH = pathlib.Path("UNUSED")
-    NUM_GRASPS = 10
     grasp_config_dict = get_optimized_grasps(
         cfg=OptimizationConfig(
             use_rich=False,  # Not used because causes issues with logging
@@ -553,7 +576,7 @@ def main() -> None:
                 X_N_Oy=UNUSED_X_N_Oy,
             ),  # This is not used
             optimizer=SGDOptimizerConfig(
-                num_grasps=NUM_GRASPS
+                num_grasps=args.num_grasps
             ),  # This optimizer is not used, but the num_grasps is used
             output_path=UNUSED_OUTPUT_PATH,
             random_seed=0,
@@ -565,13 +588,12 @@ def main() -> None:
         lb_N=np.array([-0.2, 0.0, -0.2]),
         ub_N=np.array([0.2, 0.3, 0.2]),
         X_N_By=np.eye(4),  # Same for sim nerfs
-        X_Oy_By=None,
-        ckpt_path="/juno/u/tylerlum/github_repos/nerf_grasping/2024-06-03_ALBERT_DexDiffuser_models/ckpt_74000.pth",
+        X_Oy_By=X_Oy_By,
+        ckpt_path=args.ckpt_path,
         return_exactly_requested_num_grasps=True,
     )
-    output_folder = pathlib.Path("/juno/u/tylerlum/github_repos/nerf_grasping/OUTPUT_FOLDER/grasp_config_dicts")
-    output_folder.mkdir(exist_ok=True, parents=True)
-    np.save(output_folder/f"{object_name}.npy", grasp_config_dict)
+    args.output_folder.mkdir(exist_ok=True, parents=True)
+    np.save(args.output_folder / f"{object_name}.npy", grasp_config_dict)
 
 
 if __name__ == "__main__":

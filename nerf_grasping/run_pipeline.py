@@ -68,7 +68,9 @@ class MultipleOutputs:
         # *** You may need to add PYTHONIOENCODING=utf-8 to your environment ***
         self.stdout = sys.stdout if stdout else None
         self.stderr = sys.stderr if stderr else None
-        self.file = open(filename, "a", encoding='utf-8') if filename is not None else None
+        self.file = (
+            open(filename, "a", encoding="utf-8") if filename is not None else None
+        )
 
     def write(self, message: str) -> None:
         if self.stdout is not None:
@@ -594,7 +596,9 @@ def run_curobo(
         robot_cfg, ik_solver, ik_solver2, motion_gen, motion_gen_config = (
             prepare_trajopt_batch(
                 n_grasps=n_grasps,
-                collision_check_object=True if not cfg.DEBUG_turn_off_object_collision else False,
+                collision_check_object=(
+                    True if not cfg.DEBUG_turn_off_object_collision else False
+                ),
                 obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
                 obj_xyz=obj_xyz,
                 obj_quat_wxyz=obj_quat_wxyz,
@@ -628,7 +632,9 @@ def run_curobo(
             lift_motion_gen_config,
         ) = prepare_trajopt_batch(
             n_grasps=n_grasps,
-            collision_check_object=True if not cfg.DEBUG_turn_off_object_collision else False,
+            collision_check_object=(
+                True if not cfg.DEBUG_turn_off_object_collision else False
+            ),
             obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
             obj_xyz=obj_xyz,
             obj_quat_wxyz=obj_quat_wxyz,
@@ -641,7 +647,9 @@ def run_curobo(
     print("Step 9: Solve motion gen for each grasp")
     print("=" * 80 + "\n")
     object_world_cfg = get_world_cfg(
-        collision_check_object=True if not cfg.DEBUG_turn_off_object_collision else False,
+        collision_check_object=(
+            True if not cfg.DEBUG_turn_off_object_collision else False
+        ),
         obj_filepath=pathlib.Path("/tmp/mesh_viz_object.obj"),
         obj_xyz=obj_xyz,
         obj_quat_wxyz=obj_quat_wxyz,
@@ -936,17 +944,9 @@ def run_curobo(
         list(set(overall_success_idxs).intersection(set(lift_overall_success_idxs)))
     )
 
-    print("\n" + "~" * 80)
     print(
         f"final_success_idxs: {final_success_idxs} ({len(final_success_idxs)} / {n_grasps} = {len(final_success_idxs) / n_grasps * 100:.2f}%)"
     )
-    if sorted_losses is not None:
-        assert sorted_losses.shape == (n_grasps,)
-        print(f"sorted_losses = {sorted_losses}")
-        print(
-            f"sorted_losses of successful grasps: {[sorted_losses[i] for i in final_success_idxs]}"
-        )
-    print("~" * 80 + "\n")
 
     # Adjust the lift qs to have the same hand position as the closing qs
     # We only want the arm position of the lift qs
@@ -1017,9 +1017,17 @@ def run_curobo(
     real_final_success_idxs = sorted(
         list(set(final_success_idxs).intersection(set(no_crazy_jumps_idxs)))
     )
+    print("\n" + "~" * 80)
     print(
         f"real_final_success_idxs: {real_final_success_idxs} ({len(real_final_success_idxs)} / {n_grasps} = {len(real_final_success_idxs) / n_grasps * 100:.2f}%)"
     )
+    if sorted_losses is not None:
+        assert sorted_losses.shape == (n_grasps,)
+        print(f"sorted_losses = {sorted_losses}")
+        print(
+            f"sorted_losses of successful grasps: {[sorted_losses[i] for i in real_final_success_idxs]}"
+        )
+    print("~" * 80 + "\n")
 
     DEBUG_TUPLE = (
         motion_gen_result,
@@ -1140,6 +1148,14 @@ def run_pipeline(
         "success_idxs": success_idxs,
         **log_dict,
     }
+
+    # Print this in green
+    print("+" * 80)
+    BEST_IDX = success_idxs[0]
+    print(
+        f"\033[92mFINAL LOSS OF GRASP TO BE EXECUTED: {sorted_losses[BEST_IDX]:.5f} (idx: {BEST_IDX})\033[0m"
+    )
+    print("+" * 80 + "\n")
 
     return q_trajs, qd_trajs, T_trajs, success_idxs, DEBUG_TUPLE, pipeline_log_dict
 
@@ -1382,7 +1398,9 @@ def main() -> None:
     robot_cfg, ik_solver, ik_solver2, motion_gen, motion_gen_config = (
         prepare_trajopt_batch(
             n_grasps=args.num_grasps,
-            collision_check_object=True if not args.DEBUG_turn_off_object_collision else False,
+            collision_check_object=(
+                True if not args.DEBUG_turn_off_object_collision else False
+            ),
             obj_filepath=pathlib.Path("/tmp/DUMMY.obj"),
             obj_xyz=FAR_AWAY_OBJ_XYZ,
             obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
@@ -1400,7 +1418,9 @@ def main() -> None:
         lift_motion_gen_config,
     ) = prepare_trajopt_batch(
         n_grasps=args.num_grasps,
-        collision_check_object=True if not args.DEBUG_turn_off_object_collision else False,
+        collision_check_object=(
+            True if not args.DEBUG_turn_off_object_collision else False
+        ),
         obj_filepath=pathlib.Path("/tmp/DUMMY.obj"),
         obj_xyz=FAR_AWAY_OBJ_XYZ,
         obj_quat_wxyz=(1.0, 0.0, 0.0, 0.0),

@@ -474,7 +474,7 @@ def get_optimized_grasps(
 class CommandlineArgs:
     output_folder: pathlib.Path
     ckpt_path: pathlib.Path = pathlib.Path(
-        "/juno/u/tylerlum/github_repos/nerf_grasping/2024-06-03_ALBERT_DexDiffuser_models/ckpt_74000.pth"
+        "/juno/u/tylerlum/github_repos/nerf_grasping/2024-06-03_ALBERT_DexDiffuser_models/ckpt_final.pth"
     )
     nerfdata_path: Optional[pathlib.Path] = None
     nerfcheckpoint_path: Optional[pathlib.Path] = None
@@ -600,6 +600,7 @@ def run_dexdiffuser_sim_eval(args: CommandlineArgs) -> None:
             n_random_rotations_per_grasp=0,
             eval_batch_size=0,
             wandb=None,
+            filter_less_feasible_grasps=False,  # Do not filter for sim
         ),
         nerf_pipeline=nerf_pipeline,
         lb_N=np.array([-0.2, 0.0, -0.2]),
@@ -608,7 +609,6 @@ def run_dexdiffuser_sim_eval(args: CommandlineArgs) -> None:
         X_Oy_By=X_Oy_By,
         ckpt_path=args.ckpt_path,
         return_exactly_requested_num_grasps=True,
-        filter_grasps=False,  # Do not filter for sim
     )
 
     np.save(output_file, grasp_config_dict)

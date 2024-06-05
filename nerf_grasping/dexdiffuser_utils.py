@@ -309,6 +309,7 @@ def get_optimized_grasps(
     X_Oy_By: np.ndarray,
     ckpt_path: str | pathlib.Path,
     return_exactly_requested_num_grasps: bool = True,
+    filter_grasps: bool = True,
     PLOT: bool = False,
 ) -> dict:
     ckpt_path = pathlib.Path(ckpt_path)
@@ -439,15 +440,19 @@ def get_optimized_grasps(
         joint_angles=torch.from_numpy(joint_angles).float().to(device),
         grasp_orientations=grasp_orientations,
     )
-    wrist_pose_matrix = grasp_configs.wrist_pose.matrix()
-    x_dirs = wrist_pose_matrix[:, :, 0]
-    z_dirs = wrist_pose_matrix[:, :, 2]
 
-    cos_theta = math.cos(math.radians(60))
-    fingers_forward = z_dirs[:, 0] >= cos_theta
-    palm_upwards = x_dirs[:, 1] >= cos_theta
-    grasp_configs = grasp_configs[fingers_forward & ~palm_upwards]
-    print(f"Filtered less feasible grasps. New batch size: {grasp_configs.batch_size}")
+    # Filter out in collision with table
+    if filter_grasps:
+        wrist_pose_matrix = grasp_configs.wrist_pose.matrix()
+        x_dirs = wrist_pose_matrix[:, :, 0]
+        z_dirs = wrist_pose_matrix[:, :, 2]
+
+        cos_theta = math.cos(math.radians(60))
+        fingers_forward = z_dirs[:, 0] >= cos_theta
+        palm_upwards = x_dirs[:, 1] >= cos_theta
+        grasp_configs = grasp_configs[fingers_forward & ~palm_upwards]
+        print(f"Filtered less feasible grasps. New batch size: {grasp_configs.batch_size}")
+
     if len(grasp_configs) < NUM_GRASPS:
         print(
             f"WARNING: After filtering, only {len(grasp_configs)} grasps remain, less than the requested {NUM_GRASPS} grasps"
@@ -475,6 +480,7 @@ class CommandlineArgs:
     nerfcheckpoint_path: Optional[pathlib.Path] = None
     num_grasps: int = 32
     max_num_iterations: int = 400
+    overwrite: bool = False
 
     def __post_init__(self) -> None:
         if self.nerfdata_path is not None and self.nerfcheckpoint_path is None:
@@ -498,8 +504,7 @@ class CommandlineArgs:
             )
 
 
-def main() -> None:
-    args = tyro.cli(CommandlineArgs)
+def run_dexdiffuser_sim_eval(args: CommandlineArgs) -> None:
     print("=" * 80)
     print(f"args: {args}")
     print("=" * 80 + "\n")
@@ -526,7 +531,7 @@ def main() -> None:
         object_name = args.nerfdata_path.name
     elif args.nerfcheckpoint_path is not None:
         start_time = time.time()
-        nerf_pipeline = load_nerf_pipeline(args.nerfcheckpoint_path, test_mode="test")
+        nerf_pipeline = load_nerf_pipeline(args.nerfcheckpoint_path, test_mode="test")  # Need this for point cloud
         nerf_model = nerf_pipeline.model
         nerf_config = args.nerfcheckpoint_path
         end_time = time.time()
@@ -542,6 +547,17 @@ def main() -> None:
     print(f"object_name = {object_name}")
     args.nerf_config = nerf_config
 
+    # Prepare output folder
+    args.output_folder.mkdir(exist_ok=True, parents=True)
+    output_file = args.output_folder / f"{object_name}.npy"
+    if output_file.exists():
+        if not args.overwrite:
+            print(f"{output_file} already exists, skipping")
+            return
+
+        print(f"{output_file} already exists, overwriting")
+
+    # Compute centroid
     nerf_centroid_N = compute_centroid_from_nerf(
         nerf_model.field,
         lb=np.array([-0.2, 0.0, -0.2]),
@@ -558,6 +574,7 @@ def main() -> None:
     X_By_Oy = trimesh.transformations.translation_matrix([0, obj_y, 0])
     X_Oy_By = np.linalg.inv(X_By_Oy)
 
+    # Get optimized grasps
     UNUSED_INIT_GRASP_CONFIG_DICT_PATH = pathlib.Path(
         "/juno/u/tylerlum/github_repos/DexGraspNet/data/2024-06-03_FINAL_INFERENCE_GRASPS/good_nonoise_one_per_object/grasps.npy"
     )
@@ -591,9 +608,15 @@ def main() -> None:
         X_Oy_By=X_Oy_By,
         ckpt_path=args.ckpt_path,
         return_exactly_requested_num_grasps=True,
+        filter_grasps=False,  # Do not filter for sim
     )
-    args.output_folder.mkdir(exist_ok=True, parents=True)
-    np.save(args.output_folder / f"{object_name}.npy", grasp_config_dict)
+
+    np.save(output_file, grasp_config_dict)
+
+
+def main() -> None:
+    args = tyro.cli(CommandlineArgs)
+    run_dexdiffuser_sim_eval(args)
 
 
 if __name__ == "__main__":

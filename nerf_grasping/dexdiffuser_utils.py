@@ -380,15 +380,19 @@ def get_optimized_grasps(
         joint_angles=torch.from_numpy(joint_angles).float().to(device),
         grasp_orientations=grasp_orientations,
     )
-    wrist_pose_matrix = grasp_configs.wrist_pose.matrix()
-    x_dirs = wrist_pose_matrix[:, :, 0]
-    z_dirs = wrist_pose_matrix[:, :, 2]
 
-    cos_theta = math.cos(math.radians(60))
-    fingers_forward = z_dirs[:, 0] >= cos_theta
-    palm_upwards = x_dirs[:, 1] >= cos_theta
-    grasp_configs = grasp_configs[fingers_forward & ~palm_upwards]
-    print(f"Filtered less feasible grasps. New batch size: {grasp_configs.batch_size}")
+    if cfg.filter_less_feasible_grasps:
+        wrist_pose_matrix = grasp_configs.wrist_pose.matrix()
+        x_dirs = wrist_pose_matrix[:, :, 0]
+        z_dirs = wrist_pose_matrix[:, :, 2]
+
+        fingers_forward_cos_theta = math.cos(math.radians(cfg.fingers_forward_theta_deg))
+        palm_upwards_cos_theta = math.cos(math.radians(cfg.palm_upwards_theta_deg))
+        fingers_forward = z_dirs[:, 0] >= fingers_forward_cos_theta
+        palm_upwards = x_dirs[:, 1] >= palm_upwards_cos_theta
+        grasp_configs = grasp_configs[fingers_forward & ~palm_upwards]
+        print(f"Filtered less feasible grasps. New batch size: {grasp_configs.batch_size}")
+
     if len(grasp_configs) < NUM_GRASPS:
         print(
             f"WARNING: After filtering, only {len(grasp_configs)} grasps remain, less than the requested {NUM_GRASPS} grasps"

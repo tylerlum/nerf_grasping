@@ -42,6 +42,8 @@ class OptimizationConfig:
     random_seed: Optional[int] = None
     n_random_rotations_per_grasp: int = 5
     filter_less_feasible_grasps: bool = True
+    fingers_forward_theta_deg: float = 60.0
+    palm_upwards_theta_deg: float = 60.0
 
     def __post_init__(self):
         """

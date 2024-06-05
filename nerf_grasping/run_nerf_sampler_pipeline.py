@@ -77,6 +77,7 @@ def compute_nerf_sampler_grasps(
     cfg: PipelineConfig,
     ckpt_path: str | pathlib.Path,
     optimize: bool,
+    sample_grasps_multiplier: int,
 ) -> Tuple[
     np.ndarray,
     np.ndarray,
@@ -278,6 +279,7 @@ def compute_nerf_sampler_grasps(
         X_N_Oy=X_N_Oy,
         ckpt_path=ckpt_path,
         return_exactly_requested_num_grasps=return_exactly_requested_num_grasps,
+        sample_grasps_multiplier=sample_grasps_multiplier,
     )
 
     if optimize:
@@ -442,6 +444,7 @@ def run_nerf_sampler_pipeline(
     q_algr: np.ndarray,
     ckpt_path: str | pathlib.Path,
     optimize: bool,
+    sample_grasps_multiplier: int,
     robot_cfg: Optional[RobotConfig] = None,
     ik_solver: Optional[IKSolver] = None,
     ik_solver2: Optional[IKSolver] = None,
@@ -467,7 +470,7 @@ def run_nerf_sampler_pipeline(
         mesh_W,
         X_N_Oy,
         sorted_losses,
-    ) = compute_nerf_sampler_grasps(nerf_model=nerf_model, cfg=cfg, ckpt_path=ckpt_path, optimize=optimize)
+    ) = compute_nerf_sampler_grasps(nerf_model=nerf_model, cfg=cfg, ckpt_path=ckpt_path, optimize=optimize, sample_grasps_multiplier=sample_grasps_multiplier)
     compute_grasps_time = time.time()
     print("@" * 80)
     print(f"Time to compute_grasps: {compute_grasps_time - start_time:.2f}s")
@@ -610,6 +613,7 @@ def main() -> None:
         q_algr=DEFAULT_Q_ALGR,
         ckpt_path="/juno/u/tylerlum/github_repos/nerf_grasping/2024-06-03_ALBERT_NERF_SAMPLER_V1/ckpt_740900.pth",
         optimize=True,
+        sample_grasps_multiplier=10,
         robot_cfg=robot_cfg,
         ik_solver=ik_solver,
         ik_solver2=ik_solver2,

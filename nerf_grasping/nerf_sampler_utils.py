@@ -267,6 +267,7 @@ def get_optimized_grasps(
     X_N_Oy: np.ndarray,
     ckpt_path: str,
     return_exactly_requested_num_grasps: bool = True,
+    sample_grasps_multiplier: int = 10,
 ) -> dict:
     ckpt_path = pathlib.Path(ckpt_path)
 
@@ -426,24 +427,55 @@ def get_optimized_grasps(
     )
 
     # We sample more grasps than needed to account for filtering
-    NUM_GRASP_SAMPLES = 10 * NUM_GRASPS
-    nerf_densities_global_with_coords_repeated = (
-        nerf_densities_global_with_coords.unsqueeze(0).repeat(
-            NUM_GRASP_SAMPLES, 1, 1, 1, 1
+    NUM_GRASP_SAMPLES = sample_grasps_multiplier * NUM_GRASPS
+    MAX_BATCH_SIZE = 400
+    if NUM_GRASP_SAMPLES > MAX_BATCH_SIZE:
+        nerf_densities_global_with_coords_repeated = (
+            nerf_densities_global_with_coords.unsqueeze(0).repeat(
+                MAX_BATCH_SIZE, 1, 1, 1, 1
+            )
         )
-    )
 
-    assert nerf_densities_global_with_coords_repeated.shape == (
-        NUM_GRASP_SAMPLES,
-        4,
-        NERF_DENSITIES_GLOBAL_NUM_X_CROPPED,
-        NERF_DENSITIES_GLOBAL_NUM_Y_CROPPED,
-        NERF_DENSITIES_GLOBAL_NUM_Z_CROPPED,
-    ), f"Expected shape ({NUM_GRASP_SAMPLES}, 4, {NERF_DENSITIES_GLOBAL_NUM_X_CROPPED}, {NERF_DENSITIES_GLOBAL_NUM_Y_CROPPED}, {NERF_DENSITIES_GLOBAL_NUM_Z_CROPPED}), got {nerf_densities_global_with_coords_repeated.shape}"
+        assert nerf_densities_global_with_coords_repeated.shape == (
+            MAX_BATCH_SIZE,
+            4,
+            NERF_DENSITIES_GLOBAL_NUM_X_CROPPED,
+            NERF_DENSITIES_GLOBAL_NUM_Y_CROPPED,
+            NERF_DENSITIES_GLOBAL_NUM_Z_CROPPED,
+        ), f"Expected shape ({MAX_BATCH_SIZE}, 4, {NERF_DENSITIES_GLOBAL_NUM_X_CROPPED}, {NERF_DENSITIES_GLOBAL_NUM_Y_CROPPED}, {NERF_DENSITIES_GLOBAL_NUM_Z_CROPPED}), got {nerf_densities_global_with_coords_repeated.shape}"
 
-    # Sample grasps
-    xT = torch.randn(NUM_GRASP_SAMPLES, config.data.grasp_dim, device=runner.device)
-    x = runner.sample(xT=xT, cond=nerf_densities_global_with_coords_repeated)
+        n_batches = int(math.ceil(NUM_GRASP_SAMPLES / MAX_BATCH_SIZE))
+        x_list = []
+        for i in range(n_batches):
+            start_idx = i * MAX_BATCH_SIZE
+            end_idx = min((i + 1) * MAX_BATCH_SIZE, NUM_GRASP_SAMPLES)
+            num_samples = end_idx - start_idx
+
+            xT = torch.randn(num_samples, config.data.grasp_dim, device=runner.device)
+            x = runner.sample(
+                xT=xT,
+                cond=nerf_densities_global_with_coords_repeated[:num_samples],
+            ).cpu()
+            x_list.append(x)
+        x = torch.cat(x_list, dim=0)
+    else:
+        nerf_densities_global_with_coords_repeated = (
+            nerf_densities_global_with_coords.unsqueeze(0).repeat(
+                NUM_GRASP_SAMPLES, 1, 1, 1, 1
+            )
+        )
+
+        assert nerf_densities_global_with_coords_repeated.shape == (
+            NUM_GRASP_SAMPLES,
+            4,
+            NERF_DENSITIES_GLOBAL_NUM_X_CROPPED,
+            NERF_DENSITIES_GLOBAL_NUM_Y_CROPPED,
+            NERF_DENSITIES_GLOBAL_NUM_Z_CROPPED,
+        ), f"Expected shape ({NUM_GRASP_SAMPLES}, 4, {NERF_DENSITIES_GLOBAL_NUM_X_CROPPED}, {NERF_DENSITIES_GLOBAL_NUM_Y_CROPPED}, {NERF_DENSITIES_GLOBAL_NUM_Z_CROPPED}), got {nerf_densities_global_with_coords_repeated.shape}"
+
+        # Sample grasps
+        xT = torch.randn(NUM_GRASP_SAMPLES, config.data.grasp_dim, device=runner.device)
+        x = runner.sample(xT=xT, cond=nerf_densities_global_with_coords_repeated)
 
     PLOT = False
     if PLOT:

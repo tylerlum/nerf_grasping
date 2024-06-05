@@ -250,6 +250,7 @@ def get_optimized_grasps(
     X_Oy_By: np.ndarray,
     ckpt_path: str | pathlib.Path,
     return_exactly_requested_num_grasps: bool = True,
+    sample_grasps_multiplier: int = 10,
 ) -> dict:
     ckpt_path = pathlib.Path(ckpt_path)
 
@@ -277,7 +278,7 @@ def get_optimized_grasps(
     ), f"Expected shape ({N_BASIS_PTS},), got {bps_values.shape}"
 
     # We sample more grasps than needed to account for filtering
-    NUM_GRASP_SAMPLES = 10 * NUM_GRASPS
+    NUM_GRASP_SAMPLES = sample_grasps_multiplier * NUM_GRASPS
     bps_values_repeated = torch.from_numpy(bps_values).float().to(device)
     bps_values_repeated = bps_values_repeated.unsqueeze(dim=0).repeat(
         NUM_GRASP_SAMPLES, 1

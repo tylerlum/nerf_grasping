@@ -647,9 +647,7 @@ def get_optimized_grasps(
     if pathlib.Path(ckpt_path).exists():
         dex_evaluator.load_state_dict(torch.load(ckpt_path, map_location=device))
     else:
-        print("=" * 80)
-        print(f"WARNING: {ckpt_path} does not exist. Using random weights.")
-        print("=" * 80)
+        raise FileNotFoundError(f"{ckpt_path} does not exist")
 
     # Get BPS
     bps_values, _, _ = nerf_to_bps(
@@ -663,9 +661,10 @@ def get_optimized_grasps(
     ), f"Expected shape ({N_BASIS_PTS},), got {bps_values.shape}"
 
     bps_values_repeated = torch.from_numpy(bps_values).float().to(device)
-    bps_values_repeated = bps_values_repeated.unsqueeze(dim=0).repeat(BATCH_SIZE, 1)
+    num_repeats = max(BATCH_SIZE, cfg.optimizer.num_grasps)
+    bps_values_repeated = bps_values_repeated.unsqueeze(dim=0).repeat(num_repeats, 1)
     assert bps_values_repeated.shape == (
-        BATCH_SIZE,
+        num_repeats,
         N_BASIS_PTS,
     ), f"bps_values_repeated.shape = {bps_values_repeated.shape}"
 
@@ -828,7 +827,7 @@ def get_optimized_grasps(
         assert g_O.shape == (cfg.optimizer.num_grasps, 3 + 6 + 16 + 12)
 
         random_sampling_optimizer = RandomSamplingOptimizer(
-            dex_evaluator=dex_evaluator, bps=bps_values_repeated, init_grasps=g_O
+            dex_evaluator=dex_evaluator, bps=bps_values_repeated[:cfg.optimizer.num_grasps], init_grasps=g_O
         )
         N_STEPS = cfg.optimizer.num_steps
 

@@ -699,7 +699,7 @@ def main() -> None:
         optimize=True,
         sample_grasps_multiplier=100,
         use_bps_evaluator=False,
-        bps_evaluator_ckpt_path="/home/albert/research/nerf_grasping/nerf_grasping/dexdiffuser/logs/dexdiffuser_evaluator/20240602_165946/ckpt-p9u7vl8l-step-0.pth",
+        bps_evaluator_ckpt_path="/juno/u/tylerlum/github_repos/nerf_grasping/2024-06-03_ALBERT_DexEvaluator_models/ckpt_yp920sn0_final.pth",
         robot_cfg=robot_cfg,
         ik_solver=ik_solver,
         ik_solver2=ik_solver2,

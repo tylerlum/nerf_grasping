@@ -1,6 +1,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
+from matplotlib.ticker import FuncFormatter, StrMethodFormatter
 
 # Success data from the table
 easy_data = {
@@ -55,22 +56,20 @@ sns.set(style="darkgrid")
 
 fig, ax = plt.subplots(figsize=(24, 4))  # Adjusted size for shorter and wider aspect ratio
 
-# Set font size
-plt.rcParams.update({'font.size': 20})
-
 # Plotting each method
 rects1 = ax.bar(x - width, success_rates['Frogger (Analytic/Mesh)'], width, label='Frogger (Analytic/Mesh)')
 rects2 = ax.bar(x, success_rates['DexDiffuser (Generative/BPS)'], width, label='DexDiffuser (Generative/BPS)')
 rects3 = ax.bar(x + width, success_rates['Get a Grip (Ours)'], width, label='Get a Grip (Ours)')
 
 # Add some text for labels, title and custom x-axis tick labels, etc.
-ax.set_xlabel('Object Difficulties')
-ax.set_ylabel('Success Rate')
-ax.set_title('Success Rate on Hardware')
+ax.set_xlabel('Object Difficulties', fontsize=24)
+ax.set_ylabel('Success Rate', fontsize=24)
+ax.set_title('Success Rate on Hardware', fontsize=28)
 ax.set_xticks(x)
-ax.set_xticklabels(object_difficulties)
+ax.set_xticklabels(object_difficulties, fontsize=20)
+ax.set_yticklabels(np.arange(0, 1.1, step=0.1), fontsize=20)
 ax.set_ylim(0, 1)
-ax.legend()
+ax.legend(fontsize=20)
 
 # Adding values on top of the bars
 def add_labels(rects):
@@ -80,11 +79,18 @@ def add_labels(rects):
                     xy=(rect.get_x() + rect.get_width() / 2, height),
                     xytext=(0, 3),  # 3 points vertical offset
                     textcoords="offset points",
-                    ha='center', va='bottom')
+                    ha='center', va='bottom', fontsize=20)
 
 add_labels(rects1)
 add_labels(rects2)
 add_labels(rects3)
+
+def format_func(value, tick_number):
+    return f"{value:.1f}"
+
+plt.gca().yaxis.set_major_formatter(
+    FuncFormatter(format_func)
+)  # 1 decimal place
 
 # Save the adjusted plot to a PDF file with 300 dpi and tight layout
 fig.savefig('Success_Rate_on_Hardware_Three_Methods.pdf', dpi=300, bbox_inches='tight')

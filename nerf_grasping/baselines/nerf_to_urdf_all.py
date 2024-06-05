@@ -24,8 +24,7 @@ def print_and_run(cmd: str) -> None:
     subprocess.run(cmd, shell=True)
 
 
-def main() -> None:
-    args = tyro.cli(Args)
+def nerf_to_urdf_all(args: Args) -> None:
     print("=" * 80)
     print(f"{pathlib.Path(__file__).name} args: {args}")
     print("=" * 80 + "\n")
@@ -33,8 +32,14 @@ def main() -> None:
     assert (
         args.nerfcheckpoints_path.exists()
     ), f"{args.nerfcheckpoints_path} does not exist"
-    nerf_configs = get_nerf_configs(args.nerfcheckpoints_path)
-    for nerf_config in tqdm(nerf_configs):
+    object_nerfcheckpoint_folders = sorted(
+        x
+        for x in args.nerfcheckpoints_path.iterdir()
+    )
+    for object_nerfcheckpoint_folder in tqdm(
+        object_nerfcheckpoint_folders, desc="object_nerfcheckpoint_folders"
+    ):
+        nerf_config = get_nerf_configs(object_nerfcheckpoint_folder)[-1]
         command = " ".join(
             [
                 "python nerf_grasping/baselines/nerf_to_urdf.py",
@@ -49,6 +54,9 @@ def main() -> None:
         )
         print_and_run(command)
 
+def main() -> None:
+    args = tyro.cli(Args)
+    nerf_to_urdf_all(args)
 
 if __name__ == "__main__":
     main()

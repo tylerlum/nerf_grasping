@@ -97,8 +97,7 @@ def parse_object_code_and_scale(object_code_and_scale_str: str) -> Tuple[str, fl
     return object_code, object_scale
 
 
-def main() -> None:
-    args = tyro.cli(Args)
+def nerf_to_urdf(args: Args) -> tuple[pathlib.Path, pathlib.Path]:
     print("=" * 80)
     print(f"{pathlib.Path(__file__).name} args: {args}")
     print("=" * 80 + "\n")
@@ -128,6 +127,9 @@ def main() -> None:
     #         ├── coacd.urdf
     #         └── decomposed.obj
     output_folder = args.output_dir_path / object_code / "coacd"
+    if output_folder.exists():
+        print(f"WARNING: {output_folder} already exists, skipping")
+        return output_folder / "decomposed.obj", output_folder / "coacd.urdf"
     output_folder.mkdir(exist_ok=False, parents=True)
 
     obj_path = output_folder / "decomposed.obj"
@@ -148,6 +150,12 @@ def main() -> None:
     assert urdf_path.exists(), f"{urdf_path} does not exist"
     assert obj_path.exists(), f"{obj_path} does not exist"
     print(f"Created {urdf_path} and {obj_path}")
+    return obj_path, urdf_path
+
+
+def main() -> None:
+    args = tyro.cli(Args)
+    nerf_to_urdf(args)
 
 
 if __name__ == "__main__":

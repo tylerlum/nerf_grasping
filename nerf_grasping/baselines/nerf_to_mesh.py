@@ -64,6 +64,7 @@ def nerf_to_mesh(
     min_len: Optional[float] = 200,  # Default 200 to get rid of floaters
     flip_faces: bool = True,
     save_path: Optional[Path] = None,
+    only_largest_component: bool = False,
 ) -> trimesh.Trimesh:
     """Takes a nerfstudio pipeline field and plots or saves a mesh.
 
@@ -88,6 +89,8 @@ def nerf_to_mesh(
         (it appears that the faces are flipped inside out by default)
     save_path : Optional[Path], default=None
         The save path. If None, shows a plot instead.
+    only_largest_component : bool, default=False
+        Whether to keep only the largest component.
 
     Returns
     -------
@@ -113,8 +116,7 @@ def nerf_to_mesh(
     mesh.apply_transform(trimesh.transformations.scale_matrix(scale))
     if min_len is not None:
         cc = trimesh.graph.connected_components(mesh.face_adjacency, min_len=min_len)
-        ONLY_LARGEST_COMPONENT = False
-        if ONLY_LARGEST_COMPONENT:
+        if only_largest_component:
             # Identify the largest component by the number of faces
             largest_component = max(cc, key=len)
 
@@ -128,8 +130,11 @@ def nerf_to_mesh(
 
         else:
             mask = np.zeros(len(mesh.faces), dtype=bool)
-            mask[np.concatenate(cc)] = True
-            mesh.update_faces(mask)
+            if len(cc) > 1:
+                mask[np.concatenate(cc)] = True
+                mesh.update_faces(mask)
+            else:
+                print("Only one component found, not removing any faces")
 
     # saving/visualizing
     if save_path is None:

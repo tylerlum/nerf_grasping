@@ -48,8 +48,11 @@ def main() -> None:
             nerfcheckpoints_path=args.nerfcheckpoints_path,
             nerf_is_z_up=False,
             density_of_0_level_set=15.0,
+            min_num_edges=50,
             rescale=True,
             output_dir_path=nerf_to_mesh_folder,
+            add_1cm_vertical_offset=True,
+            only_largest_component=True,
         ),
     )
 

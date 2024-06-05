@@ -17,6 +17,8 @@ class Args:
     rescale: bool = True
     min_num_edges: Optional[int] = 200
     output_dir_path: pathlib.Path = pathlib.Path(__file__).parent / "nerf_meshdata"
+    add_1cm_vertical_offset: bool = False
+    only_largest_component: bool = False
 
 
 def print_and_run(cmd: str) -> None:
@@ -50,6 +52,8 @@ def nerf_to_urdf_all(args: Args) -> None:
                 "--rescale" if args.rescale else "--no-rescale",
                 f"--min-num-edges {args.min_num_edges}",
                 f"--output-dir-path {str(args.output_dir_path)}",
+                "--add-1cm-vertical-offset" if args.add_1cm_vertical_offset else "",
+                "--only-largest-component" if args.only_largest_component else "",
             ]
         )
         print_and_run(command)

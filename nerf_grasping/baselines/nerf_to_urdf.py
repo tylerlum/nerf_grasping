@@ -19,13 +19,16 @@ class Args:
     rescale: bool = True
     min_num_edges: Optional[int] = 200
     output_dir_path: pathlib.Path = pathlib.Path(__file__).parent / "nerf_meshdata"
+    add_1cm_vertical_offset: bool = False
+    only_largest_component: bool = False
 
     @property
     def lb(self) -> np.ndarray:
+        min_height = 0.01 if self.add_1cm_vertical_offset else 0.0
         if self.nerf_is_z_up:
-            return np.array([-0.2, -0.2, 0.01])
+            return np.array([-0.2, -0.2, min_height])
         else:
-            return np.array([-0.2, 0.01, -0.2])
+            return np.array([-0.2, min_height, -0.2])
 
     @property
     def ub(self) -> np.ndarray:
@@ -143,6 +146,7 @@ def nerf_to_urdf(args: Args) -> tuple[pathlib.Path, pathlib.Path]:
         scale=scale,
         min_len=args.min_num_edges,
         save_path=obj_path,
+        only_largest_component=args.only_largest_component,
     )
 
     urdf_path = create_urdf(obj_path=obj_path, output_urdf_filename="coacd.urdf")

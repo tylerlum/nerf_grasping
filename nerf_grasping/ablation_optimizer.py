@@ -1,4 +1,5 @@
 from nerf_grasping.dexdiffuser.dex_evaluator import DexEvaluator
+import pypose as pp
 from nerf_grasping.optimizer_utils import (
     get_joint_limits,
 )
@@ -14,7 +15,7 @@ class RandomSamplingOptimizer:
         self.grasps = init_grasps
 
         self.trans_noise = 0.005
-        self.rot6d_noise = 0.05
+        self.rot_noise = 0.05
         self.joint_angle_noise = 0.01
         self.grasp_orientation_noise = 0.05
 
@@ -51,28 +52,78 @@ class RandomSamplingOptimizer:
             return updated_losses
 
     def add_noise(self, grasps):
+        B = grasps.shape[0]
+        N_FINGERS = 4
         xyz_noise = torch.randn_like(grasps[:, :3]) * self.trans_noise
-        rot6d_noise = torch.randn_like(grasps[:, 3:9]) * self.rot6d_noise
+        rot_noise = (pp.randn_so3(B) * self.rot_noise).Exp().to(device=grasps.device)
         joint_noise = torch.randn_like(grasps[:, 9:25]) * self.joint_angle_noise
-        grasp_dirs_noise = (
-            torch.randn_like(grasps[:, 25:37]) * self.grasp_orientation_noise
+        grasp_orientation_perturbations = (
+            (pp.randn_so3((B, N_FINGERS)) * self.grasp_orientation_noise)
+            .Exp()
+            .to(device=grasps.device)
         )
 
         new_xyz = grasps[:, :3] + xyz_noise
-        new_rot6d = (grasps[:, 3:9] + rot6d_noise).reshape(-1, 3, 2)
+        new_rot6d = self.add_noise_to_rot6d(grasps[:, 3:9].reshape(B, 3, 2), rot_noise)
         new_joint = self.clip_joint_angles(grasps[:, 9:25] + joint_noise)
-        new_grasp_dirs = grasps[:, 25:37] + grasp_dirs_noise
+        new_grasp_dirs = self.add_noise_to_grasp_dirs(
+            grasps[:, 25:37].reshape(B, N_FINGERS, 3), grasp_orientation_perturbations
+        )
 
-        new_rot6d = self.orthogonalize_rot6d(new_rot6d).reshape(-1, 6)
-        new_grasp_dirs = new_grasp_dirs.reshape(-1, 4, 3)
-        new_grasp_dirs = (
-            new_grasp_dirs / torch.norm(new_grasp_dirs, dim=-1, keepdim=True)
-        ).reshape(-1, 12)
-
-        new_grasp = torch.cat([new_xyz, new_rot6d, new_joint, new_grasp_dirs], dim=-1)
+        new_grasp = torch.cat(
+            [
+                new_xyz,
+                new_rot6d.reshape(B, 6),
+                new_joint,
+                new_grasp_dirs.reshape(B, N_FINGERS * 3),
+            ],
+            dim=-1,
+        )
         assert new_grasp.shape == grasps.shape, f"{new_grasp.shape} != {grasps.shape}"
 
         return new_grasp
+
+    def add_noise_to_rot6d(
+        self, rot6d: torch.Tensor, rot_noise: pp.SO3
+    ) -> torch.Tensor:
+        B = rot6d.shape[0]
+        assert rot6d.shape == (B, 3, 2)
+        assert rot_noise.lshape == (B,)
+
+        rot = self.rot6d_to_rot(rot6d)
+        rot_pp = pp.from_matrix(rot, pp.SO3_type)
+        new_rot = (rot_noise @ rot_pp).matrix()
+
+        new_rot6d = new_rot[..., :2]
+        assert new_rot6d.shape == (B, 3, 2)
+        return new_rot6d
+
+    def add_noise_to_grasp_dirs(
+        self, grasp_dirs: torch.Tensor, grasp_orientation_perturbations: pp.SO3
+    ) -> torch.Tensor:
+        B = grasp_dirs.shape[0]
+        N_FINGERS = 4
+        assert grasp_dirs.shape == (B, N_FINGERS, 3)
+        assert grasp_orientation_perturbations.lshape == (B, N_FINGERS)
+
+        new_grasp_dirs = grasp_orientation_perturbations @ grasp_dirs
+        new_grasp_dirs = new_grasp_dirs / torch.norm(
+            new_grasp_dirs, dim=-1, keepdim=True
+        )
+        return new_grasp_dirs
+
+    def rot6d_to_rot(self, rot6d: torch.Tensor) -> torch.Tensor:
+        B = rot6d.shape[0]
+        assert rot6d.shape == (B, 3, 2)
+
+        rot6d = self.orthogonalize_rot6d(rot6d)
+
+        x_col = rot6d[..., 0]
+        y_col = rot6d[..., 1]
+        z_col = torch.cross(x_col, y_col, dim=-1)
+        rot = torch.stack([x_col, y_col, z_col], dim=-1)
+        assert rot.shape == (B, 3, 3)
+        return rot
 
     def orthogonalize_rot6d(self, rot6d: torch.Tensor) -> torch.Tensor:
         B = rot6d.shape[0]
@@ -83,7 +134,8 @@ class RandomSamplingOptimizer:
         y_col = _y_col - torch.sum(_y_col * x_col, dim=-1, keepdim=True) * x_col
         y_col = y_col / torch.norm(y_col, dim=-1, keepdim=True)
 
-        new_rot6d = torch.cat([x_col, y_col], dim=-1)
+        new_rot6d = torch.stack([x_col, y_col], dim=-1)
+        assert new_rot6d.shape == (B, 3, 2)
         return new_rot6d
 
     def clip_joint_angles(self, joint_angles: torch.Tensor) -> torch.Tensor:

@@ -830,7 +830,7 @@ def get_optimized_grasps(
         random_sampling_optimizer = RandomSamplingOptimizer(
             dex_evaluator=dex_evaluator, bps=bps_values_repeated, init_grasps=g_O
         )
-        N_STEPS = 10
+        N_STEPS = cfg.optimizer.num_steps
         for i in range(N_STEPS):
             losses = random_sampling_optimizer.step()
 

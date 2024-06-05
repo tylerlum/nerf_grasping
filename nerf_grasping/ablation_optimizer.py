@@ -22,10 +22,10 @@ class RandomSamplingOptimizer:
         self.bps = bps
         self.grasps = init_grasps
 
-        self.trans_noise = 0.005 / 2
-        self.rot6d_noise = 0.025
+        self.trans_noise = 0.005
+        self.rot6d_noise = 0.05
         self.joint_angle_noise = 0.01
-        self.grasp_orientation_noise = 0.0
+        self.grasp_orientation_noise = 0.05
 
         joint_lower_limits, joint_upper_limits = get_joint_limits()
         self.joint_lower_limits, self.joint_upper_limits = torch.from_numpy(

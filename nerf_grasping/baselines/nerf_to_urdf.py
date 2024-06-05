@@ -23,9 +23,9 @@ class Args:
     @property
     def lb(self) -> np.ndarray:
         if self.nerf_is_z_up:
-            return np.array([-0.2, -0.2, 0.0])
+            return np.array([-0.2, -0.2, 0.01])
         else:
-            return np.array([-0.2, 0.0, -0.2])
+            return np.array([-0.2, 0.01, -0.2])
 
     @property
     def ub(self) -> np.ndarray:

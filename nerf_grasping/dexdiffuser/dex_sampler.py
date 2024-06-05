@@ -231,6 +231,7 @@ class NerfSampler(nn.Module):
         d_model: int,
         virtual_seq_len: int,
         conv_channels: tuple[int, ...],
+        HACK_MODE_FOR_PERFORMANCE: bool = False,
     ) -> None:
         super().__init__()
         self.global_grid_shape = global_grid_shape
@@ -240,6 +241,7 @@ class NerfSampler(nn.Module):
         self.grasp_dim = grasp_dim
         self.d_model = d_model
         self.virtual_seq_len = virtual_seq_len
+        self.HACK_MODE_FOR_PERFORMANCE = HACK_MODE_FOR_PERFORMANCE
         S = virtual_seq_len
 
         # Grasp self attention
@@ -307,7 +309,18 @@ class NerfSampler(nn.Module):
         ), f"Expected shape ({S}, {B}, {self.d_model}), got {ca_query.shape}"
 
         # Grasp-BPS cross attention
-        f_O = self.conv(f_O)
+        if self.HACK_MODE_FOR_PERFORMANCE:
+            print("HACK_MODE_FOR_PERFORMANCE")
+            if not hasattr(self, "HACK_STORED_f_O"):
+                f_O = self.conv(f_O)
+                self.HACK_STORED_f_O = f_O
+            else:
+                f_O = self.HACK_STORED_f_O
+                assert f_O.shape[0] <= B, f"Expected batch size <= {B}, got {f_O}"
+                f_O = f_O[:B]
+        else:
+            f_O = self.conv(f_O)
+
         assert f_O.shape == (
             B,
             self.conv_output_dim,

@@ -281,6 +281,7 @@ def get_optimized_grasps(
     )
     runner = Diffusion(config, load_multigpu_ckpt=True)
     runner.load_checkpoint(config, name=ckpt_path.stem)
+    runner.model.HACK_MODE_FOR_PERFORMANCE = True  # Big hack to speed up from sampling wasting dumb compute
     device = runner.device
 
     # Get nerf densities global cropped

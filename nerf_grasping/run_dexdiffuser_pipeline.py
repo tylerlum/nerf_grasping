@@ -623,7 +623,7 @@ def main() -> None:
         q_algr=DEFAULT_Q_ALGR,
         ckpt_path="/juno/u/tylerlum/github_repos/nerf_grasping/2024-06-03_ALBERT_DexDiffuser_models/ckpt_74000.pth",
         optimize=True,
-        sample_grasps_multiplier=10,
+        sample_grasps_multiplier=100,
         robot_cfg=robot_cfg,
         ik_solver=ik_solver,
         ik_solver2=ik_solver2,

@@ -1,19 +1,10 @@
-# %%
 from nerf_grasping.dexdiffuser.dex_evaluator import DexEvaluator
 from nerf_grasping.optimizer_utils import (
     get_joint_limits,
 )
 import torch
 
-# %%
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-dex_evaluator = DexEvaluator(in_grasp=37, in_bps=4096).to(device)
-dex_evaluator.eval()
-bps = torch.zeros(2, 4096).to(device)
-init_grasps = torch.randn(2, 37).to(device)
 
-
-# %%
 class RandomSamplingOptimizer:
     def __init__(
         self, dex_evaluator: DexEvaluator, bps: torch.Tensor, init_grasps: torch.Tensor
@@ -106,22 +97,25 @@ class RandomSamplingOptimizer:
         return joint_angles
 
 
-# %%
+def main() -> None:
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    dex_evaluator = DexEvaluator(in_grasp=37, in_bps=4096).to(device)
+    dex_evaluator.eval()
+    bps = torch.zeros(2, 4096).to(device)
+    init_grasps = torch.randn(2, 37).to(device)
 
-random_samping_optimizer = RandomSamplingOptimizer(
-    dex_evaluator=dex_evaluator, bps=bps, init_grasps=init_grasps
-)
+    random_samping_optimizer = RandomSamplingOptimizer(
+        dex_evaluator=dex_evaluator, bps=bps, init_grasps=init_grasps
+    )
 
-# %%
-losses_list = []
-for i in range(10):
-    losses_list.append(random_samping_optimizer.step().tolist())
+    losses_list = []
+    for i in range(10):
+        losses_list.append(random_samping_optimizer.step().tolist())
 
-# %%
-random_samping_optimizer.grasps
-# %%
-for losses in losses_list:
-    print(f"{losses}")
+    random_samping_optimizer.grasps
+    for losses in losses_list:
+        print(f"{losses}")
 
 
-# %%
+if __name__ == "__main__":
+    main()

@@ -26,16 +26,16 @@ class Args:
     def lb(self) -> np.ndarray:
         min_height = 0.01 if self.add_1cm_vertical_offset else 0.0
         if self.nerf_is_z_up:
-            return np.array([-0.2, -0.2, min_height])
+            return np.array([-0.1, -0.1, min_height])
         else:
-            return np.array([-0.2, min_height, -0.2])
+            return np.array([-0.1, min_height, -0.1])
 
     @property
     def ub(self) -> np.ndarray:
         if self.nerf_is_z_up:
-            return np.array([0.2, 0.2, 0.3])
+            return np.array([0.1, 0.1, 0.3])
         else:
-            return np.array([0.2, 0.3, 0.2])
+            return np.array([0.1, 0.3, 0.1])
 
 
 def print_and_run(cmd: str) -> None:

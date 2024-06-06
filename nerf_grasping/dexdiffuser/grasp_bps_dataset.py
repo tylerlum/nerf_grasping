@@ -95,9 +95,18 @@ class GraspBPSEvalDataset(GraspBPSDataset):
         self,
         input_hdf5_filepath: str,
         get_all_labels: bool = False,
+        frac_throw_away: float = 0.0,
     ) -> None:
         super().__init__(input_hdf5_filepath=input_hdf5_filepath)
         self.get_all_labels = get_all_labels
+        self.frac_throw_away = frac_throw_away
+        print(f"Dataset has {self.num_grasps} grasps")
+
+        if frac_throw_away > 0.0:
+            print(f"Throwing away {frac_throw_away * 100}% of grasps")
+            print(f"Before: {self.num_grasps}")
+            self.num_grasps = int(self.num_grasps * (1 - frac_throw_away))
+            print(f"After: {self.num_grasps}")
 
     def __len__(self) -> int:
         return self.num_grasps

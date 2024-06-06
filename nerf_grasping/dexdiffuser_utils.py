@@ -496,6 +496,11 @@ class CommandlineArgs:
     n_random_rotations_per_grasp: int = 0
     eval_batch_size: int = 32
 
+    use_bps_evaluator: bool = False
+    bps_evaluator_ckpt_path: pathlib.Path = pathlib.Path(
+        "/juno/u/tylerlum/github_repos/nerf_grasping/2024-06-03_ALBERT_DexEvaluator_models/ckpt_yp920sn0_final.pth"
+    )
+
     def __post_init__(self) -> None:
         if self.nerfdata_path is not None and self.nerfcheckpoint_path is None:
             assert self.nerfdata_path.exists(), f"{self.nerfdata_path} does not exist"
@@ -630,93 +635,138 @@ def run_dexdiffuser_sim_eval(args: CommandlineArgs) -> None:
     )
 
     if args.optimize:
+        # Save this to file for next stage
         given_grasp_config_dict = grasp_config_dict.copy()
         NEW_init_grasp_config_dict_path = pathlib.Path("/tmp/temp.npy")
         np.save(NEW_init_grasp_config_dict_path, given_grasp_config_dict)
 
-        print("\n" + "=" * 80)
-        print("Step 5: Load grasp metric")
-        print("=" * 80 + "\n")
-        print(f"Loading classifier config from {args.classifier_config_path}")
-        classifier_config = tyro.extras.from_yaml(
-            ClassifierConfig, args.classifier_config_path.open()
-        )
-
-        USE_DEPTH_IMAGES = isinstance(
-            classifier_config.nerfdata_config, DepthImageNerfDataConfig
-        )
-        if USE_DEPTH_IMAGES:
-            classifier_model = load_depth_image_classifier(classifier=classifier_config)
-            grasp_metric = DepthImageGraspMetric(
-                nerf_model=nerf_model,
-                classifier_model=classifier_model,
-                fingertip_config=classifier_config.nerfdata_config.fingertip_config,
-                camera_config=classifier_config.nerfdata_config.fingertip_camera_config,
-                X_N_Oy=X_N_Oy,
-            )
-        else:
-            classifier_model = load_classifier(classifier_config=classifier_config)
-            grasp_metric = GraspMetric(
-                nerf_field=nerf_pipeline.model.field,
-                classifier_model=classifier_model,
-                fingertip_config=classifier_config.nerfdata_config.fingertip_config,
-                X_N_Oy=X_N_Oy,
+        USE_NERF_EVALUATOR = not args.use_bps_evaluator
+        if USE_NERF_EVALUATOR:
+            print("\n" + "=" * 80)
+            print("Step 5: Load grasp metric")
+            print("=" * 80 + "\n")
+            print(f"Loading classifier config from {args.classifier_config_path}")
+            classifier_config = tyro.extras.from_yaml(
+                ClassifierConfig, args.classifier_config_path.open()
             )
 
-        print("\n" + "=" * 80)
-        print("Step 6: Optimize grasps")
-        print("=" * 80 + "\n")
-        if args.optimizer_type == "sgd":
-            optimizer = SGDOptimizerConfig(
-                num_grasps=args.num_grasps,
-                num_steps=args.num_steps,
-                # finger_lr=1e-3,
-                finger_lr=0,
-                # grasp_dir_lr=1e-4,
-                grasp_dir_lr=0,
-                wrist_lr=1e-3,
+            USE_DEPTH_IMAGES = isinstance(
+                classifier_config.nerfdata_config, DepthImageNerfDataConfig
             )
-        elif args.optimizer_type == "cem":
-            optimizer = CEMOptimizerConfig(
-                num_grasps=args.num_grasps,
-                num_steps=args.num_steps,
-                num_samples=args.num_grasps,
-                num_elite=2,
-                min_cov_std=1e-2,
-            )
-        elif args.optimizer_type == "random-sampling":
-            optimizer = RandomSamplingConfig(
-                num_grasps=args.num_grasps,
-                num_steps=args.num_steps,
-            )
-        else:
-            raise ValueError(f"Invalid args.optimizer_type: {args.optimizer_type}")
-
-        optimized_grasp_config_dict = gg_optimizer.get_optimized_grasps(
-            cfg=OptimizationConfig(
-                use_rich=False,  # Not used because causes issues with logging
-                # init_grasp_config_dict_path=cfg.init_grasp_config_dict_path,
-                init_grasp_config_dict_path=NEW_init_grasp_config_dict_path,
-                grasp_metric=GraspMetricConfig(
-                    nerf_checkpoint_path=nerf_config,
-                    classifier_config_path=args.classifier_config_path,
+            if USE_DEPTH_IMAGES:
+                classifier_model = load_depth_image_classifier(
+                    classifier=classifier_config
+                )
+                grasp_metric = DepthImageGraspMetric(
+                    nerf_model=nerf_model,
+                    classifier_model=classifier_model,
+                    fingertip_config=classifier_config.nerfdata_config.fingertip_config,
+                    camera_config=classifier_config.nerfdata_config.fingertip_camera_config,
                     X_N_Oy=X_N_Oy,
-                ),  # This is not used because we are passing in a grasp_metric
-                optimizer=optimizer,
-                output_path=pathlib.Path(
-                    args.output_folder
-                    / "optimized_grasp_config_dicts"
-                    / f"{object_name}.npy"
-                ),
-                random_seed=0,
-                n_random_rotations_per_grasp=args.n_random_rotations_per_grasp,
-                eval_batch_size=args.eval_batch_size,
-                wandb=None,
-            ),
-            grasp_metric=grasp_metric,
-        )
+                )
+            else:
+                classifier_model = load_classifier(classifier_config=classifier_config)
+                grasp_metric = GraspMetric(
+                    nerf_field=nerf_pipeline.model.field,
+                    classifier_model=classifier_model,
+                    fingertip_config=classifier_config.nerfdata_config.fingertip_config,
+                    X_N_Oy=X_N_Oy,
+                )
 
-        grasp_config_dict = optimized_grasp_config_dict
+            print("\n" + "=" * 80)
+            print("Step 6: Optimize grasps")
+            print("=" * 80 + "\n")
+            if args.optimizer_type == "sgd":
+                optimizer = SGDOptimizerConfig(
+                    num_grasps=args.num_grasps,
+                    num_steps=args.num_steps,
+                    # finger_lr=1e-3,
+                    finger_lr=0,
+                    # grasp_dir_lr=1e-4,
+                    grasp_dir_lr=0,
+                    wrist_lr=1e-3,
+                )
+            elif args.optimizer_type == "cem":
+                optimizer = CEMOptimizerConfig(
+                    num_grasps=args.num_grasps,
+                    num_steps=args.num_steps,
+                    num_samples=args.num_grasps,
+                    num_elite=2,
+                    min_cov_std=1e-2,
+                )
+            elif args.optimizer_type == "random-sampling":
+                optimizer = RandomSamplingConfig(
+                    num_grasps=args.num_grasps,
+                    num_steps=args.num_steps,
+                )
+            else:
+                raise ValueError(f"Invalid args.optimizer_type: {args.optimizer_type}")
+
+            optimized_grasp_config_dict = gg_optimizer.get_optimized_grasps(
+                cfg=OptimizationConfig(
+                    use_rich=False,  # Not used because causes issues with logging
+                    # init_grasp_config_dict_path=cfg.init_grasp_config_dict_path,
+                    init_grasp_config_dict_path=NEW_init_grasp_config_dict_path,
+                    grasp_metric=GraspMetricConfig(
+                        nerf_checkpoint_path=nerf_config,
+                        classifier_config_path=args.classifier_config_path,
+                        X_N_Oy=X_N_Oy,
+                    ),  # This is not used because we are passing in a grasp_metric
+                    optimizer=optimizer,
+                    output_path=pathlib.Path(
+                        args.output_folder
+                        / "optimized_grasp_config_dicts"
+                        / f"{object_name}.npy"
+                    ),
+                    random_seed=0,
+                    n_random_rotations_per_grasp=args.n_random_rotations_per_grasp,
+                    eval_batch_size=args.eval_batch_size,
+                    wandb=None,
+                    filter_less_feasible_grasps=False,  # Do not filter for sim
+                ),
+                grasp_metric=grasp_metric,
+            )
+
+            grasp_config_dict = optimized_grasp_config_dict
+        else:
+            print("\n" + "=" * 80)
+            print("Step 5: Run ablation")
+            print("=" * 80 + "\n")
+            EVALUATOR_CKPT_PATH = args.bps_evaluator_ckpt_path
+
+            # B frame is at base of object z up frame
+            # By frame is at base of object y up frame
+            from nerf_grasping import ablation_utils
+
+            optimized_grasp_config_dict = ablation_utils.get_optimized_grasps(
+                cfg=OptimizationConfig(
+                    use_rich=False,  # Not used because causes issues with logging
+                    init_grasp_config_dict_path=NEW_init_grasp_config_dict_path,
+                    grasp_metric=GraspMetricConfig(
+                        nerf_checkpoint_path=nerf_config,
+                        classifier_config_path=args.classifier_config_path,
+                        X_N_Oy=X_N_Oy,
+                    ),  # This is not used
+                    optimizer=RandomSamplingConfig(
+                        num_grasps=args.num_grasps,
+                        num_steps=args.num_steps,
+                    ),  # This optimizer is not used, but the num_grasps is used and the num_steps is used
+                    output_path=UNUSED_OUTPUT_PATH,
+                    random_seed=0,
+                    n_random_rotations_per_grasp=0,
+                    eval_batch_size=args.eval_batch_size,
+                    wandb=None,
+                    filter_less_feasible_grasps=False,  # Do not filter for sim
+                ),
+                nerf_pipeline=nerf_pipeline,
+                lb_N=np.array([-0.2, 0.0, -0.2]),
+                ub_N=np.array([0.2, 0.3, 0.2]),
+                X_N_By=X_N_By,
+                ckpt_path=EVALUATOR_CKPT_PATH,
+                optimize=True,  # Run refinement
+            )
+
+            grasp_config_dict = optimized_grasp_config_dict
 
     print(f"Saving grasp_config_dict to {output_file}")
     np.save(output_file, grasp_config_dict)

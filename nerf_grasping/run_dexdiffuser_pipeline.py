@@ -402,7 +402,6 @@ def compute_dexdiffuser_grasps(
             X_N_B = trimesh.transformations.translation_matrix(translation)
             X_B_By = X_O_Oy.copy()
             X_N_By = X_N_B @ X_B_By
-            nerf_pipeline
 
             from nerf_grasping import ablation_utils
 

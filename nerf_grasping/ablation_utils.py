@@ -933,6 +933,27 @@ def run_ablation_sim_eval(args: CommandlineArgs) -> None:
     print(f"args: {args}")
     print("=" * 80 + "\n")
 
+    # Get object name
+    if args.nerfdata_path is not None:
+        object_name = args.nerfdata_path.name
+    elif args.nerfcheckpoint_path is not None:
+        object_name = args.nerfcheckpoint_path.parents[2].name
+    else:
+        raise ValueError(
+            "Exactly one of nerfdata_path or nerfcheckpoint_path must be specified"
+        )
+    print(f"object_name = {object_name}")
+
+    # Prepare output folder
+    args.output_folder.mkdir(exist_ok=True, parents=True)
+    output_file = args.output_folder / f"{object_name}.npy"
+    if output_file.exists():
+        if not args.overwrite:
+            print(f"{output_file} already exists, skipping")
+            return
+
+        print(f"{output_file} already exists, overwriting")
+
     # Prepare nerf model
     if args.nerfdata_path is not None:
         start_time = time.time()
@@ -951,8 +972,6 @@ def run_ablation_sim_eval(args: CommandlineArgs) -> None:
         print("@" * 80)
         print(f"Time to train_nerf: {end_time - start_time:.2f}s")
         print("@" * 80 + "\n")
-
-        object_name = args.nerfdata_path.name
     elif args.nerfcheckpoint_path is not None:
         start_time = time.time()
         nerf_pipeline = load_nerf_pipeline(
@@ -964,24 +983,11 @@ def run_ablation_sim_eval(args: CommandlineArgs) -> None:
         print("@" * 80)
         print(f"Time to load_nerf_pipeline: {end_time - start_time:.2f}s")
         print("@" * 80 + "\n")
-
-        object_name = args.nerfcheckpoint_path.parents[2].name
     else:
         raise ValueError(
             "Exactly one of nerfdata_path or nerfcheckpoint_path must be specified"
         )
-    print(f"object_name = {object_name}")
     args.nerf_config = nerf_config
-
-    # Prepare output folder
-    args.output_folder.mkdir(exist_ok=True, parents=True)
-    output_file = args.output_folder / f"{object_name}.npy"
-    if output_file.exists():
-        if not args.overwrite:
-            print(f"{output_file} already exists, skipping")
-            return
-
-        print(f"{output_file} already exists, overwriting")
 
     # Compute centroid
     nerf_centroid_N = compute_centroid_from_nerf(

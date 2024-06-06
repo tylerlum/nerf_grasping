@@ -901,6 +901,9 @@ class CommandlineArgs:
     classifier_config_path: pathlib.Path = pathlib.Path(
         "/juno/u/tylerlum/github_repos/nerf_grasping/Train_DexGraspNet_NeRF_Grasp_Metric_workspaces/2024-06-02_FINAL_LABELED_GRASPS_NOISE_AND_NONOISE_cnn-3d-xyz-global-cnn-cropped_CONTINUE/config.yaml"
     )
+    init_grasp_config_dict_path: pathlib.Path = pathlib.Path(
+        "/juno/u/tylerlum/github_repos/DexGraspNet/data/2024-06-03_FINAL_INFERENCE_GRASPS/good_nonoise_one_per_object/grasps.npy"
+    )
     optimizer_type: Literal["sgd", "cem", "random-sampling"] = "random-sampling"
     num_steps: int = 50
     n_random_rotations_per_grasp: int = 0

@@ -711,7 +711,6 @@ def run_dexdiffuser_sim_eval(args: CommandlineArgs) -> None:
             optimized_grasp_config_dict = gg_optimizer.get_optimized_grasps(
                 cfg=OptimizationConfig(
                     use_rich=False,  # Not used because causes issues with logging
-                    # init_grasp_config_dict_path=cfg.init_grasp_config_dict_path,
                     init_grasp_config_dict_path=NEW_init_grasp_config_dict_path,
                     grasp_metric=GraspMetricConfig(
                         nerf_checkpoint_path=nerf_config,

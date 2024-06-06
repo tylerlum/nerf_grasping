@@ -534,7 +534,7 @@ def main() -> None:
         cfg=args,
         q_fr3=DEFAULT_Q_FR3,
         q_algr=DEFAULT_Q_ALGR,
-        ckpt_path="/home/albert/research/nerf_grasping/nerf_grasping/dexdiffuser/logs/dexdiffuser_evaluator/20240602_165946/ckpt-p9u7vl8l-step-0.pth",
+        ckpt_path="/juno/u/tylerlum/github_repos/nerf_grasping/2024-06-03_ALBERT_DexEvaluator_models/ckpt_yp920sn0_final.pth",
         optimize=True,
         robot_cfg=robot_cfg,
         ik_solver=ik_solver,

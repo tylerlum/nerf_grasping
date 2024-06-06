@@ -1012,13 +1012,6 @@ def run_ablation_sim_eval(args: CommandlineArgs) -> None:
     X_N_Oy = X_N_By @ X_By_Oy
 
     # Get optimized grasps
-    UNUSED_INIT_GRASP_CONFIG_DICT_PATH = pathlib.Path(
-        "/juno/u/tylerlum/github_repos/DexGraspNet/data/2024-06-03_FINAL_INFERENCE_GRASPS/good_nonoise_one_per_object/grasps.npy"
-    )
-    UNUSED_CLASSIFIER_CONFIG_PATH = pathlib.Path(
-        "/juno/u/tylerlum/github_repos/nerf_grasping/Train_DexGraspNet_NeRF_Grasp_Metric_workspaces/2024-06-02_nonoise_train_val_test_splits_cnn-3d-xyz-global-cnn-cropped_2024-06-02_16-57-36-630877/config.yaml"
-    )
-    UNUSED_X_N_Oy = np.eye(4)
     UNUSED_OUTPUT_PATH = pathlib.Path("UNUSED")
 
     print("\n" + "=" * 80)

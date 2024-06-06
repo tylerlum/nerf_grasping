@@ -69,6 +69,7 @@ def setup(cfg: DexEvaluatorTrainingConfig, rank: int = 0):
         train_dataset, val_dataset, _ = get_bps_datasets_small_train_set(
             use_evaluator_dataset=True,
             get_all_labels=cfg.train_ablation,  # if we're training the ablation, get all the labels
+            frac_throw_away=0.99,
         )
     else:
         print("Using full train set!")

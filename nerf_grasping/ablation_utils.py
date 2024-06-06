@@ -647,9 +647,7 @@ def get_optimized_grasps(
     if pathlib.Path(ckpt_path).exists():
         dex_evaluator.load_state_dict(torch.load(ckpt_path, map_location=device))
     else:
-        print("=" * 80)
-        print(f"WARNING: {ckpt_path} does not exist. Using random weights.")
-        print("=" * 80)
+        raise FileNotFoundError(f"{ckpt_path} does not exist")
 
     # Get BPS
     bps_values, _, _ = nerf_to_bps(
@@ -663,9 +661,10 @@ def get_optimized_grasps(
     ), f"Expected shape ({N_BASIS_PTS},), got {bps_values.shape}"
 
     bps_values_repeated = torch.from_numpy(bps_values).float().to(device)
-    bps_values_repeated = bps_values_repeated.unsqueeze(dim=0).repeat(BATCH_SIZE, 1)
+    num_repeats = max(BATCH_SIZE, cfg.optimizer.num_grasps)
+    bps_values_repeated = bps_values_repeated.unsqueeze(dim=0).repeat(num_repeats, 1)
     assert bps_values_repeated.shape == (
-        BATCH_SIZE,
+        num_repeats,
         N_BASIS_PTS,
     ), f"bps_values_repeated.shape = {bps_values_repeated.shape}"
 
@@ -828,18 +827,22 @@ def get_optimized_grasps(
         assert g_O.shape == (cfg.optimizer.num_grasps, 3 + 6 + 16 + 12)
 
         random_sampling_optimizer = RandomSamplingOptimizer(
-            dex_evaluator=dex_evaluator, bps=bps_values_repeated, init_grasps=g_O
+            dex_evaluator=dex_evaluator, bps=bps_values_repeated[:cfg.optimizer.num_grasps], init_grasps=g_O
         )
-        N_STEPS = 10
-        for i in range(N_STEPS):
-            losses = random_sampling_optimizer.step()
+        N_STEPS = cfg.optimizer.num_steps
 
-        losses_np = losses.detach().cpu().numpy()
+        if N_STEPS > 0:
+            for i in range(N_STEPS):
+                losses = random_sampling_optimizer.step()
+            losses_np = losses.detach().cpu().numpy()
+        else:
+            losses_np = initial_losses_np
+
         diff_losses = losses_np - initial_losses_np
 
         import sys
         print(f"Init Losses:  {[f'{x:.4f}' for x in initial_losses_np.tolist()]}", file=sys.stderr)
-        print(f"Final Losses: {[f'{x:.4f}' for x in losses.tolist()]}", file=sys.stderr)
+        print(f"Final Losses: {[f'{x:.4f}' for x in losses_np.tolist()]}", file=sys.stderr)
         print(f"Diff Losses:  {[f'{x:.4f}' for x in diff_losses.tolist()]}", file=sys.stderr)
         grasp_config = grasp_to_grasp_config(grasp=random_sampling_optimizer.grasps)
         grasp_config_dict = grasp_config.as_dict()

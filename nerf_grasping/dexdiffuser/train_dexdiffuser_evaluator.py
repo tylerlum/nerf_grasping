@@ -15,7 +15,7 @@ from tqdm import tqdm, trange
 from wandb.util import generate_id
 
 from nerf_grasping.dexdiffuser.dex_evaluator import DexEvaluator
-from nerf_grasping.dexdiffuser.diffusion import get_bps_datasets
+from nerf_grasping.dexdiffuser.diffusion import get_bps_datasets, get_bps_datasets_small_train_set
 
 
 @dataclass
@@ -63,10 +63,19 @@ def setup(cfg: DexEvaluatorTrainingConfig, rank: int = 0):
         dist.init_process_group("nccl", rank=rank, world_size=cfg.num_gpus)
 
     # get datasets
-    train_dataset, val_dataset, _ = get_bps_datasets(
-        use_evaluator_dataset=True,
-        get_all_labels=cfg.train_ablation,  # if we're training the ablation, get all the labels
-    )
+    USE_SMALL_TRAIN_SET = True
+    if USE_SMALL_TRAIN_SET:
+        print("Using small train set!")
+        train_dataset, val_dataset, _ = get_bps_datasets_small_train_set(
+            use_evaluator_dataset=True,
+            get_all_labels=cfg.train_ablation,  # if we're training the ablation, get all the labels
+        )
+    else:
+        print("Using full train set!")
+        train_dataset, val_dataset, _ = get_bps_datasets(
+            use_evaluator_dataset=True,
+            get_all_labels=cfg.train_ablation,  # if we're training the ablation, get all the labels
+        )
 
     # make dataloaders
     if cfg.multigpu:

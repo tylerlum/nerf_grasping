@@ -1,6 +1,7 @@
 """The goal of this file to implement the diffusion process for the DexDiffuser.
    Implementation based on: https://github.com/ermongroup/ddim/blob/main/runners/diffusion.py
 """
+
 import time
 import os
 from tqdm import tqdm, trange
@@ -277,6 +278,45 @@ def get_bps_datasets(
     train_dataset = DatasetClass(
         input_hdf5_filepath=train_path,
         get_all_labels=get_all_labels,
+    )
+    val_dataset = DatasetClass(
+        input_hdf5_filepath=val_path,
+        get_all_labels=get_all_labels,
+    )
+    test_dataset = DatasetClass(
+        input_hdf5_filepath=test_path,
+        get_all_labels=get_all_labels,
+    )
+    return train_dataset, val_dataset, test_dataset
+
+
+def get_bps_datasets_small_train_set(
+    hdf5_path: tuple[str] | None = (
+        "/home/albert/research/nerf_grasping/bps_data/grasp_bps_dataset_final_train.hdf5",
+        "/home/albert/research/nerf_grasping/bps_data/grasp_bps_dataset_final_val.hdf5",
+        "/home/albert/research/nerf_grasping/bps_data/grasp_bps_dataset_final_test.hdf5",
+    ),
+    use_evaluator_dataset: bool = False,
+    get_all_labels: bool = False,
+    frac_throw_away: float = 0.95,
+) -> tuple[
+    GraspBPSSampleDataset | GraspBPSEvalDataset,
+    GraspBPSSampleDataset | GraspBPSEvalDataset,
+    GraspBPSSampleDataset | GraspBPSEvalDataset,
+]:
+    train_path = hdf5_path[0]
+    val_path = hdf5_path[1]
+    test_path = hdf5_path[2]
+
+    if use_evaluator_dataset:
+        DatasetClass = GraspBPSEvalDataset
+    else:
+        DatasetClass = GraspBPSSampleDataset
+
+    train_dataset = DatasetClass(
+        input_hdf5_filepath=train_path,
+        get_all_labels=get_all_labels,
+        frac_throw_away=frac_throw_away,
     )
     val_dataset = DatasetClass(
         input_hdf5_filepath=val_path,

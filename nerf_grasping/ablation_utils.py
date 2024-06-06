@@ -1,7 +1,14 @@
 from __future__ import annotations
+import time
 from tqdm import tqdm
 import trimesh
+from nerf_grasping.nerf_utils import (
+    compute_centroid_from_nerf,
+)
+from dataclasses import dataclass
 from nerf_grasping.dexdiffuser.dex_evaluator import DexEvaluator
+from nerf_grasping.nerfstudio_train import train_nerfs_return_trainer
+from nerf_grasping.grasp_utils import load_nerf_pipeline
 import nerf_grasping
 import math
 import pypose as pp
@@ -30,7 +37,7 @@ from nerf_grasping.config.optimizer_config import (
     CEMOptimizerConfig,
     RandomSamplingConfig,
 )
-from typing import Tuple, Union, Dict
+from typing import Tuple, Union, Dict, Literal
 import nerf_grasping
 from functools import partial
 import numpy as np
@@ -206,8 +213,6 @@ from nerf_grasping.dexgraspnet_utils.joint_angle_targets import (
 )
 
 import open3d as o3d
-
-
 
 
 def nerf_to_bps(
@@ -434,6 +439,7 @@ def visualize_point_cloud_and_bps_and_grasp(
     # fig.write_html("/home/albert/research/nerf_grasping/dex_diffuser_debug.html")  # if headless
     fig.show()
 
+
 def normalize_with_warning(v: np.ndarray, atol: float = 1e-6) -> np.ndarray:
     B = v.shape[0]
     assert v.shape == (B, 3), f"Expected shape ({B}, 3), got {v.shape}"
@@ -566,7 +572,6 @@ def compute_grasp_orientations(
     return grasp_orientations
 
 
-
 def grasp_to_grasp_config(grasp: torch.Tensor) -> AllegroGraspConfig:
     device = grasp.device
 
@@ -586,9 +591,7 @@ def grasp_to_grasp_config(grasp: torch.Tensor) -> AllegroGraspConfig:
 
     rot = rot6d_to_matrix(rot6d)
 
-    wrist_pose_matrix = (
-        torch.eye(4, device=device).unsqueeze(0).repeat(B, 1, 1).float()
-    )
+    wrist_pose_matrix = torch.eye(4, device=device).unsqueeze(0).repeat(B, 1, 1).float()
     wrist_pose_matrix[:, :3, :3] = torch.from_numpy(rot).float().to(device)
     wrist_pose_matrix[:, :3, 3] = torch.from_numpy(trans).float().to(device)
 
@@ -677,11 +680,18 @@ def get_optimized_grasps(
     num_grasps_in_dict = init_grasp_config_dict["trans"].shape[0]
     print(f"Found {num_grasps_in_dict} grasps in grasp config dict dataset")
 
-    if cfg.max_num_grasps_to_eval is not None and num_grasps_in_dict > cfg.max_num_grasps_to_eval:
+    if (
+        cfg.max_num_grasps_to_eval is not None
+        and num_grasps_in_dict > cfg.max_num_grasps_to_eval
+    ):
         print(f"Limiting to {cfg.max_num_grasps_to_eval} grasps from dataset.")
         # randomize the order, keep at most max_num_grasps_to_eval
         init_grasp_config_dict = {
-            k: v[np.random.choice(a=v.shape[0], size=cfg.max_num_grasps_to_eval, replace=False)]
+            k: v[
+                np.random.choice(
+                    a=v.shape[0], size=cfg.max_num_grasps_to_eval, replace=False
+                )
+            ]
             for k, v in init_grasp_config_dict.items()
         }
 
@@ -732,7 +742,9 @@ def get_optimized_grasps(
             x_dirs = wrist_pose_matrix[:, :, 0]
             z_dirs = wrist_pose_matrix[:, :, 2]
 
-            fingers_forward_cos_theta = math.cos(math.radians(cfg.fingers_forward_theta_deg))
+            fingers_forward_cos_theta = math.cos(
+                math.radians(cfg.fingers_forward_theta_deg)
+            )
             palm_upwards_cos_theta = math.cos(math.radians(cfg.palm_upwards_theta_deg))
             fingers_forward = z_dirs[:, 0] >= fingers_forward_cos_theta
             palm_upwards = x_dirs[:, 1] >= palm_upwards_cos_theta
@@ -806,6 +818,7 @@ def get_optimized_grasps(
         initial_losses_np = 1 - sorted_success_preds
 
         from nerf_grasping.ablation_optimizer import RandomSamplingOptimizer
+
         wrist_trans_array = init_grasp_configs.wrist_pose.translation().float()
         wrist_rot_array = init_grasp_configs.wrist_pose.rotation().matrix().float()
         joint_angles_array = init_grasp_configs.joint_angles.float()
@@ -827,7 +840,9 @@ def get_optimized_grasps(
         assert g_O.shape == (cfg.optimizer.num_grasps, 3 + 6 + 16 + 12)
 
         random_sampling_optimizer = RandomSamplingOptimizer(
-            dex_evaluator=dex_evaluator, bps=bps_values_repeated[:cfg.optimizer.num_grasps], init_grasps=g_O
+            dex_evaluator=dex_evaluator,
+            bps=bps_values_repeated[: cfg.optimizer.num_grasps],
+            init_grasps=g_O,
         )
         N_STEPS = cfg.optimizer.num_steps
 
@@ -841,9 +856,18 @@ def get_optimized_grasps(
         diff_losses = losses_np - initial_losses_np
 
         import sys
-        print(f"Init Losses:  {[f'{x:.4f}' for x in initial_losses_np.tolist()]}", file=sys.stderr)
-        print(f"Final Losses: {[f'{x:.4f}' for x in losses_np.tolist()]}", file=sys.stderr)
-        print(f"Diff Losses:  {[f'{x:.4f}' for x in diff_losses.tolist()]}", file=sys.stderr)
+
+        print(
+            f"Init Losses:  {[f'{x:.4f}' for x in initial_losses_np.tolist()]}",
+            file=sys.stderr,
+        )
+        print(
+            f"Final Losses: {[f'{x:.4f}' for x in losses_np.tolist()]}", file=sys.stderr
+        )
+        print(
+            f"Diff Losses:  {[f'{x:.4f}' for x in diff_losses.tolist()]}",
+            file=sys.stderr,
+        )
         grasp_config = grasp_to_grasp_config(grasp=random_sampling_optimizer.grasps)
         grasp_config_dict = grasp_config.as_dict()
         grasp_config_dict["loss"] = losses_np
@@ -859,3 +883,182 @@ def get_optimized_grasps(
     if wandb.run is not None:
         wandb.finish()
     return grasp_config_dict
+
+
+@dataclass
+class CommandlineArgs:
+    output_folder: pathlib.Path
+    bps_evaluator_ckpt_path: pathlib.Path = pathlib.Path(
+        "/juno/u/tylerlum/github_repos/nerf_grasping/2024-06-03_ALBERT_DexEvaluator_models/ckpt_yp920sn0_final.pth"
+    )
+    nerfdata_path: Optional[pathlib.Path] = None
+    nerfcheckpoint_path: Optional[pathlib.Path] = None
+    num_grasps: int = 32
+    max_num_iterations: int = 400
+    overwrite: bool = False
+
+    optimize: bool = False
+    classifier_config_path: pathlib.Path = pathlib.Path(
+        "/juno/u/tylerlum/github_repos/nerf_grasping/Train_DexGraspNet_NeRF_Grasp_Metric_workspaces/2024-06-02_FINAL_LABELED_GRASPS_NOISE_AND_NONOISE_cnn-3d-xyz-global-cnn-cropped_CONTINUE/config.yaml"
+    )
+    optimizer_type: Literal["sgd", "cem", "random-sampling"] = "random-sampling"
+    num_steps: int = 50
+    n_random_rotations_per_grasp: int = 0
+    eval_batch_size: int = 32
+
+    def __post_init__(self) -> None:
+        if self.nerfdata_path is not None and self.nerfcheckpoint_path is None:
+            assert self.nerfdata_path.exists(), f"{self.nerfdata_path} does not exist"
+            assert (
+                self.nerfdata_path / "transforms.json"
+            ).exists(), f"{self.nerfdata_path / 'transforms.json'} does not exist"
+            assert (
+                self.nerfdata_path / "images"
+            ).exists(), f"{self.nerfdata_path / 'images'} does not exist"
+        elif self.nerfdata_path is None and self.nerfcheckpoint_path is not None:
+            assert (
+                self.nerfcheckpoint_path.exists()
+            ), f"{self.nerfcheckpoint_path} does not exist"
+            assert (
+                self.nerfcheckpoint_path.suffix == ".yml"
+            ), f"{self.nerfcheckpoint_path} does not have a .yml suffix"
+        else:
+            raise ValueError(
+                "Exactly one of nerfdata_path or nerfcheckpoint_path must be specified"
+            )
+
+
+def run_ablation_sim_eval(args: CommandlineArgs) -> None:
+    print("=" * 80)
+    print(f"args: {args}")
+    print("=" * 80 + "\n")
+
+    # Prepare nerf model
+    if args.nerfdata_path is not None:
+        start_time = time.time()
+        nerf_checkpoints_folder = args.output_folder / "nerfcheckpoints"
+        nerf_trainer = train_nerfs_return_trainer.train_nerf(
+            args=train_nerfs_return_trainer.Args(
+                nerfdata_folder=args.nerfdata_path,
+                nerfcheckpoints_folder=nerf_checkpoints_folder,
+                max_num_iterations=args.max_num_iterations,
+            )
+        )
+        nerf_pipeline = nerf_trainer.pipeline
+        nerf_model = nerf_trainer.pipeline.model
+        nerf_config = nerf_trainer.config.get_base_dir() / "config.yml"
+        end_time = time.time()
+        print("@" * 80)
+        print(f"Time to train_nerf: {end_time - start_time:.2f}s")
+        print("@" * 80 + "\n")
+
+        object_name = args.nerfdata_path.name
+    elif args.nerfcheckpoint_path is not None:
+        start_time = time.time()
+        nerf_pipeline = load_nerf_pipeline(
+            args.nerfcheckpoint_path, test_mode="test"
+        )  # Need this for point cloud
+        nerf_model = nerf_pipeline.model
+        nerf_config = args.nerfcheckpoint_path
+        end_time = time.time()
+        print("@" * 80)
+        print(f"Time to load_nerf_pipeline: {end_time - start_time:.2f}s")
+        print("@" * 80 + "\n")
+
+        object_name = args.nerfcheckpoint_path.parents[2].name
+    else:
+        raise ValueError(
+            "Exactly one of nerfdata_path or nerfcheckpoint_path must be specified"
+        )
+    print(f"object_name = {object_name}")
+    args.nerf_config = nerf_config
+
+    # Prepare output folder
+    args.output_folder.mkdir(exist_ok=True, parents=True)
+    output_file = args.output_folder / f"{object_name}.npy"
+    if output_file.exists():
+        if not args.overwrite:
+            print(f"{output_file} already exists, skipping")
+            return
+
+        print(f"{output_file} already exists, overwriting")
+
+    # Compute centroid
+    nerf_centroid_N = compute_centroid_from_nerf(
+        nerf_model.field,
+        lb=np.array([-0.2, 0.0, -0.2]),
+        ub=np.array([0.2, 0.3, 0.2]),
+        level=15,
+        num_pts_x=100,
+        num_pts_y=100,
+        num_pts_z=100,
+    )
+    assert nerf_centroid_N.shape == (
+        3,
+    ), f"Expected shape (3,), got {nerf_centroid_N.shape}"
+    obj_y = nerf_centroid_N[1]
+    X_By_Oy = trimesh.transformations.translation_matrix([0, obj_y, 0])
+    X_Oy_By = np.linalg.inv(X_By_Oy)
+    X_N_By = np.eye(4)  # Same for sim nerfs
+    X_N_Oy = X_N_By @ X_By_Oy
+
+    # Get optimized grasps
+    UNUSED_INIT_GRASP_CONFIG_DICT_PATH = pathlib.Path(
+        "/juno/u/tylerlum/github_repos/DexGraspNet/data/2024-06-03_FINAL_INFERENCE_GRASPS/good_nonoise_one_per_object/grasps.npy"
+    )
+    UNUSED_CLASSIFIER_CONFIG_PATH = pathlib.Path(
+        "/juno/u/tylerlum/github_repos/nerf_grasping/Train_DexGraspNet_NeRF_Grasp_Metric_workspaces/2024-06-02_nonoise_train_val_test_splits_cnn-3d-xyz-global-cnn-cropped_2024-06-02_16-57-36-630877/config.yaml"
+    )
+    UNUSED_X_N_Oy = np.eye(4)
+    UNUSED_OUTPUT_PATH = pathlib.Path("UNUSED")
+
+    print("\n" + "=" * 80)
+    print("Step 5: Run ablation")
+    print("=" * 80 + "\n")
+    EVALUATOR_CKPT_PATH = args.bps_evaluator_ckpt_path
+
+    # B frame is at base of object z up frame
+    # By frame is at base of object y up frame
+    from nerf_grasping import ablation_utils
+
+    optimized_grasp_config_dict = ablation_utils.get_optimized_grasps(
+        cfg=OptimizationConfig(
+            use_rich=False,  # Not used because causes issues with logging
+            init_grasp_config_dict_path=args.init_grasp_config_dict_path,
+            grasp_metric=GraspMetricConfig(
+                nerf_checkpoint_path=nerf_config,
+                classifier_config_path=args.classifier_config_path,
+                X_N_Oy=X_N_Oy,
+            ),  # This is not used
+            optimizer=RandomSamplingConfig(
+                num_grasps=args.num_grasps,
+                num_steps=args.num_steps,
+            ),  # This optimizer is not used, but the num_grasps is used and the num_steps is used
+            output_path=UNUSED_OUTPUT_PATH,
+            random_seed=0,
+            n_random_rotations_per_grasp=0,
+            eval_batch_size=args.eval_batch_size,
+            wandb=None,
+            filter_less_feasible_grasps=False,  # Do not filter for sim
+        ),
+        nerf_pipeline=nerf_pipeline,
+        lb_N=np.array([-0.2, 0.0, -0.2]),
+        ub_N=np.array([0.2, 0.3, 0.2]),
+        X_N_By=X_N_By,
+        ckpt_path=EVALUATOR_CKPT_PATH,
+        optimize=args.optimize,
+    )
+
+    grasp_config_dict = optimized_grasp_config_dict
+
+    print(f"Saving grasp_config_dict to {output_file}")
+    np.save(output_file, grasp_config_dict)
+
+
+def main() -> None:
+    args = tyro.cli(CommandlineArgs)
+    run_ablation_sim_eval(args)
+
+
+if __name__ == "__main__":
+    main()

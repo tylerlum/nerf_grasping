@@ -31,12 +31,10 @@ NUM_XYZ = 3
 
 
 @functools.lru_cache()
-def get_ray_origins_finger_frame_cached(cfg: BaseFingertipConfig) -> torch.Tensor:
-    from nerf_grasping.grasp_utils import (
-        get_ray_origins_finger_frame,
-    )
-
-    ray_origins_finger_frame = get_ray_origins_finger_frame(cfg)
+def get_ray_origins_finger_frame_cached(
+    cfg: BaseFingertipConfig, device: torch.device | str = "cuda"
+) -> torch.Tensor:
+    ray_origins_finger_frame = get_ray_origins_finger_frame(cfg, device=device)
     return ray_origins_finger_frame
 
 
